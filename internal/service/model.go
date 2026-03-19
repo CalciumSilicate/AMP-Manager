@@ -40,10 +40,8 @@ func (s *ModelService) FetchAndSaveModels(channelID string) (int, error) {
 		return 0, err
 	}
 
-	filteredModels := s.filterModelsByType(channel.Type, models)
-
-	channelModels := make([]model.ChannelModel2, len(filteredModels))
-	for i, m := range filteredModels {
+	channelModels := make([]model.ChannelModel2, len(models))
+	for i, m := range models {
 		channelModels[i] = model.ChannelModel2{
 			ChannelID:   channelID,
 			ModelID:     m.ID,
@@ -186,39 +184,6 @@ func (s *ModelService) parseModelsResponse(channelType model.ChannelType, body [
 		return nil, fmt.Errorf("不支持的渠道类型")
 	}
 }
-
-func (s *ModelService) filterModelsByType(channelType model.ChannelType, models []fetchedModel) []fetchedModel {
-	var filtered []fetchedModel
-
-	for _, m := range models {
-		idLower := strings.ToLower(m.ID)
-
-		switch channelType {
-		case model.ChannelTypeOpenAI:
-			if strings.HasPrefix(idLower, "gpt") ||
-				strings.HasPrefix(idLower, "o1") ||
-				strings.HasPrefix(idLower, "o3") ||
-				strings.HasPrefix(idLower, "o4") ||
-				strings.HasPrefix(idLower, "chatgpt") {
-				filtered = append(filtered, m)
-			}
-
-		case model.ChannelTypeClaude:
-			if strings.HasPrefix(idLower, "claude") {
-				filtered = append(filtered, m)
-			}
-
-		case model.ChannelTypeGemini:
-			if strings.HasPrefix(idLower, "gemini") {
-				filtered = append(filtered, m)
-			}
-		}
-	}
-
-	log.Infof("模型过滤: 类型=%s, 总数=%d, 过滤后=%d", channelType, len(models), len(filtered))
-	return filtered
-}
-
 func (s *ModelService) GetModelsByChannelID(channelID string) ([]*model.ChannelModel2, error) {
 	return s.channelModelRepo.GetByChannelID(channelID)
 }

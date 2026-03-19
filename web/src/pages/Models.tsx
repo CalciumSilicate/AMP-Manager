@@ -187,10 +187,8 @@ export default function Models({ isAdmin }: Props) {
             <CardContent className="p-4 text-sm text-muted-foreground">
               <p className="font-medium">说明</p>
               <ul className="mt-2 list-inside list-disc space-y-1">
-                <li>模型列表来自各渠道的 API，已按类型过滤</li>
-                <li>OpenAI 渠道只显示 gpt/o1/o3/o4 开头的模型</li>
-                <li>Claude 渠道只显示 claude 开头的模型</li>
-                <li>Gemini 渠道只显示 gemini 开头的模型</li>
+                <li>模型列表来自各渠道的 API 原始返回结果</li>
+                <li>页面中的 OpenAI、Claude、Gemini 分组表示模型来源渠道类型，不再额外筛掉模型名</li>
               </ul>
             </CardContent>
           </Card>
