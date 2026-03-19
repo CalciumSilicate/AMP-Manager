@@ -21,6 +21,12 @@ interface Props {
   onChange: (mappings: ModelMapping[]) => void
 }
 
+interface ChannelOption {
+  channelId: string
+  channelName: string
+  channelType: AvailableModel['channelType']
+}
+
 const THINKING_LEVELS = [
   { value: '', label: '无' },
   { value: 'low', label: 'Low' },
@@ -93,7 +99,7 @@ export default function ModelMappingEditor({ mappings, onChange }: Props) {
   }
 
   const handleAdd = () => {
-    onChange([...mappings, { from: '', to: '', regex: false, thinkingLevel: '', pseudoNonStream: false, auditKeywords: [], ampOnly: false, fastMode: false }])
+    onChange([...mappings, { from: '', to: '', channelId: '', regex: false, thinkingLevel: '', pseudoNonStream: false, auditKeywords: [], ampOnly: false, fastMode: false }])
   }
 
   const handleRemove = (index: number) => {
@@ -106,8 +112,14 @@ export default function ModelMappingEditor({ mappings, onChange }: Props) {
     onChange(newMappings)
   }
 
-  const handleSelectModel = (index: number, modelId: string) => {
-    handleChange(index, 'to', modelId)
+  const handleSelectModel = (index: number, model: AvailableModel) => {
+    const newMappings = [...mappings]
+    newMappings[index] = {
+      ...newMappings[index],
+      to: model.modelId,
+      channelId: model.channelId,
+    }
+    onChange(newMappings)
     setShowDropdown(null)
     setSearchTerm('')
   }
@@ -125,6 +137,17 @@ export default function ModelMappingEditor({ mappings, onChange }: Props) {
     acc[key].push(model)
     return acc
   }, {} as Record<string, AvailableModel[]>)
+
+  const availableChannels = availableModels.reduce((acc, model) => {
+    if (!acc.some(channel => channel.channelId === model.channelId)) {
+      acc.push({
+        channelId: model.channelId,
+        channelName: model.channelName,
+        channelType: model.channelType,
+      })
+    }
+    return acc
+  }, [] as ChannelOption[])
 
   return (
     <div className="space-y-3">
@@ -146,6 +169,7 @@ export default function ModelMappingEditor({ mappings, onChange }: Props) {
               <TableRow>
                 <TableHead>From</TableHead>
                 <TableHead>To</TableHead>
+                <TableHead>目标渠道</TableHead>
                 <TableHead className="text-center">思维强度</TableHead>
                 <TableHead className="text-center">伪非流</TableHead>
                 <TableHead className="text-center">仅AMP</TableHead>
@@ -221,9 +245,9 @@ export default function ModelMappingEditor({ mappings, onChange }: Props) {
                               </div>
                               {models.map((model) => (
                                 <button
-                                  key={`${model.channelName}-${model.modelId}`}
+                                  key={`${model.channelId}-${model.modelId}`}
                                   type="button"
-                                  onClick={() => handleSelectModel(index, model.modelId)}
+                                  onClick={() => handleSelectModel(index, model)}
                                   className="block w-full px-3 py-2 text-left text-sm hover:bg-accent"
                                 >
                                   <div className="font-mono">{model.modelId}</div>
@@ -235,6 +259,23 @@ export default function ModelMappingEditor({ mappings, onChange }: Props) {
                         )}
                       </div>
                     )}
+                  </TableCell>
+                  <TableCell>
+                    <select
+                      value={mapping.channelId || ''}
+                      onChange={(e) => handleChange(index, 'channelId', e.target.value)}
+                      className="h-8 w-full rounded-md border border-input bg-background px-2 text-sm ring-offset-background focus:outline-none focus:ring-2 focus:ring-ring"
+                    >
+                      <option value="">自动选择</option>
+                      {mapping.channelId && !availableChannels.some(channel => channel.channelId === mapping.channelId) && (
+                        <option value={mapping.channelId}>当前绑定渠道（不可用）</option>
+                      )}
+                      {availableChannels.map((channel) => (
+                        <option key={channel.channelId} value={channel.channelId}>
+                          {channel.channelName} ({channel.channelType})
+                        </option>
+                      ))}
+                    </select>
                   </TableCell>
                   <TableCell>
                     <select
@@ -287,7 +328,7 @@ export default function ModelMappingEditor({ mappings, onChange }: Props) {
                 </TableRow>
                 {mapping.pseudoNonStream && (
                   <TableRow key={`${index}-audit`}>
-                    <TableCell colSpan={8} className="pt-0">
+                    <TableCell colSpan={9} className="pt-0">
                       <div className="flex items-start gap-2 pb-2">
                         <Label className="text-xs text-muted-foreground whitespace-nowrap pt-2">审计关键词:</Label>
                         <Textarea
@@ -319,6 +360,7 @@ export default function ModelMappingEditor({ mappings, onChange }: Props) {
           <ul className="mt-1 list-inside list-disc space-y-1">
             <li><strong>From:</strong> 请求中的模型名称（支持正则表达式）</li>
             <li><strong>To:</strong> 映射到的目标模型（可从列表选择或手动输入）</li>
+            <li><strong>目标渠道:</strong> 可选，指定后优先路由到该渠道；留空时保持自动选择</li>
             <li><strong>思维强度:</strong> 设置模型的推理/思考强度 (low/medium/high/xhigh)</li>
             <li><strong>伪非流:</strong> 以流式请求上游，但完整接收后才返回给客户端（用于响应审查）</li>
             <li><strong>仅AMP:</strong> 仅当请求来自 AMP 客户端时才应用此映射（检测 X-Amp-Feature 请求头）</li>

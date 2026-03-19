@@ -19,6 +19,7 @@ import (
 const (
 	OriginalModelContextKey    = "original_model"
 	MappedModelContextKey      = "mapped_model"
+	PreferredChannelContextKey = "preferred_channel_id"
 	ModelMappingAppliedKey     = "model_mapping_applied"
 	ThinkingLevelContextKey    = "thinking_level"
 	PseudoNonStreamContextKey  = "pseudo_non_stream"
@@ -85,13 +86,14 @@ func GetAuditKeywords(ctx context.Context) []string {
 }
 
 type MappingResult struct {
-	OriginalModel   string
-	MappedModel     string
-	ThinkingLevel   string
-	PseudoNonStream bool
-	AuditKeywords   []string
-	FastMode        bool
-	Applied         bool
+	OriginalModel      string
+	MappedModel        string
+	PreferredChannelID string
+	ThinkingLevel      string
+	PseudoNonStream    bool
+	AuditKeywords      []string
+	FastMode           bool
+	Applied            bool
 }
 
 // channelService for checking model availability
@@ -161,8 +163,18 @@ func ApplyModelMappingMiddleware() gin.HandlerFunc {
 			return
 		}
 
-		// Validate that the mapped model has available channels (optional but recommended)
-		if result.MappedModel != modelName {
+		// Validate explicit channel bindings first so the mapping stays deterministic.
+		if result.PreferredChannelID != "" {
+			channel, err := mappingChannelService.SelectSpecificChannelForModelWithGroups(result.PreferredChannelID, result.MappedModel, cfg.GroupIDs)
+			if err != nil || channel == nil {
+				log.Warnf("model mapping: preferred channel '%s' cannot serve model '%s', skipping mapping", result.PreferredChannelID, result.MappedModel)
+				if bodyBytes != nil {
+					c.Request.Body = io.NopCloser(bytes.NewBuffer(bodyBytes))
+				}
+				c.Next()
+				return
+			}
+		} else if result.MappedModel != modelName {
 			channel, err := mappingChannelService.SelectChannelForModel(result.MappedModel)
 			if err != nil || channel == nil {
 				log.Warnf("model mapping: target model '%s' has no available channel, skipping mapping", result.MappedModel)
@@ -177,6 +189,9 @@ func ApplyModelMappingMiddleware() gin.HandlerFunc {
 		// Store original and mapped model in context (both gin.Context and req.Context)
 		c.Set(OriginalModelContextKey, result.OriginalModel)
 		c.Set(MappedModelContextKey, result.MappedModel)
+		if result.PreferredChannelID != "" {
+			c.Set(PreferredChannelContextKey, result.PreferredChannelID)
+		}
 		c.Set(ModelMappingAppliedKey, true)
 		// Also store in req.Context for upstream layers
 		ctx := WithModelInfo(c.Request.Context(), result.OriginalModel, result.MappedModel)
@@ -194,7 +209,11 @@ func ApplyModelMappingMiddleware() gin.HandlerFunc {
 
 		c.Request = c.Request.WithContext(ctx)
 
-		log.Infof("model mapping: %s -> %s (source: %s)", result.OriginalModel, result.MappedModel, modelSource)
+		if result.PreferredChannelID != "" {
+			log.Infof("model mapping: %s -> %s via channel %s (source: %s)", result.OriginalModel, result.MappedModel, result.PreferredChannelID, modelSource)
+		} else {
+			log.Infof("model mapping: %s -> %s (source: %s)", result.OriginalModel, result.MappedModel, modelSource)
+		}
 
 		// Apply mapping based on source
 		if modelSource == "path" {
@@ -375,13 +394,14 @@ func applyMappingWithHeaders(modelName string, mappings []model.ModelMapping, he
 			}
 
 			return MappingResult{
-				OriginalModel:   modelName,
-				MappedModel:     targetModel,
-				ThinkingLevel:   m.ThinkingLevel,
-				PseudoNonStream: m.PseudoNonStream,
-				AuditKeywords:   m.AuditKeywords,
-				FastMode:        m.FastMode,
-				Applied:         true,
+				OriginalModel:      modelName,
+				MappedModel:        targetModel,
+				PreferredChannelID: m.ChannelID,
+				ThinkingLevel:      m.ThinkingLevel,
+				PseudoNonStream:    m.PseudoNonStream,
+				AuditKeywords:      m.AuditKeywords,
+				FastMode:           m.FastMode,
+				Applied:            true,
 			}
 		}
 	}
@@ -502,6 +522,16 @@ func GetMappedModel(c *gin.Context) string {
 	if val, exists := c.Get(MappedModelContextKey); exists {
 		if model, ok := val.(string); ok {
 			return model
+		}
+	}
+	return ""
+}
+
+// GetPreferredChannelID returns the preferred channel ID from context.
+func GetPreferredChannelID(c *gin.Context) string {
+	if val, exists := c.Get(PreferredChannelContextKey); exists {
+		if channelID, ok := val.(string); ok {
+			return channelID
 		}
 	}
 	return ""

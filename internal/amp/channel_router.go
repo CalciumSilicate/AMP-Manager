@@ -191,6 +191,30 @@ func ChannelRouterMiddleware() gin.HandlerFunc {
 		var channel *model.Channel
 		var err error
 		proxyCfg := GetProxyConfig(c.Request.Context())
+		preferredChannelID := GetPreferredChannelID(c)
+		if preferredChannelID != "" {
+			groupIDs := []string(nil)
+			if proxyCfg != nil {
+				groupIDs = proxyCfg.GroupIDs
+			}
+			channel, err = channelService.SelectSpecificChannelForModelWithGroups(preferredChannelID, modelName, groupIDs)
+			if err != nil {
+				log.Errorf("channel router: failed to select preferred channel %s: %v", preferredChannelID, err)
+				c.Next()
+				return
+			}
+			if channel != nil {
+				log.Infof("channel router: routing model '%s' to preferred channel '%s' (%s)", modelName, channel.Name, channel.Type)
+				WithChannelConfig(c, &ChannelConfig{
+					Channel: channel,
+					Model:   modelName,
+				})
+				c.Next()
+				return
+			}
+			log.Warnf("channel router: preferred channel '%s' is unavailable for model '%s', falling back to automatic selection", preferredChannelID, modelName)
+		}
+
 		if proxyCfg != nil {
 			channel, err = channelService.SelectChannelForModelWithGroups(modelName, proxyCfg.GroupIDs)
 		} else {

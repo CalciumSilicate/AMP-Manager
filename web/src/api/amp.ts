@@ -16,6 +16,7 @@ export type WebSearchMode = 'upstream' | 'builtin_free' | 'local_duckduckgo'
 export interface ModelMapping {
   from: string
   to: string
+  channelId?: string
   regex: boolean
   thinkingLevel?: 'low' | 'medium' | 'high' | 'xhigh' | ''
   pseudoNonStream?: boolean

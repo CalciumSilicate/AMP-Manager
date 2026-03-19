@@ -5,6 +5,7 @@ const API_BASE = '/api'
 export interface AvailableModel {
   modelId: string
   displayName: string
+  channelId: string
   channelType: 'openai' | 'claude' | 'gemini'
   channelName: string
 }

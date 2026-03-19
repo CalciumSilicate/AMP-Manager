@@ -69,7 +69,7 @@ func (r *ChannelModelRepository) GetByChannelID(channelID string) ([]*model.Chan
 func (r *ChannelModelRepository) ListAllWithChannel() ([]*model.AvailableModel, error) {
 	db := database.GetDB()
 	rows, err := db.Query(`
-		SELECT cm.model_id, cm.display_name, c.type, c.name, c.model_whitelist, c.models_json
+		SELECT cm.model_id, cm.display_name, c.id, c.type, c.name, c.model_whitelist, c.models_json
 		FROM channel_models cm
 		JOIN channels c ON cm.channel_id = c.id
 		WHERE c.enabled = 1
@@ -83,7 +83,7 @@ func (r *ChannelModelRepository) ListAllWithChannel() ([]*model.AvailableModel, 
 	var models []*model.AvailableModel
 	for rows.Next() {
 		m := &model.AvailableModel{}
-		if err := rows.Scan(&m.ModelID, &m.DisplayName, &m.ChannelType, &m.ChannelName, &m.ModelWhitelist, &m.ModelsJSON); err != nil {
+		if err := rows.Scan(&m.ModelID, &m.DisplayName, &m.ChannelID, &m.ChannelType, &m.ChannelName, &m.ModelWhitelist, &m.ModelsJSON); err != nil {
 			return nil, err
 		}
 		models = append(models, m)

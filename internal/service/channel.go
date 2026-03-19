@@ -363,6 +363,35 @@ func (s *ChannelService) SelectChannelForModel(modelName string) (*model.Channel
 	return selected, nil
 }
 
+// SelectSpecificChannelForModelWithGroups validates and returns a user-selected channel.
+// The channel must be enabled, match the requested model, and be accessible to the user's groups.
+func (s *ChannelService) SelectSpecificChannelForModelWithGroups(channelID, modelName string, groupIDs []string) (*model.Channel, error) {
+	if channelID == "" {
+		return nil, nil
+	}
+
+	channel, err := s.repo.GetByID(channelID)
+	if err != nil {
+		return nil, err
+	}
+	if channel == nil || !channel.Enabled {
+		return nil, nil
+	}
+	if !s.channelMatchesModel(channel, modelName) {
+		return nil, nil
+	}
+
+	channelGroupIDs, err := s.repo.GetGroupIDs(channelID)
+	if err != nil {
+		return nil, err
+	}
+	if !channelAccessibleForGroups(channelGroupIDs, groupIDs) {
+		return nil, nil
+	}
+
+	return channel, nil
+}
+
 // SelectChannelForModelWithGroups 根据分组过滤选择渠道
 // 无分组用户: 只能使用未关联分组的渠道
 // 有分组用户: 可以使用其分组渠道 + 未关联分组的渠道
@@ -404,9 +433,7 @@ func (s *ChannelService) SelectChannelForModelWithGroups(modelName string, group
 				continue
 			}
 		}
-		if len(chGroupIDs) == 0 {
-			candidates = append(candidates, ch)
-		} else if len(userGroupIDSet) > 0 && hasAnyInSet(userGroupIDSet, chGroupIDs) {
+		if channelAccessibleWithSet(chGroupIDs, userGroupIDSet) {
 			candidates = append(candidates, ch)
 		}
 	}
@@ -459,6 +486,17 @@ func hasAnyInSet(set map[string]struct{}, values []string) bool {
 		}
 	}
 	return false
+}
+
+func channelAccessibleForGroups(channelGroupIDs, userGroupIDs []string) bool {
+	return channelAccessibleWithSet(channelGroupIDs, toStringSet(userGroupIDs))
+}
+
+func channelAccessibleWithSet(channelGroupIDs []string, userGroupIDSet map[string]struct{}) bool {
+	if len(channelGroupIDs) == 0 {
+		return true
+	}
+	return len(userGroupIDSet) > 0 && hasAnyInSet(userGroupIDSet, channelGroupIDs)
 }
 
 func (s *ChannelService) channelMatchesModel(channel *model.Channel, modelName string) bool {
