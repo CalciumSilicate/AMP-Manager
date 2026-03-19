@@ -1,76 +1,13 @@
 package amp
 
 import (
-	"bytes"
-	"net/http"
-	"strings"
+	"context"
+	"encoding/json"
 
-	"github.com/gin-gonic/gin"
 	log "github.com/sirupsen/logrus"
 	"github.com/tidwall/gjson"
 	"github.com/tidwall/sjson"
 )
-
-// ResponseRewriter wraps a gin.ResponseWriter to intercept and modify streaming response data
-// For streaming (SSE) responses: rewrites model names in real-time
-// For non-streaming responses: passes through directly (model rewriting handled in ModifyResponse)
-type ResponseRewriter struct {
-	gin.ResponseWriter
-	originalModel     string
-	mappedModel       string
-	isStreaming       bool
-	streamingDetected bool
-}
-
-// NewResponseRewriter creates a new response rewriter for model name substitution
-func NewResponseRewriter(w gin.ResponseWriter, originalModel, mappedModel string) *ResponseRewriter {
-	return &ResponseRewriter{
-		ResponseWriter: w,
-		originalModel:  originalModel,
-		mappedModel:    mappedModel,
-	}
-}
-
-// Write intercepts response writes
-// For streaming: rewrites model names in SSE chunks
-// For non-streaming: passes through directly without buffering
-func (rw *ResponseRewriter) Write(data []byte) (int, error) {
-	// Detect streaming on first write
-	if !rw.streamingDetected {
-		rw.streamingDetected = true
-		contentType := rw.Header().Get("Content-Type")
-		rw.isStreaming = strings.Contains(contentType, "text/event-stream") ||
-			strings.Contains(contentType, "stream")
-	}
-
-	if rw.isStreaming {
-		// For streaming responses, rewrite model names in real-time.
-		// NOTE: ReverseProxy streams via io.Copy and treats a short write (n != len(data)) as an error.
-		// Since rewriting can change the chunk length, we must report that we consumed all of `data` on success.
-		rewritten := rw.rewriteStreamChunk(data)
-		_, err := rw.ResponseWriter.Write(rewritten)
-		if err == nil {
-			if flusher, ok := rw.ResponseWriter.(http.Flusher); ok {
-				flusher.Flush()
-			}
-			return len(data), nil
-		}
-		return 0, err
-	}
-
-	// For non-streaming responses, pass through directly without buffering
-	// Model name rewriting is already handled in ModifyResponse via translatingResponseBody
-	return rw.ResponseWriter.Write(data)
-}
-
-// Flush flushes the underlying ResponseWriter
-// For streaming: ensures SSE data is sent immediately
-// For non-streaming: data is already written directly, just flush the underlying writer
-func (rw *ResponseRewriter) Flush() {
-	if flusher, ok := rw.ResponseWriter.(http.Flusher); ok {
-		flusher.Flush()
-	}
-}
 
 // suppressThinkingIfToolUse suppresses thinking blocks when tool_use is detected
 // Amp client has rendering issues when it sees both thinking and tool_use blocks
@@ -115,26 +52,82 @@ func suppressThinkingIfToolUse(data []byte) []byte {
 	return data
 }
 
-// RewriteModelInResponseData rewrites model names in JSON response data using simple string replacement.
-// mappedModel is the upstream model name to find, originalModel is what to replace it with.
-// If mappedModel is empty, no replacement is done (no mapping was applied).
+// TransformResponseJSON applies safe response-side transformations to a single JSON payload.
+// It intentionally only rewrites well-known metadata fields so user-visible content is left intact.
+func TransformResponseJSON(ctx context.Context, data []byte, originalModel, mappedModel string) []byte {
+	info := getProviderInfoOrDefault(ctx)
+	if ctx != nil && info.Provider == ProviderAnthropic {
+		if toolMap, ok := GetClaudeToolNameMap(ctx); ok && len(toolMap) > 0 {
+			if unprefixed, changed := UnprefixClaudeToolNamesWithMap(data, toolMap); changed {
+				data = unprefixed
+			}
+		}
+	}
+
+	return RewriteModelInResponseDataWithProvider(data, originalModel, mappedModel, info)
+}
+
+// RewriteModelInResponseData rewrites model names in JSON response metadata fields only.
+// It preserves free-form text, tool inputs, and other nested content by restricting writes
+// to known protocol metadata paths.
 func RewriteModelInResponseData(data []byte, originalModel, mappedModel string) []byte {
+	return RewriteModelInResponseDataWithProvider(data, originalModel, mappedModel, ProviderInfo{})
+}
+
+func RewriteModelInResponseDataWithProvider(data []byte, originalModel, mappedModel string, info ProviderInfo) []byte {
 	data = suppressThinkingIfToolUse(data)
 
 	if originalModel == "" || mappedModel == "" || originalModel == mappedModel {
 		return data
 	}
-
-	return bytes.ReplaceAll(data, []byte(mappedModel), []byte(originalModel))
-}
-
-// rewriteStreamChunk rewrites model names in SSE stream chunks
-func (rw *ResponseRewriter) rewriteStreamChunk(chunk []byte) []byte {
-	chunk = suppressThinkingIfToolUse(chunk)
-
-	if rw.originalModel == "" || rw.mappedModel == "" || rw.originalModel == rw.mappedModel {
-		return chunk
+	if !json.Valid(data) {
+		return data
 	}
 
-	return bytes.ReplaceAll(chunk, []byte(rw.mappedModel), []byte(rw.originalModel))
+	paths := modelRewritePaths(info)
+	if len(paths) == 0 {
+		return data
+	}
+
+	rewritten := data
+	for _, path := range paths {
+		value := gjson.GetBytes(rewritten, path)
+		if !value.Exists() || value.Type != gjson.String || value.String() != mappedModel {
+			continue
+		}
+
+		updated, err := sjson.SetBytes(rewritten, path, originalModel)
+		if err != nil {
+			log.Warnf("response rewriter: failed to rewrite model metadata at %s: %v", path, err)
+			continue
+		}
+		rewritten = updated
+	}
+
+	return rewritten
+}
+
+func getProviderInfoOrDefault(ctx context.Context) ProviderInfo {
+	if ctx == nil {
+		return ProviderInfo{}
+	}
+	if info, ok := GetProviderInfo(ctx); ok {
+		return info
+	}
+	return ProviderInfo{}
+}
+
+func modelRewritePaths(info ProviderInfo) []string {
+	switch info.Provider {
+	case ProviderAnthropic:
+		return []string{"model", "message.model"}
+	case ProviderOpenAIChat:
+		return []string{"model"}
+	case ProviderOpenAIResponses:
+		return []string{"model", "response.model"}
+	case ProviderGemini:
+		return nil
+	default:
+		return []string{"model", "message.model", "response.model"}
+	}
 }

@@ -274,28 +274,6 @@ func extractModelName(c *gin.Context) string {
 	return payload.Model
 }
 
-// rewritingResponseWriter wraps gin.ResponseWriter to rewrite model names in responses
-type rewritingResponseWriter struct {
-	gin.ResponseWriter
-	rewriter *ResponseRewriter
-}
-
-func newRewritingResponseWriter(w gin.ResponseWriter, originalModel, mappedModel string) *rewritingResponseWriter {
-	return &rewritingResponseWriter{
-		ResponseWriter: w,
-		rewriter:       NewResponseRewriter(w, originalModel, mappedModel),
-	}
-}
-
-func (rw *rewritingResponseWriter) Write(data []byte) (int, error) {
-	return rw.rewriter.Write(data)
-}
-
-func (rw *rewritingResponseWriter) Flush() {
-	rw.rewriter.Flush()
-	rw.ResponseWriter.Flush()
-}
-
 // ChannelProxyHandler creates a handler using httputil.ReverseProxy for robust proxying
 func ChannelProxyHandler() gin.HandlerFunc {
 	return func(c *gin.Context) {
@@ -681,15 +659,9 @@ func ChannelProxyHandler() gin.HandlerFunc {
 					return handleNonStreamingResponse(resp, trace, transInfo, originalModel, mappedModel)
 				}
 
-				// Claude: unprefix only names we prefixed on the way out
-				if isStreaming && providerInfo.Provider == ProviderAnthropic {
-					if toolMap, ok := GetClaudeToolNameMap(resp.Request.Context()); ok && len(toolMap) > 0 {
-						resp.Body = NewSSETransformWrapper(resp.Body, func(b []byte) []byte {
-							out, _ := UnprefixClaudeToolNamesWithMap(b, toolMap)
-							return out
-						})
-					}
-				}
+				resp.Body = NewSSETransformWrapper(resp.Body, func(b []byte) []byte {
+					return TransformResponseJSON(resp.Request.Context(), b, originalModel, mappedModel)
+				})
 
 				// Streaming response handling (existing logic)
 				if trace != nil {
@@ -750,10 +722,8 @@ func ChannelProxyHandler() gin.HandlerFunc {
 			},
 		}
 
-		// Wrap ResponseWriter to rewrite model names in responses
-		wrappedWriter := newRewritingResponseWriter(c.Writer, originalModel, mappedModel)
-		proxy.ServeHTTP(wrappedWriter, c.Request)
-		wrappedWriter.Flush() // 确保非流式响应被发送给客户端
+		proxy.ServeHTTP(c.Writer, c.Request)
+		c.Writer.Flush() // 确保非流式响应被发送给客户端
 	}
 }
 
@@ -1049,17 +1019,8 @@ func handleNonStreamingResponse(resp *http.Response, trace *RequestTrace, transI
 		extractTokenUsageFromBody(body, trace, &info)
 	}
 
-	// Apply model name rewriting
-	body = RewriteModelInResponseData(body, originalModel, mappedModel)
-
-	// Claude: unprefix only names we prefixed on the way out
-	if info, ok := GetProviderInfo(resp.Request.Context()); ok && info.Provider == ProviderAnthropic {
-		if toolMap, ok := GetClaudeToolNameMap(resp.Request.Context()); ok && len(toolMap) > 0 {
-			if unprefixed, changed := UnprefixClaudeToolNamesWithMap(body, toolMap); changed {
-				body = unprefixed
-			}
-		}
-	}
+	// Apply response-side transformations without touching user-visible free-form text.
+	body = TransformResponseJSON(resp.Request.Context(), body, originalModel, mappedModel)
 
 	// Capture response for logging
 	if trace != nil {
