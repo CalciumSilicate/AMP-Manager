@@ -852,8 +852,8 @@ func applyChannelAuth(channel *model.Channel, req *http.Request) {
 // applyClaudeCLISimulation 注入完整的 Claude Code CLI 指纹 headers
 // 参考 CLIProxyAPI/internal/runtime/executor/claude_executor.go
 func applyClaudeCLISimulation(req *http.Request, isStreaming bool) {
-	// User-Agent — Claude Code 2.1.63
-	req.Header.Set("User-Agent", "claude-cli/2.1.63 (external, cli)")
+	// User-Agent — Claude Code 2.1.81
+	req.Header.Set("User-Agent", "claude-cli/2.1.81 (external, cli)")
 
 	// Anthropic 专用 headers
 	req.Header.Set("Anthropic-Version", "2023-06-01")
@@ -888,10 +888,10 @@ func applyClaudeCLISimulation(req *http.Request, isStreaming bool) {
 	sort.Strings(list)
 	req.Header.Set("Anthropic-Beta", strings.Join(list, ","))
 
-	// X-Stainless SDK 指纹 — @anthropic-ai/sdk 0.74.0 (2026-02-28)
+	// X-Stainless SDK 指纹 — @anthropic-ai/sdk 0.80.0 (2026-03-18)
 	req.Header.Set("X-Stainless-Retry-Count", "0")
 	req.Header.Set("X-Stainless-Runtime-Version", "v24.3.0")
-	req.Header.Set("X-Stainless-Package-Version", "0.74.0")
+	req.Header.Set("X-Stainless-Package-Version", "0.80.0")
 	req.Header.Set("X-Stainless-Runtime", "node")
 	req.Header.Set("X-Stainless-Lang", "js")
 	req.Header.Set("X-Stainless-Arch", mapStainlessArch())
