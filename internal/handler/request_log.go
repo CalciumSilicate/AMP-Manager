@@ -323,12 +323,20 @@ func (h *RequestLogHandler) AdminGetRequestLogDetail(c *gin.Context) {
 		}
 	}
 
+	translatedRequestHeaders := make(map[string]string)
+	for k, v := range detail.TranslatedRequestHeaders {
+		if len(v) > 0 {
+			translatedRequestHeaders[k] = v[0]
+		}
+	}
+
 	result := &model.RequestLogDetail{
-		RequestID:              detail.RequestID,
-		RequestHeaders:         requestHeaders,
-		RequestBody:            string(detail.RequestBody),
-		TranslatedRequestBody:  string(detail.TranslatedRequestBody),
-		ResponseHeaders:        responseHeaders,
+		RequestID:                detail.RequestID,
+		RequestHeaders:           requestHeaders,
+		RequestBody:              string(detail.RequestBody),
+		TranslatedRequestBody:    string(detail.TranslatedRequestBody),
+		TranslatedRequestHeaders: translatedRequestHeaders,
+		ResponseHeaders:          responseHeaders,
 		ResponseBody:           string(detail.ResponseBody),
 		TranslatedResponseBody: string(detail.TranslatedResponseBody),
 		CreatedAt:              detail.CreatedAt,

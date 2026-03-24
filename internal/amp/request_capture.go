@@ -141,6 +141,22 @@ func StoreTranslatedRequestBody(requestID string, body []byte) {
 		requestID, len(body))
 }
 
+// StoreTranslatedRequestHeaders stores the translated request headers
+func StoreTranslatedRequestHeaders(requestID string, headers http.Header) {
+	if !IsRequestDetailEnabled() {
+		return
+	}
+
+	store := GetRequestDetailStore()
+	if store == nil {
+		return
+	}
+
+	store.UpdateTranslatedRequestHeaders(requestID, headers)
+	log.Debugf("request capture: stored translated request headers for %s (%d headers)",
+		requestID, len(headers))
+}
+
 // StoreResponseDetail stores response headers and body
 func StoreResponseDetail(requestID string, headers http.Header, body []byte) {
 	if !IsRequestDetailEnabled() {

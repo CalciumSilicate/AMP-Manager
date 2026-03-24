@@ -194,8 +194,9 @@ type RequestLogDetail struct {
 	RequestID              string            `json:"requestId"`
 	RequestHeaders         map[string]string `json:"requestHeaders"`
 	RequestBody            string            `json:"requestBody"`
-	TranslatedRequestBody  string            `json:"translatedRequestBody,omitempty"` // 翻译后发送给上游的请求
-	ResponseHeaders        map[string]string `json:"responseHeaders"`
+	TranslatedRequestBody    string            `json:"translatedRequestBody,omitempty"`    // 翻译后发送给上游的请求体
+	TranslatedRequestHeaders map[string]string `json:"translatedRequestHeaders,omitempty"` // 翻译后发送给上游的请求头
+	ResponseHeaders          map[string]string `json:"responseHeaders"`
 	ResponseBody           string            `json:"responseBody"`
 	TranslatedResponseBody string            `json:"translatedResponseBody,omitempty"` // 翻译后发送给客户端的响应
 	CreatedAt              time.Time         `json:"createdAt"`

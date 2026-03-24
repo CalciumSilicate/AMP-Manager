@@ -399,11 +399,6 @@ func ChannelProxyHandler() gin.HandlerFunc {
 				c.Request.Body = io.NopCloser(bytes.NewReader(convertedBody))
 				c.Request.ContentLength = int64(len(convertedBody))
 				c.Request.Header.Set("Content-Length", fmt.Sprintf("%d", len(convertedBody)))
-
-				// Log converted body summary at Debug level
-				if log.IsLevelEnabled(log.DebugLevel) {
-					logSimulationBody("channel proxy: converted request body", convertedBody)
-				}
 			} else {
 				c.Request.Body = io.NopCloser(bytes.NewReader(bodyBytes))
 			}
@@ -492,8 +487,8 @@ func ChannelProxyHandler() gin.HandlerFunc {
 				}
 
 				// Store translated request body if different from original
-				if transInfo := GetTranslationInfo(c.Request.Context()); transInfo != nil && transInfo.NeedsConversion && len(transInfo.ConvertedBody) > 0 {
-					StoreTranslatedRequestBody(trace.RequestID, transInfo.ConvertedBody)
+				if len(convertedBody) > 0 && !bytes.Equal(convertedBody, originalRequestBody) {
+					StoreTranslatedRequestBody(trace.RequestID, convertedBody)
 				}
 
 				log.Infof("channel proxy: model invocation %s %s -> %s (model: %s)", c.Request.Method, c.Request.URL.Path, sanitizeURL(targetURL), originalModel)
@@ -567,9 +562,9 @@ func ChannelProxyHandler() gin.HandlerFunc {
 					req.Header.Del("x-api-key")
 				}
 
-				// Log final outgoing headers at Debug level
-				if log.IsLevelEnabled(log.DebugLevel) {
-					logSimulationHeaders("channel proxy: outgoing headers", req.Header)
+				// Capture translated request headers after all Director modifications
+				if trace := GetRequestTrace(req.Context()); trace != nil {
+					StoreTranslatedRequestHeaders(trace.RequestID, req.Header)
 				}
 			},
 			FlushInterval: -1, // Flush immediately for SSE streaming support
