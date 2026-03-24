@@ -10,7 +10,6 @@ import (
 	"net/http/httputil"
 	"net/url"
 	"runtime"
-	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -400,6 +399,11 @@ func ChannelProxyHandler() gin.HandlerFunc {
 				c.Request.Body = io.NopCloser(bytes.NewReader(convertedBody))
 				c.Request.ContentLength = int64(len(convertedBody))
 				c.Request.Header.Set("Content-Length", fmt.Sprintf("%d", len(convertedBody)))
+
+				// Log converted body summary at Debug level
+				if log.IsLevelEnabled(log.DebugLevel) {
+					logSimulationBody("channel proxy: converted request body", convertedBody)
+				}
 			} else {
 				c.Request.Body = io.NopCloser(bytes.NewReader(bodyBytes))
 			}
@@ -537,16 +541,22 @@ func ChannelProxyHandler() gin.HandlerFunc {
 					injectOpenAIStreamOptions(req)
 				}
 
+				simulateClaudeCLI := channel.SimulateCLI && channel.Type == model.ChannelTypeClaude
+
 				// Apply Claude CLI simulation if enabled for this channel
-				if channel.SimulateCLI && channel.Type == model.ChannelTypeClaude {
-					applyClaudeCLISimulation(req, true) // Claude Code requests are always streaming
+				if simulateClaudeCLI {
+					applyClaudeCLISimulation(req)
 				}
 
-				// Apply custom headers from channel config
-				var headersMap map[string]string
-				if err := json.Unmarshal([]byte(channel.HeadersJSON), &headersMap); err == nil {
-					for k, v := range headersMap {
-						req.Header.Set(k, v)
+				// In strict Claude CLI simulation mode we rebuild a fixed header set,
+				// so custom channel headers must not be reintroduced afterwards.
+				if !simulateClaudeCLI {
+					// Apply custom headers from channel config
+					var headersMap map[string]string
+					if err := json.Unmarshal([]byte(channel.HeadersJSON), &headersMap); err == nil {
+						for k, v := range headersMap {
+							req.Header.Set(k, v)
+						}
 					}
 				}
 
@@ -555,6 +565,11 @@ func ChannelProxyHandler() gin.HandlerFunc {
 					req.Header.Del("Authorization")
 					req.Header.Del("X-Api-Key")
 					req.Header.Del("x-api-key")
+				}
+
+				// Log final outgoing headers at Debug level
+				if log.IsLevelEnabled(log.DebugLevel) {
+					logSimulationHeaders("channel proxy: outgoing headers", req.Header)
 				}
 			},
 			FlushInterval: -1, // Flush immediately for SSE streaming support
@@ -849,9 +864,28 @@ func applyChannelAuth(channel *model.Channel, req *http.Request) {
 	}
 }
 
-// applyClaudeCLISimulation 注入完整的 Claude Code CLI 指纹 headers
-// 参考 CLIProxyAPI/internal/runtime/executor/claude_executor.go
-func applyClaudeCLISimulation(req *http.Request, isStreaming bool) {
+// applyClaudeCLISimulation 注入完整的 Claude Code CLI 指纹 headers。
+// 严格白名单模式：除少数协议必需头外，不透传客户端、代理或自定义 headers。
+func applyClaudeCLISimulation(req *http.Request) {
+	if req == nil {
+		return
+	}
+
+	contentType := req.Header.Get("Content-Type")
+	contentEncoding := req.Header.Get("Content-Encoding")
+	contentLength := req.Header.Get("Content-Length")
+
+	req.Header = make(http.Header)
+	if contentType != "" {
+		req.Header.Set("Content-Type", contentType)
+	}
+	if contentEncoding != "" {
+		req.Header.Set("Content-Encoding", contentEncoding)
+	}
+	if contentLength != "" {
+		req.Header.Set("Content-Length", contentLength)
+	}
+
 	// User-Agent — Claude Code 2.1.81
 	req.Header.Set("User-Agent", "claude-cli/2.1.81 (external, cli)")
 
@@ -859,39 +893,23 @@ func applyClaudeCLISimulation(req *http.Request, isStreaming bool) {
 	req.Header.Set("Anthropic-Version", "2023-06-01")
 	req.Header.Set("Anthropic-Dangerous-Direct-Browser-Access", "true")
 	req.Header.Set("X-App", "cli")
+	req.Header.Set("Accept-Language", "*")
+	req.Header.Set("Sec-Fetch-Mode", "cors")
 
 	// Anthropic-Beta: 合并已有 betas + 所需 betas
 	requiredBetas := []string{
 		"claude-code-20250219",
-		"oauth-2025-04-20",
 		"interleaved-thinking-2025-05-14",
 		"context-management-2025-06-27",
 		"prompt-caching-scope-2026-01-05",
+		"effort-2025-11-24",
 	}
-	existing := req.Header.Get("Anthropic-Beta")
-	seen := make(map[string]struct{})
-	if existing != "" {
-		for _, part := range strings.Split(existing, ",") {
-			p := strings.TrimSpace(part)
-			if p != "" {
-				seen[p] = struct{}{}
-			}
-		}
-	}
-	for _, b := range requiredBetas {
-		seen[b] = struct{}{}
-	}
-	list := make([]string, 0, len(seen))
-	for k := range seen {
-		list = append(list, k)
-	}
-	sort.Strings(list)
-	req.Header.Set("Anthropic-Beta", strings.Join(list, ","))
+	req.Header.Set("Anthropic-Beta", strings.Join(requiredBetas, ","))
 
-	// X-Stainless SDK 指纹 — @anthropic-ai/sdk 0.80.0 (2026-03-18)
+	// X-Stainless SDK 指纹 — 与 claude-cli/2.1.81 + @anthropic-ai/sdk 0.74.0 对齐
 	req.Header.Set("X-Stainless-Retry-Count", "0")
-	req.Header.Set("X-Stainless-Runtime-Version", "v24.3.0")
-	req.Header.Set("X-Stainless-Package-Version", "0.80.0")
+	req.Header.Set("X-Stainless-Runtime-Version", "v22.17.0")
+	req.Header.Set("X-Stainless-Package-Version", "0.74.0")
 	req.Header.Set("X-Stainless-Runtime", "node")
 	req.Header.Set("X-Stainless-Lang", "js")
 	req.Header.Set("X-Stainless-Arch", mapStainlessArch())
@@ -900,12 +918,8 @@ func applyClaudeCLISimulation(req *http.Request, isStreaming bool) {
 
 	// 连接和内容 headers
 	req.Header.Set("Connection", "keep-alive")
-	req.Header.Set("Accept-Encoding", "gzip, deflate, br, zstd")
-	if isStreaming {
-		req.Header.Set("Accept", "text/event-stream")
-	} else {
-		req.Header.Set("Accept", "application/json")
-	}
+	req.Header.Set("Accept-Encoding", "gzip, br")
+	req.Header.Set("Accept", "application/json")
 }
 
 // mapStainlessOS maps runtime.GOOS to Stainless SDK OS names.
