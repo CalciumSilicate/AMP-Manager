@@ -523,9 +523,6 @@ func ChannelProxyHandler() gin.HandlerFunc {
 				// Filter Anthropic-Beta header for local/channel handling paths
 				filterAntropicBetaHeader(req)
 
-				// Apply channel-specific authentication
-				applyChannelAuth(channel, req)
-
 				// Spoof User-Agent for OpenAI channels to mimic Codex CLI
 				if channel.Type == model.ChannelTypeOpenAI {
 					req.Header.Set("User-Agent", "codex_exec/0.98.0 (Mac OS 15.1.0; arm64) unknown")
@@ -542,6 +539,10 @@ func ChannelProxyHandler() gin.HandlerFunc {
 				if simulateClaudeCLI {
 					applyClaudeCLISimulation(req)
 				}
+
+				// Apply channel-specific authentication after any strict header rewrite.
+				// Claude CLI simulation rebuilds the header set from scratch, so auth must be injected last.
+				applyChannelAuth(channel, req)
 
 				// In strict Claude CLI simulation mode we rebuild a fixed header set,
 				// so custom channel headers must not be reintroduced afterwards.
