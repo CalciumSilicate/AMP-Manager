@@ -33,6 +33,7 @@ export interface Channel {
   models: ChannelModel[]
   modelWhitelist: boolean
   simulateCli: boolean
+  simulateSystemPrompt: boolean
   headers: Record<string, string>
   createdAt: string
   updatedAt: string
@@ -51,6 +52,7 @@ export interface ChannelRequest {
   models?: ChannelModel[]
   modelWhitelist?: boolean
   simulateCli?: boolean
+  simulateSystemPrompt?: boolean
   headers?: Record<string, string>
 }
 

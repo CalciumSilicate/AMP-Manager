@@ -775,6 +775,10 @@ func runMigrations() error {
 					DROP INDEX IF EXISTS idx_billing_events_request;
 				`,
 		},
+		{
+			name: "add_channels_simulate_system_prompt",
+			sql:  `ALTER TABLE channels ADD COLUMN simulate_system_prompt INTEGER NOT NULL DEFAULT 0`,
+		},
 	}
 
 	for _, m := range migrations {

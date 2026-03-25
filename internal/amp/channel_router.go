@@ -387,6 +387,11 @@ func ChannelProxyHandler() gin.HandlerFunc {
 					}
 				}
 
+				// Apply system prompt simulation: move original system to messages, replace with official Claude Code system prompt
+				if channel.SimulateSystemPrompt {
+					convertedBody = applyClaudeCodeSystemPrompt(convertedBody)
+				}
+
 				if newBody, toolMap, changed := PrefixClaudeToolNamesWithMap(convertedBody); changed {
 					convertedBody = newBody
 					if len(toolMap) > 0 {

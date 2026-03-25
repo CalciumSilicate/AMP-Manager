@@ -273,6 +273,22 @@ export function ChannelFormDialog({
             </div>
           )}
 
+          {/* 模拟系统提示词 - 仅 Claude 类型显示 */}
+          {formData.type === 'claude' && (
+            <div className="col-span-2 flex items-center justify-between rounded-lg border p-4">
+              <div className="space-y-0.5">
+                <Label>模拟系统提示词</Label>
+                <p className="text-sm text-muted-foreground">
+                  启用后将原始系统提示词移入消息中，替换为官方 Claude Code 系统提示词
+                </p>
+              </div>
+              <Switch
+                checked={formData.simulateSystemPrompt || false}
+                onCheckedChange={(checked) => setFormData(prev => ({ ...prev, simulateSystemPrompt: checked }))}
+              />
+            </div>
+          )}
+
           {/* 模型规则编辑器 */}
           <ModelRulesEditor
             models={formData.models}

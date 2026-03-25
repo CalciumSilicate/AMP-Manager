@@ -108,8 +108,9 @@ func (s *ChannelService) Create(req *model.ChannelRequest) (*model.ChannelRespon
 		Weight:         weight,
 		Priority:       priority,
 		ModelWhitelist: req.ModelWhitelist,
-		SimulateCLI:    req.SimulateCLI,
-		ModelsJSON:     string(modelsJSON),
+		SimulateCLI:          req.SimulateCLI,
+		SimulateSystemPrompt: req.SimulateSystemPrompt,
+		ModelsJSON:           string(modelsJSON),
 		HeadersJSON:    string(headersJSON),
 	}
 
@@ -197,6 +198,7 @@ func (s *ChannelService) Update(id string, req *model.ChannelRequest) (*model.Ch
 	existing.Priority = priority
 	existing.ModelWhitelist = req.ModelWhitelist
 	existing.SimulateCLI = req.SimulateCLI
+	existing.SimulateSystemPrompt = req.SimulateSystemPrompt
 	existing.ModelsJSON = string(modelsJSON)
 	existing.HeadersJSON = string(headersJSON)
 
@@ -655,8 +657,9 @@ func (s *ChannelService) buildResponse(channel *model.Channel, gids []string, gr
 		Weight:         channel.Weight,
 		Priority:       channel.Priority,
 		ModelWhitelist: channel.ModelWhitelist,
-		SimulateCLI:    channel.SimulateCLI,
-		GroupIDs:       groupIDs,
+		SimulateCLI:          channel.SimulateCLI,
+		SimulateSystemPrompt: channel.SimulateSystemPrompt,
+		GroupIDs:             groupIDs,
 		GroupNames:     groupNames,
 		Models:         models,
 		Headers:        headers,

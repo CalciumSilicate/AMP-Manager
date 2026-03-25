@@ -44,6 +44,7 @@ export default function Channels() {
     models: [],
     modelWhitelist: false,
     simulateCli: false,
+    simulateSystemPrompt: false,
     headers: {},
   })
   const [saving, setSaving] = useState(false)
@@ -86,6 +87,7 @@ export default function Channels() {
       models: [],
       modelWhitelist: false,
       simulateCli: false,
+      simulateSystemPrompt: false,
       headers: {},
     })
     setShowForm(true)
@@ -106,6 +108,7 @@ export default function Channels() {
       models: channel.models,
       modelWhitelist: channel.modelWhitelist || false,
       simulateCli: channel.simulateCli || false,
+      simulateSystemPrompt: channel.simulateSystemPrompt || false,
       headers: channel.headers,
     })
     setShowForm(true)

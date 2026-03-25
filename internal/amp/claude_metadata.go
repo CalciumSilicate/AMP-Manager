@@ -40,9 +40,17 @@ func ensureClaudeMetadataUserID(body []byte, userAgent string, apiKey string) ([
 		return body, false
 	}
 
-	userHash := generateClaudeUserHash(userAgent, apiKey)
-	sessionUUID := generateClaudeSessionUUID(gjson.GetBytes(body, "messages"))
-	userID := fmt.Sprintf("user_%s_account__session_%s", userHash, sessionUUID)
+	deviceID := generateClaudeDeviceID(userAgent, apiKey)
+	sessionID := generateClaudeSessionUUID(gjson.GetBytes(body, "messages"))
+
+	// Official format: JSON string with device_id, account_uuid, session_id
+	userIDObj := map[string]string{
+		"device_id":    deviceID,
+		"account_uuid": "",
+		"session_id":   sessionID,
+	}
+	userIDJSON, _ := json.Marshal(userIDObj)
+	userID := string(userIDJSON)
 
 	if out, ok := injectClaudeMetadataWithOrder(body, userID); ok {
 		return out, true
@@ -56,8 +64,8 @@ func ensureClaudeMetadataUserID(body []byte, userAgent string, apiKey string) ([
 	return newBody, true
 }
 
-// generateClaudeUserHash matches amp_processor.rs: SHA256(api_key + ":" + UA).
-func generateClaudeUserHash(userAgent string, apiKey string) string {
+// generateClaudeDeviceID generates a stable device fingerprint: SHA256(api_key + ":" + UA).
+func generateClaudeDeviceID(userAgent string, apiKey string) string {
 	ua := userAgent
 	if ua == "" {
 		ua = "unknown"

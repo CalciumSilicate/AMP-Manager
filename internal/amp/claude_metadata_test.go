@@ -1,13 +1,13 @@
 package amp
 
 import (
-	"strings"
+	"encoding/json"
 	"testing"
 
 	"github.com/tidwall/gjson"
 )
 
-func TestEnsureClaudeMetadataUserIDStableForSameMessages(t *testing.T) {
+func TestEnsureClaudeMetadataUserIDOfficialFormat(t *testing.T) {
 	body := []byte(`{"model":"claude-3-7-sonnet","messages":[{"role":"user","content":"hello"},{"role":"assistant","content":"world"}]}`)
 	ua := "test-agent"
 	key := "sk-test"
@@ -16,16 +16,37 @@ func TestEnsureClaudeMetadataUserIDStableForSameMessages(t *testing.T) {
 	if !changed {
 		t.Fatalf("expected changed=true")
 	}
-	userID := gjson.GetBytes(out, "metadata.user_id").String()
-	if userID == "" {
+	userIDRaw := gjson.GetBytes(out, "metadata.user_id").String()
+	if userIDRaw == "" {
 		t.Fatalf("expected metadata.user_id to be set")
 	}
 
-	expectedHash := generateClaudeUserHash(ua, key)
-	if !strings.Contains(userID, "user_"+expectedHash+"_account__session_") {
-		t.Fatalf("unexpected user_id: %s", userID)
+	// user_id should be a JSON string containing device_id, account_uuid, session_id
+	var parsed struct {
+		DeviceID    string `json:"device_id"`
+		AccountUUID string `json:"account_uuid"`
+		SessionID   string `json:"session_id"`
+	}
+	if err := json.Unmarshal([]byte(userIDRaw), &parsed); err != nil {
+		t.Fatalf("user_id is not valid JSON: %v\nraw: %s", err, userIDRaw)
 	}
 
+	// device_id should be 64-char hex (SHA256)
+	if len(parsed.DeviceID) != 64 {
+		t.Fatalf("expected device_id to be 64 hex chars, got %d: %s", len(parsed.DeviceID), parsed.DeviceID)
+	}
+
+	// account_uuid should be empty
+	if parsed.AccountUUID != "" {
+		t.Fatalf("expected account_uuid to be empty, got %q", parsed.AccountUUID)
+	}
+
+	// session_id should be UUID format
+	if len(parsed.SessionID) != 36 || parsed.SessionID[8] != '-' {
+		t.Fatalf("expected session_id in UUID format, got %q", parsed.SessionID)
+	}
+
+	// Idempotent: second pass should not modify
 	out2, changed2 := ensureClaudeMetadataUserID(out, ua, key)
 	if changed2 {
 		t.Fatalf("expected changed=false on second pass")
