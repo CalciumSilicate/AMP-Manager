@@ -23,6 +23,8 @@ export interface ModelMapping {
   auditKeywords?: string[]
   ampOnly?: boolean
   fastMode?: boolean
+  customInstructions?: string
+  customInstructionsEnabled?: boolean
 }
 
 export interface AmpSettings {

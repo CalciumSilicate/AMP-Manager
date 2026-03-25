@@ -25,15 +25,17 @@ type AmpSettings struct {
 }
 
 type ModelMapping struct {
-	From            string   `json:"from"`
-	To              string   `json:"to"`
-	ChannelID       string   `json:"channelId,omitempty"`
-	Regex           bool     `json:"regex"`
-	ThinkingLevel   string   `json:"thinkingLevel,omitempty"`
-	PseudoNonStream bool     `json:"pseudoNonStream,omitempty"`
-	AuditKeywords   []string `json:"auditKeywords,omitempty"`
-	AmpOnly         bool     `json:"ampOnly,omitempty"`
-	FastMode        bool     `json:"fastMode,omitempty"`
+	From                      string   `json:"from"`
+	To                        string   `json:"to"`
+	ChannelID                 string   `json:"channelId,omitempty"`
+	Regex                     bool     `json:"regex"`
+	ThinkingLevel             string   `json:"thinkingLevel,omitempty"`
+	PseudoNonStream           bool     `json:"pseudoNonStream,omitempty"`
+	AuditKeywords             []string `json:"auditKeywords,omitempty"`
+	AmpOnly                   bool     `json:"ampOnly,omitempty"`
+	FastMode                  bool     `json:"fastMode,omitempty"`
+	CustomInstructions        string   `json:"customInstructions,omitempty"`
+	CustomInstructionsEnabled bool     `json:"customInstructionsEnabled,omitempty"`
 }
 
 type UserAPIKey struct {

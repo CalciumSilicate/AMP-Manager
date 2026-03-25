@@ -86,14 +86,16 @@ func GetAuditKeywords(ctx context.Context) []string {
 }
 
 type MappingResult struct {
-	OriginalModel      string
-	MappedModel        string
-	PreferredChannelID string
-	ThinkingLevel      string
-	PseudoNonStream    bool
-	AuditKeywords      []string
-	FastMode           bool
-	Applied            bool
+	OriginalModel             string
+	MappedModel               string
+	PreferredChannelID        string
+	ThinkingLevel             string
+	PseudoNonStream           bool
+	AuditKeywords             []string
+	FastMode                  bool
+	CustomInstructions        string
+	CustomInstructionsEnabled bool
+	Applied                   bool
 }
 
 // channelService for checking model availability
@@ -247,6 +249,12 @@ func ApplyModelMappingMiddleware() gin.HandlerFunc {
 					log.Infof("model mapping: applied fast mode (service_tier=priority)")
 				}
 
+				// Apply custom instructions if enabled
+				if result.CustomInstructionsEnabled && result.CustomInstructions != "" {
+					applyCustomInstructions(payload, result.CustomInstructions, c.Request.URL.Path)
+					log.Infof("model mapping: applied custom instructions")
+				}
+
 				newBody, err := json.Marshal(payload)
 				if err == nil {
 					bodyBytes = newBody
@@ -394,14 +402,16 @@ func applyMappingWithHeaders(modelName string, mappings []model.ModelMapping, he
 			}
 
 			return MappingResult{
-				OriginalModel:      modelName,
-				MappedModel:        targetModel,
-				PreferredChannelID: m.ChannelID,
-				ThinkingLevel:      m.ThinkingLevel,
-				PseudoNonStream:    m.PseudoNonStream,
-				AuditKeywords:      m.AuditKeywords,
-				FastMode:           m.FastMode,
-				Applied:            true,
+				OriginalModel:             modelName,
+				MappedModel:               targetModel,
+				PreferredChannelID:        m.ChannelID,
+				ThinkingLevel:             m.ThinkingLevel,
+				PseudoNonStream:           m.PseudoNonStream,
+				AuditKeywords:             m.AuditKeywords,
+				FastMode:                  m.FastMode,
+				CustomInstructions:        m.CustomInstructions,
+				CustomInstructionsEnabled: m.CustomInstructionsEnabled,
+				Applied:                   true,
 			}
 		}
 	}
@@ -505,6 +515,46 @@ func thinkingLevelToBudget(level string, provider string) int {
 	}
 
 	return 0
+}
+
+// applyCustomInstructions injects or replaces the instructions field in the request payload.
+// For OpenAI Responses API (/v1/responses): sets the "instructions" field directly.
+// For OpenAI Chat Completions API: injects/replaces the system message in "messages".
+func applyCustomInstructions(payload map[string]interface{}, instructions string, requestPath string) {
+	if strings.Contains(requestPath, "/responses") {
+		// OpenAI Responses API: directly set the "instructions" field
+		payload["instructions"] = instructions
+		return
+	}
+
+	// OpenAI Chat Completions API: inject/replace system message
+	messages, ok := payload["messages"].([]interface{})
+	if !ok {
+		return
+	}
+
+	// Look for existing system message
+	for i, msg := range messages {
+		msgMap, ok := msg.(map[string]interface{})
+		if !ok {
+			continue
+		}
+		role, _ := msgMap["role"].(string)
+		if role == "system" || role == "developer" {
+			// Replace existing system/developer message content
+			msgMap["content"] = instructions
+			messages[i] = msgMap
+			payload["messages"] = messages
+			return
+		}
+	}
+
+	// No system message found, prepend one
+	systemMsg := map[string]interface{}{
+		"role":    "system",
+		"content": instructions,
+	}
+	payload["messages"] = append([]interface{}{systemMsg}, messages...)
 }
 
 // GetOriginalModel returns the original model name from context (before mapping)
