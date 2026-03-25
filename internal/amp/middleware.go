@@ -42,7 +42,7 @@ var (
 const (
 	webSearchQuery             = "webSearch2"
 	extractWebPageContentQuery = "extractWebPageContent"
-	mcpToolPrefix              = "mcp_"
+	mcpToolPrefix              = "mcp__tools__mcp-"
 )
 
 // adEndpoints are ad-related query parameters that should be blocked
@@ -63,9 +63,9 @@ func detectLocalToolQuery(rawQuery string) (string, bool) {
 			key = part[:idx]
 		}
 		switch key {
-		case webSearchQuery, mcpToolPrefix + webSearchQuery:
+		case webSearchQuery, mcpToolPrefix + transformToolName(webSearchQuery):
 			return webSearchQuery, true
-		case extractWebPageContentQuery, mcpToolPrefix + extractWebPageContentQuery:
+		case extractWebPageContentQuery, mcpToolPrefix + transformToolName(extractWebPageContentQuery):
 			return extractWebPageContentQuery, true
 		}
 	}

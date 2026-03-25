@@ -11,9 +11,9 @@ func TestDetectLocalToolQuery(t *testing.T) {
 	}{
 		{"empty", "", "", false},
 		{"webSearch2", "webSearch2", webSearchQuery, true},
-		{"mcp_webSearch2", "mcp_webSearch2", webSearchQuery, true},
+		{"new_prefix_webSearch2", "mcp__tools__mcp-websearch2", webSearchQuery, true},
 		{"extract", "extractWebPageContent", extractWebPageContentQuery, true},
-		{"mcp_extract", "mcp_extractWebPageContent", extractWebPageContentQuery, true},
+		{"new_prefix_extract", "mcp__tools__mcp-extractwebpagecontent", extractWebPageContentQuery, true},
 		{"with_params", "foo=bar&webSearch2&x=y", webSearchQuery, true},
 	}
 

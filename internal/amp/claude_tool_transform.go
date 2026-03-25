@@ -6,15 +6,22 @@ import (
 	"strings"
 )
 
-const claudeShimPrefix = "mcp_"
+const claudeShimPrefix = "mcp__tools__mcp-"
 
-// PrefixClaudeToolNamesWithMap prefixes Claude tool names with mcp_ when needed,
+// transformToolName normalizes a tool name for the mcp__tools__mcp- prefix:
+// lowercase and replace underscores with hyphens.
+// e.g. "create_file" → "create-file", "Read" → "read", "Bash" → "bash"
+func transformToolName(name string) string {
+	return strings.ToLower(strings.ReplaceAll(name, "_", "-"))
+}
+
+// PrefixClaudeToolNamesWithMap prefixes Claude tool names with mcp__tools__mcp- when needed,
 // and returns a reverse map for safe unprefixing on the way back.
 //
 // Rules:
 // - Only affects tools[].name and messages[].content[].(tool_use|tool_result).name
-// - Does NOT modify names already starting with mcp_
-// - Avoids collisions: if mcp_<name> already exists, leaves <name> untouched
+// - Does NOT modify names already starting with mcp__tools__mcp- or mcp__ (external MCP tools)
+// - Avoids collisions: if mcp__tools__mcp-<name> already exists, leaves <name> untouched
 func PrefixClaudeToolNamesWithMap(body []byte) ([]byte, ClaudeToolNameMap, bool) {
 	if len(body) == 0 || !json.Valid(body) {
 		return body, nil, false
@@ -32,13 +39,21 @@ func PrefixClaudeToolNamesWithMap(body []byte) ([]byte, ClaudeToolNameMap, bool)
 
 	changed := false
 	nameSet := make(map[string]struct{})
+	builtinTools := make(map[string]bool)
 
-	// Collect existing tool names for collision avoidance
+	// Collect existing tool names for collision avoidance and identify built-in tools.
+	// Built-in tools (web_search, code_execution, text_editor, computer, etc.) have a
+	// non-empty "type" field and must keep their original names unchanged.
 	if tools, ok := rootObj["tools"].([]any); ok {
 		for _, t := range tools {
 			if obj, ok := t.(map[string]any); ok {
 				if name, ok := obj["name"].(string); ok {
 					nameSet[name] = struct{}{}
+				}
+				if tp, _ := obj["type"].(string); tp != "" {
+					if name, ok := obj["name"].(string); ok && name != "" {
+						builtinTools[name] = true
+					}
 				}
 			}
 		}
@@ -50,7 +65,18 @@ func PrefixClaudeToolNamesWithMap(body []byte) ([]byte, ClaudeToolNameMap, bool)
 		if strings.HasPrefix(name, claudeShimPrefix) {
 			return name, false
 		}
-		candidate := claudeShimPrefix + name
+		// Skip external MCP tools (e.g. mcp__context7__, mcp__shadcn_studio__)
+		if strings.HasPrefix(name, "mcp__") {
+			return name, false
+		}
+		if builtinTools[name] {
+			return name, false
+		}
+		candidate := claudeShimPrefix + transformToolName(name)
+		// Already prefixed by a previous pass (e.g. tools[] → messages[])
+		if _, already := reverse[candidate]; already {
+			return candidate, true
+		}
 		if _, exists := nameSet[candidate]; exists {
 			return name, false
 		}
@@ -59,11 +85,14 @@ func PrefixClaudeToolNamesWithMap(body []byte) ([]byte, ClaudeToolNameMap, bool)
 		return candidate, true
 	}
 
-	// tools[].name
+	// tools[].name — skip built-in tools (they have a "type" field)
 	if tools, ok := rootObj["tools"].([]any); ok {
 		for _, t := range tools {
 			obj, ok := t.(map[string]any)
 			if !ok {
+				continue
+			}
+			if tp, _ := obj["type"].(string); tp != "" {
 				continue
 			}
 			name, ok := obj["name"].(string)
@@ -81,7 +110,7 @@ func PrefixClaudeToolNamesWithMap(body []byte) ([]byte, ClaudeToolNameMap, bool)
 	if tc, ok := rootObj["tool_choice"].(map[string]any); ok {
 		if tp, _ := tc["type"].(string); tp == "tool" {
 			if name, ok := tc["name"].(string); ok && name != "" {
-				prefixed := claudeShimPrefix + name
+				prefixed := claudeShimPrefix + transformToolName(name)
 				if _, wasPrefixed := reverse[prefixed]; wasPrefixed {
 					tc["name"] = prefixed
 					changed = true

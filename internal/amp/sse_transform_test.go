@@ -12,11 +12,11 @@ func (n nopReadCloser) Close() error { return nil }
 
 func TestSSETransformWrapperStripsMCPPrefix(t *testing.T) {
 	sse := "event: message\n" +
-		"data: {\"type\":\"tool_use\",\"name\":\"mcp_extractWebPageContent\"}\n\n"
+		"data: {\"type\":\"tool_use\",\"name\":\"mcp__tools__mcp-extractwebpagecontent\"}\n\n"
 
 	rc := nopReadCloser{Reader: strings.NewReader(sse)}
 	wrapped := NewSSETransformWrapper(rc, func(b []byte) []byte {
-		out, _ := UnprefixClaudeToolNamesWithMap(b, ClaudeToolNameMap{"mcp_extractWebPageContent": "extractWebPageContent"})
+		out, _ := UnprefixClaudeToolNamesWithMap(b, ClaudeToolNameMap{"mcp__tools__mcp-extractwebpagecontent": "extractWebPageContent"})
 		return out
 	})
 	defer wrapped.Close()

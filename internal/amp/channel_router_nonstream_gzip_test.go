@@ -10,7 +10,7 @@ import (
 )
 
 func TestHandleNonStreamingResponseDecompressesAndStripsMCPPrefix(t *testing.T) {
-	plain := []byte(`{"type":"tool_use","name":"mcp_Read"}`)
+	plain := []byte(`{"type":"tool_use","name":"mcp__tools__mcp-read"}`)
 	var buf bytes.Buffer
 	zw := gzip.NewWriter(&buf)
 	if _, err := zw.Write(plain); err != nil {
@@ -23,7 +23,7 @@ func TestHandleNonStreamingResponseDecompressesAndStripsMCPPrefix(t *testing.T) 
 	req, _ := http.NewRequestWithContext(
 		WithClaudeToolNameMap(
 			WithProviderInfo(context.Background(), ProviderInfo{Provider: ProviderAnthropic}),
-			ClaudeToolNameMap{"mcp_Read": "Read"},
+			ClaudeToolNameMap{"mcp__tools__mcp-read": "Read"},
 		),
 		http.MethodPost,
 		"http://example.test/v1/messages",
@@ -44,7 +44,7 @@ func TestHandleNonStreamingResponseDecompressesAndStripsMCPPrefix(t *testing.T) 
 	if err != nil {
 		t.Fatalf("read: %v", err)
 	}
-	if bytes.Contains(out, []byte("mcp_Read")) {
+	if bytes.Contains(out, []byte("mcp__tools__mcp-read")) {
 		t.Fatalf("expected prefix stripped, got: %s", string(out))
 	}
 	if !bytes.Contains(out, []byte(`"name":"Read"`)) {

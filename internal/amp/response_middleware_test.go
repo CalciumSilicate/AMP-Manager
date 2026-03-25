@@ -16,10 +16,10 @@ func TestNonStreamingPipelineStripsMCPPrefixForAnthropic(t *testing.T) {
 	resp := &http.Response{
 		StatusCode: 200,
 		Header:     make(http.Header),
-		Body:       io.NopCloser(strings.NewReader(`{"type":"tool_use","name":"mcp_Read"}`)),
+		Body:       io.NopCloser(strings.NewReader(`{"type":"tool_use","name":"mcp__tools__mcp-read"}`)),
 	}
 	ctx := &ResponseContext{
-		Ctx:        WithClaudeToolNameMap(context.Background(), ClaudeToolNameMap{"mcp_Read": "Read"}),
+		Ctx:        WithClaudeToolNameMap(context.Background(), ClaudeToolNameMap{"mcp__tools__mcp-read": "Read"}),
 		Provider:   ProviderInfo{Provider: ProviderAnthropic},
 		Headers:    resp.Header,
 		StatusCode: resp.StatusCode,
@@ -39,11 +39,11 @@ func TestNonStreamingPipelineStripsMCPPrefixForAnthropic(t *testing.T) {
 
 func TestModifyResponseStripsMCPPrefixForAnthropicSSE(t *testing.T) {
 	sse := "event: message\n" +
-		"data: {\"type\":\"tool_use\",\"name\":\"mcp_Read\"}\n\n"
+		"data: {\"type\":\"tool_use\",\"name\":\"mcp__tools__mcp-read\"}\n\n"
 
 	req, _ := http.NewRequest("GET", "http://example.test", nil)
 	req = req.WithContext(WithProviderInfo(req.Context(), ProviderInfo{Provider: ProviderAnthropic}))
-	req = req.WithContext(WithClaudeToolNameMap(req.Context(), ClaudeToolNameMap{"mcp_Read": "Read"}))
+	req = req.WithContext(WithClaudeToolNameMap(req.Context(), ClaudeToolNameMap{"mcp__tools__mcp-read": "Read"}))
 
 	resp := &http.Response{
 		StatusCode: 200,
