@@ -3,19 +3,15 @@ package amp
 import (
 	"context"
 	"encoding/json"
-	"strings"
 	"testing"
 )
 
 func TestAmpSubagentInfo_ContextRoundtrip(t *testing.T) {
-	info := &AmpSubagentInfo{ThreadID: "T-019d2a44-f848-7136-86cd-06e8bc8903ed", RootSessionID: "T-root"}
+	info := &AmpSubagentInfo{ThreadID: "T-019d2a44-f848-7136-86cd-06e8bc8903ed"}
 	ctx := WithAmpSubagentInfo(context.Background(), info)
 	got := GetAmpSubagentInfo(ctx)
-	if got == nil {
-		t.Fatal("expected non-nil")
-	}
-	if got.ThreadID != info.ThreadID || got.RootSessionID != info.RootSessionID {
-		t.Fatalf("roundtrip mismatch")
+	if got == nil || got.ThreadID != info.ThreadID {
+		t.Fatal("roundtrip mismatch")
 	}
 }
 
@@ -25,57 +21,15 @@ func TestAmpSubagentInfo_ContextMissing(t *testing.T) {
 	}
 }
 
-func TestParseAmpSubagentMarker_Subagent(t *testing.T) {
-	body := []byte(`{"messages":[{"role":"user","content":[{"type":"text","text":"__AMP_SESSION__:T-root-123\nDo something"}]}]}`)
-	info := ParseAmpSubagentMarker(body, "T-sub-456")
+func TestNormalizeUserContentToArray_StringContent(t *testing.T) {
+	body := []byte(`{"model":"test","messages":[{"role":"user","content":"hello world"}]}`)
 
-	if !info.IsSubagent {
-		t.Fatal("expected IsSubagent=true")
-	}
-	if info.RootSessionID != "T-root-123" {
-		t.Fatalf("expected RootSessionID=T-root-123, got %s", info.RootSessionID)
-	}
-	if info.ThreadID != "T-sub-456" {
-		t.Fatalf("expected ThreadID=T-sub-456, got %s", info.ThreadID)
-	}
-}
-
-func TestParseAmpSubagentMarker_RootRequest(t *testing.T) {
-	body := []byte(`{"messages":[{"role":"user","content":"hello"}]}`)
-	info := ParseAmpSubagentMarker(body, "T-thread-1")
-
-	if info.IsSubagent {
-		t.Fatal("expected IsSubagent=false for root request")
-	}
-	if info.RootSessionID != "T-thread-1" {
-		t.Fatalf("expected RootSessionID=T-thread-1 (fallback to threadID), got %s", info.RootSessionID)
-	}
-}
-
-func TestConvertAmpToCopilotAPIFormat_ArrayContent(t *testing.T) {
-	body := []byte(`{"model":"claude-sonnet-4-20250514","messages":[{"role":"user","content":[{"type":"text","text":"__AMP_SESSION__:T-root-abc\nPlease do the task"}]}],"stream":true}`)
-	info := &AmpSubagentInfo{
-		RootSessionID: "T-root-abc",
-		ThreadID:      "T-sub-def",
-		IsSubagent:    true,
+	newBody, changed := NormalizeUserContentToArray(body)
+	if !changed {
+		t.Fatal("expected normalization")
 	}
 
-	newBody, converted := ConvertAmpToCopilotAPIFormat(body, info)
-	if !converted {
-		t.Fatal("expected conversion to occur")
-	}
-
-	// Verify __AMP_SESSION__ is stripped from raw JSON
-	if strings.Contains(string(newBody), "__AMP_SESSION__") {
-		t.Fatal("__AMP_SESSION__ should be stripped from output")
-	}
-
-	// Verify __SUBAGENT_MARKER__ is injected
-	if !strings.Contains(string(newBody), copilotAPIMarkerPrefix) {
-		t.Fatal("__SUBAGENT_MARKER__ should be present in output")
-	}
-
-	// Decode and verify content
+	// Parse and verify structure
 	var parsed struct {
 		Messages []struct {
 			Role    string `json:"role"`
@@ -86,75 +40,86 @@ func TestConvertAmpToCopilotAPIFormat_ArrayContent(t *testing.T) {
 		} `json:"messages"`
 	}
 	if err := json.Unmarshal(newBody, &parsed); err != nil {
-		t.Fatalf("output should be valid JSON: %v", err)
+		t.Fatalf("invalid JSON: %v", err)
 	}
-
-	firstText := parsed.Messages[0].Content[0].Text
-
-	if !strings.Contains(firstText, "<system-reminder>") {
-		t.Fatal("<system-reminder> wrapper should be present")
+	if len(parsed.Messages) != 1 {
+		t.Fatalf("expected 1 message, got %d", len(parsed.Messages))
 	}
-	if !strings.Contains(firstText, "Please do the task") {
-		t.Fatal("original prompt text should be preserved")
+	if len(parsed.Messages[0].Content) != 1 {
+		t.Fatalf("expected 1 content block, got %d", len(parsed.Messages[0].Content))
 	}
-	if !strings.Contains(firstText, `"session_id":"T-root-abc"`) {
-		t.Fatal("marker should contain root session ID")
-	}
-	if !strings.Contains(firstText, `"agent_type":"amp-subagent"`) {
-		t.Fatal("marker should contain agent_type")
+	block := parsed.Messages[0].Content[0]
+	if block.Type != "text" || block.Text != "hello world" {
+		t.Fatalf("unexpected block: %+v", block)
 	}
 }
 
-func TestConvertAmpToCopilotAPIFormat_StringContent(t *testing.T) {
-	body := []byte(`{"model":"test","messages":[{"role":"user","content":"__AMP_SESSION__:T-root\nHello world"}]}`)
-	info := &AmpSubagentInfo{
-		RootSessionID: "T-root",
-		ThreadID:      "T-sub",
-		IsSubagent:    true,
-	}
+func TestNormalizeUserContentToArray_AlreadyArray(t *testing.T) {
+	body := []byte(`{"messages":[{"role":"user","content":[{"type":"text","text":"already array"}]}]}`)
 
-	newBody, converted := ConvertAmpToCopilotAPIFormat(body, info)
-	if !converted {
-		t.Fatal("expected conversion for string content")
-	}
-	if strings.Contains(string(newBody), "__AMP_SESSION__") {
-		t.Fatal("__AMP_SESSION__ should be stripped")
-	}
-	if !strings.Contains(string(newBody), copilotAPIMarkerPrefix) {
-		t.Fatal("__SUBAGENT_MARKER__ should be injected")
+	_, changed := NormalizeUserContentToArray(body)
+	if changed {
+		t.Fatal("should not modify already-array content")
 	}
 }
 
-func TestConvertAmpToCopilotAPIFormat_NotSubagent(t *testing.T) {
-	body := []byte(`{"messages":[{"role":"user","content":"hello"}]}`)
-	info := &AmpSubagentInfo{
-		RootSessionID: "T-thread",
-		ThreadID:      "T-thread",
-		IsSubagent:    false,
+func TestNormalizeUserContentToArray_AssistantUntouched(t *testing.T) {
+	body := []byte(`{"messages":[{"role":"assistant","content":"I am ready"},{"role":"user","content":"do it"}]}`)
+
+	newBody, changed := NormalizeUserContentToArray(body)
+	if !changed {
+		t.Fatal("expected user message normalization")
 	}
 
-	_, converted := ConvertAmpToCopilotAPIFormat(body, info)
-	if converted {
-		t.Fatal("should not convert when IsSubagent=false")
+	// Verify assistant message is still a string
+	var raw map[string]json.RawMessage
+	json.Unmarshal(newBody, &raw)
+	var msgs []json.RawMessage
+	json.Unmarshal(raw["messages"], &msgs)
+
+	var assistantMsg struct {
+		Role    string `json:"role"`
+		Content string `json:"content"`
+	}
+	if err := json.Unmarshal(msgs[0], &assistantMsg); err != nil {
+		t.Fatal("assistant message should still have string content")
+	}
+	if assistantMsg.Content != "I am ready" {
+		t.Fatalf("unexpected assistant content: %s", assistantMsg.Content)
 	}
 }
 
-func TestConvertAmpToCopilotAPIFormat_SkipsAssistantMessages(t *testing.T) {
-	body := []byte(`{"messages":[{"role":"assistant","content":"I am ready"},{"role":"user","content":[{"type":"text","text":"__AMP_SESSION__:T-root\nTask prompt"}]}]}`)
-	info := &AmpSubagentInfo{
-		RootSessionID: "T-root",
-		ThreadID:      "T-sub",
-		IsSubagent:    true,
+func TestNormalizeUserContentToArray_SubagentMarkerVisible(t *testing.T) {
+	// Simulate what Amp sends after plugin injection
+	marker := `<system-reminder>\nSubagentStart hook additional context: __SUBAGENT_MARKER__ {"session_id":"T-abc","agent_id":"T-abc","agent_type":"amp-subagent"}\n</system-reminder>\nDo the task`
+	body := []byte(`{"messages":[{"role":"user","content":` + mustJSON(marker) + `}]}`)
+
+	newBody, changed := NormalizeUserContentToArray(body)
+	if !changed {
+		t.Fatal("expected normalization")
 	}
 
-	newBody, converted := ConvertAmpToCopilotAPIFormat(body, info)
-	if !converted {
-		t.Fatal("expected conversion")
+	// Verify the marker is in an array text block (copilot-api can now parse it)
+	var parsed struct {
+		Messages []struct {
+			Content []struct {
+				Type string `json:"type"`
+				Text string `json:"text"`
+			} `json:"content"`
+		} `json:"messages"`
 	}
-	if !strings.Contains(string(newBody), "I am ready") {
-		t.Fatal("assistant message should be preserved")
+	if err := json.Unmarshal(newBody, &parsed); err != nil {
+		t.Fatalf("invalid JSON: %v", err)
 	}
-	if !strings.Contains(string(newBody), copilotAPIMarkerPrefix) {
-		t.Fatal("marker should be in user message")
+	if parsed.Messages[0].Content[0].Type != "text" {
+		t.Fatal("expected text block")
 	}
+	if text := parsed.Messages[0].Content[0].Text; text == "" {
+		t.Fatal("text should not be empty")
+	}
+}
+
+func mustJSON(s string) string {
+	b, _ := json.Marshal(s)
+	return string(b)
 }

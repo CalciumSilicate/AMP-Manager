@@ -399,19 +399,17 @@ func ChannelProxyHandler() gin.HandlerFunc {
 			}
 			convertedBody = filteredBody
 
-			// CopilotAPI mode: parse Amp markers and convert to copilot-api format.
-			// - Root requests: just save ThreadID for x-session-id header
-			// - Subagent requests: strip __AMP_SESSION__, inject __SUBAGENT_MARKER__,
-			//   and use root session ID for x-session-id
+			// CopilotAPI mode: save X-Amp-Thread-Id for x-session-id injection in Director.
+			// Also normalize user message string content → array blocks so copilot-api's
+			// __SUBAGENT_MARKER__ parser can detect them (it only checks Array.isArray).
 			if channel.CopilotAPI {
 				if ampThreadID := c.Request.Header.Get("X-Amp-Thread-Id"); ampThreadID != "" {
-					ampInfo := ParseAmpSubagentMarker(convertedBody, ampThreadID)
-					if ampInfo.IsSubagent {
-						if newBody, converted := ConvertAmpToCopilotAPIFormat(convertedBody, ampInfo); converted {
-							convertedBody = newBody
-						}
-					}
-					c.Request = c.Request.WithContext(WithAmpSubagentInfo(c.Request.Context(), ampInfo))
+					c.Request = c.Request.WithContext(
+						WithAmpSubagentInfo(c.Request.Context(), &AmpSubagentInfo{ThreadID: ampThreadID}),
+					)
+				}
+				if newBody, normalized := NormalizeUserContentToArray(convertedBody); normalized {
+					convertedBody = newBody
 				}
 			}
 
@@ -619,13 +617,9 @@ func ChannelProxyHandler() gin.HandlerFunc {
 					req.Header.Del("x-api-key")
 				}
 
-				// CopilotAPI mode: inject x-session-id for session tracking.
-				// Root requests: x-session-id = own thread ID
-				// Subagent requests: x-session-id = root thread ID (preserves parent session)
-				if ampInfo := GetAmpSubagentInfo(req.Context()); ampInfo != nil {
-					if ampInfo.RootSessionID != "" {
-						req.Header.Set("x-session-id", ampInfo.RootSessionID)
-					}
+				// CopilotAPI mode: X-Amp-Thread-Id → x-session-id
+				if ampInfo := GetAmpSubagentInfo(req.Context()); ampInfo != nil && ampInfo.ThreadID != "" {
+					req.Header.Set("x-session-id", ampInfo.ThreadID)
 				}
 
 				// Capture translated request headers after all Director modifications
