@@ -32,6 +32,7 @@ type Channel struct {
 	ModelWhitelist bool            `json:"modelWhitelist"`
 	SimulateCLI          bool            `json:"simulateCli"`
 	SimulateSystemPrompt bool            `json:"simulateSystemPrompt"`
+	TraditionalChinese   bool            `json:"traditionalChinese"`
 	ModelsJSON           string          `json:"-"`
 	HeadersJSON    string          `json:"-"`
 	CreatedAt      time.Time       `json:"createdAt"`
@@ -55,6 +56,7 @@ type ChannelRequest struct {
 	ModelWhitelist bool              `json:"modelWhitelist"`
 	SimulateCLI          bool              `json:"simulateCli"`
 	SimulateSystemPrompt bool              `json:"simulateSystemPrompt"`
+	TraditionalChinese   bool              `json:"traditionalChinese"`
 	GroupIDs             []string          `json:"groupIds"`
 	Models               []ChannelModel    `json:"models,omitempty"`
 	Headers        map[string]string `json:"headers,omitempty"`
@@ -73,6 +75,7 @@ type ChannelResponse struct {
 	ModelWhitelist bool              `json:"modelWhitelist"`
 	SimulateCLI          bool              `json:"simulateCli"`
 	SimulateSystemPrompt bool              `json:"simulateSystemPrompt"`
+	TraditionalChinese   bool              `json:"traditionalChinese"`
 	GroupIDs             []string          `json:"groupIds"`
 	GroupNames           []string          `json:"groupNames"`
 	Models         []ChannelModel    `json:"models"`

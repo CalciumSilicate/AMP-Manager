@@ -110,6 +110,7 @@ func (s *ChannelService) Create(req *model.ChannelRequest) (*model.ChannelRespon
 		ModelWhitelist: req.ModelWhitelist,
 		SimulateCLI:          req.SimulateCLI,
 		SimulateSystemPrompt: req.SimulateSystemPrompt,
+		TraditionalChinese:   req.TraditionalChinese,
 		ModelsJSON:           string(modelsJSON),
 		HeadersJSON:    string(headersJSON),
 	}
@@ -199,6 +200,7 @@ func (s *ChannelService) Update(id string, req *model.ChannelRequest) (*model.Ch
 	existing.ModelWhitelist = req.ModelWhitelist
 	existing.SimulateCLI = req.SimulateCLI
 	existing.SimulateSystemPrompt = req.SimulateSystemPrompt
+	existing.TraditionalChinese = req.TraditionalChinese
 	existing.ModelsJSON = string(modelsJSON)
 	existing.HeadersJSON = string(headersJSON)
 
@@ -659,6 +661,7 @@ func (s *ChannelService) buildResponse(channel *model.Channel, gids []string, gr
 		ModelWhitelist: channel.ModelWhitelist,
 		SimulateCLI:          channel.SimulateCLI,
 		SimulateSystemPrompt: channel.SimulateSystemPrompt,
+		TraditionalChinese:   channel.TraditionalChinese,
 		GroupIDs:             groupIDs,
 		GroupNames:     groupNames,
 		Models:         models,

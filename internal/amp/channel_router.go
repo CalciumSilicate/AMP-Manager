@@ -16,6 +16,7 @@ import (
 
 	"ampmanager/internal/billing"
 	"ampmanager/internal/model"
+	"ampmanager/internal/opencc"
 	"ampmanager/internal/service"
 	"ampmanager/internal/translator"
 	"ampmanager/internal/translator/filters"
@@ -33,6 +34,24 @@ type translationContextKey struct{}
 
 // responseWriterContextKey is used to store ResponseWriter in context for SSE keep-alive
 type responseWriterContextKey struct{}
+
+// traditionalChineseContextKey is used to flag that Traditional Chinese conversion is active
+type traditionalChineseContextKey struct{}
+
+// WithTraditionalChinese stores the traditional Chinese conversion flag in context
+func WithTraditionalChinese(ctx context.Context, enabled bool) context.Context {
+	return context.WithValue(ctx, traditionalChineseContextKey{}, enabled)
+}
+
+// GetTraditionalChinese retrieves the traditional Chinese conversion flag from context
+func GetTraditionalChinese(ctx context.Context) bool {
+	if val := ctx.Value(traditionalChineseContextKey{}); val != nil {
+		if enabled, ok := val.(bool); ok {
+			return enabled
+		}
+	}
+	return false
+}
 
 // WithResponseWriter stores ResponseWriter in context
 func WithResponseWriter(ctx context.Context, w http.ResponseWriter) context.Context {
@@ -409,6 +428,13 @@ func ChannelProxyHandler() gin.HandlerFunc {
 				convertedBody = applyClaudeCodeSystemPrompt(convertedBody)
 			}
 
+			// Apply Traditional Chinese conversion (S2T) for Claude channels with the feature enabled
+			if outgoingFormat == translator.FormatClaude && channel.TraditionalChinese {
+				convertedBody = opencc.ConvertClaudeRequestBodyS2T(convertedBody)
+				c.Request = c.Request.WithContext(WithTraditionalChinese(c.Request.Context(), true))
+				log.Debugf("channel proxy: applied S2T traditional Chinese conversion to request body")
+			}
+
 			if !bytes.Equal(convertedBody, bodyBytes) {
 				c.Request.Body = io.NopCloser(bytes.NewReader(convertedBody))
 				c.Request.ContentLength = int64(len(convertedBody))
@@ -705,11 +731,30 @@ func ChannelProxyHandler() gin.HandlerFunc {
 				// For non-streaming responses, read the complete body upfront,
 				// apply all transformations, then reset body with correct Content-Length
 				if !isStreaming {
-					return handleNonStreamingResponse(resp, trace, transInfo, originalModel, mappedModel)
+					if err := handleNonStreamingResponse(resp, trace, transInfo, originalModel, mappedModel); err != nil {
+						return err
+					}
+					// Apply T2S Traditional Chinese conversion on the final non-streaming response body
+					if GetTraditionalChinese(resp.Request.Context()) {
+						bodyBytes, readErr := io.ReadAll(resp.Body)
+						if readErr == nil && len(bodyBytes) > 0 {
+							bodyBytes = opencc.ConvertClaudeResponseBodyT2S(bodyBytes)
+							resp.Body = io.NopCloser(bytes.NewReader(bodyBytes))
+							resp.ContentLength = int64(len(bodyBytes))
+							resp.Header.Set("Content-Length", strconv.Itoa(len(bodyBytes)))
+							log.Debugf("channel proxy: applied T2S traditional Chinese conversion to non-streaming response")
+						}
+					}
+					return nil
 				}
 
 				resp.Body = NewSSETransformWrapper(resp.Body, func(b []byte) []byte {
-					return TransformResponseJSON(resp.Request.Context(), b, originalModel, mappedModel)
+					b = TransformResponseJSON(resp.Request.Context(), b, originalModel, mappedModel)
+					// Apply T2S Traditional Chinese conversion on each SSE frame
+					if GetTraditionalChinese(resp.Request.Context()) {
+						b = opencc.ConvertClaudeSSEDataT2S(b)
+					}
+					return b
 				})
 
 				// Streaming response handling (existing logic)

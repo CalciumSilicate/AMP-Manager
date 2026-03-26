@@ -779,6 +779,10 @@ func runMigrations() error {
 			name: "add_channels_simulate_system_prompt",
 			sql:  `ALTER TABLE channels ADD COLUMN simulate_system_prompt INTEGER NOT NULL DEFAULT 0`,
 		},
+		{
+			name: "add_channels_traditional_chinese",
+			sql:  `ALTER TABLE channels ADD COLUMN traditional_chinese INTEGER NOT NULL DEFAULT 0`,
+		},
 	}
 
 	for _, m := range migrations {

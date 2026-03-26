@@ -289,6 +289,22 @@ export function ChannelFormDialog({
             </div>
           )}
 
+          {/* 繁体化 - 仅 Claude 类型显示 */}
+          {formData.type === 'claude' && (
+            <div className="col-span-2 flex items-center justify-between rounded-lg border p-4">
+              <div className="space-y-0.5">
+                <Label>繁体化</Label>
+                <p className="text-sm text-muted-foreground">
+                  启用后将用户输入的简体中文转换为繁体中文发送，并将响应的繁体中文转换为简体中文返回
+                </p>
+              </div>
+              <Switch
+                checked={formData.traditionalChinese || false}
+                onCheckedChange={(checked) => setFormData(prev => ({ ...prev, traditionalChinese: checked }))}
+              />
+            </div>
+          )}
+
           {/* 模型规则编辑器 */}
           <ModelRulesEditor
             models={formData.models}
