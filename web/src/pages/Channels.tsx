@@ -90,6 +90,7 @@ export default function Channels() {
       simulateCli: false,
       simulateSystemPrompt: false,
       traditionalChinese: false,
+      copilotApi: false,
       headers: {},
     })
     setShowForm(true)
@@ -112,6 +113,7 @@ export default function Channels() {
       simulateCli: channel.simulateCli || false,
       simulateSystemPrompt: channel.simulateSystemPrompt || false,
       traditionalChinese: channel.traditionalChinese || false,
+      copilotApi: channel.copilotApi || false,
       headers: channel.headers,
     })
     setShowForm(true)

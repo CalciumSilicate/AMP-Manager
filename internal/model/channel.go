@@ -33,6 +33,7 @@ type Channel struct {
 	SimulateCLI          bool            `json:"simulateCli"`
 	SimulateSystemPrompt bool            `json:"simulateSystemPrompt"`
 	TraditionalChinese   bool            `json:"traditionalChinese"`
+	CopilotAPI           bool            `json:"copilotApi"`
 	ModelsJSON           string          `json:"-"`
 	HeadersJSON    string          `json:"-"`
 	CreatedAt      time.Time       `json:"createdAt"`
@@ -57,6 +58,7 @@ type ChannelRequest struct {
 	SimulateCLI          bool              `json:"simulateCli"`
 	SimulateSystemPrompt bool              `json:"simulateSystemPrompt"`
 	TraditionalChinese   bool              `json:"traditionalChinese"`
+	CopilotAPI           bool              `json:"copilotApi"`
 	GroupIDs             []string          `json:"groupIds"`
 	Models               []ChannelModel    `json:"models,omitempty"`
 	Headers        map[string]string `json:"headers,omitempty"`
@@ -76,6 +78,7 @@ type ChannelResponse struct {
 	SimulateCLI          bool              `json:"simulateCli"`
 	SimulateSystemPrompt bool              `json:"simulateSystemPrompt"`
 	TraditionalChinese   bool              `json:"traditionalChinese"`
+	CopilotAPI           bool              `json:"copilotApi"`
 	GroupIDs             []string          `json:"groupIds"`
 	GroupNames           []string          `json:"groupNames"`
 	Models         []ChannelModel    `json:"models"`

@@ -783,6 +783,10 @@ func runMigrations() error {
 			name: "add_channels_traditional_chinese",
 			sql:  `ALTER TABLE channels ADD COLUMN traditional_chinese INTEGER NOT NULL DEFAULT 0`,
 		},
+		{
+			name: "add_channels_copilot_api",
+			sql:  `ALTER TABLE channels ADD COLUMN copilot_api INTEGER NOT NULL DEFAULT 0`,
+		},
 	}
 
 	for _, m := range migrations {

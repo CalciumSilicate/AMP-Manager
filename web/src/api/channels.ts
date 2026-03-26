@@ -35,6 +35,7 @@ export interface Channel {
   simulateCli: boolean
   simulateSystemPrompt: boolean
   traditionalChinese: boolean
+  copilotApi: boolean
   headers: Record<string, string>
   createdAt: string
   updatedAt: string
@@ -55,6 +56,7 @@ export interface ChannelRequest {
   simulateCli?: boolean
   simulateSystemPrompt?: boolean
   traditionalChinese?: boolean
+  copilotApi?: boolean
   headers?: Record<string, string>
 }
 

@@ -268,6 +268,7 @@ export function ChannelFormDialog({
               </div>
               <Switch
                 checked={formData.simulateCli || false}
+                disabled={formData.copilotApi || false}
                 onCheckedChange={(checked) => setFormData(prev => ({ ...prev, simulateCli: checked }))}
               />
             </div>
@@ -301,6 +302,23 @@ export function ChannelFormDialog({
               <Switch
                 checked={formData.traditionalChinese || false}
                 onCheckedChange={(checked) => setFormData(prev => ({ ...prev, traditionalChinese: checked }))}
+              />
+            </div>
+          )}
+
+          {/* Copilot API 支持 - 仅 Claude 类型显示，与模拟 CLI 互斥 */}
+          {formData.type === 'claude' && (
+            <div className="col-span-2 flex items-center justify-between rounded-lg border p-4">
+              <div className="space-y-0.5">
+                <Label>Copilot API 模式</Label>
+                <p className="text-sm text-muted-foreground">
+                  启用后将通过 x-session-id 传递会话追踪信息，用于 copilot-api 代理。与模拟 CLI 互斥
+                </p>
+              </div>
+              <Switch
+                checked={formData.copilotApi || false}
+                disabled={formData.simulateCli || false}
+                onCheckedChange={(checked) => setFormData(prev => ({ ...prev, copilotApi: checked }))}
               />
             </div>
           )}
