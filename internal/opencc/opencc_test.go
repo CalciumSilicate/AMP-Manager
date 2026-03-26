@@ -1,6 +1,7 @@
 package opencc
 
 import (
+	"strings"
 	"testing"
 )
 
@@ -42,12 +43,51 @@ func TestConvertClaudeRequestBodyS2T(t *testing.T) {
 	t.Logf("Request S2T result: %s", resultStr)
 }
 
-func TestConvertClaudeSSEDataT2S(t *testing.T) {
+func TestConvertClaudeSSEDataT2S_TextDelta(t *testing.T) {
 	data := []byte(`{"type":"content_block_delta","delta":{"type":"text_delta","text":"這是繁體中文"}}`)
 	result := ConvertClaudeSSEDataT2S(data)
 	resultStr := string(result)
 	if resultStr == string(data) {
-		t.Fatal("SSE T2S did not change anything")
+		t.Fatal("SSE text_delta T2S did not change anything")
 	}
-	t.Logf("SSE T2S result: %s", resultStr)
+	if strings.Contains(resultStr, "這是繁體中文") {
+		t.Fatal("SSE text_delta still contains Traditional Chinese")
+	}
+	t.Logf("SSE text_delta T2S result: %s", resultStr)
+}
+
+func TestConvertClaudeSSEDataT2S_InputJsonDelta(t *testing.T) {
+	data := []byte(`{"type":"content_block_delta","delta":{"type":"input_json_delta","partial_json":"\"關於架構設計，插件內註冊的工具\""}}`)
+	result := ConvertClaudeSSEDataT2S(data)
+	resultStr := string(result)
+	if resultStr == string(data) {
+		t.Fatal("SSE input_json_delta T2S did not change anything")
+	}
+	if strings.Contains(resultStr, "關於") || strings.Contains(resultStr, "註冊") {
+		t.Fatal("SSE input_json_delta still contains Traditional Chinese")
+	}
+	t.Logf("SSE input_json_delta T2S result: %s", resultStr)
+}
+
+func TestConvertClaudeResponseBodyT2S_ToolUse(t *testing.T) {
+	body := []byte(`{"content":[{"type":"tool_use","id":"toolu_123","name":"ask","input":{"prompt":"關於架構設計","title":"選擇方案","options":[{"label":"方案A","description":"純插件方案"}]}}]}`)
+	result := ConvertClaudeResponseBodyT2S(body)
+	resultStr := string(result)
+	if strings.Contains(resultStr, "關於") {
+		t.Fatal("Non-streaming tool_use still contains Traditional Chinese '關於'")
+	}
+	if strings.Contains(resultStr, "純插件") {
+		t.Fatal("Non-streaming tool_use still contains Traditional Chinese '純插件'")
+	}
+	t.Logf("Non-streaming tool_use T2S result: %s", resultStr)
+}
+
+func TestConvertClaudeResponseBodyT2S_TextBlock(t *testing.T) {
+	body := []byte(`{"content":[{"type":"text","text":"這是一個繁體中文的回應"}]}`)
+	result := ConvertClaudeResponseBodyT2S(body)
+	resultStr := string(result)
+	if strings.Contains(resultStr, "這是") {
+		t.Fatal("Non-streaming text still contains Traditional Chinese")
+	}
+	t.Logf("Non-streaming text T2S result: %s", resultStr)
 }

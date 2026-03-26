@@ -6,7 +6,7 @@ import (
 )
 
 // ConvertClaudeRequestBodyS2T converts Simplified Chinese text fields in a Claude
-// /v1/messages request body to Traditional Chinese. It targets only user-visible
+// /v1/messages request body to Traditional Chinese. It targets user-visible
 // text: messages[].content (string or text blocks), and system prompt text.
 func ConvertClaudeRequestBodyS2T(body []byte) []byte {
 	if len(body) == 0 || getS2T() == nil {
@@ -50,10 +50,29 @@ func ConvertClaudeRequestBodyS2T(body []byte) []byte {
 				result, _ = sjson.SetBytes(result, prefix, SimplifiedToTraditional(content.Str))
 			} else if content.IsArray() {
 				content.ForEach(func(ci, block gjson.Result) bool {
-					if block.Get("type").Str == "text" {
+					blockType := block.Get("type").Str
+					blockPrefix := prefix + "." + ci.String()
+					switch blockType {
+					case "text":
 						t := block.Get("text").Str
 						if t != "" {
-							result, _ = sjson.SetBytes(result, prefix+"."+ci.String()+".text", SimplifiedToTraditional(t))
+							result, _ = sjson.SetBytes(result, blockPrefix+".text", SimplifiedToTraditional(t))
+						}
+					case "tool_result":
+						// Convert text content inside tool_result blocks
+						trContent := block.Get("content")
+						if trContent.Type == gjson.String && trContent.Str != "" {
+							result, _ = sjson.SetBytes(result, blockPrefix+".content", SimplifiedToTraditional(trContent.Str))
+						} else if trContent.IsArray() {
+							trContent.ForEach(func(tri, trBlock gjson.Result) bool {
+								if trBlock.Get("type").Str == "text" {
+									t := trBlock.Get("text").Str
+									if t != "" {
+										result, _ = sjson.SetBytes(result, blockPrefix+".content."+tri.String()+".text", SimplifiedToTraditional(t))
+									}
+								}
+								return true
+							})
 						}
 					}
 					return true
@@ -67,21 +86,35 @@ func ConvertClaudeRequestBodyS2T(body []byte) []byte {
 }
 
 // ConvertClaudeResponseBodyT2S converts Traditional Chinese text fields in a Claude
-// /v1/messages response body to Simplified Chinese.
+// /v1/messages response body to Simplified Chinese. Handles text blocks, tool_use
+// input, and any nested string values.
 func ConvertClaudeResponseBodyT2S(body []byte) []byte {
 	if len(body) == 0 || getT2S() == nil {
 		return body
 	}
 	result := body
 
-	// Convert content[].text in response
 	content := gjson.GetBytes(result, "content")
 	if content.Exists() && content.IsArray() {
 		content.ForEach(func(ci, block gjson.Result) bool {
-			if block.Get("type").Str == "text" {
+			blockPrefix := "content." + ci.String()
+			blockType := block.Get("type").Str
+			switch blockType {
+			case "text":
 				t := block.Get("text").Str
 				if t != "" {
-					result, _ = sjson.SetBytes(result, "content."+ci.String()+".text", TraditionalToSimplified(t))
+					result, _ = sjson.SetBytes(result, blockPrefix+".text", TraditionalToSimplified(t))
+				}
+			case "thinking":
+				t := block.Get("thinking").Str
+				if t != "" {
+					result, _ = sjson.SetBytes(result, blockPrefix+".thinking", TraditionalToSimplified(t))
+				}
+			case "tool_use":
+				// Recursively convert all string values in tool_use input
+				input := block.Get("input")
+				if input.Exists() {
+					result = convertAllStringsT2S(result, blockPrefix+".input", input)
 				}
 			}
 			return true
@@ -91,8 +124,30 @@ func ConvertClaudeResponseBodyT2S(body []byte) []byte {
 	return result
 }
 
+// convertAllStringsT2S recursively converts all string values in a gjson.Result from T2S.
+func convertAllStringsT2S(body []byte, path string, node gjson.Result) []byte {
+	switch {
+	case node.Type == gjson.String:
+		if node.Str != "" {
+			body, _ = sjson.SetBytes(body, path, TraditionalToSimplified(node.Str))
+		}
+	case node.IsObject():
+		node.ForEach(func(key, value gjson.Result) bool {
+			body = convertAllStringsT2S(body, path+"."+key.Str, value)
+			return true
+		})
+	case node.IsArray():
+		node.ForEach(func(idx, value gjson.Result) bool {
+			body = convertAllStringsT2S(body, path+"."+idx.String(), value)
+			return true
+		})
+	}
+	return body
+}
+
 // ConvertClaudeSSEDataT2S converts Traditional Chinese text in a single SSE JSON
-// data payload (content_block_delta or message_delta events) to Simplified Chinese.
+// data payload to Simplified Chinese. Handles all event types: text_delta,
+// thinking_delta, input_json_delta, and content_block_start.
 func ConvertClaudeSSEDataT2S(data []byte) []byte {
 	if len(data) == 0 || getT2S() == nil {
 		return data
@@ -102,36 +157,55 @@ func ConvertClaudeSSEDataT2S(data []byte) []byte {
 
 	switch typ {
 	case "content_block_delta":
-		// delta.text for text_delta
 		deltaType := gjson.GetBytes(data, "delta.type").Str
-		if deltaType == "text_delta" {
+		switch deltaType {
+		case "text_delta":
 			t := gjson.GetBytes(data, "delta.text").Str
 			if t != "" {
-				result, err := sjson.SetBytes(data, "delta.text", TraditionalToSimplified(t))
-				if err == nil {
+				if result, err := sjson.SetBytes(data, "delta.text", TraditionalToSimplified(t)); err == nil {
 					return result
 				}
 			}
-		} else if deltaType == "thinking_delta" {
+		case "thinking_delta":
 			t := gjson.GetBytes(data, "delta.thinking").Str
 			if t != "" {
-				result, err := sjson.SetBytes(data, "delta.thinking", TraditionalToSimplified(t))
-				if err == nil {
+				if result, err := sjson.SetBytes(data, "delta.thinking", TraditionalToSimplified(t)); err == nil {
+					return result
+				}
+			}
+		case "input_json_delta":
+			// Convert Chinese text within partial JSON fragments for tool_use input.
+			// OpenCC only converts Chinese characters and leaves JSON syntax/ASCII unchanged,
+			// so this is safe even for partial JSON.
+			t := gjson.GetBytes(data, "delta.partial_json").Str
+			if t != "" {
+				converted := TraditionalToSimplified(t)
+				if converted != t {
+					if result, err := sjson.SetBytes(data, "delta.partial_json", converted); err == nil {
+						return result
+					}
+				}
+			}
+		}
+
+	case "content_block_start":
+		blockType := gjson.GetBytes(data, "content_block.type").Str
+		switch blockType {
+		case "text":
+			t := gjson.GetBytes(data, "content_block.text").Str
+			if t != "" {
+				if result, err := sjson.SetBytes(data, "content_block.text", TraditionalToSimplified(t)); err == nil {
+					return result
+				}
+			}
+		case "thinking":
+			t := gjson.GetBytes(data, "content_block.thinking").Str
+			if t != "" {
+				if result, err := sjson.SetBytes(data, "content_block.thinking", TraditionalToSimplified(t)); err == nil {
 					return result
 				}
 			}
 		}
-	case "content_block_start":
-		// content_block.text for text blocks
-		t := gjson.GetBytes(data, "content_block.text").Str
-		if t != "" {
-			result, err := sjson.SetBytes(data, "content_block.text", TraditionalToSimplified(t))
-			if err == nil {
-				return result
-			}
-		}
-	case "message_delta":
-		// stop_reason is metadata, not text to convert
 	}
 
 	return data
