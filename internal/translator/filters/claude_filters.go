@@ -52,7 +52,8 @@ func (f *ClaudeSystemStringFilter) Apply(body []byte) ([]byte, bool, error) {
 }
 
 // RegisterClaudeFilters registers all Claude-specific filters.
+// NOTE: ClaudeCodeSimulationFilter is NOT registered here — it is applied
+// conditionally in channel_router.go only when channel.SimulateCLI is true.
 func RegisterClaudeFilters() {
-	Register(translator.FormatClaude, &ClaudeCodeSimulationFilter{})
 	Register(translator.FormatClaude, &ClaudeSystemStringFilter{})
 }

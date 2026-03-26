@@ -380,7 +380,13 @@ func ChannelProxyHandler() gin.HandlerFunc {
 			}
 			convertedBody = filteredBody
 
-			if outgoingFormat == translator.FormatClaude {
+			if outgoingFormat == translator.FormatClaude && channel.SimulateCLI {
+				// Apply Claude Code simulation filter (body restructuring)
+				simFilter := &filters.ClaudeCodeSimulationFilter{}
+				if newBody, changed, err := simFilter.Apply(convertedBody); err == nil && changed {
+					convertedBody = newBody
+				}
+
 				if cfg := GetProxyConfig(c.Request.Context()); cfg != nil {
 					if newBody, injected := ensureClaudeMetadataUserID(convertedBody, c.Request.Header.Get("User-Agent"), channel.APIKey); injected {
 						convertedBody = newBody
@@ -398,6 +404,9 @@ func ChannelProxyHandler() gin.HandlerFunc {
 						c.Request = c.Request.WithContext(WithClaudeToolNameMap(c.Request.Context(), toolMap))
 					}
 				}
+			} else if outgoingFormat == translator.FormatClaude && channel.SimulateSystemPrompt {
+				// SimulateCLI is off but SimulateSystemPrompt is independently enabled
+				convertedBody = applyClaudeCodeSystemPrompt(convertedBody)
 			}
 
 			if !bytes.Equal(convertedBody, bodyBytes) {
