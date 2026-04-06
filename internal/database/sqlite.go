@@ -787,6 +787,10 @@ func runMigrations() error {
 			name: "add_channels_copilot_api",
 			sql:  `ALTER TABLE channels ADD COLUMN copilot_api INTEGER NOT NULL DEFAULT 0`,
 		},
+		{
+			name: "add_channels_simulate_ua",
+			sql:  `ALTER TABLE channels ADD COLUMN simulate_ua INTEGER NOT NULL DEFAULT 0`,
+		},
 	}
 
 	for _, m := range migrations {

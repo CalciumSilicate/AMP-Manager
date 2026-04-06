@@ -33,6 +33,7 @@ export interface Channel {
   models: ChannelModel[]
   modelWhitelist: boolean
   simulateCli: boolean
+  simulateUa: boolean
   simulateSystemPrompt: boolean
   traditionalChinese: boolean
   copilotApi: boolean
@@ -54,6 +55,7 @@ export interface ChannelRequest {
   models?: ChannelModel[]
   modelWhitelist?: boolean
   simulateCli?: boolean
+  simulateUa?: boolean
   simulateSystemPrompt?: boolean
   traditionalChinese?: boolean
   copilotApi?: boolean

@@ -31,6 +31,7 @@ type Channel struct {
 	Priority       int             `json:"priority"`
 	ModelWhitelist bool            `json:"modelWhitelist"`
 	SimulateCLI          bool            `json:"simulateCli"`
+	SimulateUA           bool            `json:"simulateUa"`
 	SimulateSystemPrompt bool            `json:"simulateSystemPrompt"`
 	TraditionalChinese   bool            `json:"traditionalChinese"`
 	CopilotAPI           bool            `json:"copilotApi"`
@@ -56,6 +57,7 @@ type ChannelRequest struct {
 	Priority       int               `json:"priority"`
 	ModelWhitelist bool              `json:"modelWhitelist"`
 	SimulateCLI          bool              `json:"simulateCli"`
+	SimulateUA           bool              `json:"simulateUa"`
 	SimulateSystemPrompt bool              `json:"simulateSystemPrompt"`
 	TraditionalChinese   bool              `json:"traditionalChinese"`
 	CopilotAPI           bool              `json:"copilotApi"`
@@ -76,6 +78,7 @@ type ChannelResponse struct {
 	Priority       int               `json:"priority"`
 	ModelWhitelist bool              `json:"modelWhitelist"`
 	SimulateCLI          bool              `json:"simulateCli"`
+	SimulateUA           bool              `json:"simulateUa"`
 	SimulateSystemPrompt bool              `json:"simulateSystemPrompt"`
 	TraditionalChinese   bool              `json:"traditionalChinese"`
 	CopilotAPI           bool              `json:"copilotApi"`

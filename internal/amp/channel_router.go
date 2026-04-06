@@ -587,10 +587,10 @@ func ChannelProxyHandler() gin.HandlerFunc {
 					injectOpenAIStreamOptions(req)
 				}
 
-				simulateClaudeCLI := channel.SimulateCLI && channel.Type == model.ChannelTypeClaude
+				simulateClaudeUA := channel.SimulateUA && channel.Type == model.ChannelTypeClaude
 
 				// Apply Claude CLI simulation if enabled for this channel
-				if simulateClaudeCLI {
+				if simulateClaudeUA {
 					applyClaudeCLISimulation(req)
 				}
 
@@ -600,7 +600,7 @@ func ChannelProxyHandler() gin.HandlerFunc {
 
 				// In strict Claude CLI simulation mode we rebuild a fixed header set,
 				// so custom channel headers must not be reintroduced afterwards.
-				if !simulateClaudeCLI {
+				if !simulateClaudeUA {
 					// Apply custom headers from channel config
 					var headersMap map[string]string
 					if err := json.Unmarshal([]byte(channel.HeadersJSON), &headersMap); err == nil {
