@@ -587,11 +587,13 @@ func ChannelProxyHandler() gin.HandlerFunc {
 					injectOpenAIStreamOptions(req)
 				}
 
+				simulateClaudeCLI := channel.SimulateCLI && channel.Type == model.ChannelTypeClaude
 				simulateClaudeUA := channel.SimulateUA && channel.Type == model.ChannelTypeClaude
 
-				// Apply Claude CLI simulation if enabled for this channel
-				if simulateClaudeUA {
-					applyClaudeCLISimulation(req)
+				// Apply header filtering (whitelist mode) when SimulateCLI is on,
+				// with optional UA/X-Stainless spoofing controlled by SimulateUA.
+				if simulateClaudeCLI {
+					applyClaudeCLISimulation(req, simulateClaudeUA)
 				}
 
 				// Apply channel-specific authentication after any strict header rewrite.
@@ -600,7 +602,7 @@ func ChannelProxyHandler() gin.HandlerFunc {
 
 				// In strict Claude CLI simulation mode we rebuild a fixed header set,
 				// so custom channel headers must not be reintroduced afterwards.
-				if !simulateClaudeUA {
+				if !simulateClaudeCLI {
 					// Apply custom headers from channel config
 					var headersMap map[string]string
 					if err := json.Unmarshal([]byte(channel.HeadersJSON), &headersMap); err == nil {
@@ -938,9 +940,10 @@ func applyChannelAuth(channel *model.Channel, req *http.Request) {
 	}
 }
 
-// applyClaudeCLISimulation 注入完整的 Claude Code CLI 指纹 headers。
+// applyClaudeCLISimulation 注入 Claude Code CLI headers。
 // 严格白名单模式：除少数协议必需头外，不透传客户端、代理或自定义 headers。
-func applyClaudeCLISimulation(req *http.Request) {
+// spoofUA 为 true 时额外注入 User-Agent 和 X-Stainless SDK 指纹。
+func applyClaudeCLISimulation(req *http.Request, spoofUA bool) {
 	if req == nil {
 		return
 	}
@@ -960,8 +963,10 @@ func applyClaudeCLISimulation(req *http.Request) {
 		req.Header.Set("Content-Length", contentLength)
 	}
 
-	// User-Agent — Claude Code 2.1.81
-	req.Header.Set("User-Agent", "claude-cli/2.1.81 (external, cli)")
+	// User-Agent — 仅在 spoofUA 时伪装为 Claude Code CLI
+	if spoofUA {
+		req.Header.Set("User-Agent", "claude-cli/2.1.81 (external, cli)")
+	}
 
 	// Anthropic 专用 headers
 	req.Header.Set("Anthropic-Version", "2023-06-01")
@@ -980,15 +985,17 @@ func applyClaudeCLISimulation(req *http.Request) {
 	}
 	req.Header.Set("Anthropic-Beta", strings.Join(requiredBetas, ","))
 
-	// X-Stainless SDK 指纹 — 与 claude-cli/2.1.81 + @anthropic-ai/sdk 0.74.0 对齐
-	req.Header.Set("X-Stainless-Retry-Count", "0")
-	req.Header.Set("X-Stainless-Runtime-Version", "v22.17.0")
-	req.Header.Set("X-Stainless-Package-Version", "0.74.0")
-	req.Header.Set("X-Stainless-Runtime", "node")
-	req.Header.Set("X-Stainless-Lang", "js")
-	req.Header.Set("X-Stainless-Arch", mapStainlessArch())
-	req.Header.Set("X-Stainless-Os", mapStainlessOS())
-	req.Header.Set("X-Stainless-Timeout", "600")
+	// X-Stainless SDK 指纹 — 仅在 spoofUA 时注入
+	if spoofUA {
+		req.Header.Set("X-Stainless-Retry-Count", "0")
+		req.Header.Set("X-Stainless-Runtime-Version", "v22.17.0")
+		req.Header.Set("X-Stainless-Package-Version", "0.74.0")
+		req.Header.Set("X-Stainless-Runtime", "node")
+		req.Header.Set("X-Stainless-Lang", "js")
+		req.Header.Set("X-Stainless-Arch", mapStainlessArch())
+		req.Header.Set("X-Stainless-Os", mapStainlessOS())
+		req.Header.Set("X-Stainless-Timeout", "600")
+	}
 
 	// 连接和内容 headers
 	req.Header.Set("Connection", "keep-alive")

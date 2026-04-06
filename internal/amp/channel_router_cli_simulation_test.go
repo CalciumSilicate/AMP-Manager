@@ -24,7 +24,7 @@ func TestApplyClaudeCLISimulationMatchesCurrentFingerprint(t *testing.T) {
 	req.Header.Set("Accept-Encoding", "gzip, deflate, br, zstd")
 	req.Header.Set("X-Api-Key", "should-be-removed")
 
-	applyClaudeCLISimulation(req)
+	applyClaudeCLISimulation(req, true)
 
 	if got := req.Header.Get("User-Agent"); got != "claude-cli/2.1.81 (external, cli)" {
 		t.Fatalf("unexpected User-Agent: %q", got)
@@ -117,7 +117,7 @@ func TestApplyClaudeCLISimulationStrictWhitelistDropsNonEssentialHeaders(t *test
 	req.Header.Set("X-Debug", "keep-me-if-not-strict")
 	req.Header.Set("Traceparent", "00-abc-123-01")
 
-	applyClaudeCLISimulation(req)
+	applyClaudeCLISimulation(req, true)
 
 	for _, key := range []string{"X-Amp-Client-Application", "X-Stainless-Helper-Method", "Cf-Ray", "X-Forwarded-Proto", "Cdn-Loop", "X-Debug", "Traceparent"} {
 		if got := req.Header.Get(key); got != "" {
@@ -139,7 +139,7 @@ func TestApplyClaudeCLISimulationThenChannelAuthKeepsAnthropicCredentials(t *tes
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("X-Api-Key", "client-key-should-be-replaced")
 
-	applyClaudeCLISimulation(req)
+	applyClaudeCLISimulation(req, true)
 	applyChannelAuth(&model.Channel{Type: model.ChannelTypeClaude, APIKey: "channel-secret"}, req)
 
 	if got := req.Header.Get("x-api-key"); got != "channel-secret" {
