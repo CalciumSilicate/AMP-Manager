@@ -580,6 +580,7 @@ func ChannelProxyHandler() gin.HandlerFunc {
 				// Spoof User-Agent for OpenAI channels to mimic Codex CLI
 				if channel.Type == model.ChannelTypeOpenAI {
 					req.Header.Set("User-Agent", "codex_exec/0.98.0 (Mac OS 15.1.0; arm64) unknown")
+					stripOpenAIUnsupportedFields(req)
 				}
 
 				// For OpenAI Chat, inject stream_options.include_usage=true for streaming requests
@@ -1031,6 +1032,56 @@ func mapStainlessArch() string {
 	default:
 		return "other::" + runtime.GOARCH
 	}
+}
+
+// stripOpenAIUnsupportedFields 从 OpenAI 请求体中移除不支持的字段（max_output_tokens、stream_options）
+func stripOpenAIUnsupportedFields(req *http.Request) {
+	if req.Body == nil || req.ContentLength == 0 {
+		return
+	}
+	contentType := req.Header.Get("Content-Type")
+	if !strings.Contains(contentType, "application/json") {
+		return
+	}
+
+	bodyBytes, err := io.ReadAll(io.LimitReader(req.Body, 10*1024*1024))
+	if err != nil {
+		return
+	}
+	req.Body.Close()
+
+	var payload map[string]interface{}
+	if err := json.Unmarshal(bodyBytes, &payload); err != nil {
+		req.Body = io.NopCloser(bytes.NewReader(bodyBytes))
+		req.ContentLength = int64(len(bodyBytes))
+		return
+	}
+
+	modified := false
+	if _, exists := payload["max_output_tokens"]; exists {
+		delete(payload, "max_output_tokens")
+		modified = true
+	}
+	if _, exists := payload["stream_options"]; exists {
+		delete(payload, "stream_options")
+		modified = true
+	}
+
+	if !modified {
+		req.Body = io.NopCloser(bytes.NewReader(bodyBytes))
+		req.ContentLength = int64(len(bodyBytes))
+		return
+	}
+
+	newBody, err := json.Marshal(payload)
+	if err != nil {
+		req.Body = io.NopCloser(bytes.NewReader(bodyBytes))
+		req.ContentLength = int64(len(bodyBytes))
+		return
+	}
+	req.Body = io.NopCloser(bytes.NewReader(newBody))
+	req.ContentLength = int64(len(newBody))
+	req.Header.Set("Content-Length", fmt.Sprintf("%d", len(newBody)))
 }
 
 // injectOpenAIStreamOptions 为 OpenAI Chat 流式请求注入 stream_options.include_usage=true
