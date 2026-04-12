@@ -1,0 +1,2 @@
+[POST] http://localhost:5274/api/manage/auth/login => [200] OK
+[POST] http://localhost:5274/api/manage/auth/login => [200] OK

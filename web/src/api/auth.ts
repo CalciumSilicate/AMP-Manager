@@ -23,6 +23,33 @@ export interface ApiError {
   details?: string
 }
 
+async function readApiPayload<T>(response: Response, fallbackMessage: string): Promise<T> {
+  const text = await response.text()
+  let data: unknown = null
+
+  if (text) {
+    try {
+      data = JSON.parse(text)
+    } catch {
+      if (!response.ok) {
+        throw new Error(`${fallbackMessage}（服务返回了非 JSON 响应，通常表示后端未启动或代理失败）`)
+      }
+      throw new Error(`${fallbackMessage}（服务返回了无法解析的响应）`)
+    }
+  }
+
+  if (!response.ok) {
+    const error = data as ApiError | null
+    throw new Error(error?.error || fallbackMessage)
+  }
+
+  if (!data) {
+    throw new Error(`${fallbackMessage}（服务返回空响应，通常表示后端未启动或代理失败）`)
+  }
+
+  return data as T
+}
+
 export async function register(data: RegisterRequest): Promise<AuthResponse> {
   const response = await fetch(`${API_BASE}/manage/auth/register`, {
     method: 'POST',
@@ -30,12 +57,7 @@ export async function register(data: RegisterRequest): Promise<AuthResponse> {
     body: JSON.stringify(data),
   })
 
-  if (!response.ok) {
-    const error: ApiError = await response.json()
-    throw new Error(error.error || '注册失败')
-  }
-
-  return response.json()
+  return readApiPayload<AuthResponse>(response, '注册失败')
 }
 
 export async function login(data: LoginRequest): Promise<AuthResponse> {
@@ -45,10 +67,5 @@ export async function login(data: LoginRequest): Promise<AuthResponse> {
     body: JSON.stringify(data),
   })
 
-  if (!response.ok) {
-    const error: ApiError = await response.json()
-    throw new Error(error.error || '登录失败')
-  }
-
-  return response.json()
+  return readApiPayload<AuthResponse>(response, '登录失败')
 }
