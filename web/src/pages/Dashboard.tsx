@@ -161,10 +161,10 @@ export default function Dashboard({ username: initialUsername, isAdmin, onLogout
 
   return (
     <TooltipProvider delayDuration={0}>
-      <div className="flex min-h-screen bg-muted/30">
+      <div className="flex h-screen overflow-hidden bg-muted/30">
         {/* Sidebar */}
         <motion.aside
-          className="relative flex flex-col border-r bg-background/80 backdrop-blur-sm"
+          className="relative flex h-full shrink-0 flex-col border-r bg-background/80 backdrop-blur-sm"
           animate={{ width: collapsed ? 68 : 256 }}
           transition={{ type: 'spring', bounce: 0.15, duration: 0.4 }}
         >
@@ -233,85 +233,87 @@ export default function Dashboard({ username: initialUsername, isAdmin, onLogout
         </motion.aside>
 
         {/* Main content */}
-        <div className="flex-1 flex flex-col min-w-0">
-          {/* Header */}
-          <header className="sticky top-0 z-10 flex h-16 items-center justify-between border-b bg-background/80 backdrop-blur-sm px-6">
-            <AnimatePresence mode="wait">
-              <motion.div
-                key={currentPage}
-                initial={{ opacity: 0, y: 8 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, y: -8 }}
-                transition={{ type: 'spring', bounce: 0.15, duration: 0.35 }}
-                className="flex items-center gap-3"
-              >
-                {(() => {
-                  const Icon = navIcons[currentPage]
-                  return <Icon className="h-5 w-5 text-primary" />
-                })()}
-                <h2 className="text-lg font-semibold">
-                  {visibleNavItems.find((item) => item.key === currentPage)?.label}
-                </h2>
-              </motion.div>
-            </AnimatePresence>
-            <div className="flex items-center gap-3">
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <Button variant="outline" className="gap-2 rounded-full pl-3 pr-4">
-                    <div className="flex h-7 w-7 items-center justify-center rounded-full bg-primary/10 text-primary text-xs font-bold">
-                      {username[0]?.toUpperCase()}
-                    </div>
-                    <span className="font-medium">{username}</span>
-                    {isAdmin && (
-                      <Badge variant="default" className="text-[10px] px-1.5 py-0">
-                        管理员
-                      </Badge>
-                    )}
-                  </Button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="end" className="w-48">
-                  <DropdownMenuItem onClick={() => setCurrentPage('account-settings')}>
-                    <UserCircle className="mr-2 h-4 w-4" />
-                    账户设置
-                  </DropdownMenuItem>
-                  <Separator className="my-1" />
-                  <DropdownMenuItem onClick={onLogout} className="text-destructive focus:text-destructive">
-                    <LogOut className="mr-2 h-4 w-4" />
-                    退出登录
-                  </DropdownMenuItem>
-                </DropdownMenuContent>
-              </DropdownMenu>
-            </div>
-          </header>
+        <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
+          <div className="flex-1 overflow-y-auto">
+            {/* Header */}
+            <header className="sticky top-0 z-10 flex h-16 items-center justify-between border-b bg-background/80 px-6 backdrop-blur-sm">
+              <AnimatePresence mode="wait">
+                <motion.div
+                  key={currentPage}
+                  initial={{ opacity: 0, y: 8 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: -8 }}
+                  transition={{ type: 'spring', bounce: 0.15, duration: 0.35 }}
+                  className="flex items-center gap-3"
+                >
+                  {(() => {
+                    const Icon = navIcons[currentPage]
+                    return <Icon className="h-5 w-5 text-primary" />
+                  })()}
+                  <h2 className="text-lg font-semibold">
+                    {visibleNavItems.find((item) => item.key === currentPage)?.label}
+                  </h2>
+                </motion.div>
+              </AnimatePresence>
+              <div className="flex items-center gap-3">
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button variant="outline" className="gap-2 rounded-full pl-3 pr-4">
+                      <div className="flex h-7 w-7 items-center justify-center rounded-full bg-primary/10 text-primary text-xs font-bold">
+                        {username[0]?.toUpperCase()}
+                      </div>
+                      <span className="font-medium">{username}</span>
+                      {isAdmin && (
+                        <Badge variant="default" className="text-[10px] px-1.5 py-0">
+                          管理员
+                        </Badge>
+                      )}
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end" className="w-48">
+                    <DropdownMenuItem onClick={() => setCurrentPage('account-settings')}>
+                      <UserCircle className="mr-2 h-4 w-4" />
+                      账户设置
+                    </DropdownMenuItem>
+                    <Separator className="my-1" />
+                    <DropdownMenuItem onClick={onLogout} className="text-destructive focus:text-destructive">
+                      <LogOut className="mr-2 h-4 w-4" />
+                      退出登录
+                    </DropdownMenuItem>
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              </div>
+            </header>
 
-          {/* Page content */}
-          <main className="flex-1 p-6">
-            <AnimatePresence mode="wait">
-              <motion.div
-                key={currentPage}
-                initial={{ opacity: 0, y: 20, scale: 0.99 }}
-                animate={{ opacity: 1, y: 0, scale: 1 }}
-                exit={{ opacity: 0, y: -12, scale: 0.99 }}
-                transition={{ type: 'spring', bounce: 0.15, duration: 0.4 }}
-              >
-                {currentPage === 'overview' && <Overview />}
-                {currentPage === 'admin-overview' && isAdmin && <AdminOverview />}
-                {currentPage === 'amp-settings' && <AmpSettings />}
-                {currentPage === 'api-keys' && <APIKeys />}
-                {currentPage === 'request-logs' && <RequestLogs isAdmin={isAdmin} />}
-                {currentPage === 'usage-stats' && <UsageStats isAdmin={isAdmin} />}
-                {currentPage === 'models' && <Models isAdmin={isAdmin} />}
-                {currentPage === 'account-settings' && <AccountSettings username={username} onUsernameChange={setUsername} />}
-                {currentPage === 'channels' && isAdmin && <Channels />}
-                {currentPage === 'groups' && isAdmin && <Groups />}
-                {currentPage === 'subscription-plans' && isAdmin && <SubscriptionPlans />}
-                {currentPage === 'model-metadata' && isAdmin && <ModelMetadata />}
-                {currentPage === 'prices' && isAdmin && <Prices />}
-                {currentPage === 'user-management' && isAdmin && <UserManagement />}
-                {currentPage === 'system-settings' && isAdmin && <SystemSettings />}
-              </motion.div>
-            </AnimatePresence>
-          </main>
+            {/* Page content */}
+            <main className="p-6">
+              <AnimatePresence mode="wait">
+                <motion.div
+                  key={currentPage}
+                  initial={{ opacity: 0, y: 20, scale: 0.99 }}
+                  animate={{ opacity: 1, y: 0, scale: 1 }}
+                  exit={{ opacity: 0, y: -12, scale: 0.99 }}
+                  transition={{ type: 'spring', bounce: 0.15, duration: 0.4 }}
+                >
+                  {currentPage === 'overview' && <Overview />}
+                  {currentPage === 'admin-overview' && isAdmin && <AdminOverview />}
+                  {currentPage === 'amp-settings' && <AmpSettings />}
+                  {currentPage === 'api-keys' && <APIKeys />}
+                  {currentPage === 'request-logs' && <RequestLogs isAdmin={isAdmin} />}
+                  {currentPage === 'usage-stats' && <UsageStats isAdmin={isAdmin} />}
+                  {currentPage === 'models' && <Models isAdmin={isAdmin} />}
+                  {currentPage === 'account-settings' && <AccountSettings username={username} onUsernameChange={setUsername} />}
+                  {currentPage === 'channels' && isAdmin && <Channels />}
+                  {currentPage === 'groups' && isAdmin && <Groups />}
+                  {currentPage === 'subscription-plans' && isAdmin && <SubscriptionPlans />}
+                  {currentPage === 'model-metadata' && isAdmin && <ModelMetadata />}
+                  {currentPage === 'prices' && isAdmin && <Prices />}
+                  {currentPage === 'user-management' && isAdmin && <UserManagement />}
+                  {currentPage === 'system-settings' && isAdmin && <SystemSettings />}
+                </motion.div>
+              </AnimatePresence>
+            </main>
+          </div>
         </div>
       </div>
     </TooltipProvider>

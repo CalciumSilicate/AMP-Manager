@@ -287,8 +287,14 @@ export default function Overview() {
           { label: '总请求 (30天)', value: data.month.requestCount, icon: Hash, color: 'text-blue-500' },
           { label: '错误数 (30天)', value: data.month.errorCount, icon: AlertTriangle, color: data.month.errorCount > 0 ? 'text-red-500' : 'text-muted-foreground' },
         ].map((item) => (
-          <motion.div key={item.label} variants={staggerItem} whileHover={{ scale: 1.03, y: -4 }}>
-            <Card>
+          <motion.div
+            key={item.label}
+            variants={staggerItem}
+            whileHover={{ scale: 1.03, y: -4 }}
+            whileTap={{ scale: 0.98 }}
+            className="h-full"
+          >
+            <Card className="h-full">
               <CardHeader className="pb-2">
                 <CardDescription className="flex items-center gap-1.5">
                   <item.icon className={`h-4 w-4 ${item.color}`} />

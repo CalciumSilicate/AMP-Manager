@@ -119,6 +119,18 @@ func (h *RequestLogHandler) GetDistinctModels(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"models": models})
 }
 
+// GetDistinctAPIKeys 获取当前用户使用过的 API Key 列表
+func (h *RequestLogHandler) GetDistinctAPIKeys(c *gin.Context) {
+	userID := middleware.GetUserID(c)
+	keys, err := h.logService.GetDistinctAPIKeys(userID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "获取 Key 列表失败"})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"keys": keys})
+}
+
 // GetUsageSummary 获取用量统计
 func (h *RequestLogHandler) GetUsageSummary(c *gin.Context) {
 	userID := middleware.GetUserID(c)
@@ -337,9 +349,9 @@ func (h *RequestLogHandler) AdminGetRequestLogDetail(c *gin.Context) {
 		TranslatedRequestBody:    string(detail.TranslatedRequestBody),
 		TranslatedRequestHeaders: translatedRequestHeaders,
 		ResponseHeaders:          responseHeaders,
-		ResponseBody:           string(detail.ResponseBody),
-		TranslatedResponseBody: string(detail.TranslatedResponseBody),
-		CreatedAt:              detail.CreatedAt,
+		ResponseBody:             string(detail.ResponseBody),
+		TranslatedResponseBody:   string(detail.TranslatedResponseBody),
+		CreatedAt:                detail.CreatedAt,
 	}
 
 	c.JSON(http.StatusOK, result)

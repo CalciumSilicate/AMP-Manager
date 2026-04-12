@@ -250,6 +250,13 @@ export async function getDistinctModels(signal?: AbortSignal): Promise<{ models:
   return handleResponse<{ models: string[] }>(response)
 }
 
+export async function getDistinctKeys(signal?: AbortSignal): Promise<{ keys: DistinctAPIKey[] }> {
+  const response = await authFetch(`${API_BASE}/request-logs/keys`, {
+    signal,
+  })
+  return handleResponse<{ keys: DistinctAPIKey[] }>(response)
+}
+
 // Admin API for request logs
 const ADMIN_API_BASE = '/api/admin'
 

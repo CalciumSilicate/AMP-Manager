@@ -118,7 +118,7 @@ func (s *RequestLogService) GetDistinctModelsByUser(userID string) ([]string, er
 	return s.repo.GetDistinctModelsByUser(userID)
 }
 
-// GetDistinctAPIKeys 获取使用过的 API Key 列表（管理员用）
+// GetDistinctAPIKeys 获取使用过的 API Key 列表
 func (s *RequestLogService) GetDistinctAPIKeys(userID string) ([]repository.DistinctAPIKey, error) {
 	return s.repo.GetDistinctAPIKeys(userID)
 }

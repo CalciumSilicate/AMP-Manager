@@ -144,7 +144,7 @@ export function LogFilterBar({ isAdmin, users, keys, models, values, onChange }:
               </div>
             )}
 
-            {isAdmin && keys.length > 0 && (
+            {keys.length > 0 && (
               <div className="flex items-center gap-2">
                 <Label className="text-sm text-muted-foreground whitespace-nowrap">Key</Label>
                 <SearchableSelect
