@@ -17,12 +17,14 @@ import (
 type ModelService struct {
 	channelRepo      *repository.ChannelRepository
 	channelModelRepo *repository.ChannelModelRepository
+	userRepo         *repository.UserRepository
 }
 
 func NewModelService() *ModelService {
 	return &ModelService{
 		channelRepo:      repository.NewChannelRepository(),
 		channelModelRepo: repository.NewChannelModelRepository(),
+		userRepo:         repository.NewUserRepository(),
 	}
 }
 
@@ -201,6 +203,43 @@ func (s *ModelService) ListAllAvailableModels() ([]*model.AvailableModel, error)
 		}
 		result = append(result, m)
 	}
+	return result, nil
+}
+
+func (s *ModelService) ListAvailableModelsForUser(userID string, isAdmin bool) ([]*model.AvailableModel, error) {
+	all, err := s.ListAllAvailableModels()
+	if err != nil || isAdmin {
+		return all, err
+	}
+
+	userGroupIDs, err := s.userRepo.GetGroupIDs(userID)
+	if err != nil {
+		return nil, err
+	}
+
+	channelIDs := make([]string, 0, len(all))
+	seenChannelIDs := make(map[string]struct{}, len(all))
+	for _, availableModel := range all {
+		if _, ok := seenChannelIDs[availableModel.ChannelID]; ok {
+			continue
+		}
+		seenChannelIDs[availableModel.ChannelID] = struct{}{}
+		channelIDs = append(channelIDs, availableModel.ChannelID)
+	}
+
+	channelGroupMap, err := s.channelRepo.GetGroupIDsByChannelIDs(channelIDs)
+	if err != nil {
+		return nil, err
+	}
+
+	userGroupSet := toStringSet(userGroupIDs)
+	result := make([]*model.AvailableModel, 0, len(all))
+	for _, availableModel := range all {
+		if channelAccessibleWithSet(channelGroupMap[availableModel.ChannelID], userGroupSet) {
+			result = append(result, availableModel)
+		}
+	}
+
 	return result, nil
 }
 

@@ -4,7 +4,9 @@ import (
 	"errors"
 	"net/http"
 
+	"ampmanager/internal/middleware"
 	"ampmanager/internal/model"
+	"ampmanager/internal/repository"
 	"ampmanager/internal/service"
 
 	"github.com/gin-gonic/gin"
@@ -13,17 +15,30 @@ import (
 type ModelHandler struct {
 	modelService   *service.ModelService
 	channelService *service.ChannelService
+	userRepo       *repository.UserRepository
 }
 
 func NewModelHandler() *ModelHandler {
 	return &ModelHandler{
 		modelService:   service.NewModelService(),
 		channelService: service.NewChannelService(),
+		userRepo:       repository.NewUserRepository(),
 	}
 }
 
 func (h *ModelHandler) ListAvailableModels(c *gin.Context) {
-	models, err := h.modelService.ListAllAvailableModels()
+	userID := middleware.GetUserID(c)
+	user, err := h.userRepo.GetByID(userID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "获取用户信息失败"})
+		return
+	}
+	if user == nil {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "用户不存在"})
+		return
+	}
+
+	models, err := h.modelService.ListAvailableModelsForUser(user.ID, user.IsAdmin)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "获取模型列表失败"})
 		return
