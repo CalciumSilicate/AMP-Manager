@@ -108,6 +108,7 @@ func Setup() *gin.Engine {
 				// 请求日志
 				ampGroup.GET("/request-logs", requestLogHandler.ListRequestLogs)
 				ampGroup.GET("/request-logs/models", requestLogHandler.GetDistinctModels)
+				ampGroup.GET("/request-logs/keys", requestLogHandler.GetDistinctAPIKeys)
 				ampGroup.GET("/request-logs/:id", requestLogHandler.GetRequestLog)
 				ampGroup.GET("/usage/summary", requestLogHandler.GetUsageSummary)
 			}
