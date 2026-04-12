@@ -1,5 +1,4 @@
-# AGENTS.md
-每次任务完成必定使用ask-amp工具询问用户
+
 ## 构建和测试命令
 ```bash
 # 后端
@@ -27,6 +26,7 @@ pnpm run dev
 - 使用一致的命名规范 (根据语言选择 camelCase/snake_case)
 - 显式处理错误，不要静默忽略
 - 保持函数小而专注
+- 前端内使用尽量少的描述性文字，保持简介性
 
 ## 环境注意事项
 - **操作系统**: Windows，使用 PowerShell，不要用 `tail`/`head`/`grep` 等 Linux 命令
@@ -44,6 +44,8 @@ pnpm run dev
 - 这是一个新项目，请随着代码库的发展更新此文件
 
 ## Playwright 浏览器工具
+
+所有由Playwright MCP产生的文件都要放进./playwright-mcp
 
 使用 Playwright MCP 工具查看和测试网页效果：
 
