@@ -31,6 +31,7 @@
     --radius: 0.625rem;
     --sidebar-bg: 220 20% 97%;
     --sidebar-active: 221.2 83.2% 53.3%;
+    --font-ui-cjk: "Noto Sans SC UI Subset";
   }
   .dark {
     --background: 222.2 84% 4.9%;
@@ -62,12 +63,30 @@
   }
 }
 
+html[data-noto-sc-full="1"] {
+  --font-ui-cjk: "Noto Sans SC", "Noto Sans SC UI Subset";
+}
+
 @layer base {
   * {
     @apply border-border;
   }
   body {
     @apply bg-background text-foreground antialiased;
+    font-family:
+      "Outfit", var(--font-ui-cjk), "SF Pro Text", "PingFang SC",
+      "Hiragino Sans GB", "Noto Sans CJK SC", "Microsoft YaHei", "Segoe UI",
+      system-ui, sans-serif;
+    letter-spacing: -0.012em;
+  }
+
+  code,
+  kbd,
+  pre,
+  samp {
+    font-family:
+      "JetBrains Mono", "SFMono-Regular", "SF Mono", "Cascadia Code",
+      "Fira Code", ui-monospace, monospace;
   }
 }
 

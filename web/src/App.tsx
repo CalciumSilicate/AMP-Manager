@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
 import { motion, AnimatePresence } from '@/lib/motion'
+import { FontLoadCoordinator } from '@/components/font-load-coordinator'
 import Login from './pages/Login'
 import Register from './pages/Register'
 import Dashboard from './pages/Dashboard'
@@ -50,27 +51,35 @@ function App() {
   }
 
   if (user) {
-    return <Dashboard username={user.username} isAdmin={user.isAdmin} onLogout={handleLogout} />
+    return (
+      <>
+        <FontLoadCoordinator />
+        <Dashboard username={user.username} isAdmin={user.isAdmin} onLogout={handleLogout} />
+      </>
+    )
   }
 
   return (
-    <div className="flex min-h-screen items-center justify-center auth-bg">
-      <AnimatePresence mode="wait">
-        <motion.div
-          key={page}
-          initial={{ opacity: 0, scale: 0.85, y: 40 }}
-          animate={{ opacity: 1, scale: 1, y: 0 }}
-          exit={{ opacity: 0, scale: 0.85, y: -40 }}
-          transition={{ type: 'spring', bounce: 0.25, duration: 0.6 }}
-        >
-          {page === 'login' ? (
-            <Login onSwitch={() => setPage('register')} onSuccess={handleSuccess} />
-          ) : (
-            <Register onSwitch={() => setPage('login')} onSuccess={handleSuccess} />
-          )}
-        </motion.div>
-      </AnimatePresence>
-    </div>
+    <>
+      <FontLoadCoordinator />
+      <div className="flex min-h-screen items-center justify-center auth-bg">
+        <AnimatePresence mode="wait">
+          <motion.div
+            key={page}
+            initial={{ opacity: 0, scale: 0.85, y: 40 }}
+            animate={{ opacity: 1, scale: 1, y: 0 }}
+            exit={{ opacity: 0, scale: 0.85, y: -40 }}
+            transition={{ type: 'spring', bounce: 0.25, duration: 0.6 }}
+          >
+            {page === 'login' ? (
+              <Login onSwitch={() => setPage('register')} onSuccess={handleSuccess} />
+            ) : (
+              <Register onSwitch={() => setPage('login')} onSuccess={handleSuccess} />
+            )}
+          </motion.div>
+        </AnimatePresence>
+      </div>
+    </>
   )
 }
 
