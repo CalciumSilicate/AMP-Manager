@@ -150,9 +150,12 @@ export default function ModelMappingEditor({ mappings, onChange }: Props) {
   }, [] as ChannelOption[])
 
   return (
-    <div className="space-y-3">
-      <div className="flex items-center justify-between">
-        <Label>Model Mappings</Label>
+    <div className="space-y-4">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div className="space-y-1">
+          <Label>映射规则</Label>
+          <p className="text-sm text-muted-foreground">桌面端使用宽表格编辑，窄屏时可横向滚动查看全部列。</p>
+        </div>
         <Button type="button" size="sm" onClick={handleAdd}>
           + 添加映射
         </Button>
@@ -163,27 +166,27 @@ export default function ModelMappingEditor({ mappings, onChange }: Props) {
           暂无模型映射，点击上方按钮添加
         </div>
       ) : (
-        <div className="rounded-md border">
-          <Table>
+        <div className="overflow-x-auto rounded-md border">
+          <Table className="min-w-[84rem] table-fixed">
             <TableHeader>
               <TableRow>
-                <TableHead>From</TableHead>
-                <TableHead>To</TableHead>
-                <TableHead>目标渠道</TableHead>
-                <TableHead className="text-center">思维强度</TableHead>
-                <TableHead className="text-center">伪非流</TableHead>
-                <TableHead className="text-center">仅AMP</TableHead>
-                <TableHead className="text-center">Fast</TableHead>
-                <TableHead className="text-center">指令</TableHead>
-                <TableHead className="text-center">Regex</TableHead>
-                <TableHead className="text-center">操作</TableHead>
+                <TableHead className="w-[16rem] whitespace-nowrap align-top">From</TableHead>
+                <TableHead className="w-[18rem] whitespace-nowrap align-top">To</TableHead>
+                <TableHead className="w-[15rem] whitespace-nowrap align-top">目标渠道</TableHead>
+                <TableHead className="w-[8rem] whitespace-nowrap text-center align-top">思维强度</TableHead>
+                <TableHead className="w-[5rem] whitespace-nowrap text-center align-top">伪非流</TableHead>
+                <TableHead className="w-[5rem] whitespace-nowrap text-center align-top">仅AMP</TableHead>
+                <TableHead className="w-[5rem] whitespace-nowrap text-center align-top">Fast</TableHead>
+                <TableHead className="w-[5rem] whitespace-nowrap text-center align-top">指令</TableHead>
+                <TableHead className="w-[5rem] whitespace-nowrap text-center align-top">Regex</TableHead>
+                <TableHead className="w-[6rem] whitespace-nowrap text-center align-top">操作</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {mappings.map((mapping, index) => (
                 <React.Fragment key={index}>
-                <TableRow>
-                  <TableCell>
+                <TableRow className="align-top">
+                  <TableCell className="align-top">
                     <Input
                       value={mapping.from}
                       onChange={(e) => handleChange(index, 'from', e.target.value)}
@@ -192,7 +195,7 @@ export default function ModelMappingEditor({ mappings, onChange }: Props) {
                     />
                   </TableCell>
                   <TableCell 
-                    className="relative"
+                    className="relative align-top"
                     ref={el => { dropdownRefs.current[index] = el }}
                   >
                     <div className="flex items-center gap-1">
@@ -261,7 +264,7 @@ export default function ModelMappingEditor({ mappings, onChange }: Props) {
                       </div>
                     )}
                   </TableCell>
-                  <TableCell>
+                  <TableCell className="align-top">
                     <select
                       value={mapping.channelId || ''}
                       onChange={(e) => handleChange(index, 'channelId', e.target.value)}
@@ -278,7 +281,7 @@ export default function ModelMappingEditor({ mappings, onChange }: Props) {
                       ))}
                     </select>
                   </TableCell>
-                  <TableCell>
+                  <TableCell className="align-top">
                     <select
                       value={mapping.thinkingLevel || ''}
                       onChange={(e) => handleChange(index, 'thinkingLevel', e.target.value)}
@@ -291,37 +294,37 @@ export default function ModelMappingEditor({ mappings, onChange }: Props) {
                       ))}
                     </select>
                   </TableCell>
-                  <TableCell className="text-center">
+                  <TableCell className="pt-3 text-center align-top">
                     <Checkbox
                       checked={mapping.pseudoNonStream || false}
                       onCheckedChange={(checked) => handleChange(index, 'pseudoNonStream', !!checked)}
                     />
                   </TableCell>
-                  <TableCell className="text-center">
+                  <TableCell className="pt-3 text-center align-top">
                     <Checkbox
                       checked={mapping.ampOnly || false}
                       onCheckedChange={(checked) => handleChange(index, 'ampOnly', !!checked)}
                     />
                   </TableCell>
-                  <TableCell className="text-center">
+                  <TableCell className="pt-3 text-center align-top">
                     <Checkbox
                       checked={mapping.fastMode || false}
                       onCheckedChange={(checked) => handleChange(index, 'fastMode', !!checked)}
                     />
                   </TableCell>
-                  <TableCell className="text-center">
+                  <TableCell className="pt-3 text-center align-top">
                     <Checkbox
                       checked={mapping.customInstructionsEnabled || false}
                       onCheckedChange={(checked) => handleChange(index, 'customInstructionsEnabled', !!checked)}
                     />
                   </TableCell>
-                  <TableCell className="text-center">
+                  <TableCell className="pt-3 text-center align-top">
                     <Checkbox
                       checked={mapping.regex}
                       onCheckedChange={(checked) => handleChange(index, 'regex', !!checked)}
                     />
                   </TableCell>
-                  <TableCell className="text-center">
+                  <TableCell className="pt-2 text-center align-top">
                     <Button
                       type="button"
                       variant="ghost"
