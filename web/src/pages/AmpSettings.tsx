@@ -111,199 +111,214 @@ export default function AmpSettings() {
     }
 
     return (
-        <motion.div initial={{ opacity: 0, y: 30 }} animate={{ opacity: 1, y: 0 }} transition={{ type: 'spring', bounce: 0.2, duration: 0.7 }} className="mx-auto max-w-2xl">
-            <Card>
-                <CardHeader>
-                    <CardTitle>Amp 设置</CardTitle>
-                    <CardDescription>配置 Amp 代理服务的上游连接和模型映射</CardDescription>
-                </CardHeader>
+        <motion.div
+            initial={{ opacity: 0, y: 30 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ type: 'spring', bounce: 0.2, duration: 0.7 }}
+            className="mx-auto max-w-6xl"
+        >
+            <form onSubmit={handleSubmit} className="space-y-6">
+                <div className="space-y-2">
+                    <h1 className="text-2xl font-semibold tracking-tight">Amp 设置</h1>
+                    <p className="text-sm text-muted-foreground">配置 Amp 代理服务的上游连接、运行模式和模型映射。</p>
+                </div>
 
-                <CardContent>
-                    {error && (
-                        <Alert variant="destructive" className="mb-4">
-                            <AlertDescription>{error}</AlertDescription>
-                        </Alert>
-                    )}
-                    {success && (
-                        <Alert className="mb-4 border-green-200 bg-green-50 text-green-800">
-                            <AlertDescription>{success}</AlertDescription>
-                        </Alert>
-                    )}
+                {error && (
+                    <Alert variant="destructive">
+                        <AlertDescription>{error}</AlertDescription>
+                    </Alert>
+                )}
+                {success && (
+                    <Alert className="border-green-200 bg-green-50 text-green-800">
+                        <AlertDescription>{success}</AlertDescription>
+                    </Alert>
+                )}
 
-                    <form onSubmit={handleSubmit} className="space-y-6">
-                        <motion.div initial={{ opacity: 0, x: -20 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: 0.1, type: 'spring', bounce: 0.2, duration: 0.5 }}>
-                        <div className="flex items-center justify-between">
-                            <div className="space-y-0.5">
-                                <Label htmlFor="enabled">启用代理</Label>
-                                <p className="text-sm text-muted-foreground">开启后启用 AMP 增强功能（模型映射、渠道路由等），关闭则纯透传到上游</p>
-                            </div>
-                            <Switch
-                                id="enabled"
-                                checked={enabled}
-                                onCheckedChange={setEnabled}
-                            />
-                        </div>
-                        </motion.div>
-
-                        <motion.div initial={{ opacity: 0, x: -20 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: 0.2, type: 'spring', bounce: 0.2, duration: 0.5 }}>
-                        <div className="flex items-center justify-between">
-                            <div className="space-y-0.5">
-                                <Label htmlFor="nativeMode">原生模式</Label>
-                                <p className="text-sm text-muted-foreground">开启后所有请求直接转发到上游，不进行任何拦截、模型映射或渠道路由</p>
-                            </div>
-                            <Switch
-                                id="nativeMode"
-                                checked={nativeMode}
-                                onCheckedChange={setNativeMode}
-                            />
-                        </div>
-
-                        {nativeMode && (
-                            <Alert className="border-amber-200 bg-amber-50 text-amber-800">
-                                <AlertDescription>原生模式已开启，以下设置将不生效。所有请求将直接转发到上游服务器。</AlertDescription>
-                            </Alert>
-                        )}
-                        </motion.div>
-
-                        <motion.div initial={{ opacity: 0, x: -20 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: 0.25, type: 'spring', bounce: 0.2, duration: 0.5 }}>
-                        <Separator />
-                        </motion.div>
-
-                        <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.3, type: 'spring', bounce: 0.2, duration: 0.6 }}>
-                        <div className={nativeMode ? 'space-y-6 opacity-50 pointer-events-none' : 'space-y-6'}>
-                            <div className="space-y-2">
-                                <Label htmlFor="upstreamUrl">Upstream URL</Label>
-                                <Input
-                                    id="upstreamUrl"
-                                    type="url"
-                                    value={upstreamUrl}
-                                    onChange={(e) => setUpstreamUrl(e.target.value)}
-                                    placeholder="https://ampcode.com"
-                                />
-                            </div>
-
-                            <div className="space-y-2">
-                                <Label htmlFor="upstreamApiKey">Upstream API Key</Label>
-                                <div className="flex items-center gap-3">
-                                    <Input
-                                        id="upstreamApiKey"
-                                        type="password"
-                                        value={upstreamApiKey}
-                                        onChange={(e) => setUpstreamApiKey(e.target.value)}
-                                        placeholder={settings?.apiKeySet ? '••••••••（已设置，留空保持不变）' : '请输入 API Key'}
-                                        className="flex-1"
-                                    />
-                                    <Badge variant={settings?.apiKeySet ? 'default' : 'secondary'}>
-                                        {settings?.apiKeySet ? '已设置' : '未设置'}
-                                    </Badge>
-                                </div>
-                            </div>
-
-                            <div className="space-y-2">
-                                <Label htmlFor="socks5Proxy">SOCKS5 代理</Label>
-                                <div className="flex items-center gap-3">
-                                    <Input
-                                        id="socks5Proxy"
-                                        type="password"
-                                        value={socks5Proxy}
-                                        onChange={(e) => setSocks5Proxy(e.target.value)}
-                                        placeholder={settings?.socks5ProxySet ? '••••••••（已设置，留空保持不变）' : 'socks5://user:pass@host:port'}
-                                        className="flex-1"
-                                    />
-                                    <Badge variant={settings?.socks5ProxySet ? 'default' : 'secondary'}>
-                                        {settings?.socks5ProxySet ? '已设置' : '未设置'}
-                                    </Badge>
-                                </div>
-                                <p className="text-sm text-muted-foreground">
-                                    设置 SOCKS5 代理后，所有到 ampcode.com 的请求将通过此代理转发。格式：socks5://用户名:密码@主机:端口
-                                </p>
-                            </div>
-
-                            <Separator />
-
-                            <ModelMappingEditor mappings={modelMappings} onChange={setModelMappings} />
-
-                            <Separator />
-
-                            <div className="space-y-3">
-                                <div className="space-y-0.5">
-                                    <Label>网页搜索模式</Label>
-                                    <p className="text-sm text-muted-foreground">选择网页搜索和网页内容获取的处理方式</p>
-                                </div>
-                                <RadioGroup
-                                    value={webSearchMode}
-                                    onValueChange={(value) => setWebSearchMode(value as WebSearchMode)}
-                                    className="space-y-2"
-                                >
-                                    <div className="flex items-center space-x-2">
-                                        <RadioGroupItem value="upstream" id="upstream" />
-                                        <Label htmlFor="upstream" className="font-normal cursor-pointer">
-                                            <span className="font-medium">上游代理</span>
-                                            <span className="text-muted-foreground ml-2">- 直接转发到上游，不做任何修改</span>
-                                        </Label>
+                <motion.div
+                    initial={{ opacity: 0, x: -20 }}
+                    animate={{ opacity: 1, x: 0 }}
+                    transition={{ delay: 0.1, type: 'spring', bounce: 0.2, duration: 0.5 }}
+                >
+                    <Card>
+                        <CardHeader className="space-y-1">
+                            <CardTitle>基础设置</CardTitle>
+                            <CardDescription>保留现有设置项，将连接、模式和搜索策略整理为更易读的分区表单。</CardDescription>
+                        </CardHeader>
+                        <CardContent className="space-y-8">
+                            <div className="grid gap-6 lg:grid-cols-[minmax(0,1.2fr)_minmax(18rem,0.8fr)]">
+                                <div className="space-y-6">
+                                    <div className="rounded-lg border p-4">
+                                        <div className="space-y-4">
+                                            <div className="flex items-start justify-between gap-4">
+                                                <div className="space-y-0.5">
+                                                    <Label htmlFor="enabled">启用代理</Label>
+                                                    <p className="text-sm text-muted-foreground">开启后启用 AMP 增强功能，关闭则纯透传到上游。</p>
+                                                </div>
+                                                <Switch id="enabled" checked={enabled} onCheckedChange={setEnabled} />
+                                            </div>
+                                            <Separator />
+                                            <div className="flex items-start justify-between gap-4">
+                                                <div className="space-y-0.5">
+                                                    <Label htmlFor="nativeMode">原生模式</Label>
+                                                    <p className="text-sm text-muted-foreground">开启后所有请求直接转发到上游，不做拦截、映射或渠道路由。</p>
+                                                </div>
+                                                <Switch id="nativeMode" checked={nativeMode} onCheckedChange={setNativeMode} />
+                                            </div>
+                                            {nativeMode && (
+                                                <Alert className="border-amber-200 bg-amber-50 text-amber-800">
+                                                    <AlertDescription>原生模式已开启，以下设置将不生效。所有请求将直接转发到上游服务器。</AlertDescription>
+                                                </Alert>
+                                            )}
+                                        </div>
                                     </div>
-                                    <div className="flex items-center space-x-2">
-                                        <RadioGroupItem value="builtin_free" id="builtin_free" />
-                                        <Label htmlFor="builtin_free" className="font-normal cursor-pointer">
-                                            <span className="font-medium">内置免费搜索</span>
-                                            <span className="text-muted-foreground ml-2">- 使用 Amp 内置的免费搜索功能</span>
-                                        </Label>
-                                    </div>
-                                    <div className="flex items-center space-x-2">
-                                        <RadioGroupItem value="local_duckduckgo" id="local_duckduckgo" />
-                                        <Label htmlFor="local_duckduckgo" className="font-normal cursor-pointer">
-                                            <span className="font-medium">本地搜索</span>
-                                            <span className="text-muted-foreground ml-2">- 使用本地 DuckDuckGo 搜索（完全免费）</span>
-                                        </Label>
-                                    </div>
-                                </RadioGroup>
-                            </div>
 
-                            <Separator />
+                                    <div className={nativeMode ? 'space-y-6 opacity-50 pointer-events-none' : 'space-y-6'}>
+                                        <div className="grid gap-6 xl:grid-cols-2">
+                                            <div className="space-y-2 xl:col-span-2">
+                                                <Label htmlFor="upstreamUrl">Upstream URL</Label>
+                                                <Input
+                                                    id="upstreamUrl"
+                                                    type="url"
+                                                    value={upstreamUrl}
+                                                    onChange={(e) => setUpstreamUrl(e.target.value)}
+                                                    placeholder="https://ampcode.com"
+                                                />
+                                            </div>
 
-                            <div className="flex items-center justify-between">
-                                <div className="space-y-0.5">
-                                    <Label htmlFor="showBalanceInAd">显示余额提醒</Label>
-                                    <p className="text-sm text-muted-foreground">在 Amp CLI 的广告位显示当前账户余额</p>
+                                            <div className="space-y-2">
+                                                <Label htmlFor="upstreamApiKey">Upstream API Key</Label>
+                                                <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+                                                    <Input
+                                                        id="upstreamApiKey"
+                                                        type="password"
+                                                        value={upstreamApiKey}
+                                                        onChange={(e) => setUpstreamApiKey(e.target.value)}
+                                                        placeholder={settings?.apiKeySet ? '••••••••（已设置，留空保持不变）' : '请输入 API Key'}
+                                                        className="flex-1"
+                                                    />
+                                                    <Badge variant={settings?.apiKeySet ? 'default' : 'secondary'} className="w-fit shrink-0">
+                                                        {settings?.apiKeySet ? '已设置' : '未设置'}
+                                                    </Badge>
+                                                </div>
+                                            </div>
+
+                                            <div className="space-y-2">
+                                                <Label htmlFor="socks5Proxy">SOCKS5 代理</Label>
+                                                <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+                                                    <Input
+                                                        id="socks5Proxy"
+                                                        type="password"
+                                                        value={socks5Proxy}
+                                                        onChange={(e) => setSocks5Proxy(e.target.value)}
+                                                        placeholder={settings?.socks5ProxySet ? '••••••••（已设置，留空保持不变）' : 'socks5://user:pass@host:port'}
+                                                        className="flex-1"
+                                                    />
+                                                    <Badge variant={settings?.socks5ProxySet ? 'default' : 'secondary'} className="w-fit shrink-0">
+                                                        {settings?.socks5ProxySet ? '已设置' : '未设置'}
+                                                    </Badge>
+                                                </div>
+                                                <p className="text-sm text-muted-foreground">设置 SOCKS5 代理后，所有到 ampcode.com 的请求将通过此代理转发。格式：socks5://用户名:密码@主机:端口</p>
+                                            </div>
+                                        </div>
+                                    </div>
                                 </div>
-                                <Switch
-                                    id="showBalanceInAd"
-                                    checked={showBalanceInAd}
-                                    onCheckedChange={setShowBalanceInAd}
-                                />
+
+                                <div className={nativeMode ? 'space-y-6 opacity-50 pointer-events-none' : 'space-y-6'}>
+                                    <div className="rounded-lg border p-4">
+                                        <div className="space-y-3">
+                                            <div className="space-y-0.5">
+                                                <Label>网页搜索模式</Label>
+                                                <p className="text-sm text-muted-foreground">选择网页搜索和网页内容获取的处理方式。</p>
+                                            </div>
+                                            <RadioGroup
+                                                value={webSearchMode}
+                                                onValueChange={(value) => setWebSearchMode(value as WebSearchMode)}
+                                                className="space-y-3"
+                                            >
+                                                <div className="rounded-md border p-3">
+                                                    <div className="flex items-start space-x-3">
+                                                        <RadioGroupItem value="upstream" id="upstream" className="mt-0.5" />
+                                                        <Label htmlFor="upstream" className="cursor-pointer space-y-1 font-normal">
+                                                            <span className="block font-medium">上游代理</span>
+                                                            <span className="block text-sm text-muted-foreground">直接转发到上游，不做任何修改。</span>
+                                                        </Label>
+                                                    </div>
+                                                </div>
+                                                <div className="rounded-md border p-3">
+                                                    <div className="flex items-start space-x-3">
+                                                        <RadioGroupItem value="builtin_free" id="builtin_free" className="mt-0.5" />
+                                                        <Label htmlFor="builtin_free" className="cursor-pointer space-y-1 font-normal">
+                                                            <span className="block font-medium">内置免费搜索</span>
+                                                            <span className="block text-sm text-muted-foreground">使用 Amp 内置的免费搜索功能。</span>
+                                                        </Label>
+                                                    </div>
+                                                </div>
+                                                <div className="rounded-md border p-3">
+                                                    <div className="flex items-start space-x-3">
+                                                        <RadioGroupItem value="local_duckduckgo" id="local_duckduckgo" className="mt-0.5" />
+                                                        <Label htmlFor="local_duckduckgo" className="cursor-pointer space-y-1 font-normal">
+                                                            <span className="block font-medium">本地搜索</span>
+                                                            <span className="block text-sm text-muted-foreground">使用本地 DuckDuckGo 搜索，完全免费。</span>
+                                                        </Label>
+                                                    </div>
+                                                </div>
+                                            </RadioGroup>
+                                        </div>
+                                    </div>
+
+                                    <div className="rounded-lg border p-4">
+                                        <div className="flex items-start justify-between gap-4">
+                                            <div className="space-y-0.5">
+                                                <Label htmlFor="showBalanceInAd">显示余额提醒</Label>
+                                                <p className="text-sm text-muted-foreground">在 Amp CLI 的广告位显示当前账户余额。</p>
+                                            </div>
+                                            <Switch id="showBalanceInAd" checked={showBalanceInAd} onCheckedChange={setShowBalanceInAd} />
+                                        </div>
+                                    </div>
+                                </div>
                             </div>
-                        </div>
-                        </motion.div>
+                        </CardContent>
+                    </Card>
+                </motion.div>
 
-                        {testResult && (
-                            <Alert
-                                variant={testResult.success ? 'default' : 'destructive'}
-                                className={testResult.success ? 'border-green-200 bg-green-50 text-green-800' : ''}
-                            >
-                                <AlertDescription>{testResult.message}</AlertDescription>
-                            </Alert>
-                        )}
-                    </form>
-                </CardContent>
+                <motion.div
+                    initial={{ opacity: 0, y: 20 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ delay: 0.2, type: 'spring', bounce: 0.2, duration: 0.6 }}
+                >
+                    <Card>
+                        <CardHeader>
+                            <CardTitle>Model Mappings</CardTitle>
+                            <CardDescription>映射编辑器作为独立工作区展示，优先保证宽表格可读性和批量编辑体验。</CardDescription>
+                        </CardHeader>
+                        <CardContent>
+                            <div className={nativeMode ? 'opacity-50 pointer-events-none' : ''}>
+                                <ModelMappingEditor mappings={modelMappings} onChange={setModelMappings} />
+                            </div>
+                        </CardContent>
+                    </Card>
+                </motion.div>
 
-                <CardFooter className="flex justify-between border-t pt-6">
-                    <Button
-                        type="button"
-                        variant="outline"
-                        onClick={handleTest}
-                        disabled={testing}
+                {testResult && (
+                    <Alert
+                        variant={testResult.success ? 'default' : 'destructive'}
+                        className={testResult.success ? 'border-green-200 bg-green-50 text-green-800' : ''}
                     >
-                        {testing ? '测试中...' : '测试连接'}
-                    </Button>
-                    <Button
-                        type="submit"
-                        disabled={saving}
-                        onClick={handleSubmit}
-                    >
-                        {saving ? '保存中...' : '保存设置'}
-                    </Button>
-                </CardFooter>
-            </Card>
+                        <AlertDescription>{testResult.message}</AlertDescription>
+                    </Alert>
+                )}
+
+                <Card>
+                    <CardFooter className="flex flex-col gap-3 pt-6 sm:flex-row sm:items-center sm:justify-between">
+                        <Button type="button" variant="outline" onClick={handleTest} disabled={testing}>
+                            {testing ? '测试中...' : '测试连接'}
+                        </Button>
+                        <Button type="submit" disabled={saving} onClick={handleSubmit}>
+                            {saving ? '保存中...' : '保存设置'}
+                        </Button>
+                    </CardFooter>
+                </Card>
+            </form>
         </motion.div>
     )
 }
