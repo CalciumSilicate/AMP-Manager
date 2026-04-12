@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useMemo, useCallback } from 'react'
 import {
-  getRequestLogs, getAdminRequestLogs, getAdminDistinctModels, getAdminDistinctKeys,
+  getRequestLogs, getAdminRequestLogs, getAdminDistinctModels, getAdminDistinctKeys, getDistinctKeys, getDistinctModels,
   RequestLog, DistinctAPIKey,
 } from '@/api/amp'
 import { connectRequestLogsWS } from '@/api/requestLogsWS'
@@ -76,7 +76,14 @@ export default function RequestLogs({ isAdmin }: Props) {
           setModels(modelsRes.models || [])
         })
         .catch(console.error)
+      return
     }
+
+    getDistinctModels()
+      .then((modelsRes) => {
+        setModels(modelsRes.models || [])
+      })
+      .catch(console.error)
   }, [isAdmin])
 
   useEffect(() => {
@@ -84,7 +91,12 @@ export default function RequestLogs({ isAdmin }: Props) {
       getAdminDistinctKeys(filters.userId || undefined)
         .then(res => setKeys(res.keys || []))
         .catch(console.error)
+      return
     }
+
+    getDistinctKeys()
+      .then(res => setKeys(res.keys || []))
+      .catch(console.error)
   }, [isAdmin, filters.userId])
 
   useEffect(() => {
@@ -188,7 +200,7 @@ export default function RequestLogs({ isAdmin }: Props) {
       }
       const result = isAdmin
         ? await getAdminRequestLogs({ ...params, userId: filters.userId || undefined, apiKeyId: filters.apiKeyId || undefined }, controller.signal)
-        : await getRequestLogs(params, controller.signal)
+        : await getRequestLogs({ ...params, apiKeyId: filters.apiKeyId || undefined }, controller.signal)
       if (controller.signal.aborted) return
 
       const items = result.items || []
