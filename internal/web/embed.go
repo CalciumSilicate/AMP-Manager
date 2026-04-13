@@ -21,6 +21,7 @@ func RegisterStaticRoutes(r *gin.Engine) {
 
 	// Serve static assets
 	r.StaticFS("/assets", http.FS(mustSub(distFS, "assets")))
+	r.StaticFS("/fonts", http.FS(mustSub(distFS, "fonts")))
 
 	// Serve index.html for all non-API routes (SPA fallback)
 	r.NoRoute(func(c *gin.Context) {
