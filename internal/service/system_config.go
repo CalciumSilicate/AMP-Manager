@@ -1,14 +1,22 @@
 package service
 
 import (
+	"ampmanager/internal/model"
 	"ampmanager/internal/repository"
+	"strconv"
+	"time"
 )
 
 const (
-	retryConfigKey          = "retry_config"
-	requestDetailEnabledKey = "request_detail_enabled"
-	timeoutConfigKey        = "timeout_config"
-	cacheTTLOverrideKey     = "cache_ttl_override"
+	retryConfigKey                 = "retry_config"
+	requestDetailEnabledKey        = "request_detail_enabled"
+	requestDetailTTLSecKey         = "request_detail_ttl_sec"
+	requestDetailMaxEntriesKey     = "request_detail_max_entries"
+	requestDetailMaxMemoryMBKey    = "request_detail_max_memory_mb"
+	requestDetailBodyCapKBKey      = "request_detail_body_cap_kb"
+	requestDetailPersistEnabledKey = "request_detail_persist_enabled"
+	timeoutConfigKey               = "timeout_config"
+	cacheTTLOverrideKey            = "cache_ttl_override"
 )
 
 type SystemConfigService struct {
@@ -33,20 +41,80 @@ func (s *SystemConfigService) SetRetryConfigJSON(value string) error {
 
 // GetRequestDetailEnabled 获取请求详情监控是否启用
 func (s *SystemConfigService) GetRequestDetailEnabled() (bool, error) {
-	value, err := s.repo.Get(requestDetailEnabledKey)
+	cfg, err := s.GetRequestDetailConfig()
 	if err != nil {
 		return true, nil // 默认启用
 	}
-	return value != "false", nil
+	return cfg.Enabled, nil
 }
 
 // SetRequestDetailEnabled 设置请求详情监控是否启用
 func (s *SystemConfigService) SetRequestDetailEnabled(enabled bool) error {
-	value := "true"
-	if !enabled {
-		value = "false"
+	cfg, err := s.GetRequestDetailConfig()
+	if err != nil {
+		return err
 	}
-	return s.repo.Set(requestDetailEnabledKey, value)
+	cfg.Enabled = enabled
+	return s.SetRequestDetailConfig(cfg)
+}
+
+func (s *SystemConfigService) GetRequestDetailConfig() (model.RequestDetailConfigResponse, error) {
+	resp := model.RequestDetailConfigResponse{
+		Enabled:        true,
+		TTLSec:         120,
+		MaxEntries:     500,
+		MaxMemoryMB:    256,
+		BodyCapKB:      128,
+		PersistEnabled: true,
+	}
+
+	if value, err := s.repo.Get(requestDetailEnabledKey); err == nil && value != "" {
+		resp.Enabled = value != "false"
+	}
+	if value, err := s.repo.Get(requestDetailTTLSecKey); err == nil && value != "" {
+		if parsed, parseErr := time.ParseDuration(value + "s"); parseErr == nil {
+			resp.TTLSec = int64(parsed / time.Second)
+		}
+	}
+	if value, err := s.repo.Get(requestDetailMaxEntriesKey); err == nil && value != "" {
+		if parsed, parseErr := parsePositiveInt(value); parseErr == nil {
+			resp.MaxEntries = parsed
+		}
+	}
+	if value, err := s.repo.Get(requestDetailMaxMemoryMBKey); err == nil && value != "" {
+		if parsed, parseErr := parsePositiveInt64(value); parseErr == nil {
+			resp.MaxMemoryMB = parsed
+		}
+	}
+	if value, err := s.repo.Get(requestDetailBodyCapKBKey); err == nil && value != "" {
+		if parsed, parseErr := parsePositiveInt(value); parseErr == nil {
+			resp.BodyCapKB = parsed
+		}
+	}
+	if value, err := s.repo.Get(requestDetailPersistEnabledKey); err == nil && value != "" {
+		resp.PersistEnabled = value != "false"
+	}
+
+	return resp, nil
+}
+
+func (s *SystemConfigService) SetRequestDetailConfig(req model.RequestDetailConfigResponse) error {
+	entries := map[string]string{
+		requestDetailEnabledKey:        boolToConfigString(req.Enabled),
+		requestDetailTTLSecKey:         formatInt64(req.TTLSec),
+		requestDetailMaxEntriesKey:     formatInt(req.MaxEntries),
+		requestDetailMaxMemoryMBKey:    formatInt64(req.MaxMemoryMB),
+		requestDetailBodyCapKBKey:      formatInt(req.BodyCapKB),
+		requestDetailPersistEnabledKey: boolToConfigString(req.PersistEnabled),
+	}
+
+	for key, value := range entries {
+		if err := s.repo.Set(key, value); err != nil {
+			return err
+		}
+	}
+
+	return nil
 }
 
 // GetTimeoutConfigJSON 获取超时配置的 JSON 字符串
@@ -57,4 +125,31 @@ func (s *SystemConfigService) GetTimeoutConfigJSON() (string, error) {
 // GetCacheTTLOverride 获取缓存 TTL 覆盖配置
 func (s *SystemConfigService) GetCacheTTLOverride() (string, error) {
 	return s.repo.Get(cacheTTLOverrideKey)
+}
+
+func boolToConfigString(value bool) string {
+	if value {
+		return "true"
+	}
+	return "false"
+}
+
+func formatInt(value int) string {
+	return formatInt64(int64(value))
+}
+
+func formatInt64(value int64) string {
+	return strconv.FormatInt(value, 10)
+}
+
+func parsePositiveInt(value string) (int, error) {
+	parsed, err := strconv.Atoi(value)
+	if err != nil {
+		return 0, err
+	}
+	return parsed, nil
+}
+
+func parsePositiveInt64(value string) (int64, error) {
+	return strconv.ParseInt(value, 10, 64)
 }

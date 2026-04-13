@@ -6,7 +6,6 @@ import (
 	"io"
 	"net/http"
 	"strings"
-	"sync/atomic"
 
 	"github.com/gin-gonic/gin"
 	log "github.com/sirupsen/logrus"
@@ -16,32 +15,6 @@ import (
 type multiReaderCloser struct {
 	io.Reader
 	io.Closer
-}
-
-const (
-	CaptureMaxBodySize = 512 * 1024 // 512KB max capture size
-)
-
-// requestDetailEnabled 控制是否启用请求详情监控（默认启用）
-var requestDetailEnabled atomic.Bool
-
-func init() {
-	requestDetailEnabled.Store(true) // 默认启用
-}
-
-// SetRequestDetailEnabled 设置请求详情监控开关
-func SetRequestDetailEnabled(enabled bool) {
-	requestDetailEnabled.Store(enabled)
-	if enabled {
-		log.Info("request detail capture: enabled")
-	} else {
-		log.Info("request detail capture: disabled")
-	}
-}
-
-// IsRequestDetailEnabled 获取请求详情监控状态
-func IsRequestDetailEnabled() bool {
-	return requestDetailEnabled.Load()
 }
 
 type captureDataKey struct{}
@@ -70,6 +43,11 @@ func GetCaptureData(ctx context.Context) *CaptureData {
 // RequestCaptureMiddleware captures request headers and body for detail logging
 func RequestCaptureMiddleware() gin.HandlerFunc {
 	return func(c *gin.Context) {
+		if !IsRequestDetailEnabled() {
+			c.Next()
+			return
+		}
+
 		// Only capture for model invocation requests
 		if !IsModelInvocation(c.Request.Method, c.Request.URL.Path) {
 			c.Next()
@@ -82,10 +60,11 @@ func RequestCaptureMiddleware() gin.HandlerFunc {
 		// Capture request body
 		var requestBody []byte
 		if c.Request.Body != nil {
-			bodyBytes, err := io.ReadAll(io.LimitReader(c.Request.Body, CaptureMaxBodySize+1))
+			bodyCap := GetRequestDetailConfig().BodyCapBytes
+			bodyBytes, err := io.ReadAll(io.LimitReader(c.Request.Body, int64(bodyCap)+1))
 			if err == nil {
-				if len(bodyBytes) > CaptureMaxBodySize {
-					requestBody = bodyBytes[:CaptureMaxBodySize]
+				if len(bodyBytes) > bodyCap {
+					requestBody = bodyBytes[:bodyCap]
 				} else {
 					requestBody = bodyBytes
 				}
@@ -224,12 +203,13 @@ type ResponseCaptureWrapper struct {
 
 // NewResponseCaptureWrapper creates a new response capture wrapper
 func NewResponseCaptureWrapper(body io.ReadCloser, requestID string, headers http.Header) *ResponseCaptureWrapper {
+	bodyCap := GetRequestDetailConfig().BodyCapBytes
 	return &ResponseCaptureWrapper{
 		ReadCloser: body,
 		requestID:  requestID,
 		headers:    sanitizeHeaders(headers),
 		buffer:     &bytes.Buffer{},
-		maxSize:    CaptureMaxBodySize,
+		maxSize:    bodyCap,
 	}
 }
 

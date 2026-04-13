@@ -54,3 +54,23 @@ type TimeoutConfigRequest struct {
 	DialTimeoutSec         int `json:"dialTimeoutSec"`
 	TLSHandshakeTimeoutSec int `json:"tlsHandshakeTimeoutSec"`
 }
+
+// RequestDetailConfigResponse 请求详情配置响应
+type RequestDetailConfigResponse struct {
+	Enabled        bool  `json:"enabled"`
+	TTLSec         int64 `json:"ttlSec"`
+	MaxEntries     int   `json:"maxEntries"`
+	MaxMemoryMB    int64 `json:"maxMemoryMB"`
+	BodyCapKB      int   `json:"bodyCapKB"`
+	PersistEnabled bool  `json:"persistEnabled"`
+}
+
+// RequestDetailConfigRequest 请求详情配置请求
+type RequestDetailConfigRequest struct {
+	Enabled        bool  `json:"enabled"`
+	TTLSec         int64 `json:"ttlSec"`
+	MaxEntries     int   `json:"maxEntries"`
+	MaxMemoryMB    int64 `json:"maxMemoryMB"`
+	BodyCapKB      int   `json:"bodyCapKB"`
+	PersistEnabled bool  `json:"persistEnabled"`
+}

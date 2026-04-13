@@ -767,7 +767,9 @@ func ChannelProxyHandler() gin.HandlerFunc {
 				// Streaming response handling (existing logic)
 				if trace != nil {
 					resp.Body = WrapResponseBodyForTokenExtraction(resp.Body, isStreaming, trace, providerInfo)
-					resp.Body = NewResponseCaptureWrapper(resp.Body, trace.RequestID, resp.Header)
+					if IsRequestDetailEnabled() {
+						resp.Body = NewResponseCaptureWrapper(resp.Body, trace.RequestID, resp.Header)
+					}
 					resp.Body = NewLoggingBodyWrapper(resp.Body, trace, resp.StatusCode, resp.Request.Context())
 				}
 

@@ -169,6 +169,8 @@ func Setup() *gin.Engine {
 				// 请求详情监控配置
 				system.GET("/request-detail-enabled", systemHandler.GetRequestDetailEnabled)
 				system.PUT("/request-detail-enabled", systemHandler.UpdateRequestDetailEnabled)
+				system.GET("/request-detail-config", systemHandler.GetRequestDetailConfig)
+				system.PUT("/request-detail-config", systemHandler.UpdateRequestDetailConfig)
 
 				// 超时配置
 				system.GET("/timeout-config", systemHandler.GetTimeoutConfig)

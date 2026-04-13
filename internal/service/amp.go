@@ -19,10 +19,10 @@ import (
 )
 
 var (
-	ErrAPIKeyNotFound      = errors.New("API Key 不存在")
-	ErrAPIKeyRevoked       = errors.New("API Key 已被撤销")
+	ErrAPIKeyNotFound       = errors.New("API Key 不存在")
+	ErrAPIKeyRevoked        = errors.New("API Key 已被撤销")
 	ErrAPIKeyNotRetrievable = errors.New("API Key 只在创建时显示一次，无法再次获取")
-	ErrNotOwner            = errors.New("无权操作此资源")
+	ErrNotOwner             = errors.New("无权操作此资源")
 )
 
 type AmpService struct {
@@ -45,14 +45,14 @@ func (s *AmpService) GetSettings(userID string) (*model.AmpSettingsResponse, err
 
 	if settings == nil {
 		return &model.AmpSettingsResponse{
-			UpstreamURL:        "https://ampcode.com",
-			ModelMappings:      []model.ModelMapping{},
-			Enabled:            false,
-			HasAPIKey:          false,
-			WebSearchMode:      model.WebSearchModeUpstream,
-			NativeMode:         false,
-			ShowBalanceInAd:    false,
-			HasSocks5Proxy:     false,
+			UpstreamURL:     "https://ampcode.com",
+			ModelMappings:   []model.ModelMapping{},
+			Enabled:         false,
+			HasAPIKey:       false,
+			WebSearchMode:   model.WebSearchModeUpstream,
+			NativeMode:      false,
+			ShowBalanceInAd: false,
+			HasSocks5Proxy:  false,
 		}, nil
 	}
 
@@ -85,11 +85,11 @@ func (s *AmpService) UpdateSettings(userID string, req *model.AmpSettingsRequest
 	}
 
 	settings := &model.AmpSettings{
-		UserID:      userID,
-		UpstreamURL: req.UpstreamURL,
-		Enabled:     req.Enabled,
-		WebSearchMode:      req.WebSearchMode,
-		NativeMode:         req.NativeMode,
+		UserID:        userID,
+		UpstreamURL:   req.UpstreamURL,
+		Enabled:       req.Enabled,
+		WebSearchMode: req.WebSearchMode,
+		NativeMode:    req.NativeMode,
 	}
 
 	// 处理 ShowBalanceInAd（*bool 指针，nil 表示不修改）
@@ -372,7 +372,7 @@ func (s *AmpService) ValidateAPIKey(rawKey string) (*model.UserAPIKey, error) {
 		return nil, ErrAPIKeyRevoked
 	}
 
-	go s.apiKeyRepo.UpdateLastUsed(key.ID)
+	go s.apiKeyRepo.UpdateLastUsedThrottled(key.ID, time.Minute)
 
 	return key, nil
 }

@@ -282,7 +282,7 @@ func APIKeyAuthMiddleware() gin.HandlerFunc {
 		c.Request = c.Request.WithContext(ctx)
 
 		go func() {
-			if err := apiKeyRepo.UpdateLastUsed(apiKeyRecord.ID); err != nil {
+			if err := apiKeyRepo.UpdateLastUsedThrottled(apiKeyRecord.ID, DefaultLastUsedUpdateInterval); err != nil {
 				log.Warnf("amp api key auth: failed to update last_used_at: %v", err)
 			}
 		}()

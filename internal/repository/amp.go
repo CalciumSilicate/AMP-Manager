@@ -2,6 +2,7 @@ package repository
 
 import (
 	"database/sql"
+	"sync"
 	"time"
 
 	"ampmanager/internal/database"
@@ -9,6 +10,8 @@ import (
 
 	"github.com/google/uuid"
 )
+
+var apiKeyLastUsedCache sync.Map
 
 type AmpSettingsRepository struct{}
 
@@ -38,7 +41,7 @@ func (r *AmpSettingsRepository) GetByUserID(userID string) (*model.AmpSettings, 
 	if err != nil {
 		return nil, err
 	}
-	
+
 	if webSearchMode.Valid {
 		settings.WebSearchMode = webSearchMode.String
 	} else {
@@ -194,6 +197,29 @@ func (r *APIKeyRepository) UpdateLastUsed(id string) error {
 	now := time.Now().UTC()
 	_, err := db.Exec(`UPDATE user_api_keys SET last_used_at = ? WHERE id = ?`, now, id)
 	return err
+}
+
+func (r *APIKeyRepository) UpdateLastUsedThrottled(id string, minInterval time.Duration) error {
+	if id == "" {
+		return nil
+	}
+
+	now := time.Now().UTC()
+	if minInterval > 0 {
+		if cached, ok := apiKeyLastUsedCache.Load(id); ok {
+			if lastUpdated, ok := cached.(time.Time); ok && now.Sub(lastUpdated) < minInterval {
+				return nil
+			}
+		}
+		apiKeyLastUsedCache.Store(id, now)
+	}
+
+	if err := r.UpdateLastUsed(id); err != nil {
+		apiKeyLastUsedCache.Delete(id)
+		return err
+	}
+
+	return nil
 }
 
 func (r *APIKeyRepository) HasActiveByUserID(userID string) (bool, error) {

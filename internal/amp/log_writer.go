@@ -157,7 +157,6 @@ func (w *LogWriter) WritePendingFromTrace(trace *RequestTrace) bool {
 	}
 
 	log.Debugf("log writer: inserted pending request %s", snapshot.RequestID)
-	realtime.NotifyLogCompleted(snapshot.RequestID)
 	return true
 }
 

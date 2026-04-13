@@ -16,6 +16,7 @@ import (
 	"ampmanager/internal/database"
 	"ampmanager/internal/model"
 	"ampmanager/internal/repository"
+	"ampmanager/internal/service"
 	"ampmanager/internal/translator/filters"
 
 	"github.com/gin-gonic/gin"
@@ -601,9 +602,12 @@ func (h *SystemHandler) DeleteBackup(c *gin.Context) {
 
 // GetRequestDetailEnabled 获取请求详情监控状态
 func (h *SystemHandler) GetRequestDetailEnabled(c *gin.Context) {
-	value, _ := h.configRepo.Get("request_detail_enabled")
-	enabled := value != "false" // 默认启用
-	c.JSON(http.StatusOK, gin.H{"enabled": enabled})
+	cfg, err := service.NewSystemConfigService().GetRequestDetailConfig()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "获取配置失败"})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"enabled": cfg.Enabled})
 }
 
 // UpdateRequestDetailEnabled 更新请求详情监控状态
@@ -616,20 +620,75 @@ func (h *SystemHandler) UpdateRequestDetailEnabled(c *gin.Context) {
 		return
 	}
 
-	value := "true"
-	if !req.Enabled {
-		value = "false"
-	}
-
-	if err := h.configRepo.Set("request_detail_enabled", value); err != nil {
+	cfgService := service.NewSystemConfigService()
+	if err := cfgService.SetRequestDetailEnabled(req.Enabled); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "保存配置失败"})
 		return
 	}
-
-	// 更新运行时配置
 	amp.SetRequestDetailEnabled(req.Enabled)
 
 	c.JSON(http.StatusOK, gin.H{"message": "配置已更新", "enabled": req.Enabled})
+}
+
+// GetRequestDetailConfig 获取请求详情完整配置
+func (h *SystemHandler) GetRequestDetailConfig(c *gin.Context) {
+	cfg, err := service.NewSystemConfigService().GetRequestDetailConfig()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "获取配置失败"})
+		return
+	}
+
+	c.JSON(http.StatusOK, cfg)
+}
+
+// UpdateRequestDetailConfig 更新请求详情完整配置
+func (h *SystemHandler) UpdateRequestDetailConfig(c *gin.Context) {
+	var req model.RequestDetailConfigRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "参数错误"})
+		return
+	}
+
+	if req.TTLSec < 30 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "ttlSec 必须 >= 30"})
+		return
+	}
+	if req.MaxEntries < 50 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "maxEntries 必须 >= 50"})
+		return
+	}
+	if req.MaxMemoryMB < 16 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "maxMemoryMB 必须 >= 16"})
+		return
+	}
+	if req.BodyCapKB < 4 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "bodyCapKB 必须 >= 4"})
+		return
+	}
+
+	resp := model.RequestDetailConfigResponse{
+		Enabled:        req.Enabled,
+		TTLSec:         req.TTLSec,
+		MaxEntries:     req.MaxEntries,
+		MaxMemoryMB:    req.MaxMemoryMB,
+		BodyCapKB:      req.BodyCapKB,
+		PersistEnabled: req.PersistEnabled,
+	}
+
+	if err := service.NewSystemConfigService().SetRequestDetailConfig(resp); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "保存配置失败"})
+		return
+	}
+	amp.UpdateRequestDetailConfig(amp.RequestDetailConfig{
+		Enabled:        resp.Enabled,
+		TTL:            time.Duration(resp.TTLSec) * time.Second,
+		MaxEntries:     resp.MaxEntries,
+		MaxMemoryBytes: resp.MaxMemoryMB * 1024 * 1024,
+		BodyCapBytes:   resp.BodyCapKB * 1024,
+		PersistEnabled: resp.PersistEnabled,
+	})
+
+	c.JSON(http.StatusOK, gin.H{"message": "配置已更新", "config": resp})
 }
 
 // GetTimeoutConfig 获取超时配置

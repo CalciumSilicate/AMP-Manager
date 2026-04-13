@@ -401,11 +401,12 @@ func createTables() error {
 		request_headers TEXT,
 		request_body TEXT,
 		translated_request_body TEXT,
+		translated_request_headers TEXT,
 		response_headers TEXT,
 		response_body TEXT,
-			translated_response_body TEXT,
-			created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
-		);
+		translated_response_body TEXT,
+		created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+	);
 	CREATE INDEX IF NOT EXISTS idx_request_log_details_created ON request_log_details(created_at DESC);
 
 	CREATE TABLE IF NOT EXISTS subscription_plans (
@@ -495,6 +496,7 @@ func createTables() error {
 			request_headers TEXT,
 			request_body TEXT,
 			translated_request_body TEXT,
+			translated_request_headers TEXT,
 			response_headers TEXT,
 			response_body TEXT,
 			translated_response_body TEXT,
@@ -558,6 +560,10 @@ func runMigrations() error {
 		{
 			name: "add_request_log_details_translated_response_body",
 			sql:  `ALTER TABLE request_log_details ADD COLUMN translated_response_body TEXT`,
+		},
+		{
+			name: "add_request_log_details_translated_request_headers",
+			sql:  `ALTER TABLE request_log_details ADD COLUMN translated_request_headers TEXT`,
 		},
 		{
 			name: "add_channels_enabled_priority_index",
@@ -685,6 +691,10 @@ func runMigrations() error {
 		{
 			name: "add_request_logs_effective_model_index",
 			sql:  `CREATE INDEX IF NOT EXISTS idx_request_logs_effective_model ON request_logs(COALESCE(mapped_model, original_model))`,
+		},
+		{
+			name: "add_request_log_details_archive_translated_request_headers",
+			sql:  `ALTER TABLE request_log_details_archive ADD COLUMN translated_request_headers TEXT`,
 		},
 		{
 			name: "add_api_keys_user_created_index",
@@ -845,6 +855,10 @@ func adaptMigrationSQL(name string, sqlText string) string {
 	case "add_request_logs_charged_balance_micros":
 		if dbType == DBTypePostgres {
 			adapted = `ALTER TABLE request_logs ADD COLUMN charged_balance_micros BIGINT NOT NULL DEFAULT 0`
+		}
+	case "add_request_log_details_archive_translated_request_headers":
+		if dbType != DBTypePostgres {
+			adapted = ""
 		}
 	case "postgres_widen_users_balance_micros", "postgres_widen_request_logs_micros_columns", "postgres_widen_request_logs_token_columns", "postgres_widen_subscription_plan_limits_limit_micros", "postgres_widen_billing_events_amount_micros":
 		if dbType != DBTypePostgres {
