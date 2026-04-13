@@ -41,3 +41,5 @@ CLIProxyAPI/
 tmp/
 .amp/
 样本/
+perf/runtime/
+perf/results/

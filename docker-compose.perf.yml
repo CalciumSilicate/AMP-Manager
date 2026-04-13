@@ -1,0 +1,52 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    ports:
+      - "${PERF_DB_PORT:-55432}:5432"
+    environment:
+      POSTGRES_USER: "${PERF_POSTGRES_USER:-postgres}"
+      POSTGRES_PASSWORD: "${PERF_POSTGRES_PASSWORD:-mysecretpassword}"
+      POSTGRES_DB: "${PERF_POSTGRES_DB:-ampmanager}"
+    volumes:
+      - perf_postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${PERF_POSTGRES_USER:-postgres} -d ${PERF_POSTGRES_DB:-ampmanager}"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  ampmanager:
+    image: "${AMPMANAGER_IMAGE:-ghcr.io/meglinge/amp-manager:latest}"
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    ports:
+      - "${PERF_APP_PORT:-16823}:16823"
+    environment:
+      SERVER_PORT: "16823"
+      DB_TYPE: "postgres"
+      DATABASE_URL: "postgres://${PERF_POSTGRES_USER:-postgres}:${PERF_POSTGRES_PASSWORD:-mysecretpassword}@postgres:5432/${PERF_POSTGRES_DB:-ampmanager}?sslmode=disable"
+      JWT_SECRET: "${PERF_JWT_SECRET:-ampmanager-perf-jwt-secret-1234567890-abcdef}"
+      ADMIN_PASSWORD: "${PERF_ADMIN_PASSWORD:-perf-admin-password}"
+      ALLOW_INSECURE_DEFAULTS: "true"
+      RATE_LIMIT_PROXY_RPS: "100"
+      RATE_LIMIT_AUTH_RPS: "5"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:16823/ >/dev/null 2>&1"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+
+  k6:
+    image: grafana/k6:0.49.0
+    working_dir: /workspace
+    entrypoint: ["k6"]
+    volumes:
+      - ./:/workspace
+
+volumes:
+  perf_postgres_data:

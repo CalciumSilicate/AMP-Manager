@@ -4,6 +4,8 @@ import (
 	"embed"
 	"io/fs"
 	"net/http"
+	"path"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 )
@@ -18,6 +20,7 @@ func RegisterStaticRoutes(r *gin.Engine) {
 	if err != nil {
 		panic("failed to get dist subdirectory: " + err.Error())
 	}
+	httpFS := http.FS(distFS)
 
 	// Serve static assets
 	r.StaticFS("/assets", http.FS(mustSub(distFS, "assets")))
@@ -32,6 +35,21 @@ func RegisterStaticRoutes(r *gin.Engine) {
 		if len(c.Request.URL.Path) >= 3 && c.Request.URL.Path[:3] == "/v1" {
 			c.JSON(404, gin.H{"error": "not found"})
 			return
+		}
+
+		requestPath := path.Clean("/" + c.Request.URL.Path)
+		if requestPath != "/" {
+			distPath := strings.TrimPrefix(requestPath, "/")
+			if fileExists(distFS, distPath) {
+				c.FileFromFS(distPath, httpFS)
+				return
+			}
+
+			// Avoid returning index.html for missing static files such as fonts.
+			if strings.Contains(path.Base(distPath), ".") {
+				c.JSON(404, gin.H{"error": "not found"})
+				return
+			}
 		}
 
 		indexHTML, err := fs.ReadFile(distFS, "index.html")
@@ -49,4 +67,12 @@ func mustSub(fsys fs.FS, dir string) fs.FS {
 		panic("failed to get subdirectory: " + err.Error())
 	}
 	return sub
+}
+
+func fileExists(fsys fs.FS, name string) bool {
+	info, err := fs.Stat(fsys, name)
+	if err != nil {
+		return false
+	}
+	return !info.IsDir()
 }

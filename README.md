@@ -222,6 +222,13 @@ go run ./cmd/dbtool migrate --source-type postgres --source postgres://postgres:
 - SQLite 模式仍保留文件级备份/恢复；PostgreSQL 模式请使用 `dbtool migrate` 做导出导入。
 - 管理后台已内置同样的迁移能力；CLI 现在只是可选入口。
 
+## 性能压测
+
+本仓库包含一套针对代理热路径的本地压测实验室，固定以 PostgreSQL 为基线，并使用本地 mock upstream 隔离 AMP Manager 自身瓶颈。
+
+- 文档: [docs/performance-load-testing.md](docs/performance-load-testing.md)
+- 入口脚本: `./perf/run.sh`
+
 ## 客户端配置
 
 ### Amp CLI
