@@ -5,8 +5,7 @@ import "context"
 type streamModeKey struct{}
 
 type StreamMode struct {
-	ClientWantsStream    bool
-	ForcedUpstreamStream bool
+	ClientWantsStream bool
 }
 
 func WithStreamMode(ctx context.Context, m StreamMode) context.Context {

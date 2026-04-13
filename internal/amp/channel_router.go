@@ -457,23 +457,8 @@ func ChannelProxyHandler() gin.HandlerFunc {
 				c.Request.Body = io.NopCloser(bytes.NewReader(bodyBytes))
 			}
 
-			// /v1/responses: if client asked for non-stream, force upstream stream=true
-			forcedUpstreamStream := false
-			if !isStreaming && strings.Contains(c.Request.URL.Path, "/v1/responses") {
-				forcedBody, forced := forceJSONStreamTrue(convertedBody)
-				if forced {
-					convertedBody = forcedBody
-					isStreaming = true
-					forcedUpstreamStream = true
-					c.Request.Body = io.NopCloser(bytes.NewReader(convertedBody))
-					c.Request.ContentLength = int64(len(convertedBody))
-					c.Request.Header.Set("Content-Length", fmt.Sprintf("%d", len(convertedBody)))
-				}
-			}
-
 			c.Request = c.Request.WithContext(WithStreamMode(c.Request.Context(), StreamMode{
-				ClientWantsStream:    clientWantsStream,
-				ForcedUpstreamStream: forcedUpstreamStream,
+				ClientWantsStream: clientWantsStream,
 			}))
 		}
 
