@@ -54,6 +54,9 @@ func TestSSEConcurrencyRetryWrapper_RetriesAfterKeepAliveFrames(t *testing.T) {
 	if strings.Contains(outStr, "Concurrency limit exceeded") {
 		t.Fatalf("expected retryable error frame to be swallowed, got: %s", outStr)
 	}
+	if !strings.Contains(outStr, ":\n\n") {
+		t.Fatalf("expected keepalive frames to be forwarded before retry, got: %s", outStr)
+	}
 	if !strings.Contains(outStr, "response.output_text.delta") {
 		t.Fatalf("expected retried stream data, got: %s", outStr)
 	}
@@ -66,7 +69,7 @@ func TestIsSSERetryableError_CaseInsensitiveConcurrencyMessage(t *testing.T) {
 	}
 }
 
-func TestSSEConcurrencyRetryWrapper_RetriesOnStreamReadErrorAfterKeepAlive(t *testing.T) {
+func TestSSEConcurrencyRetryWrapper_DoesNotRetryAfterPreludeFrame(t *testing.T) {
 	oldWait := sseConcurrencyRetryBaseWait
 	oldSleep := sseConcurrencyRetrySleep
 	sseConcurrencyRetryBaseWait = 0
@@ -93,16 +96,10 @@ func TestSSEConcurrencyRetryWrapper_RetriesOnStreamReadErrorAfterKeepAlive(t *te
 		"",
 	}, "\n")
 
-	secondStream := strings.Join([]string{
-		"data: {\"type\":\"response.output_text.delta\",\"delta\":\"ok\"}",
-		"",
-		"",
-	}, "\n")
-
 	retryCalls := 0
 	wrapped := NewSSEConcurrencyRetryWrapper(io.NopCloser(strings.NewReader(firstStream)), func() (io.ReadCloser, error) {
 		retryCalls++
-		return io.NopCloser(strings.NewReader(secondStream)), nil
+		return io.NopCloser(strings.NewReader("")), nil
 	})
 
 	out, err := io.ReadAll(wrapped)
@@ -110,19 +107,51 @@ func TestSSEConcurrencyRetryWrapper_RetriesOnStreamReadErrorAfterKeepAlive(t *te
 		t.Fatalf("read failed: %v", err)
 	}
 
-	if retryCalls != 1 {
-		t.Fatalf("expected retry to be called once, got %d", retryCalls)
+	if retryCalls != 0 {
+		t.Fatalf("expected no retry after prelude frame was forwarded, got %d", retryCalls)
 	}
 
 	outStr := string(out)
-	if strings.Contains(outStr, "stream_read_error") {
-		t.Fatalf("expected stream_read_error frame to be swallowed, got: %s", outStr)
+	if !strings.Contains(outStr, "response.created") {
+		t.Fatalf("expected prelude frame to be forwarded immediately, got: %s", outStr)
 	}
-	if strings.Contains(outStr, "response.created") {
-		t.Fatalf("expected failed-attempt prelude frames to be discarded, got: %s", outStr)
+	if !strings.Contains(outStr, "stream_read_error") {
+		t.Fatalf("expected retryable error to pass through after prelude frame, got: %s", outStr)
 	}
-	if !strings.Contains(outStr, "response.output_text.delta") {
-		t.Fatalf("expected retried stream data, got: %s", outStr)
+}
+
+func TestSSEConcurrencyRetryWrapper_ForwardsPreludeFrameImmediately(t *testing.T) {
+	stream := strings.Join([]string{
+		"event: response.created",
+		"data: {\"type\":\"response.created\",\"response\":{\"id\":\"resp_1\"}}",
+		"",
+		"event: response.output_text.delta",
+		"data: {\"type\":\"response.output_text.delta\",\"delta\":\"hello\"}",
+		"",
+		"",
+	}, "\n")
+
+	retryCalls := 0
+	wrapped := NewSSEConcurrencyRetryWrapper(io.NopCloser(strings.NewReader(stream)), func() (io.ReadCloser, error) {
+		retryCalls++
+		return io.NopCloser(strings.NewReader("")), nil
+	})
+
+	buf := make([]byte, 256)
+	n, err := wrapped.Read(buf)
+	if err != nil {
+		t.Fatalf("first read failed: %v", err)
+	}
+
+	firstChunk := string(buf[:n])
+	if retryCalls != 0 {
+		t.Fatalf("expected no retry while forwarding prelude frame, got %d", retryCalls)
+	}
+	if !strings.Contains(firstChunk, "response.created") {
+		t.Fatalf("expected first read to return prelude frame, got: %s", firstChunk)
+	}
+	if strings.Contains(firstChunk, "response.output_text.delta") {
+		t.Fatalf("expected prelude frame to flush before substantive delta, got: %s", firstChunk)
 	}
 }
 

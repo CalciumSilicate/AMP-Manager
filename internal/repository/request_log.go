@@ -585,9 +585,8 @@ func (r *RequestLogRepository) GetCacheHitRateByProvider(userID string) ([]Dashb
 		if err := rows.Scan(&r.Provider, &r.TotalInputTokens, &r.CacheReadTokens, &r.CacheCreationTokens, &r.RequestCount); err != nil {
 			return nil, err
 		}
-		totalRelevant := r.TotalInputTokens + r.CacheReadTokens
-		if totalRelevant > 0 {
-			r.HitRate = float64(r.CacheReadTokens) / float64(totalRelevant) * 100
+		if r.TotalInputTokens > 0 {
+			r.HitRate = float64(r.CacheReadTokens) / float64(r.TotalInputTokens) * 100
 		}
 		results = append(results, r)
 	}
@@ -720,9 +719,8 @@ func (r *RequestLogRepository) GetAdminCacheHitRateByProvider() ([]DashboardCach
 		if err := rows.Scan(&r.Provider, &r.TotalInputTokens, &r.CacheReadTokens, &r.CacheCreationTokens, &r.RequestCount); err != nil {
 			return nil, err
 		}
-		totalRelevant := r.TotalInputTokens + r.CacheReadTokens
-		if totalRelevant > 0 {
-			r.HitRate = float64(r.CacheReadTokens) / float64(totalRelevant) * 100
+		if r.TotalInputTokens > 0 {
+			r.HitRate = float64(r.CacheReadTokens) / float64(r.TotalInputTokens) * 100
 		}
 		results = append(results, r)
 	}
