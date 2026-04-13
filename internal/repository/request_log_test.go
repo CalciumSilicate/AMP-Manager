@@ -66,6 +66,85 @@ func TestGetAdminCacheHitRateByProviderUsesTotalInputAsDenominator(t *testing.T)
 	assertFloatEquals(t, openAI.HitRate, (130.0/300.0)*100.0)
 }
 
+func TestDisplayInputTokensSubtractsCacheReadForDisplay(t *testing.T) {
+	inputTokens := 100
+	cacheReadTokens := 80
+
+	displayed := displayInputTokens(&inputTokens, &cacheReadTokens)
+	if displayed == nil || *displayed != 20 {
+		t.Fatalf("unexpected displayed input tokens: got %v want 20", displayed)
+	}
+}
+
+func TestGetByIDWithJoinsDisplaysUncachedInputTokens(t *testing.T) {
+	setupRequestLogTestDB(t)
+
+	now := time.Now().UTC()
+	insertRequestLogForCacheTest(t, "log-openai-1", "user-1", "gpt-5.4", 100, 80, 10, now)
+
+	repo := NewRequestLogRepository()
+	logEntry, err := repo.GetByIDWithJoins("log-openai-1")
+	if err != nil {
+		t.Fatalf("GetByIDWithJoins returned error: %v", err)
+	}
+	if logEntry == nil || logEntry.InputTokens == nil {
+		t.Fatalf("expected log entry with input tokens")
+	}
+	if *logEntry.InputTokens != 20 {
+		t.Fatalf("unexpected displayed input tokens: got %d want 20", *logEntry.InputTokens)
+	}
+	if logEntry.CacheReadInputTokens == nil || *logEntry.CacheReadInputTokens != 80 {
+		t.Fatalf("unexpected cache read tokens: got %v want 80", logEntry.CacheReadInputTokens)
+	}
+}
+
+func TestGetUsageSummaryDisplaysUncachedInputTokens(t *testing.T) {
+	setupRequestLogTestDB(t)
+
+	now := time.Now().UTC()
+	insertRequestLogForCacheTest(t, "log-openai-1", "user-1", "gpt-5.4", 100, 80, 10, now)
+	insertRequestLogForCacheTest(t, "log-openai-2", "user-1", "gpt-5.4", 200, 50, 0, now)
+
+	repo := NewRequestLogRepository()
+	userID := "user-1"
+	summaries, err := repo.GetUsageSummary(&userID, nil, nil, "model", "")
+	if err != nil {
+		t.Fatalf("GetUsageSummary returned error: %v", err)
+	}
+	if len(summaries) != 1 {
+		t.Fatalf("expected 1 summary row, got %d", len(summaries))
+	}
+
+	summary := summaries[0]
+	if summary.GroupKey != "gpt-5.4" {
+		t.Fatalf("unexpected group key: %s", summary.GroupKey)
+	}
+	if summary.InputTokensSum != 170 {
+		t.Fatalf("unexpected displayed input token sum: got %d want 170", summary.InputTokensSum)
+	}
+	if summary.CacheReadInputTokensSum != 130 {
+		t.Fatalf("unexpected cache read sum: got %d want 130", summary.CacheReadInputTokensSum)
+	}
+}
+
+func TestGetDashboardStatsDisplaysUncachedInputTokens(t *testing.T) {
+	setupRequestLogTestDB(t)
+
+	now := time.Now().UTC()
+	insertRequestLogForCacheTest(t, "log-openai-1", "user-1", "gpt-5.4", 100, 80, 10, now)
+	insertRequestLogForCacheTest(t, "log-openai-2", "user-1", "gpt-5.4", 200, 50, 0, now)
+
+	repo := NewRequestLogRepository()
+	today, week, month, _, _, err := repo.GetDashboardStats("user-1")
+	if err != nil {
+		t.Fatalf("GetDashboardStats returned error: %v", err)
+	}
+
+	if today.InputTokensSum != 170 || week.InputTokensSum != 170 || month.InputTokensSum != 170 {
+		t.Fatalf("unexpected displayed dashboard input sums: today=%d week=%d month=%d", today.InputTokensSum, week.InputTokensSum, month.InputTokensSum)
+	}
+}
+
 func setupRequestLogTestDB(t *testing.T) {
 	t.Helper()
 

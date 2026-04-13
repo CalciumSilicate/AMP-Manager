@@ -301,7 +301,7 @@ export default function RequestLogs({ isAdmin }: Props) {
                       <TableHead>方法</TableHead>
                       <TableHead>状态</TableHead>
                       <TableHead className="text-right">延迟</TableHead>
-                      <TableHead className="text-right">输入</TableHead>
+                      <TableHead className="text-right">输入(去缓存)</TableHead>
                       <TableHead className="text-right">输出</TableHead>
                       <TableHead className="text-right">缓存读</TableHead>
                       <TableHead className="text-right">缓存写</TableHead>

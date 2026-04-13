@@ -16,6 +16,39 @@ func NewRequestLogRepository() *RequestLogRepository {
 	return &RequestLogRepository{}
 }
 
+func displayInputTokensInt64(inputTokens, cacheReadTokens int64) int64 {
+	uncachedInputTokens := inputTokens - cacheReadTokens
+	if uncachedInputTokens < 0 {
+		return 0
+	}
+	return uncachedInputTokens
+}
+
+func displayInputTokens(inputTokens, cacheReadTokens *int) *int {
+	if inputTokens == nil {
+		return nil
+	}
+
+	cacheRead := 0
+	if cacheReadTokens != nil {
+		cacheRead = *cacheReadTokens
+	}
+
+	uncachedInputTokens := *inputTokens - cacheRead
+	if uncachedInputTokens < 0 {
+		uncachedInputTokens = 0
+	}
+
+	return &uncachedInputTokens
+}
+
+func normalizeRequestLogDisplay(log *model.RequestLog) {
+	if log == nil {
+		return
+	}
+	log.InputTokens = displayInputTokens(log.InputTokens, log.CacheReadInputTokens)
+}
+
 // ListParams 查询参数
 type ListParams struct {
 	UserID      string
@@ -218,12 +251,13 @@ func (r *RequestLogRepository) List(params ListParams) ([]model.RequestLog, int6
 		if thinkingLevel.Valid {
 			log.ThinkingLevel = &thinkingLevel.String
 		}
-		if outputPreview.Valid {
-			log.OutputPreview = &outputPreview.String
-		}
+			if outputPreview.Valid {
+				log.OutputPreview = &outputPreview.String
+			}
+			normalizeRequestLogDisplay(&log)
 
-		logs = append(logs, log)
-	}
+			logs = append(logs, log)
+		}
 
 	return logs, total, rows.Err()
 }
@@ -272,11 +306,15 @@ func (r *RequestLogRepository) GetUsageSummary(userID *string, from, to *time.Ti
 	whereClause := strings.Join(conditions, " AND ")
 
 	query := fmt.Sprintf(`
-		SELECT 
-			%s as group_key,
-			COALESCE(SUM(input_tokens), 0) as input_tokens_sum,
-			COALESCE(SUM(output_tokens), 0) as output_tokens_sum,
-			COALESCE(SUM(cache_read_input_tokens), 0) as cache_read_sum,
+			SELECT 
+				%s as group_key,
+				COALESCE(SUM(CASE
+					WHEN COALESCE(input_tokens, 0) > COALESCE(cache_read_input_tokens, 0)
+						THEN COALESCE(input_tokens, 0) - COALESCE(cache_read_input_tokens, 0)
+					ELSE 0
+				END), 0) as input_tokens_sum,
+				COALESCE(SUM(output_tokens), 0) as output_tokens_sum,
+				COALESCE(SUM(cache_read_input_tokens), 0) as cache_read_sum,
 			COALESCE(SUM(cache_creation_input_tokens), 0) as cache_creation_sum,
 			COUNT(*) as request_count,
 			SUM(CASE WHEN status_code >= 400 THEN 1 ELSE 0 END) as error_count,
@@ -467,13 +505,17 @@ func (r *RequestLogRepository) GetDashboardStats(userID string) (today, week, mo
 	weekStart := todayStart.AddDate(0, 0, -7)
 	monthStart := todayStart.AddDate(0, 0, -30)
 
-	queryPeriod := func(from time.Time) (DashboardPeriodStats, error) {
-		var s DashboardPeriodStats
-		err := db.QueryRow(`
-			SELECT COUNT(*),
-			       COALESCE(SUM(input_tokens), 0),
-			       COALESCE(SUM(output_tokens), 0),
-			       COALESCE(SUM(cost_micros), 0),
+		queryPeriod := func(from time.Time) (DashboardPeriodStats, error) {
+			var s DashboardPeriodStats
+			err := db.QueryRow(`
+				SELECT COUNT(*),
+				       COALESCE(SUM(CASE
+				           WHEN COALESCE(input_tokens, 0) > COALESCE(cache_read_input_tokens, 0)
+				               THEN COALESCE(input_tokens, 0) - COALESCE(cache_read_input_tokens, 0)
+				           ELSE 0
+				       END), 0),
+				       COALESCE(SUM(output_tokens), 0),
+				       COALESCE(SUM(cost_micros), 0),
 			       COALESCE(SUM(CASE WHEN status_code >= 400 THEN 1 ELSE 0 END), 0)
 			FROM request_logs WHERE user_id = ? AND created_at >= ?
 		`, userID, from.UTC()).Scan(&s.RequestCount, &s.InputTokensSum, &s.OutputTokensSum, &s.CostMicrosSum, &s.ErrorCount)
@@ -601,13 +643,17 @@ func (r *RequestLogRepository) GetAdminDashboardStats() (today, week, month Dash
 	weekStart := todayStart.AddDate(0, 0, -7)
 	monthStart := todayStart.AddDate(0, 0, -30)
 
-	queryPeriod := func(from time.Time) (DashboardPeriodStats, error) {
-		var s DashboardPeriodStats
-		err := db.QueryRow(`
-			SELECT COUNT(*),
-			       COALESCE(SUM(input_tokens), 0),
-			       COALESCE(SUM(output_tokens), 0),
-			       COALESCE(SUM(cost_micros), 0),
+		queryPeriod := func(from time.Time) (DashboardPeriodStats, error) {
+			var s DashboardPeriodStats
+			err := db.QueryRow(`
+				SELECT COUNT(*),
+				       COALESCE(SUM(CASE
+				           WHEN COALESCE(input_tokens, 0) > COALESCE(cache_read_input_tokens, 0)
+				               THEN COALESCE(input_tokens, 0) - COALESCE(cache_read_input_tokens, 0)
+				           ELSE 0
+				       END), 0),
+				       COALESCE(SUM(output_tokens), 0),
+				       COALESCE(SUM(cost_micros), 0),
 			       COALESCE(SUM(CASE WHEN status_code >= 400 THEN 1 ELSE 0 END), 0)
 			FROM request_logs WHERE created_at >= ?
 		`, from.UTC()).Scan(&s.RequestCount, &s.InputTokensSum, &s.OutputTokensSum, &s.CostMicrosSum, &s.ErrorCount)
@@ -827,6 +873,7 @@ func (r *RequestLogRepository) GetByID(id string) (*model.RequestLog, error) {
 	if thinkingLevel.Valid {
 		log.ThinkingLevel = &thinkingLevel.String
 	}
+	normalizeRequestLogDisplay(&log)
 
 	return &log, nil
 }
@@ -943,6 +990,7 @@ func (r *RequestLogRepository) GetByIDWithJoins(id string) (*model.RequestLog, e
 	if thinkingLevel.Valid {
 		l.ThinkingLevel = &thinkingLevel.String
 	}
+	normalizeRequestLogDisplay(&l)
 
 	return &l, nil
 }

@@ -215,7 +215,7 @@ export default function UsageStats({ isAdmin }: Props) {
                   <TableRow>
                     <TableHead>{summaryGroupBy === 'day' ? '日期' : summaryGroupBy === 'model' ? '模型' : '用户'}</TableHead>
                     <TableHead className="text-right">请求数</TableHead>
-                    <TableHead className="text-right">输入</TableHead>
+                    <TableHead className="text-right">输入(去缓存)</TableHead>
                     <TableHead className="text-right">输出</TableHead>
                     <TableHead className="text-right">缓存读</TableHead>
                     <TableHead className="text-right">缓存写</TableHead>

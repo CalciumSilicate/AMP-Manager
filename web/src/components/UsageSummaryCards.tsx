@@ -29,7 +29,7 @@ export function UsageSummaryCards({ summary }: UsageSummaryCardsProps) {
       <motion.div variants={{ hidden: { opacity: 0, y: 30, scale: 0.9 }, visible: { opacity: 1, y: 0, scale: 1, transition: { type: 'spring', bounce: 0.35, duration: 0.6 } } }} whileHover={{ scale: 1.05, y: -6 }} whileTap={{ scale: 0.97 }}>
         <Card>
           <CardHeader className="pb-2">
-            <CardDescription>输入 Tokens</CardDescription>
+            <CardDescription>输入 Tokens(去缓存)</CardDescription>
             <CardTitle className="text-2xl"><Num value={totalInputTokens} /></CardTitle>
           </CardHeader>
         </Card>

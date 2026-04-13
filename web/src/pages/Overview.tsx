@@ -282,7 +282,7 @@ export default function Overview() {
         className="grid gap-4 md:grid-cols-4"
       >
         {[
-          { label: '输入 Tokens (30天)', value: data.month.inputTokensSum, icon: ArrowUpRight, color: 'text-orange-500' },
+          { label: '输入 Tokens (去缓存, 30天)', value: data.month.inputTokensSum, icon: ArrowUpRight, color: 'text-orange-500' },
           { label: '输出 Tokens (30天)', value: data.month.outputTokensSum, icon: ArrowDownRight, color: 'text-purple-500' },
           { label: '总请求 (30天)', value: data.month.requestCount, icon: Hash, color: 'text-blue-500' },
           { label: '错误数 (30天)', value: data.month.errorCount, icon: AlertTriangle, color: data.month.errorCount > 0 ? 'text-red-500' : 'text-muted-foreground' },
@@ -882,7 +882,7 @@ export default function Overview() {
                                 <span className="text-right font-mono"><Num value={rate!.cacheReadTokens} /></span>
                                 <span>缓存写入</span>
                                 <span className="text-right font-mono"><Num value={rate!.cacheCreationTokens} /></span>
-                                <span>输入 Tokens</span>
+                                <span>总输入 Tokens</span>
                                 <span className="text-right font-mono"><Num value={rate!.totalInputTokens} /></span>
                               </div>
                             </div>
