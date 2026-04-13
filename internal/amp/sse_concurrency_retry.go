@@ -68,29 +68,10 @@ type SSEConcurrencyRetryWrapper struct {
 
 	// internal state
 	buf       []byte // raw bytes not yet consumed
-	staged    []byte // prelude frames buffered until retry/no-retry decision
 	pending   []byte // transformed data ready to return to caller
-	started   bool   // true once we've forwarded at least one real event
+	started   bool   // true once we've forwarded at least one non-keepalive frame
 	exhausted bool   // true once upstream hit EOF
 	retries   int
-}
-
-func isRetryPreludeFrame(eventName string, payload []byte) bool {
-	if len(payload) == 0 {
-		return false
-	}
-
-	eventType := strings.ToLower(gjson.GetBytes(payload, "type").String())
-	if eventType == "" {
-		eventType = strings.ToLower(eventName)
-	}
-
-	switch eventType {
-	case "response.created", "response.in_progress", "response.output_item.added", "response.output_item.done", "response.content_part.added", "response.content_part.done":
-		return true
-	default:
-		return false
-	}
 }
 
 // NewSSEConcurrencyRetryWrapper creates a wrapper.
@@ -146,12 +127,8 @@ func (w *SSEConcurrencyRetryWrapper) Read(p []byte) (int, error) {
 		if idx < 0 {
 			if w.exhausted {
 				// No complete frame, just forward whatever remains.
-				w.started = true
-				if len(w.staged) > 0 {
-					w.pending = append(w.pending, w.staged...)
-					w.staged = nil
-				}
 				if len(w.buf) > 0 {
+					w.started = true
 					w.pending = append(w.pending, w.buf...)
 					w.buf = nil
 				}
@@ -171,11 +148,12 @@ func (w *SSEConcurrencyRetryWrapper) Read(p []byte) (int, error) {
 		eventName, payload, done := parseSSEEvent(frame)
 
 		if len(payload) == 0 && !done {
-			// Keep-alive/comment frame (e.g. ":\n\n") during prelude.
-			// Buffer it so we can discard if this attempt is retried.
-			w.staged = append(w.staged, frame...)
+			// Keep-alive/comment frames can be forwarded without disabling retries.
+			w.pending = append(w.pending, frame...)
 			w.buf = rest
-			continue
+			n := copy(p, w.pending)
+			w.pending = w.pending[n:]
+			return n, nil
 		}
 
 		if isRetryableErrorPayload(eventName, payload) {
@@ -184,8 +162,6 @@ func (w *SSEConcurrencyRetryWrapper) Read(p []byte) (int, error) {
 			if w.retries > sseConcurrencyRetryMax {
 				log.Warnf("sse-concurrency-retry: max retries (%d) exhausted, forwarding error to client", sseConcurrencyRetryMax)
 				w.started = true
-				w.pending = append(w.pending, w.staged...)
-				w.staged = nil
 				w.pending = append(w.pending, frame...)
 				w.pending = append(w.pending, rest...)
 				w.buf = nil
@@ -206,36 +182,24 @@ func (w *SSEConcurrencyRetryWrapper) Read(p []byte) (int, error) {
 			newBody, err := w.retryFunc()
 			if err != nil {
 				log.Errorf("sse-concurrency-retry: retry request failed: %v, forwarding original error", err)
-				// Return the original stream prelude + error frame.
+				// Return the original error frame and continue with pass-through semantics.
 				w.started = true
-				w.pending = append(w.pending, w.staged...)
-				w.staged = nil
 				w.pending = append(w.pending, frame...)
 				w.pending = append(w.pending, rest...)
 				n := copy(p, w.pending)
 				w.pending = w.pending[n:]
 				return n, nil
 			}
-			w.staged = nil
 			w.upstream = newBody
 			continue
 		}
 
-		if isRetryPreludeFrame(eventName, payload) {
-			// Responses API prelude events may be followed by a retryable error.
-			// Buffer until we either hit retryable error or first substantive data.
-			w.staged = append(w.staged, frame...)
-			w.buf = rest
-			continue
-		}
-
-		// Not a retryable error — this is real stream data (or [DONE]), start forwarding.
-		log.Debugf("sse-concurrency-retry: first data frame is not retryable, passing through (len=%d)", len(frame))
+		// First non-keepalive frame is forwarded immediately; once that happens,
+		// retries are disabled to preserve the stream the client has already observed.
+		log.Debugf("sse-concurrency-retry: first non-keepalive frame is not retryable, passing through (len=%d)", len(frame))
 		w.started = true
-		w.pending = append(w.pending, w.staged...)
-		w.staged = nil
-		w.pending = append(w.pending, w.buf...)
-		w.buf = nil
+		w.pending = append(w.pending, frame...)
+		w.buf = rest
 		n := copy(p, w.pending)
 		w.pending = w.pending[n:]
 		return n, nil
