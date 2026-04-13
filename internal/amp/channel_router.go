@@ -580,6 +580,7 @@ func ChannelProxyHandler() gin.HandlerFunc {
 				// Spoof User-Agent for OpenAI channels to mimic Codex CLI
 				if channel.Type == model.ChannelTypeOpenAI {
 					req.Header.Set("User-Agent", "codex_exec/0.98.0 (Mac OS 15.1.0; arm64) unknown")
+					stripOpenAIUnsupportedFields(req)
 				}
 
 				// For OpenAI Chat, inject stream_options.include_usage=true for streaming requests
@@ -588,10 +589,12 @@ func ChannelProxyHandler() gin.HandlerFunc {
 				}
 
 				simulateClaudeCLI := channel.SimulateCLI && channel.Type == model.ChannelTypeClaude
+				simulateClaudeUA := channel.SimulateUA && channel.Type == model.ChannelTypeClaude
 
-				// Apply Claude CLI simulation if enabled for this channel
+				// Apply header filtering (whitelist mode) when SimulateCLI is on,
+				// with optional UA/X-Stainless spoofing controlled by SimulateUA.
 				if simulateClaudeCLI {
-					applyClaudeCLISimulation(req)
+					applyClaudeCLISimulation(req, simulateClaudeUA)
 				}
 
 				// Apply channel-specific authentication after any strict header rewrite.
@@ -938,9 +941,10 @@ func applyChannelAuth(channel *model.Channel, req *http.Request) {
 	}
 }
 
-// applyClaudeCLISimulation 注入完整的 Claude Code CLI 指纹 headers。
+// applyClaudeCLISimulation 注入 Claude Code CLI headers。
 // 严格白名单模式：除少数协议必需头外，不透传客户端、代理或自定义 headers。
-func applyClaudeCLISimulation(req *http.Request) {
+// spoofUA 为 true 时额外注入 User-Agent 和 X-Stainless SDK 指纹。
+func applyClaudeCLISimulation(req *http.Request, spoofUA bool) {
 	if req == nil {
 		return
 	}
@@ -960,8 +964,10 @@ func applyClaudeCLISimulation(req *http.Request) {
 		req.Header.Set("Content-Length", contentLength)
 	}
 
-	// User-Agent — Claude Code 2.1.81
-	req.Header.Set("User-Agent", "claude-cli/2.1.81 (external, cli)")
+	// User-Agent — 仅在 spoofUA 时伪装为 Claude Code CLI
+	if spoofUA {
+		req.Header.Set("User-Agent", "claude-cli/2.1.81 (external, cli)")
+	}
 
 	// Anthropic 专用 headers
 	req.Header.Set("Anthropic-Version", "2023-06-01")
@@ -980,15 +986,17 @@ func applyClaudeCLISimulation(req *http.Request) {
 	}
 	req.Header.Set("Anthropic-Beta", strings.Join(requiredBetas, ","))
 
-	// X-Stainless SDK 指纹 — 与 claude-cli/2.1.81 + @anthropic-ai/sdk 0.74.0 对齐
-	req.Header.Set("X-Stainless-Retry-Count", "0")
-	req.Header.Set("X-Stainless-Runtime-Version", "v22.17.0")
-	req.Header.Set("X-Stainless-Package-Version", "0.74.0")
-	req.Header.Set("X-Stainless-Runtime", "node")
-	req.Header.Set("X-Stainless-Lang", "js")
-	req.Header.Set("X-Stainless-Arch", mapStainlessArch())
-	req.Header.Set("X-Stainless-Os", mapStainlessOS())
-	req.Header.Set("X-Stainless-Timeout", "600")
+	// X-Stainless SDK 指纹 — 仅在 spoofUA 时注入
+	if spoofUA {
+		req.Header.Set("X-Stainless-Retry-Count", "0")
+		req.Header.Set("X-Stainless-Runtime-Version", "v22.17.0")
+		req.Header.Set("X-Stainless-Package-Version", "0.74.0")
+		req.Header.Set("X-Stainless-Runtime", "node")
+		req.Header.Set("X-Stainless-Lang", "js")
+		req.Header.Set("X-Stainless-Arch", mapStainlessArch())
+		req.Header.Set("X-Stainless-Os", mapStainlessOS())
+		req.Header.Set("X-Stainless-Timeout", "600")
+	}
 
 	// 连接和内容 headers
 	req.Header.Set("Connection", "keep-alive")
@@ -1024,6 +1032,56 @@ func mapStainlessArch() string {
 	default:
 		return "other::" + runtime.GOARCH
 	}
+}
+
+// stripOpenAIUnsupportedFields 从 OpenAI 请求体中移除不支持的字段（max_output_tokens、stream_options）
+func stripOpenAIUnsupportedFields(req *http.Request) {
+	if req.Body == nil || req.ContentLength == 0 {
+		return
+	}
+	contentType := req.Header.Get("Content-Type")
+	if !strings.Contains(contentType, "application/json") {
+		return
+	}
+
+	bodyBytes, err := io.ReadAll(io.LimitReader(req.Body, 10*1024*1024))
+	if err != nil {
+		return
+	}
+	req.Body.Close()
+
+	var payload map[string]interface{}
+	if err := json.Unmarshal(bodyBytes, &payload); err != nil {
+		req.Body = io.NopCloser(bytes.NewReader(bodyBytes))
+		req.ContentLength = int64(len(bodyBytes))
+		return
+	}
+
+	modified := false
+	if _, exists := payload["max_output_tokens"]; exists {
+		delete(payload, "max_output_tokens")
+		modified = true
+	}
+	if _, exists := payload["stream_options"]; exists {
+		delete(payload, "stream_options")
+		modified = true
+	}
+
+	if !modified {
+		req.Body = io.NopCloser(bytes.NewReader(bodyBytes))
+		req.ContentLength = int64(len(bodyBytes))
+		return
+	}
+
+	newBody, err := json.Marshal(payload)
+	if err != nil {
+		req.Body = io.NopCloser(bytes.NewReader(bodyBytes))
+		req.ContentLength = int64(len(bodyBytes))
+		return
+	}
+	req.Body = io.NopCloser(bytes.NewReader(newBody))
+	req.ContentLength = int64(len(newBody))
+	req.Header.Set("Content-Length", fmt.Sprintf("%d", len(newBody)))
 }
 
 // injectOpenAIStreamOptions 为 OpenAI Chat 流式请求注入 stream_options.include_usage=true

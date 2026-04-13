@@ -109,6 +109,7 @@ func (s *ChannelService) Create(req *model.ChannelRequest) (*model.ChannelRespon
 		Priority:       priority,
 		ModelWhitelist: req.ModelWhitelist,
 		SimulateCLI:          req.SimulateCLI,
+		SimulateUA:           req.SimulateUA,
 		SimulateSystemPrompt: req.SimulateSystemPrompt,
 		TraditionalChinese:   req.TraditionalChinese,
 		CopilotAPI:           req.CopilotAPI,
@@ -200,6 +201,7 @@ func (s *ChannelService) Update(id string, req *model.ChannelRequest) (*model.Ch
 	existing.Priority = priority
 	existing.ModelWhitelist = req.ModelWhitelist
 	existing.SimulateCLI = req.SimulateCLI
+	existing.SimulateUA = req.SimulateUA
 	existing.SimulateSystemPrompt = req.SimulateSystemPrompt
 	existing.TraditionalChinese = req.TraditionalChinese
 	existing.CopilotAPI = req.CopilotAPI
@@ -662,6 +664,7 @@ func (s *ChannelService) buildResponse(channel *model.Channel, gids []string, gr
 		Priority:       channel.Priority,
 		ModelWhitelist: channel.ModelWhitelist,
 		SimulateCLI:          channel.SimulateCLI,
+		SimulateUA:           channel.SimulateUA,
 		SimulateSystemPrompt: channel.SimulateSystemPrompt,
 		TraditionalChinese:   channel.TraditionalChinese,
 		CopilotAPI:           channel.CopilotAPI,

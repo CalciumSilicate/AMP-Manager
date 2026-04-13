@@ -257,13 +257,30 @@ export function ChannelFormDialog({
             />
           </div>
 
-          {/* 模拟 Claude CLI - 仅 Claude 类型显示 */}
+          {/* 模拟 UA - 仅 Claude 类型显示 */}
           {formData.type === 'claude' && (
             <div className="col-span-2 flex items-center justify-between rounded-lg border p-4">
               <div className="space-y-0.5">
-                <Label>模拟 Claude CLI</Label>
+                <Label>模拟 UA</Label>
                 <p className="text-sm text-muted-foreground">
-                  启用后将注入完整的 Claude Code CLI 指纹 headers（User-Agent、X-Stainless 等）
+                  启用后将伪装 User-Agent 为 claude-cli 并注入 X-Stainless SDK 指纹，需同时开启「模拟请求体」
+                </p>
+              </div>
+              <Switch
+                checked={formData.simulateUa || false}
+                disabled={formData.copilotApi || false}
+                onCheckedChange={(checked) => setFormData(prev => ({ ...prev, simulateUa: checked }))}
+              />
+            </div>
+          )}
+
+          {/* 模拟请求体 - 仅 Claude 类型显示 */}
+          {formData.type === 'claude' && (
+            <div className="col-span-2 flex items-center justify-between rounded-lg border p-4">
+              <div className="space-y-0.5">
+                <Label>模拟请求体</Label>
+                <p className="text-sm text-muted-foreground">
+                  启用后将过滤请求头（白名单模式）并重构请求体以匹配官方 Claude Code CLI 格式（system 注入、cache_control、thinking 等）
                 </p>
               </div>
               <Switch
@@ -317,7 +334,7 @@ export function ChannelFormDialog({
               </div>
               <Switch
                 checked={formData.copilotApi || false}
-                disabled={formData.simulateCli || false}
+                disabled={formData.simulateCli || formData.simulateUa || false}
                 onCheckedChange={(checked) => setFormData(prev => ({ ...prev, copilotApi: checked }))}
               />
             </div>
