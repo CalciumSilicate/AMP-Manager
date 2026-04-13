@@ -45,7 +45,7 @@ pnpm run dev
 
 ## Playwright 浏览器工具
 
-所有由Playwright MCP产生的文件都要放进./playwright-mcp
+所有由Playwright MCP产生的文件都要放进./.playwright-mcp
 
 使用 Playwright MCP 工具查看和测试网页效果：
 

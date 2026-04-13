@@ -6,7 +6,7 @@ import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { CircularProgress } from '@/components/CircularProgress'
 import { Num } from '@/components/Num'
-import { formatDateOnly, formatDateTime, formatDecimal, formatGroupedNumericString } from '@/lib/formatters'
+import { formatDateTime, formatDateTimeWithSeconds, formatDecimal, formatGroupedNumericString } from '@/lib/formatters'
 import { motion, AnimatePresence, staggerContainer, staggerItem } from '@/lib/motion'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import {
@@ -65,6 +65,7 @@ export default function Overview() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [billingState, setBillingState] = useState<BillingStateResponse | null>(null)
+  const [billingLoading, setBillingLoading] = useState(true)
   const [priorityPopoverOpen, setPriorityPopoverOpen] = useState(false)
   const [prioritySaving, setPrioritySaving] = useState(false)
 
@@ -88,16 +89,24 @@ export default function Overview() {
 
   const loadDashboard = async () => {
     setLoading(true)
+    setBillingLoading(true)
     setError('')
+    setBillingState(null)
+
+    void getBillingState()
+      .then((billing) => {
+        setBillingState(billing)
+      })
+      .catch(() => {
+        setBillingState(null)
+      })
+      .finally(() => {
+        setBillingLoading(false)
+      })
+
     try {
       const result = await getDashboard()
       setData(result)
-      try {
-        const billing = await getBillingState()
-        setBillingState(billing)
-      } catch {
-        // billing state is optional
-      }
     } catch (err) {
       setError(err instanceof Error ? err.message : '加载失败')
     } finally {
@@ -118,21 +127,6 @@ export default function Overview() {
     }))
   }, [data?.dailyTrend])
 
-  const modelPieData = useMemo(() => {
-    if (!data?.topModels?.length) return []
-    return data.topModels.map((m, i) => {
-      const key = `model${i}`
-      return {
-        key,
-        name: m.model.length > 24 ? m.model.slice(0, 22) + '…' : m.model,
-        fullName: m.model,
-        value: m.requestCount,
-        cost: parseFloat(m.costUsd),
-        fill: `var(--color-${key})`,
-      }
-    })
-  }, [data?.topModels])
-
   const modelBarData = useMemo(() => {
     if (!data?.topModels?.length) return []
     return data.topModels.map((m, i) => {
@@ -147,21 +141,6 @@ export default function Overview() {
       }
     })
   }, [data?.topModels])
-
-  const totalModelRequests = useMemo(() => {
-    return modelPieData.reduce((sum, m) => sum + m.value, 0)
-  }, [modelPieData])
-
-  const modelPieConfig = useMemo(() => {
-    const config: ChartConfig = { value: { label: '请求数' } }
-    modelPieData.forEach((m, i) => {
-      config[m.key] = {
-        label: m.name,
-        color: MODEL_COLORS[i % MODEL_COLORS.length],
-      }
-    })
-    return config
-  }, [modelPieData])
 
   if (loading && !data) {
     return (
@@ -332,145 +311,26 @@ export default function Overview() {
         ))}
       </motion.div>
 
-      {/* Cost Area Chart + Requests Bar Chart */}
+      {/* Billing Status + Daily Cost Trend */}
       <div className="grid gap-6 lg:grid-cols-2">
         <motion.div
-          initial={{ opacity: 0, y: 30, scale: 0.97 }}
+          initial={{ opacity: 0, y: 30, scale: 0.95 }}
           animate={{ opacity: 1, y: 0, scale: 1 }}
-          transition={{ type: 'spring', bounce: 0.25, duration: 0.7, delay: 0.2 }}
+          transition={{ type: 'spring', bounce: 0.25, duration: 0.7, delay: 0.15 }}
         >
-          <Card>
+          <Card className="h-full">
             <CardHeader>
-              <CardTitle className="text-base flex items-center gap-2">
-                <DollarSign className="h-4 w-4 text-emerald-500" />
-                每日成本趋势
-              </CardTitle>
-              <CardDescription>近 14 天成本变化 (USD)</CardDescription>
-            </CardHeader>
-            <CardContent>
-              {trendData.length === 0 ? (
-                <p className="text-center text-muted-foreground py-12">暂无数据</p>
-              ) : (
-                <ChartContainer config={trendChartConfig} className="h-[240px] w-full">
-                  <AreaChart accessibilityLayer data={trendData} margin={{ top: 8, right: 12, left: -4, bottom: 0 }}>
-                    <defs>
-                      <linearGradient id="fillCost" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="5%" stopColor="var(--color-cost)" stopOpacity={0.4} />
-                        <stop offset="95%" stopColor="var(--color-cost)" stopOpacity={0.02} />
-                      </linearGradient>
-                    </defs>
-                    <CartesianGrid vertical={false} />
-                    <XAxis
-                      dataKey="date"
-                      tickLine={false}
-                      axisLine={false}
-                      tickMargin={8}
-                      tickFormatter={v => v}
-                    />
-                    <YAxis
-                      tickLine={false}
-                      axisLine={false}
-                      tickMargin={4}
-                      tickFormatter={v => `$${v}`}
-                    />
-                    <ChartTooltip
-                      cursor={false}
-                      content={
-                        <ChartTooltipContent
-                          indicator="dot"
-                          formatter={(value) => `$${Number(value).toFixed(4)}`}
-                        />
-                      }
-                    />
-                    <Area
-                      type="monotoneX"
-                      dataKey="cost"
-                      stroke="var(--color-cost)"
-                      strokeWidth={2}
-                      fill="url(#fillCost)"
-                      dot={{ r: 3, fill: 'var(--color-cost)', strokeWidth: 0 }}
-                      activeDot={{ r: 5, strokeWidth: 2 }}
-                    />
-                  </AreaChart>
-                </ChartContainer>
-              )}
-            </CardContent>
-          </Card>
-        </motion.div>
-
-        <motion.div
-          initial={{ opacity: 0, y: 30, scale: 0.97 }}
-          animate={{ opacity: 1, y: 0, scale: 1 }}
-          transition={{ type: 'spring', bounce: 0.25, duration: 0.7, delay: 0.28 }}
-        >
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-base flex items-center gap-2">
-                <Activity className="h-4 w-4 text-blue-500" />
-                每日请求量
-              </CardTitle>
-              <CardDescription>近 14 天请求数变化</CardDescription>
-            </CardHeader>
-            <CardContent>
-              {trendData.length === 0 ? (
-                <p className="text-center text-muted-foreground py-12">暂无数据</p>
-              ) : (
-                <ChartContainer config={trendChartConfig} className="h-[240px] w-full">
-                  <BarChart accessibilityLayer data={trendData} margin={{ top: 8, right: 12, left: -4, bottom: 0 }}>
-                    <defs>
-                      <linearGradient id="fillRequests" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="0%" stopColor="var(--color-requests)" stopOpacity={0.9} />
-                        <stop offset="100%" stopColor="var(--color-requests)" stopOpacity={0.4} />
-                      </linearGradient>
-                    </defs>
-                    <CartesianGrid vertical={false} />
-                    <XAxis
-                      dataKey="date"
-                      tickLine={false}
-                      axisLine={false}
-                      tickMargin={8}
-                    />
-                    <YAxis
-                      tickLine={false}
-                      axisLine={false}
-                      tickMargin={4}
-                    />
-                    <ChartTooltip
-                      cursor={false}
-                      content={<ChartTooltipContent indicator="dot" />}
-                    />
-                    <Bar
-                      dataKey="requests"
-                      fill="url(#fillRequests)"
-                      radius={[6, 6, 0, 0]}
-                      maxBarSize={36}
-                    />
-                  </BarChart>
-                </ChartContainer>
-              )}
-            </CardContent>
-          </Card>
-        </motion.div>
-      </div>
-
-      {/* Billing Status + Model Donut Pie + Horizontal Bar */}
-      <div className={`grid gap-6 ${billingState ? 'lg:grid-cols-2 xl:grid-cols-[minmax(0,0.95fr)_minmax(0,1.55fr)_minmax(0,1.6fr)]' : 'lg:grid-cols-2'}`}>
-        {billingState && (
-          <motion.div
-            initial={{ opacity: 0, y: 30, scale: 0.95 }}
-            animate={{ opacity: 1, y: 0, scale: 1 }}
-            transition={{ type: 'spring', bounce: 0.25, duration: 0.7, delay: 0.35 }}
-          >
-            <Card className="h-full">
-              <CardHeader>
-                <div className="flex items-center justify-between gap-3">
-                  <div className="min-w-0">
-                    <CardTitle className="text-base flex items-center gap-2">
-                      <CreditCard className="h-4 w-4" />
-                      计费状态
-                    </CardTitle>
-                    <CardDescription>订阅与余额使用情况</CardDescription>
-                  </div>
+              <div className="flex items-center justify-between gap-3">
+                <div className="min-w-0">
+                  <CardTitle className="text-base flex items-center gap-2">
+                    <CreditCard className="h-4 w-4" />
+                    计费状态
+                  </CardTitle>
+                  <CardDescription>订阅与余额使用情况</CardDescription>
+                </div>
+                {billingLoading ? (
+                  <div className="h-6 w-20 rounded-full loading-shimmer" />
+                ) : billingState ? (
                   <Popover open={priorityPopoverOpen} onOpenChange={setPriorityPopoverOpen}>
                     <PopoverTrigger asChild>
                       <Badge
@@ -535,202 +395,204 @@ export default function Overview() {
                       </div>
                     </PopoverContent>
                   </Popover>
+                ) : (
+                  <Badge variant="outline">暂不可用</Badge>
+                )}
+              </div>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              {billingLoading ? (
+                <div className="space-y-4">
+                  <div className="grid gap-5 border-b pb-4 sm:grid-cols-[minmax(0,1fr)_200px]">
+                    <div className="space-y-2">
+                      <div className="h-3 w-16 rounded loading-shimmer" />
+                      <div className="h-6 w-40 rounded loading-shimmer" />
+                      <div className="h-4 w-28 rounded loading-shimmer" />
+                    </div>
+                    <div className="space-y-2 sm:justify-self-end sm:text-right">
+                      <div className="h-3 w-12 rounded loading-shimmer sm:ml-auto" />
+                      <div className="h-7 w-32 rounded loading-shimmer sm:ml-auto" />
+                      <div className="h-3 w-24 rounded loading-shimmer sm:ml-auto" />
+                    </div>
+                  </div>
+                  {[0, 1].map((item) => (
+                    <div key={item} className="flex items-center justify-between gap-4 py-1">
+                      <div className="min-w-0 flex-1 space-y-2">
+                        <div className="h-4 w-24 rounded loading-shimmer" />
+                        <div className="h-3 w-36 rounded loading-shimmer" />
+                        <div className="h-3 w-44 rounded loading-shimmer" />
+                      </div>
+                      <div className="h-10 w-10 rounded-full loading-shimmer shrink-0" />
+                    </div>
+                  ))}
                 </div>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_220px]">
-                  <section className="space-y-4">
-                    <div className="flex flex-wrap items-start justify-between gap-3 border-b pb-4">
+              ) : billingState ? (
+                <div className="space-y-4">
+                  <div className="grid gap-5 border-b pb-4 sm:grid-cols-[minmax(0,1fr)_200px]">
+                    <div className="space-y-2">
                       <div className="space-y-1">
                         <p className="text-xs uppercase tracking-[0.18em] text-muted-foreground">订阅状态</p>
-                        <div className="flex items-center gap-2">
-                          <Shield className="h-4 w-4 text-purple-500" />
-                          <span className="text-lg font-semibold">
-                            {billingState.subscription ? billingState.subscription.planName : '未订阅'}
-                          </span>
+                        <div className="flex flex-wrap items-center gap-2">
+                          {billingState.subscription ? (
+                            <Badge variant={billingState.subscription.status === 'active' ? 'default' : 'secondary'}>
+                              {billingState.subscription.status === 'active' ? '生效中' : billingState.subscription.status}
+                            </Badge>
+                          ) : (
+                            <Badge variant="outline">未订阅</Badge>
+                          )}
+                          <div className="flex items-center gap-2">
+                            <Shield className="h-4 w-4 text-purple-500" />
+                            <span className="text-lg font-semibold">
+                              {billingState.subscription ? billingState.subscription.planName : '未订阅'}
+                            </span>
+                          </div>
                         </div>
                         <p className="text-sm text-muted-foreground">
                           {billingState.subscription?.expiresAt
-                            ? `到期 ${formatDateOnly(billingState.subscription.expiresAt)}`
+                            ? `到期 ${formatDateTimeWithSeconds(billingState.subscription.expiresAt)}`
                             : billingState.subscription
                               ? '永不过期'
                               : '联系管理员分配订阅'}
                         </p>
                       </div>
-                      {billingState.subscription ? (
-                        <Badge variant={billingState.subscription.status === 'active' ? 'default' : 'secondary'}>
-                          {billingState.subscription.status === 'active' ? '生效中' : billingState.subscription.status}
-                        </Badge>
-                      ) : (
-                        <Badge variant="outline">未订阅</Badge>
-                      )}
                     </div>
-
-                    {billingState.subscription && billingState.windows && billingState.windows.length > 0 ? (
-                      <div className="space-y-3">
-                        {billingState.windows.map((w, i) => {
-                          const usedPct = w.limitMicros > 0 ? (w.usedMicros / w.limitMicros) * 100 : 0
-                          return (
-                            <div key={i} className="flex items-center justify-between gap-4 py-1">
-                              <div className="min-w-0 space-y-1">
-                                <div className="flex items-center gap-2">
-                                  <p className="text-sm font-medium">
-                                    {LIMIT_TYPE_LABELS[w.limitType] || w.limitType}
-                                  </p>
-                                  <span className="text-[11px] text-muted-foreground">
-                                    {WINDOW_MODE_LABELS[w.windowMode] || w.windowMode}
-                                  </span>
-                                </div>
-                                <p className="text-[11px] text-muted-foreground">
-                                  剩余 ${formatWindowUsd(w.leftMicros)} / 限额 ${formatWindowUsd(w.limitMicros)}
-                                </p>
-                                <div className="text-[11px] text-muted-foreground">
-                                  {getWindowMeta(w.windowMode, w.limitType, w.windowStart, w.windowEnd)}
-                                </div>
-                              </div>
-                              <CircularProgress
-                                value={usedPct}
-                                size={40}
-                                strokeWidth={4}
-                                label={`${Math.round(Math.min(usedPct, 100))}%`}
-                                className="shrink-0"
-                                indicatorClassName="stroke-purple-500"
-                                trackClassName="stroke-border"
-                              />
-                            </div>
-                          )
-                        })}
-                      </div>
-                    ) : (
-                      <p className="text-sm text-muted-foreground">当前没有可展示的订阅额度。</p>
-                    )}
-                  </section>
-
-                  <aside className="space-y-4 border-t pt-4 xl:border-l xl:border-t-0 xl:pl-5 xl:pt-0">
-                    <div className="space-y-1">
+                    <div className="space-y-2 sm:justify-self-end sm:text-right">
                       <p className="text-xs uppercase tracking-[0.18em] text-muted-foreground">余额</p>
-                      <div className="flex items-center gap-2">
+                      <div className="flex items-center gap-2 sm:justify-end">
                         <Wallet className="h-4 w-4 text-blue-500" />
                         <span className="text-2xl font-semibold">
                           ${formatGroupedNumericString(parseFloat(billingState.balanceUsd).toFixed(2))}
                         </span>
                       </div>
+                      <div className="space-y-1">
+                        <p className="text-xs uppercase tracking-[0.18em] text-muted-foreground">扣费顺序</p>
+                        <p className="text-sm font-medium">
+                          {billingState.primarySource === 'subscription' ? '订阅 → 余额' : '余额 → 订阅'}
+                        </p>
+                        <p className="text-xs text-muted-foreground">
+                          {billingState.primarySource === 'subscription' ? '当前优先消耗订阅额度。' : '当前优先消耗余额。'}
+                        </p>
+                      </div>
                     </div>
-                    <div className="space-y-1">
-                      <p className="text-xs uppercase tracking-[0.18em] text-muted-foreground">扣费顺序</p>
-                      <p className="text-sm font-medium">
-                        {billingState.primarySource === 'subscription' ? '订阅 → 余额' : '余额 → 订阅'}
-                      </p>
-                      <p className="text-xs text-muted-foreground">
-                        {billingState.primarySource === 'subscription' ? '当前优先消耗订阅额度。' : '当前优先消耗余额。'}
-                      </p>
-                    </div>
-                  </aside>
-                </div>
-              </CardContent>
-            </Card>
-          </motion.div>
-        )}
-
-        <motion.div
-          initial={{ opacity: 0, y: 30, scale: 0.95 }}
-          animate={{ opacity: 1, y: 0, scale: 1 }}
-          transition={{ type: 'spring', bounce: 0.25, duration: 0.7, delay: billingState ? 0.4 : 0.35 }}
-        >
-          <Card className="h-full">
-            <CardHeader className="pb-2">
-              <CardTitle className="text-base">模型请求分布</CardTitle>
-              <CardDescription>30 天内各模型请求占比</CardDescription>
-            </CardHeader>
-            <CardContent>
-              {modelPieData.length === 0 ? (
-                <p className="text-center text-muted-foreground py-12">暂无数据</p>
-              ) : (
-                <div className="flex items-center gap-6">
-                  <ChartContainer config={modelPieConfig} className="w-[180px] h-[180px] shrink-0">
-                    <PieChart>
-                      <ChartTooltip
-                        cursor={false}
-                        content={
-                          <ChartTooltipContent
-                            nameKey="key"
-                            hideLabel
-                            formatter={(value, _name, item) => {
-                              const d = item.payload as { fullName: string; value: number; cost: number }
-                              const pct = totalModelRequests > 0 ? ((d.value / totalModelRequests) * 100).toFixed(1) : '0'
-                              return (
-                                <div className="space-y-0.5">
-                                  <div className="font-medium text-xs">{d.fullName}</div>
-                                  <div>请求: {Number(value).toLocaleString()} ({pct}%)</div>
-                                  <div>成本: <span className="text-green-600 dark:text-green-400">${d.cost.toFixed(4)}</span></div>
-                                </div>
-                              )
-                            }}
-                          />
-                        }
-                      />
-                      <Pie
-                        data={modelPieData}
-                        dataKey="value"
-                        nameKey="key"
-                        innerRadius={50}
-                        outerRadius={80}
-                        paddingAngle={3}
-                        strokeWidth={2}
-                        stroke="hsl(var(--background))"
-                      >
-                        <Label
-                          content={({ viewBox }) => {
-                            if (viewBox && 'cx' in viewBox && 'cy' in viewBox) {
-                              return (
-                                <text x={viewBox.cx} y={viewBox.cy} textAnchor="middle" dominantBaseline="middle">
-                                  <tspan x={viewBox.cx} y={viewBox.cy} className="fill-foreground text-2xl font-bold">
-                                    {totalModelRequests.toLocaleString()}
-                                  </tspan>
-                                  <tspan x={viewBox.cx} y={(viewBox.cy || 0) + 18} className="fill-muted-foreground text-[10px]">
-                                    总请求
-                                  </tspan>
-                                </text>
-                              )
-                            }
-                          }}
-                        />
-                      </Pie>
-                    </PieChart>
-                  </ChartContainer>
-                  <div className="flex-1 space-y-2 min-w-0">
-                    {modelPieData.map((m, i) => {
-                      const pct = totalModelRequests > 0 ? ((m.value / totalModelRequests) * 100).toFixed(1) : '0'
-                      return (
-                        <div key={m.key} className="flex items-center gap-2 text-sm" title={m.fullName}>
-                          <div
-                            className="w-2.5 h-2.5 rounded-full shrink-0"
-                            style={{ backgroundColor: MODEL_COLORS[i % MODEL_COLORS.length] }}
-                          />
-                          <span className="truncate min-w-0 flex-1 text-muted-foreground text-xs">
-                            {m.fullName}
-                          </span>
-                          <span className="font-mono text-xs tabular-nums shrink-0">
-                            {pct}%
-                          </span>
-                          <span className="font-mono text-xs tabular-nums text-muted-foreground shrink-0">
-                            {m.value.toLocaleString()}
-                          </span>
-                        </div>
-                      )
-                    })}
                   </div>
+
+                  {billingState.subscription && billingState.windows && billingState.windows.length > 0 ? (
+                    <div className="space-y-3">
+                      {billingState.windows.map((w, i) => {
+                        const usedPct = w.limitMicros > 0 ? (w.usedMicros / w.limitMicros) * 100 : 0
+                        return (
+                          <div key={i} className="flex items-center justify-between gap-4 py-1">
+                            <div className="min-w-0 space-y-1">
+                              <div className="flex items-center gap-2">
+                                <p className="text-sm font-medium">
+                                  {LIMIT_TYPE_LABELS[w.limitType] || w.limitType}
+                                </p>
+                                <span className="text-[11px] text-muted-foreground">
+                                  {WINDOW_MODE_LABELS[w.windowMode] || w.windowMode}
+                                </span>
+                              </div>
+                              <p className="text-[11px] text-muted-foreground">
+                                剩余 ${formatWindowUsd(w.leftMicros)} / 限额 ${formatWindowUsd(w.limitMicros)}
+                              </p>
+                              <div className="text-[11px] text-muted-foreground">
+                                {getWindowMeta(w.windowMode, w.limitType, w.windowStart, w.windowEnd)}
+                              </div>
+                            </div>
+                            <CircularProgress
+                              value={usedPct}
+                              size={40}
+                              strokeWidth={4}
+                              label={`${Math.round(Math.min(usedPct, 100))}%`}
+                              className="shrink-0"
+                              indicatorClassName="stroke-purple-500"
+                              trackClassName="stroke-border"
+                            />
+                          </div>
+                        )
+                      })}
+                    </div>
+                  ) : (
+                    <p className="text-sm text-muted-foreground">当前没有可展示的订阅额度。</p>
+                  )}
                 </div>
+              ) : (
+                <p className="text-sm text-muted-foreground">计费状态暂不可用。</p>
               )}
             </CardContent>
           </Card>
         </motion.div>
 
         <motion.div
-          className={billingState ? 'lg:col-span-2 xl:col-span-1' : ''}
+          initial={{ opacity: 0, y: 30, scale: 0.97 }}
+          animate={{ opacity: 1, y: 0, scale: 1 }}
+          transition={{ type: 'spring', bounce: 0.25, duration: 0.7, delay: 0.22 }}
+        >
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base flex items-center gap-2">
+                <DollarSign className="h-4 w-4 text-emerald-500" />
+                每日成本趋势
+              </CardTitle>
+              <CardDescription>近 14 天成本变化 (USD)</CardDescription>
+            </CardHeader>
+            <CardContent>
+              {trendData.length === 0 ? (
+                <p className="text-center text-muted-foreground py-12">暂无数据</p>
+              ) : (
+                <ChartContainer config={trendChartConfig} className="h-[240px] w-full">
+                  <AreaChart accessibilityLayer data={trendData} margin={{ top: 8, right: 12, left: -4, bottom: 0 }}>
+                    <defs>
+                      <linearGradient id="fillCost" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="5%" stopColor="var(--color-cost)" stopOpacity={0.4} />
+                        <stop offset="95%" stopColor="var(--color-cost)" stopOpacity={0.02} />
+                      </linearGradient>
+                    </defs>
+                    <CartesianGrid vertical={false} />
+                    <XAxis
+                      dataKey="date"
+                      tickLine={false}
+                      axisLine={false}
+                      tickMargin={8}
+                      tickFormatter={v => v}
+                    />
+                    <YAxis
+                      tickLine={false}
+                      axisLine={false}
+                      tickMargin={4}
+                      tickFormatter={v => `$${v}`}
+                    />
+                    <ChartTooltip
+                      cursor={false}
+                      content={
+                        <ChartTooltipContent
+                          indicator="dot"
+                          formatter={(value) => `$${Number(value).toFixed(4)}`}
+                        />
+                      }
+                    />
+                    <Area
+                      type="monotoneX"
+                      dataKey="cost"
+                      stroke="var(--color-cost)"
+                      strokeWidth={2}
+                      fill="url(#fillCost)"
+                      dot={{ r: 3, fill: 'var(--color-cost)', strokeWidth: 0 }}
+                      activeDot={{ r: 5, strokeWidth: 2 }}
+                    />
+                  </AreaChart>
+                </ChartContainer>
+              )}
+            </CardContent>
+          </Card>
+        </motion.div>
+      </div>
+
+      {/* Top Models + Daily Requests */}
+      <div className="grid gap-6 lg:grid-cols-2">
+        <motion.div
           initial={{ opacity: 0, y: 30, scale: 0.95 }}
           animate={{ opacity: 1, y: 0, scale: 1 }}
-          transition={{ type: 'spring', bounce: 0.25, duration: 0.7, delay: billingState ? 0.45 : 0.4 }}
+          transition={{ type: 'spring', bounce: 0.25, duration: 0.7, delay: 0.3 }}
         >
           <Card className="h-full">
             <CardHeader>
@@ -785,6 +647,60 @@ export default function Overview() {
                         <Cell key={i} fill={MODEL_COLORS[i % MODEL_COLORS.length]} />
                       ))}
                     </Bar>
+                  </BarChart>
+                </ChartContainer>
+              )}
+            </CardContent>
+          </Card>
+        </motion.div>
+
+        <motion.div
+          initial={{ opacity: 0, y: 30, scale: 0.97 }}
+          animate={{ opacity: 1, y: 0, scale: 1 }}
+          transition={{ type: 'spring', bounce: 0.25, duration: 0.7, delay: 0.38 }}
+        >
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base flex items-center gap-2">
+                <Activity className="h-4 w-4 text-blue-500" />
+                每日请求量
+              </CardTitle>
+              <CardDescription>近 14 天请求数变化</CardDescription>
+            </CardHeader>
+            <CardContent>
+              {trendData.length === 0 ? (
+                <p className="text-center text-muted-foreground py-12">暂无数据</p>
+              ) : (
+                <ChartContainer config={trendChartConfig} className="h-[240px] w-full">
+                  <BarChart accessibilityLayer data={trendData} margin={{ top: 8, right: 12, left: -4, bottom: 0 }}>
+                    <defs>
+                      <linearGradient id="fillRequests" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="0%" stopColor="var(--color-requests)" stopOpacity={0.9} />
+                        <stop offset="100%" stopColor="var(--color-requests)" stopOpacity={0.4} />
+                      </linearGradient>
+                    </defs>
+                    <CartesianGrid vertical={false} />
+                    <XAxis
+                      dataKey="date"
+                      tickLine={false}
+                      axisLine={false}
+                      tickMargin={8}
+                    />
+                    <YAxis
+                      tickLine={false}
+                      axisLine={false}
+                      tickMargin={4}
+                    />
+                    <ChartTooltip
+                      cursor={false}
+                      content={<ChartTooltipContent indicator="dot" />}
+                    />
+                    <Bar
+                      dataKey="requests"
+                      fill="url(#fillRequests)"
+                      radius={[6, 6, 0, 0]}
+                      maxBarSize={36}
+                    />
                   </BarChart>
                 </ChartContainer>
               )}

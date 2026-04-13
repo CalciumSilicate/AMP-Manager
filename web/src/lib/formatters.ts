@@ -54,6 +54,10 @@ export function formatDateTime(dateStr: string): string {
   return formatDateParts(dateStr, true)
 }
 
+export function formatDateTimeWithSeconds(dateStr: string): string {
+  return formatDateParts(dateStr, true, true)
+}
+
 export function formatNumber(num: number | undefined): string {
   if (num === undefined || num === null) return '-'
   return num.toLocaleString()
