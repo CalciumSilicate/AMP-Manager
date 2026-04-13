@@ -2,6 +2,17 @@ import { authFetch } from './client'
 
 const API_BASE = '/api'
 
+function normalizeDateTimeInput(value?: string): string | undefined {
+  if (!value) return undefined
+
+  const parsed = new Date(value)
+  if (Number.isNaN(parsed.getTime())) {
+    return value
+  }
+
+  return parsed.toISOString()
+}
+
 export type LimitType = 'daily' | 'weekly' | 'monthly' | 'rolling_5h' | 'total'
 export type WindowMode = 'fixed' | 'sliding'
 export type SubscriptionStatus = 'active' | 'paused' | 'expired' | 'cancelled'
@@ -130,9 +141,13 @@ export async function getUserSubscription(userId: string): Promise<UserSubscript
 }
 
 export async function assignSubscription(userId: string, req: { planId: string; expiresAt?: string }): Promise<UserSubscriptionResponse> {
+  const expiresAt = normalizeDateTimeInput(req.expiresAt)
   const res = await authFetch(`${API_BASE}/admin/users/${userId}/subscription`, {
     method: 'POST',
-    body: JSON.stringify(req),
+    body: JSON.stringify({
+      ...req,
+      expiresAt,
+    }),
   })
   if (!res.ok) {
     const data = await res.json()
@@ -152,9 +167,10 @@ export async function cancelSubscription(userId: string): Promise<void> {
 }
 
 export async function updateSubscriptionExpiry(userId: string, expiresAt: string): Promise<void> {
+  const normalizedExpiresAt = normalizeDateTimeInput(expiresAt) || expiresAt
   const res = await authFetch(`${API_BASE}/admin/users/${userId}/subscription`, {
     method: 'PATCH',
-    body: JSON.stringify({ expiresAt }),
+    body: JSON.stringify({ expiresAt: normalizedExpiresAt }),
   })
   if (!res.ok) {
     const data = await res.json()

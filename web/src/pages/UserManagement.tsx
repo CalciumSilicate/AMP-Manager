@@ -181,7 +181,7 @@ export default function UserManagement() {
   const handleExtend = async () => {
     if (!extendModal || !extendDate) return
     try {
-      await updateSubscriptionExpiry(extendModal.userId, new Date(extendDate).toISOString())
+      await updateSubscriptionExpiry(extendModal.userId, extendDate)
       showMessage('success', '到期时间已更新')
       setExtendModal(null)
     } catch (err) {

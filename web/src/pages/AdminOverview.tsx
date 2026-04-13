@@ -332,7 +332,7 @@ export default function AdminOverview() {
                       }
                     />
                     <Area
-                      type="natural"
+                      type="monotoneX"
                       dataKey="cost"
                       stroke="var(--color-cost)"
                       strokeWidth={2}

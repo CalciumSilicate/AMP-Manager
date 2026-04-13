@@ -3,6 +3,7 @@ package handler
 import (
 	"errors"
 	"net/http"
+	"strings"
 	"time"
 
 	"ampmanager/internal/model"
@@ -10,6 +11,28 @@ import (
 
 	"github.com/gin-gonic/gin"
 )
+
+func parseSubscriptionExpiresAt(raw string) (time.Time, error) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return time.Time{}, errors.New("时间不能为空")
+	}
+
+	if parsed, err := time.Parse(time.RFC3339, raw); err == nil {
+		return parsed.UTC(), nil
+	}
+
+	for _, layout := range []string{
+		"2006-01-02T15:04",
+		"2006-01-02T15:04:05",
+	} {
+		if parsed, err := time.ParseInLocation(layout, raw, time.Local); err == nil {
+			return parsed.UTC(), nil
+		}
+	}
+
+	return time.Time{}, errors.New("时间格式错误，应为 RFC3339 或 YYYY-MM-DDTHH:mm")
+}
 
 type SubscriptionHandler struct {
 	planService *service.SubscriptionPlanService
@@ -142,13 +165,29 @@ func (h *SubscriptionHandler) SetEnabled(c *gin.Context) {
 func (h *SubscriptionHandler) AssignSubscription(c *gin.Context) {
 	userID := c.Param("id")
 
-	var req model.AssignSubscriptionRequest
+	var req struct {
+		PlanID    string  `json:"planId" binding:"required"`
+		ExpiresAt *string `json:"expiresAt"`
+	}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "请求参数错误", "details": err.Error()})
 		return
 	}
 
-	sub, err := h.subService.Assign(userID, &req)
+	var expiresAt *time.Time
+	if req.ExpiresAt != nil && strings.TrimSpace(*req.ExpiresAt) != "" {
+		parsed, err := parseSubscriptionExpiresAt(*req.ExpiresAt)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "请求参数错误", "details": err.Error()})
+			return
+		}
+		expiresAt = &parsed
+	}
+
+	sub, err := h.subService.Assign(userID, &model.AssignSubscriptionRequest{
+		PlanID:    req.PlanID,
+		ExpiresAt: expiresAt,
+	})
 	if err != nil {
 		if errors.Is(err, service.ErrPlanNotFound) {
 			c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
@@ -198,14 +237,20 @@ func (h *SubscriptionHandler) UpdateSubscriptionExpiry(c *gin.Context) {
 	userID := c.Param("id")
 
 	var req struct {
-		ExpiresAt time.Time `json:"expiresAt" binding:"required"`
+		ExpiresAt string `json:"expiresAt" binding:"required"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "请求参数错误", "details": err.Error()})
 		return
 	}
 
-	err := h.subService.UpdateExpiry(userID, req.ExpiresAt)
+	expiresAt, err := parseSubscriptionExpiresAt(req.ExpiresAt)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "请求参数错误", "details": err.Error()})
+		return
+	}
+
+	err = h.subService.UpdateExpiry(userID, expiresAt)
 	if err != nil {
 		if errors.Is(err, service.ErrNoActiveSubscription) {
 			c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
