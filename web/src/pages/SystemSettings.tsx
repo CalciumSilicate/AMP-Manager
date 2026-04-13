@@ -1,5 +1,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { motion, AnimatePresence } from '@/lib/motion'
+import { formatDateTime } from '@/lib/formatters'
+import { SITE_TIME_ZONE_OPTIONS } from '@/lib/site-config'
 import {
   getDatabaseInfo,
   DatabaseInfo,
@@ -57,10 +59,12 @@ const tabs: { key: SettingsTab; label: string }[] = [
 
 interface Props {
   siteName: string
+  siteTimeZone: string
   onSiteNameChange: (siteName: string) => void
+  onSiteTimeZoneChange: (timeZone: string) => void
 }
 
-export default function SystemSettings({ siteName, onSiteNameChange }: Props) {
+export default function SystemSettings({ siteName, siteTimeZone, onSiteNameChange, onSiteTimeZoneChange }: Props) {
   const [activeTab, setActiveTab] = useState<SettingsTab>('site')
 
   const [backups, setBackups] = useState<Backup[]>([])
@@ -85,6 +89,7 @@ export default function SystemSettings({ siteName, onSiteNameChange }: Props) {
   const [cacheTTL, setCacheTTL] = useState<string>('1h')
   const [cacheTTLLoading, setCacheTTLLoading] = useState(false)
   const [siteNameInput, setSiteNameInput] = useState(siteName)
+  const [siteTimeZoneInput, setSiteTimeZoneInput] = useState(siteTimeZone)
   const [siteConfigSaving, setSiteConfigSaving] = useState(false)
 
   useEffect(() => {
@@ -98,6 +103,10 @@ export default function SystemSettings({ siteName, onSiteNameChange }: Props) {
   useEffect(() => {
     setSiteNameInput(siteName)
   }, [siteName])
+
+  useEffect(() => {
+    setSiteTimeZoneInput(siteTimeZone)
+  }, [siteTimeZone])
 
   const fetchDatabaseInfo = async () => {
     setDatabaseInfoLoading(true)
@@ -182,9 +191,11 @@ export default function SystemSettings({ siteName, onSiteNameChange }: Props) {
   const handleSaveSiteConfig = async () => {
     setSiteConfigSaving(true)
     try {
-      const result = await updateSiteConfig(siteNameInput)
+      const result = await updateSiteConfig(siteNameInput, siteTimeZoneInput)
       onSiteNameChange(result.config.siteName)
+      onSiteTimeZoneChange(result.config.timeZone)
       setSiteNameInput(result.config.siteName)
+      setSiteTimeZoneInput(result.config.timeZone)
       showMessage('success', '网站配置已保存')
     } catch (err) {
       showMessage('error', err instanceof Error ? err.message : '保存失败')
@@ -385,8 +396,12 @@ export default function SystemSettings({ siteName, onSiteNameChange }: Props) {
   }
 
   const formatDate = (dateStr: string) => {
-    return new Date(dateStr).toLocaleString('zh-CN')
+    return formatDateTime(dateStr)
   }
+
+  const siteTimeZoneOptions = SITE_TIME_ZONE_OPTIONS.some((option) => option.value === siteTimeZoneInput)
+    ? SITE_TIME_ZONE_OPTIONS
+    : [{ value: siteTimeZoneInput, label: siteTimeZoneInput }, ...SITE_TIME_ZONE_OPTIONS]
 
   return (
     <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-6">
@@ -449,8 +464,8 @@ export default function SystemSettings({ siteName, onSiteNameChange }: Props) {
           {activeTab === 'site' && (
             <Card>
               <CardHeader>
-                <CardTitle>网站名称</CardTitle>
-                <CardDescription>同步影响登录、注册、左上角和浏览器标签标题。</CardDescription>
+                <CardTitle>网站配置</CardTitle>
+                <CardDescription>同步影响登录、注册、左上角、浏览器标题和全站时间显示。</CardDescription>
               </CardHeader>
               <CardContent className="space-y-4">
                 <div className="max-w-xl space-y-2">
@@ -462,6 +477,21 @@ export default function SystemSettings({ siteName, onSiteNameChange }: Props) {
                     placeholder="AMP Manager"
                     maxLength={64}
                   />
+                </div>
+                <div className="max-w-xl space-y-2">
+                  <Label htmlFor="siteTimeZone">网站时区</Label>
+                  <Select value={siteTimeZoneInput} onValueChange={setSiteTimeZoneInput}>
+                    <SelectTrigger id="siteTimeZone">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {siteTimeZoneOptions.map((option) => (
+                        <SelectItem key={option.value} value={option.value}>
+                          {option.label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
                 </div>
                 <div className="flex justify-end">
                   <Button onClick={handleSaveSiteConfig} disabled={siteConfigSaving}>

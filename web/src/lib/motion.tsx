@@ -57,6 +57,14 @@ export const staggerItem: Variants = {
   },
 }
 
+export const tableStaggerContainer: Variants = {
+  hidden: { opacity: 0 },
+  visible: {
+    opacity: 1,
+    transition: { staggerChildren: 0.04, delayChildren: 0.06 },
+  },
+}
+
 export const springTransition = {
   type: 'spring' as const,
   bounce: 0.2,
@@ -108,10 +116,10 @@ export const scaleIn: Variants = {
 }
 
 export const tableRowVariants: Variants = {
-  hidden: { opacity: 0, x: -8 },
+  hidden: { opacity: 0, y: 8 },
   visible: {
     opacity: 1,
-    x: 0,
-    transition: { type: 'spring', bounce: 0.15, duration: 0.4 },
+    y: 0,
+    transition: { duration: 0.28, ease: 'easeOut' },
   },
 }

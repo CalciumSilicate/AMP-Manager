@@ -109,10 +109,14 @@ func (s *BillingService) CanStartRequest(userID string) (bool, error) {
 
 func (s *BillingService) calcSubscriptionRemaining(sub *model.UserSubscription, limits []model.SubscriptionPlanLimit) int64 {
 	now := time.Now().UTC()
+	location, err := s.quotaSvc.getSiteLocation()
+	if err != nil {
+		return 0
+	}
 	minRemaining := int64(math.MaxInt64)
 
 	for _, limit := range limits {
-		start, end, err := GetWindowBounds(limit.LimitType, limit.WindowMode, now, sub.StartsAt)
+		start, end, err := GetWindowBounds(limit, now, sub.StartsAt, location)
 		if err != nil {
 			continue
 		}
@@ -328,7 +332,7 @@ func (s *BillingService) queryBalance(tx *sql.Tx, userID string) (int64, error) 
 
 func (s *BillingService) calcSubscriptionRemainingTx(tx *sql.Tx, sub *model.UserSubscription) (int64, error) {
 	rows, err := tx.Query(
-		`SELECT id, plan_id, limit_type, window_mode, limit_micros, created_at, updated_at 
+		`SELECT id, plan_id, limit_type, window_mode, limit_micros, fixed_reset_minute, created_at, updated_at 
 		 FROM subscription_plan_limits WHERE plan_id = ? ORDER BY limit_type`,
 		sub.PlanID,
 	)
@@ -340,8 +344,13 @@ func (s *BillingService) calcSubscriptionRemainingTx(tx *sql.Tx, sub *model.User
 	var limits []model.SubscriptionPlanLimit
 	for rows.Next() {
 		l := model.SubscriptionPlanLimit{}
-		if err := rows.Scan(&l.ID, &l.PlanID, &l.LimitType, &l.WindowMode, &l.LimitMicros, &l.CreatedAt, &l.UpdatedAt); err != nil {
+		var fixedResetMinute sql.NullInt64
+		if err := rows.Scan(&l.ID, &l.PlanID, &l.LimitType, &l.WindowMode, &l.LimitMicros, &fixedResetMinute, &l.CreatedAt, &l.UpdatedAt); err != nil {
 			return 0, err
+		}
+		if fixedResetMinute.Valid {
+			minutes := int(fixedResetMinute.Int64)
+			l.FixedResetTime = model.FormatFixedResetTime(&minutes)
 		}
 		limits = append(limits, l)
 	}
@@ -354,10 +363,14 @@ func (s *BillingService) calcSubscriptionRemainingTx(tx *sql.Tx, sub *model.User
 	}
 
 	now := time.Now().UTC()
+	location, err := s.quotaSvc.getSiteLocation()
+	if err != nil {
+		return 0, err
+	}
 	minRemaining := int64(math.MaxInt64)
 
 	for _, limit := range limits {
-		start, end, err := GetWindowBounds(limit.LimitType, limit.WindowMode, now, sub.StartsAt)
+		start, end, err := GetWindowBounds(limit, now, sub.StartsAt, location)
 		if err != nil {
 			return 0, err
 		}

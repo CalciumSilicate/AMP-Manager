@@ -2,6 +2,7 @@ package service
 
 import (
 	"errors"
+	"strings"
 
 	"ampmanager/internal/database"
 	"ampmanager/internal/model"
@@ -9,12 +10,14 @@ import (
 )
 
 var (
-	ErrPlanNameRequired    = errors.New("套餐名称不能为空")
-	ErrInvalidLimitType    = errors.New("无效的限制类型")
-	ErrInvalidWindowMode   = errors.New("无效的窗口模式")
-	ErrPlanHasActiveSubs   = errors.New("该套餐下存在活跃订阅，无法删除")
-	ErrPlanNotFound        = errors.New("套餐不存在")
-	ErrDuplicateLimitType  = errors.New("同一限制类型不能重复")
+	ErrPlanNameRequired         = errors.New("套餐名称不能为空")
+	ErrInvalidLimitType         = errors.New("无效的限制类型")
+	ErrInvalidWindowMode        = errors.New("无效的窗口模式")
+	ErrPlanHasActiveSubs        = errors.New("该套餐下存在活跃订阅，无法删除")
+	ErrPlanNotFound             = errors.New("套餐不存在")
+	ErrDuplicateLimitType       = errors.New("同一限制类型不能重复")
+	ErrInvalidFixedResetTime    = errors.New("固定窗口重置时间格式错误，应为 HH:mm")
+	ErrFixedResetTimeNotAllowed = errors.New("只有日限制的固定窗口可以设置重置时间")
 )
 
 type SubscriptionPlanService struct {
@@ -66,12 +69,43 @@ func (s *SubscriptionPlanService) validateLimits(limits []model.PlanLimitRequest
 	return nil
 }
 
+func (s *SubscriptionPlanService) buildPlanLimits(limits []model.PlanLimitRequest) ([]model.SubscriptionPlanLimit, error) {
+	if err := s.validateLimits(limits); err != nil {
+		return nil, err
+	}
+
+	result := make([]model.SubscriptionPlanLimit, len(limits))
+	for i, l := range limits {
+		var fixedResetTime *string
+		if l.LimitType == model.LimitTypeDaily && l.WindowMode == model.WindowModeFixed {
+			raw := "00:00"
+			if l.FixedResetTime != nil && strings.TrimSpace(*l.FixedResetTime) != "" {
+				raw = strings.TrimSpace(*l.FixedResetTime)
+			}
+
+			minutes, err := model.ParseFixedResetTime(raw)
+			if err != nil {
+				return nil, ErrInvalidFixedResetTime
+			}
+			fixedResetTime = model.FormatFixedResetTime(&minutes)
+		} else if l.FixedResetTime != nil && strings.TrimSpace(*l.FixedResetTime) != "" {
+			return nil, ErrFixedResetTimeNotAllowed
+		}
+
+		result[i] = model.SubscriptionPlanLimit{
+			LimitType:      l.LimitType,
+			WindowMode:     l.WindowMode,
+			LimitMicros:    l.LimitMicros,
+			FixedResetTime: fixedResetTime,
+		}
+	}
+
+	return result, nil
+}
+
 func (s *SubscriptionPlanService) Create(req *model.SubscriptionPlanRequest) (*model.SubscriptionPlanResponse, error) {
 	if req.Name == "" {
 		return nil, ErrPlanNameRequired
-	}
-	if err := s.validateLimits(req.Limits); err != nil {
-		return nil, err
 	}
 
 	plan := &model.SubscriptionPlan{
@@ -80,13 +114,9 @@ func (s *SubscriptionPlanService) Create(req *model.SubscriptionPlanRequest) (*m
 		Enabled:     req.Enabled,
 	}
 
-	limits := make([]model.SubscriptionPlanLimit, len(req.Limits))
-	for i, l := range req.Limits {
-		limits[i] = model.SubscriptionPlanLimit{
-			LimitType:   l.LimitType,
-			WindowMode:  l.WindowMode,
-			LimitMicros: l.LimitMicros,
-		}
+	limits, err := s.buildPlanLimits(req.Limits)
+	if err != nil {
+		return nil, err
 	}
 
 	if err := s.planRepo.Create(plan, limits); err != nil {
@@ -149,9 +179,6 @@ func (s *SubscriptionPlanService) Update(id string, req *model.SubscriptionPlanR
 	if req.Name == "" {
 		return nil, ErrPlanNameRequired
 	}
-	if err := s.validateLimits(req.Limits); err != nil {
-		return nil, err
-	}
 
 	existing, _, err := s.planRepo.GetByID(id)
 	if err != nil {
@@ -167,13 +194,9 @@ func (s *SubscriptionPlanService) Update(id string, req *model.SubscriptionPlanR
 		Enabled:     req.Enabled,
 	}
 
-	limits := make([]model.SubscriptionPlanLimit, len(req.Limits))
-	for i, l := range req.Limits {
-		limits[i] = model.SubscriptionPlanLimit{
-			LimitType:   l.LimitType,
-			WindowMode:  l.WindowMode,
-			LimitMicros: l.LimitMicros,
-		}
+	limits, err := s.buildPlanLimits(req.Limits)
+	if err != nil {
+		return nil, err
 	}
 
 	if err := s.planRepo.Update(id, plan, limits); err != nil {

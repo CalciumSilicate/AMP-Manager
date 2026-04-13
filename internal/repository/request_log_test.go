@@ -180,6 +180,31 @@ func TestGetDashboardStatsFillsMissingDaysWithZeroes(t *testing.T) {
 	}
 }
 
+func TestListFiltersByStatusCode(t *testing.T) {
+	setupRequestLogTestDB(t)
+
+	now := time.Now().UTC()
+	insertRequestLogWithStatus(t, "log-ok", "user-1", 200, now)
+	insertRequestLogWithStatus(t, "log-rate-limit", "user-1", 429, now.Add(time.Minute))
+
+	repo := NewRequestLogRepository()
+	statusCode := 429
+	logs, total, err := repo.List(ListParams{
+		StatusCode: &statusCode,
+		Page:       1,
+		PageSize:   20,
+	})
+	if err != nil {
+		t.Fatalf("List returned error: %v", err)
+	}
+	if total != 1 {
+		t.Fatalf("expected 1 matching log, got %d", total)
+	}
+	if len(logs) != 1 || logs[0].ID != "log-rate-limit" {
+		t.Fatalf("unexpected filtered logs: %+v", logs)
+	}
+}
+
 func setupRequestLogTestDB(t *testing.T) {
 	t.Helper()
 
@@ -206,6 +231,21 @@ func insertRequestLogForCacheTest(t *testing.T, id, userID, model string, inputT
 	`, id, createdAt, userID, fmt.Sprintf("key-%s", userID), model, inputTokens, cacheReadTokens, cacheCreationTokens)
 	if err != nil {
 		t.Fatalf("insert request log failed: %v", err)
+	}
+}
+
+func insertRequestLogWithStatus(t *testing.T, id, userID string, statusCode int, createdAt time.Time) {
+	t.Helper()
+
+	db := database.GetDB()
+	_, err := db.Exec(`
+		INSERT INTO request_logs (
+			id, created_at, user_id, api_key_id, original_model, method, path, status_code, latency_ms,
+			is_streaming, input_tokens, output_tokens, cache_read_input_tokens, cache_creation_input_tokens, status
+		) VALUES (?, ?, ?, ?, ?, 'POST', '/v1/responses', ?, 123, 0, 0, 0, 0, 0, 'success')
+	`, id, createdAt, userID, fmt.Sprintf("key-%s", userID), "gpt-5.4", statusCode)
+	if err != nil {
+		t.Fatalf("insert request log with status failed: %v", err)
 	}
 }
 

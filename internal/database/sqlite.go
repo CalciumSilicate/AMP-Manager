@@ -426,6 +426,7 @@ func createTables() error {
 		limit_type TEXT NOT NULL CHECK (limit_type IN ('daily', 'weekly', 'monthly', 'rolling_5h', 'total')),
 		window_mode TEXT NOT NULL DEFAULT 'fixed' CHECK (window_mode IN ('fixed', 'sliding')),
 		limit_micros INTEGER NOT NULL CHECK (limit_micros >= 0),
+		fixed_reset_minute INTEGER CHECK (fixed_reset_minute >= 0 AND fixed_reset_minute < 1440),
 		created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
 		updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
 		FOREIGN KEY (plan_id) REFERENCES subscription_plans(id) ON DELETE CASCADE
@@ -753,6 +754,10 @@ func runMigrations() error {
 		{
 			name: "postgres_widen_subscription_plan_limits_limit_micros",
 			sql:  `ALTER TABLE subscription_plan_limits ALTER COLUMN limit_micros TYPE BIGINT`,
+		},
+		{
+			name: "add_subscription_plan_limits_fixed_reset_minute",
+			sql:  `ALTER TABLE subscription_plan_limits ADD COLUMN fixed_reset_minute INTEGER`,
 		},
 		{
 			name: "postgres_widen_billing_events_amount_micros",

@@ -23,6 +23,7 @@ export interface SubscriptionPlanLimit {
   limitType: LimitType
   windowMode: WindowMode
   limitMicros: number
+  fixedResetTime?: string | null
   createdAt: string
   updatedAt: string
 }
@@ -41,6 +42,7 @@ export interface PlanLimitRequest {
   limitType: LimitType
   windowMode: WindowMode
   limitMicros: number
+  fixedResetTime?: string
 }
 
 export interface SubscriptionPlanRequest {

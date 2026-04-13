@@ -19,7 +19,9 @@ const (
 	timeoutConfigKey               = "timeout_config"
 	cacheTTLOverrideKey            = "cache_ttl_override"
 	siteNameKey                    = "site_name"
+	siteTimeZoneKey                = "site_time_zone"
 	defaultSiteName                = "AMP Manager"
+	defaultSiteTimeZone            = "Asia/Shanghai"
 )
 
 type SystemConfigService struct {
@@ -131,33 +133,77 @@ func (s *SystemConfigService) GetCacheTTLOverride() (string, error) {
 }
 
 func (s *SystemConfigService) GetSiteConfig() (model.SiteConfigResponse, error) {
-	value, err := s.repo.Get(siteNameKey)
+	siteNameValue, err := s.repo.Get(siteNameKey)
+	if err != nil {
+		return model.SiteConfigResponse{}, err
+	}
+	timeZoneValue, err := s.repo.Get(siteTimeZoneKey)
 	if err != nil {
 		return model.SiteConfigResponse{}, err
 	}
 
-	siteName := strings.TrimSpace(value)
+	siteName := strings.TrimSpace(siteNameValue)
 	if siteName == "" {
 		siteName = defaultSiteName
 	}
+	timeZone := strings.TrimSpace(timeZoneValue)
+	if timeZone == "" {
+		timeZone = defaultSiteTimeZone
+	}
 
-	return model.SiteConfigResponse{SiteName: siteName}, nil
+	return model.SiteConfigResponse{
+		SiteName: siteName,
+		TimeZone: timeZone,
+	}, nil
 }
 
 func (s *SystemConfigService) SetSiteConfig(req model.SiteConfigRequest) (model.SiteConfigResponse, error) {
 	siteName := strings.TrimSpace(req.SiteName)
+	timeZone := strings.TrimSpace(req.TimeZone)
+
+	if timeZone == "" {
+		timeZone = defaultSiteTimeZone
+	}
+
 	if siteName == "" || siteName == defaultSiteName {
 		if err := s.repo.Delete(siteNameKey); err != nil {
 			return model.SiteConfigResponse{}, err
 		}
-		return model.SiteConfigResponse{SiteName: defaultSiteName}, nil
+		siteName = defaultSiteName
+	} else {
+		if err := s.repo.Set(siteNameKey, siteName); err != nil {
+			return model.SiteConfigResponse{}, err
+		}
 	}
 
-	if err := s.repo.Set(siteNameKey, siteName); err != nil {
-		return model.SiteConfigResponse{}, err
+	if timeZone == defaultSiteTimeZone {
+		if err := s.repo.Delete(siteTimeZoneKey); err != nil {
+			return model.SiteConfigResponse{}, err
+		}
+	} else {
+		if err := s.repo.Set(siteTimeZoneKey, timeZone); err != nil {
+			return model.SiteConfigResponse{}, err
+		}
 	}
 
-	return model.SiteConfigResponse{SiteName: siteName}, nil
+	return model.SiteConfigResponse{
+		SiteName: siteName,
+		TimeZone: timeZone,
+	}, nil
+}
+
+func (s *SystemConfigService) GetSiteLocation() (*time.Location, error) {
+	cfg, err := s.GetSiteConfig()
+	if err != nil {
+		return nil, err
+	}
+
+	location, err := time.LoadLocation(cfg.TimeZone)
+	if err != nil {
+		return time.LoadLocation(defaultSiteTimeZone)
+	}
+
+	return location, nil
 }
 
 func boolToConfigString(value bool) string {

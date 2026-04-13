@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { motion, AnimatePresence, staggerContainer, staggerItem } from '@/lib/motion'
+import { motion, AnimatePresence, tableStaggerContainer, tableRowVariants } from '@/lib/motion'
 import {
   listUsersPaged,
   setUserAdmin,
@@ -51,6 +51,7 @@ import {
 import { Switch } from '@/components/ui/switch'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { Checkbox } from '@/components/ui/checkbox'
+import { formatDateTime } from '@/lib/formatters'
 import { CheckCircle2, XCircle, Trash2, KeyRound, Wallet, CreditCard, CalendarClock, Eye, X } from 'lucide-react'
 import { DateTimePicker } from '@/components/ui/datetime-picker'
 import { PageSizeSlider } from '@/components/PageSizeSlider'
@@ -71,6 +72,8 @@ export default function UserManagement() {
   const [users, setUsers] = useState<UserInfo[]>([])
   const [groups, setGroups] = useState<Group[]>([])
   const [loading, setLoading] = useState(true)
+  const [fetching, setFetching] = useState(false)
+  const [hasLoadedUsers, setHasLoadedUsers] = useState(false)
   const [page, setPage] = useState(1)
   const [pageSize, setPageSize] = useState(20)
   const [total, setTotal] = useState(0)
@@ -101,7 +104,11 @@ export default function UserManagement() {
   }, [])
 
   const fetchUsers = async (targetPage = page, targetPageSize = pageSize) => {
-    setLoading(true)
+    if (!hasLoadedUsers) {
+      setLoading(true)
+    } else {
+      setFetching(true)
+    }
     try {
       const data = await listUsersPaged(targetPage, targetPageSize)
       setUsers(data.items || [])
@@ -110,6 +117,8 @@ export default function UserManagement() {
       showMessage('error', err instanceof Error ? err.message : '获取用户列表失败')
     } finally {
       setLoading(false)
+      setFetching(false)
+      setHasLoadedUsers(true)
     }
   }
 
@@ -259,11 +268,7 @@ export default function UserManagement() {
 
   const totalPages = Math.max(1, Math.ceil(total / pageSize))
 
-  const formatDate = (dateStr: string) => {
-    return new Date(dateStr).toLocaleString('zh-CN')
-  }
-
-  if (loading) {
+  if (loading && !hasLoadedUsers) {
     return <div className="text-center text-muted-foreground">加载中...</div>
   }
 
@@ -289,7 +294,7 @@ export default function UserManagement() {
         <CardHeader>
           <CardTitle>用户列表</CardTitle>
         </CardHeader>
-        <CardContent>
+        <CardContent className={fetching ? 'opacity-60 transition-opacity' : 'transition-opacity'}>
           <Table>
             <TableHeader>
               <TableRow>
@@ -302,9 +307,9 @@ export default function UserManagement() {
                 <TableHead>操作</TableHead>
               </TableRow>
             </TableHeader>
-            <motion.tbody key="user-table-body" variants={staggerContainer} initial="hidden" animate="visible">
+            <motion.tbody key="user-table-body" variants={tableStaggerContainer} initial="hidden" animate="visible">
               {users.map((user) => (
-                <motion.tr key={user.id} variants={staggerItem} layout className="border-b transition-colors hover:bg-muted/50 data-[state=selected]:bg-muted">
+                <motion.tr key={user.id} variants={tableRowVariants} className="border-b transition-colors hover:bg-muted/50 data-[state=selected]:bg-muted">
                   <TableCell className="font-medium">{user.username}</TableCell>
                   <TableCell>
                     <Badge variant={user.isAdmin ? 'default' : 'secondary'}>
@@ -382,7 +387,7 @@ export default function UserManagement() {
                     </div>
                   </TableCell>
                   <TableCell className="text-muted-foreground">
-                    {formatDate(user.createdAt)}
+                    {formatDateTime(user.createdAt)}
                   </TableCell>
                   <TableCell>
                     <div className="flex flex-wrap gap-2">
@@ -637,18 +642,21 @@ export default function UserManagement() {
                 </div>
                 <div className="flex justify-between">
                   <span className="text-muted-foreground">开始时间</span>
-                  <span>{formatDate(viewingSub.startsAt)}</span>
+                  <span>{formatDateTime(viewingSub.startsAt)}</span>
                 </div>
                 <div className="flex justify-between">
                   <span className="text-muted-foreground">到期时间</span>
-                  <span>{viewingSub.expiresAt ? formatDate(viewingSub.expiresAt) : '永不过期'}</span>
+                  <span>{viewingSub.expiresAt ? formatDateTime(viewingSub.expiresAt) : '永不过期'}</span>
                 </div>
                 {viewingSub.limits && viewingSub.limits.length > 0 && (
                   <div className="space-y-2 pt-2 border-t">
                     <span className="text-sm font-medium">额度限制</span>
                     {viewingSub.limits.map((l) => (
                       <div key={l.id} className="flex justify-between text-sm">
-                        <span className="text-muted-foreground">{LIMIT_TYPE_LABELS[l.limitType] || l.limitType}</span>
+                        <span className="text-muted-foreground">
+                          {LIMIT_TYPE_LABELS[l.limitType] || l.limitType}
+                          {l.fixedResetTime ? ` @ ${l.fixedResetTime}` : ''}
+                        </span>
                         <span>${microsToUsd(l.limitMicros)}</span>
                       </div>
                     ))}

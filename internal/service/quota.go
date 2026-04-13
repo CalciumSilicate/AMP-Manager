@@ -19,6 +19,7 @@ type QuotaService struct {
 	eventRepo repository.BillingEventRepositoryInterface
 	subRepo   repository.UserSubscriptionRepositoryInterface
 	planRepo  repository.SubscriptionPlanRepositoryInterface
+	configSvc *SystemConfigService
 }
 
 func NewQuotaService() *QuotaService {
@@ -26,6 +27,7 @@ func NewQuotaService() *QuotaService {
 		eventRepo: repository.NewBillingEventRepository(),
 		subRepo:   repository.NewUserSubscriptionRepository(),
 		planRepo:  repository.NewSubscriptionPlanRepository(),
+		configSvc: NewSystemConfigService(),
 	}
 }
 
@@ -34,34 +36,76 @@ func NewQuotaServiceWithRepo(
 	subRepo repository.UserSubscriptionRepositoryInterface,
 	planRepo repository.SubscriptionPlanRepositoryInterface,
 ) *QuotaService {
-	return &QuotaService{eventRepo: eventRepo, subRepo: subRepo, planRepo: planRepo}
+	return &QuotaService{
+		eventRepo: eventRepo,
+		subRepo:   subRepo,
+		planRepo:  planRepo,
+		configSvc: NewSystemConfigService(),
+	}
 }
 
-func GetWindowBounds(limitType model.LimitType, windowMode model.WindowMode, now time.Time, subscriptionStartsAt time.Time) (start, end time.Time, err error) {
-	switch limitType {
+func getStartOfWeek(now time.Time) time.Time {
+	weekday := int(now.Weekday())
+	if weekday == 0 {
+		weekday = 7
+	}
+
+	return time.Date(now.Year(), now.Month(), now.Day()-(weekday-1), 0, 0, 0, 0, now.Location())
+}
+
+func getDailyFixedWindowBounds(now time.Time, fixedResetTime *string) (time.Time, time.Time, error) {
+	minutes := 0
+	if fixedResetTime != nil {
+		parsed, err := model.ParseFixedResetTime(*fixedResetTime)
+		if err != nil {
+			return time.Time{}, time.Time{}, err
+		}
+		minutes = parsed
+	}
+
+	resetHour := minutes / 60
+	resetMinute := minutes % 60
+	todayReset := time.Date(now.Year(), now.Month(), now.Day(), resetHour, resetMinute, 0, 0, now.Location())
+	start := todayReset
+	if now.Before(todayReset) {
+		yesterday := now.AddDate(0, 0, -1)
+		start = time.Date(yesterday.Year(), yesterday.Month(), yesterday.Day(), resetHour, resetMinute, 0, 0, now.Location())
+	}
+
+	nextDay := start.AddDate(0, 0, 1)
+	end := time.Date(nextDay.Year(), nextDay.Month(), nextDay.Day(), resetHour, resetMinute, 0, 0, now.Location())
+	return start, end, nil
+}
+
+func GetWindowBounds(limit model.SubscriptionPlanLimit, now time.Time, subscriptionStartsAt time.Time, location *time.Location) (start, end time.Time, err error) {
+	if location == nil {
+		location = time.UTC
+	}
+
+	localNow := now.In(location)
+
+	switch limit.LimitType {
 	case model.LimitTypeDaily:
-		if windowMode == model.WindowModeFixed {
-			start = time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, time.UTC)
-			end = start.Add(24 * time.Hour)
+		if limit.WindowMode == model.WindowModeFixed {
+			start, end, err = getDailyFixedWindowBounds(localNow, limit.FixedResetTime)
+			if err != nil {
+				return time.Time{}, time.Time{}, err
+			}
 		} else {
 			start = now.Add(-24 * time.Hour)
 			end = now
 		}
 	case model.LimitTypeWeekly:
-		if windowMode == model.WindowModeFixed {
-			weekday := int(now.Weekday())
-			if weekday == 0 {
-				weekday = 7
-			}
-			start = time.Date(now.Year(), now.Month(), now.Day()-(weekday-1), 0, 0, 0, 0, time.UTC)
+		if limit.WindowMode == model.WindowModeFixed {
+			start = getStartOfWeek(localNow)
 			end = start.AddDate(0, 0, 7)
 		} else {
 			start = now.AddDate(0, 0, -7)
 			end = now
 		}
 	case model.LimitTypeMonthly:
-		if windowMode == model.WindowModeFixed {
-			start = time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, time.UTC)
+		if limit.WindowMode == model.WindowModeFixed {
+			start = time.Date(localNow.Year(), localNow.Month(), 1, 0, 0, 0, 0, location)
 			end = start.AddDate(0, 1, 0)
 		} else {
 			start = now.AddDate(0, -1, 0)
@@ -69,7 +113,7 @@ func GetWindowBounds(limitType model.LimitType, windowMode model.WindowMode, now
 		}
 	case model.LimitTypeRolling5h:
 		const windowSec int64 = 18000
-		if windowMode == model.WindowModeFixed {
+		if limit.WindowMode == model.WindowModeFixed {
 			unix := now.Unix()
 			floorUnix := (unix / windowSec) * windowSec
 			start = time.Unix(floorUnix, 0).UTC()
@@ -84,7 +128,19 @@ func GetWindowBounds(limitType model.LimitType, windowMode model.WindowMode, now
 	default:
 		return time.Time{}, time.Time{}, ErrUnknownLimitType
 	}
+
+	if limit.WindowMode == model.WindowModeFixed && limit.LimitType != model.LimitTypeRolling5h && limit.LimitType != model.LimitTypeTotal {
+		return start.UTC(), end.UTC(), nil
+	}
+
 	return start, end, nil
+}
+
+func (s *QuotaService) getSiteLocation() (*time.Location, error) {
+	if s.configSvc == nil {
+		return time.LoadLocation(defaultSiteTimeZone)
+	}
+	return s.configSvc.GetSiteLocation()
 }
 
 func (s *QuotaService) GetSubscriptionRemaining(userID string) (int64, []model.WindowRemaining, error) {
@@ -105,11 +161,15 @@ func (s *QuotaService) GetSubscriptionRemaining(userID string) (int64, []model.W
 	}
 
 	now := time.Now().UTC()
+	location, err := s.getSiteLocation()
+	if err != nil {
+		return 0, nil, err
+	}
 	windows := make([]model.WindowRemaining, 0, len(limits))
 	minRemaining := int64(math.MaxInt64)
 
 	for _, limit := range limits {
-		start, end, err := GetWindowBounds(limit.LimitType, limit.WindowMode, now, sub.StartsAt)
+		start, end, err := GetWindowBounds(limit, now, sub.StartsAt, location)
 		if err != nil {
 			return 0, nil, err
 		}

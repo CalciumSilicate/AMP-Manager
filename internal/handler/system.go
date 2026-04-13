@@ -81,6 +81,12 @@ func (h *SystemHandler) UpdateSiteConfig(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "网站名称长度不能超过 64 个字符"})
 		return
 	}
+	if timeZone := strings.TrimSpace(req.TimeZone); timeZone != "" {
+		if _, err := time.LoadLocation(timeZone); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "网站时区无效"})
+			return
+		}
+	}
 
 	cfg, err := service.NewSystemConfigService().SetSiteConfig(req)
 	if err != nil {

@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react'
 import { motion, AnimatePresence } from '@/lib/motion'
 import { FontLoadCoordinator } from '@/components/font-load-coordinator'
 import { getPublicSiteConfig } from '@/api/system'
+import { DEFAULT_SITE_TIME_ZONE, setActiveSiteTimeZone } from '@/lib/site-config'
 import Login from './pages/Login'
 import Register from './pages/Register'
 import Dashboard from './pages/Dashboard'
@@ -15,6 +16,7 @@ function App() {
   const [page, setPage] = useState<'login' | 'register'>('login')
   const [user, setUser] = useState<UserState | null>(null)
   const [siteName, setSiteName] = useState('AMP Manager')
+  const [siteTimeZone, setSiteTimeZone] = useState(DEFAULT_SITE_TIME_ZONE)
 
   useEffect(() => {
     const token = localStorage.getItem('token')
@@ -30,8 +32,13 @@ function App() {
 
     getPublicSiteConfig()
       .then((config) => {
-        if (!cancelled && config.siteName) {
-          setSiteName(config.siteName)
+        if (!cancelled) {
+          if (config.siteName) {
+            setSiteName(config.siteName)
+          }
+          if (config.timeZone) {
+            setSiteTimeZone(config.timeZone)
+          }
         }
       })
       .catch(() => {
@@ -42,6 +49,10 @@ function App() {
       cancelled = true
     }
   }, [])
+
+  useEffect(() => {
+    setActiveSiteTimeZone(siteTimeZone)
+  }, [siteTimeZone])
 
   // 监听 Token 过期事件，自动登出
   useEffect(() => {
@@ -83,7 +94,9 @@ function App() {
           username={user.username}
           isAdmin={user.isAdmin}
           siteName={siteName}
+          siteTimeZone={siteTimeZone}
           onSiteNameChange={setSiteName}
+          onSiteTimeZoneChange={setSiteTimeZone}
           onLogout={handleLogout}
         />
       </>

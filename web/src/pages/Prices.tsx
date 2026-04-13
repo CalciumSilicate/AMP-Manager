@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo, useCallback, KeyboardEvent } from 'react'
-import { motion, staggerContainer, staggerItem } from '@/lib/motion'
+import { motion, tableStaggerContainer, tableRowVariants } from '@/lib/motion'
 import { listPrices, getPriceStats, refreshPrices, ModelPrice, PriceStats } from '../api/billing'
 import { Button } from '@/components/ui/button'
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/card'
@@ -331,9 +331,9 @@ export default function PricesPage() {
                         <TableHead>来源</TableHead>
                       </TableRow>
                     </TableHeader>
-                    <motion.tbody variants={staggerContainer} initial="hidden" animate="visible" key={`${page}-${pageSize}-${searchTerm}-${providerFilter}`}>
+                    <motion.tbody variants={tableStaggerContainer} initial="hidden" animate="visible" key={`${page}-${pageSize}-${searchTerm}-${providerFilter}`}>
                       {paginatedPrices.map((price) => (
-                        <motion.tr key={`${price.provider ?? 'unknown'}:${price.model}`} variants={staggerItem} layout className="border-b transition-colors hover:bg-muted/50 data-[state=selected]:bg-muted">
+                        <motion.tr key={`${price.provider ?? 'unknown'}:${price.model}`} variants={tableRowVariants} className="border-b transition-colors hover:bg-muted/50 data-[state=selected]:bg-muted">
                           <TableCell className="font-mono text-sm max-w-xs truncate" title={price.model}>
                             {price.model}
                           </TableCell>

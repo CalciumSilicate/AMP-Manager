@@ -1,5 +1,57 @@
+import { getActiveSiteTimeZone } from './site-config'
+
+function formatDateParts(dateStr: string, includeTime: boolean, withSeconds = false): string {
+  const date = new Date(dateStr)
+  if (Number.isNaN(date.getTime())) return '-'
+
+  const formatter = new Intl.DateTimeFormat('zh-CN', {
+    timeZone: getActiveSiteTimeZone(),
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    ...(includeTime
+      ? {
+          hour: '2-digit',
+          minute: '2-digit',
+          hour12: false,
+        }
+      : {}),
+    ...(includeTime && withSeconds
+      ? {
+          second: '2-digit',
+        }
+      : {}),
+  })
+
+  const parts = Object.fromEntries(
+    formatter
+      .formatToParts(date)
+      .filter((part) => part.type !== 'literal')
+      .map((part) => [part.type, part.value]),
+  )
+
+  const datePart = `${parts.year}-${parts.month}-${parts.day}`
+  if (!includeTime) {
+    return datePart
+  }
+
+  const timePart = withSeconds
+    ? `${parts.hour}:${parts.minute}:${parts.second}`
+    : `${parts.hour}:${parts.minute}`
+
+  return `${datePart} ${timePart}`
+}
+
 export function formatDate(dateStr: string): string {
-  return new Date(dateStr).toLocaleString('zh-CN')
+  return formatDateParts(dateStr, true)
+}
+
+export function formatDateOnly(dateStr: string): string {
+  return formatDateParts(dateStr, false)
+}
+
+export function formatDateTime(dateStr: string): string {
+  return formatDateParts(dateStr, true)
 }
 
 export function formatNumber(num: number | undefined): string {

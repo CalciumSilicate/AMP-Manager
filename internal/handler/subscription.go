@@ -70,7 +70,9 @@ func (h *SubscriptionHandler) Create(c *gin.Context) {
 		if errors.Is(err, service.ErrPlanNameRequired) ||
 			errors.Is(err, service.ErrInvalidLimitType) ||
 			errors.Is(err, service.ErrInvalidWindowMode) ||
-			errors.Is(err, service.ErrDuplicateLimitType) {
+			errors.Is(err, service.ErrDuplicateLimitType) ||
+			errors.Is(err, service.ErrInvalidFixedResetTime) ||
+			errors.Is(err, service.ErrFixedResetTimeNotAllowed) {
 			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 			return
 		}
@@ -111,7 +113,9 @@ func (h *SubscriptionHandler) Update(c *gin.Context) {
 		if errors.Is(err, service.ErrPlanNameRequired) ||
 			errors.Is(err, service.ErrInvalidLimitType) ||
 			errors.Is(err, service.ErrInvalidWindowMode) ||
-			errors.Is(err, service.ErrDuplicateLimitType) {
+			errors.Is(err, service.ErrDuplicateLimitType) ||
+			errors.Is(err, service.ErrInvalidFixedResetTime) ||
+			errors.Is(err, service.ErrFixedResetTimeNotAllowed) {
 			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 			return
 		}

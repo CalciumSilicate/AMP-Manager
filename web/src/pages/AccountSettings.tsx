@@ -8,9 +8,10 @@ import { CircularProgress } from '@/components/CircularProgress'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Alert, AlertDescription } from '@/components/ui/alert'
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Badge } from '@/components/ui/badge'
-import { formatDecimal } from '@/lib/formatters'
+import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group'
+import { formatDateTime, formatDecimal } from '@/lib/formatters'
+import { cn } from '@/lib/utils'
 import { CheckCircle2, XCircle, Wallet, RefreshCw, CreditCard, ArrowRightLeft, Shield } from 'lucide-react'
 
 type AccountTab = 'security' | 'balance' | 'billing'
@@ -20,6 +21,19 @@ const tabs: { key: AccountTab; label: string }[] = [
   { key: 'billing', label: '计费设置' },
   { key: 'security', label: '账户安全' },
 ]
+
+const LIMIT_TYPE_LABELS: Record<string, string> = {
+  daily: '日限制',
+  weekly: '周限制',
+  monthly: '月限制',
+  rolling_5h: '5小时滚动',
+  total: '总量限制',
+}
+
+const WINDOW_MODE_LABELS: Record<string, string> = {
+  fixed: '固定窗口',
+  sliding: '滑动窗口',
+}
 
 interface Props {
   username: string
@@ -133,6 +147,9 @@ export default function AccountSettings({ username, onUsernameChange }: Props) {
   }
 
   const handlePriorityChange = async (value: string) => {
+    if (value === billingState?.primarySource) {
+      return
+    }
     setPrioritySaving(true)
     try {
       await updateBillingPriority(value as 'subscription' | 'balance')
@@ -143,6 +160,16 @@ export default function AccountSettings({ username, onUsernameChange }: Props) {
     } finally {
       setPrioritySaving(false)
     }
+  }
+
+  const getWindowMeta = (windowMode: string, limitType: string, windowStart: string, windowEnd: string) => {
+    if (limitType === 'total') {
+      return '总额度'
+    }
+    if (windowMode === 'fixed') {
+      return `下次重置 ${formatDateTime(windowEnd)}`
+    }
+    return `统计窗口 ${formatDateTime(windowStart)} ~ 现在`
   }
 
   return (
@@ -339,33 +366,41 @@ export default function AccountSettings({ username, onUsernameChange }: Props) {
                       <RefreshCw className={`h-4 w-4 mr-1 ${billingLoading ? 'animate-spin' : ''}`} />
                       刷新
                     </Button>
-                  </div>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                  <div className="space-y-2">
-                    <Label>扣费优先级</Label>
-                    <Select
-                      value={billingState?.primarySource || 'subscription'}
-                      onValueChange={handlePriorityChange}
-                      disabled={prioritySaving}
-                    >
-                      <SelectTrigger className="w-64">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="subscription">订阅优先 — 先用订阅额度，不足再扣余额</SelectItem>
-                        <SelectItem value="balance">余额优先 — 先扣余额，不足再用订阅额度</SelectItem>
-                      </SelectContent>
-                    </Select>
-                    <p className="text-xs text-muted-foreground">
-                      当前: {billingState?.primarySource === 'subscription' ? '① 订阅额度 → ② 余额' : '① 余额 → ② 订阅额度'}
-                    </p>
-                  </div>
-                </CardContent>
-              </Card>
+                </div>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <RadioGroup
+                  value={billingState?.primarySource || 'subscription'}
+                  onValueChange={handlePriorityChange}
+                  className={cn('gap-3', prioritySaving && 'pointer-events-none opacity-60')}
+                >
+                  {[
+                    { value: 'subscription', title: '订阅优先', desc: '先用订阅额度，不足再扣余额' },
+                    { value: 'balance', title: '余额优先', desc: '先扣余额，不足再用订阅额度' },
+                  ].map((option) => {
+                    const isActive = (billingState?.primarySource || 'subscription') === option.value
+                    return (
+                      <label
+                        key={option.value}
+                        className={cn(
+                          'flex w-full cursor-pointer items-start gap-3 rounded-md border px-4 py-3 transition-colors',
+                          isActive ? 'border-primary bg-primary/5' : 'border-border hover:bg-accent/40',
+                        )}
+                      >
+                        <RadioGroupItem value={option.value} className="mt-0.5 h-5 w-5 shrink-0" />
+                        <div className="min-w-0">
+                          <div className="font-medium">{option.title}</div>
+                          <div className="text-xs text-muted-foreground">{option.desc}</div>
+                        </div>
+                      </label>
+                    )
+                  })}
+                </RadioGroup>
+              </CardContent>
+            </Card>
 
-              {billingState?.subscription && (
-                <Card>
+            {billingState?.subscription && (
+              <Card>
                   <CardHeader>
                     <CardTitle className="flex items-center gap-2">
                       <Shield className="h-5 w-5" />
@@ -374,12 +409,13 @@ export default function AccountSettings({ username, onUsernameChange }: Props) {
                     <CardDescription>订阅套餐信息</CardDescription>
                   </CardHeader>
                   <CardContent className="space-y-4">
-                    <div className="flex items-center justify-between rounded-lg border p-4">
-                      <div>
-                        <p className="font-semibold text-lg">{billingState.subscription.planName}</p>
+                    <div className="flex flex-wrap items-start justify-between gap-3 border-b pb-4">
+                      <div className="space-y-1">
+                        <p className="text-xs uppercase tracking-[0.18em] text-muted-foreground">当前套餐</p>
+                        <p className="text-lg font-semibold">{billingState.subscription.planName}</p>
                         <p className="text-sm text-muted-foreground">
                           {billingState.subscription.expiresAt
-                            ? `到期时间: ${new Date(billingState.subscription.expiresAt).toLocaleString('zh-CN')}`
+                            ? `到期时间 ${formatDateTime(billingState.subscription.expiresAt)}`
                             : '永不过期'}
                         </p>
                       </div>
@@ -391,31 +427,24 @@ export default function AccountSettings({ username, onUsernameChange }: Props) {
                     {billingState.windows && billingState.windows.length > 0 && (
                       <div className="space-y-3">
                         {billingState.windows.map((w, i) => {
-                          const limitTypeLabels: Record<string, string> = {
-                            daily: '日限制', weekly: '周限制', monthly: '月限制',
-                            rolling_5h: '5小时滚动', total: '总量限制',
-                          }
-                          const windowModeLabels: Record<string, string> = {
-                            fixed: '固定窗口', sliding: '滑动窗口',
-                          }
                           const usedPct = w.limitMicros > 0 ? (w.usedMicros / w.limitMicros) * 100 : 0
                           return (
-                            <div key={i} className="flex items-center justify-between gap-3 rounded-lg border px-3 py-2">
-                              <div className="min-w-0">
-                                <p className="text-sm font-medium">
-                                  {limitTypeLabels[w.limitType] || w.limitType}
-                                  <span className="ml-1 text-muted-foreground text-xs">({windowModeLabels[w.windowMode] || w.windowMode})</span>
-                                </p>
+                            <div key={i} className="flex items-center justify-between gap-4 py-1">
+                              <div className="min-w-0 space-y-1">
+                                <div className="flex items-center gap-2">
+                                  <p className="text-sm font-medium">
+                                    {LIMIT_TYPE_LABELS[w.limitType] || w.limitType}
+                                  </p>
+                                  <span className="text-[11px] text-muted-foreground">
+                                    {WINDOW_MODE_LABELS[w.windowMode] || w.windowMode}
+                                  </span>
+                                </div>
                                 <p className="font-mono text-xs text-muted-foreground">
                                   已用 ${formatDecimal(w.usedMicros / 1e6, 2)} / 剩余 ${formatDecimal(w.leftMicros / 1e6, 2)} / 限额 ${formatDecimal(w.limitMicros / 1e6, 2)}
                                 </p>
-                                {w.limitType !== 'total' && w.windowEnd && (
-                                  <div className="text-[10px] text-muted-foreground">
-                                    {w.windowMode === 'fixed'
-                                      ? `重置于 ${new Date(w.windowEnd).toLocaleString('zh-CN')}`
-                                      : `统计窗口: ${new Date(w.windowStart).toLocaleString('zh-CN')} ~ 现在`}
-                                  </div>
-                                )}
+                                <div className="text-[11px] text-muted-foreground">
+                                  {getWindowMeta(w.windowMode, w.limitType, w.windowStart, w.windowEnd)}
+                                </div>
                               </div>
                               <CircularProgress
                                 value={usedPct}

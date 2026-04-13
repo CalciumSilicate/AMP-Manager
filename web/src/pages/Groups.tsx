@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { motion, AnimatePresence, staggerContainer, staggerItem, fadeInScale } from '@/lib/motion'
+import { motion, AnimatePresence, tableStaggerContainer, tableRowVariants, fadeInScale } from '@/lib/motion'
 import {
   listGroups,
   createGroup,
@@ -30,6 +30,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog'
 import { Textarea } from '@/components/ui/textarea'
+import { formatDate } from '@/lib/formatters'
 import { FolderOpen, Plus, Pencil, Trash2, CheckCircle2, XCircle } from 'lucide-react'
 
 export default function Groups() {
@@ -111,10 +112,6 @@ export default function Groups() {
     }
   }
 
-  const formatDate = (dateStr: string) => {
-    return new Date(dateStr).toLocaleString('zh-CN')
-  }
-
   if (loading) {
     return <div className="text-center text-muted-foreground">加载中...</div>
   }
@@ -177,9 +174,9 @@ export default function Groups() {
                         <TableHead>操作</TableHead>
                       </TableRow>
                     </TableHeader>
-                    <motion.tbody variants={staggerContainer} initial="hidden" animate="visible" key={groups.length}>
+                    <motion.tbody variants={tableStaggerContainer} initial="hidden" animate="visible" key={groups.length}>
                       {groups.map((group) => (
-                        <motion.tr key={group.id} variants={staggerItem} layout className="border-b transition-colors hover:bg-muted/50 data-[state=selected]:bg-muted">
+                        <motion.tr key={group.id} variants={tableRowVariants} className="border-b transition-colors hover:bg-muted/50 data-[state=selected]:bg-muted">
                           <TableCell className="font-medium">{group.name}</TableCell>
                           <TableCell className="text-muted-foreground">{group.description || '-'}</TableCell>
                           <TableCell>

@@ -1,6 +1,11 @@
 package model
 
-import "time"
+import (
+	"fmt"
+	"strconv"
+	"strings"
+	"time"
+)
 
 type BillingSource string
 
@@ -45,13 +50,14 @@ type SubscriptionPlan struct {
 }
 
 type SubscriptionPlanLimit struct {
-	ID          string     `json:"id"`
-	PlanID      string     `json:"planId"`
-	LimitType   LimitType  `json:"limitType"`
-	WindowMode  WindowMode `json:"windowMode"`
-	LimitMicros int64      `json:"limitMicros"`
-	CreatedAt   time.Time  `json:"createdAt"`
-	UpdatedAt   time.Time  `json:"updatedAt"`
+	ID             string     `json:"id"`
+	PlanID         string     `json:"planId"`
+	LimitType      LimitType  `json:"limitType"`
+	WindowMode     WindowMode `json:"windowMode"`
+	LimitMicros    int64      `json:"limitMicros"`
+	FixedResetTime *string    `json:"fixedResetTime,omitempty"`
+	CreatedAt      time.Time  `json:"createdAt"`
+	UpdatedAt      time.Time  `json:"updatedAt"`
 }
 
 type UserSubscription struct {
@@ -87,16 +93,17 @@ type BillingEvent struct {
 // --- Request / Response DTOs ---
 
 type SubscriptionPlanRequest struct {
-	Name        string            `json:"name" binding:"required,min=1,max=64"`
-	Description string            `json:"description" binding:"max=256"`
-	Enabled     bool              `json:"enabled"`
+	Name        string             `json:"name" binding:"required,min=1,max=64"`
+	Description string             `json:"description" binding:"max=256"`
+	Enabled     bool               `json:"enabled"`
 	Limits      []PlanLimitRequest `json:"limits"`
 }
 
 type PlanLimitRequest struct {
-	LimitType   LimitType  `json:"limitType" binding:"required"`
-	WindowMode  WindowMode `json:"windowMode" binding:"required"`
-	LimitMicros int64      `json:"limitMicros" binding:"required,min=0"`
+	LimitType      LimitType  `json:"limitType" binding:"required"`
+	WindowMode     WindowMode `json:"windowMode" binding:"required"`
+	LimitMicros    int64      `json:"limitMicros" binding:"required,min=0"`
+	FixedResetTime *string    `json:"fixedResetTime,omitempty"`
 }
 
 type SubscriptionPlanResponse struct {
@@ -138,14 +145,52 @@ type WindowRemaining struct {
 }
 
 type BillingStateResponse struct {
-	BalanceMicros int64                    `json:"balanceMicros"`
-	BalanceUsd    string                   `json:"balanceUsd"`
-	Subscription  *UserSubscriptionResponse `json:"subscription"`
-	Windows       []WindowRemaining        `json:"windows"`
-	PrimarySource BillingSource            `json:"primarySource"`
-	SecondarySource BillingSource          `json:"secondarySource"`
+	BalanceMicros   int64                     `json:"balanceMicros"`
+	BalanceUsd      string                    `json:"balanceUsd"`
+	Subscription    *UserSubscriptionResponse `json:"subscription"`
+	Windows         []WindowRemaining         `json:"windows"`
+	PrimarySource   BillingSource             `json:"primarySource"`
+	SecondarySource BillingSource             `json:"secondarySource"`
 }
 
 type UpdateBillingPriorityRequest struct {
 	PrimarySource BillingSource `json:"primarySource" binding:"required"`
+}
+
+func ParseFixedResetTime(value string) (int, error) {
+	trimmed := strings.TrimSpace(value)
+	if trimmed == "" {
+		return 0, fmt.Errorf("重置时间不能为空")
+	}
+
+	parts := strings.Split(trimmed, ":")
+	if len(parts) != 2 {
+		return 0, fmt.Errorf("重置时间格式错误，应为 HH:mm")
+	}
+
+	hour, err := strconv.Atoi(parts[0])
+	if err != nil {
+		return 0, fmt.Errorf("重置时间格式错误，应为 HH:mm")
+	}
+	minute, err := strconv.Atoi(parts[1])
+	if err != nil {
+		return 0, fmt.Errorf("重置时间格式错误，应为 HH:mm")
+	}
+	if hour < 0 || hour > 23 || minute < 0 || minute > 59 {
+		return 0, fmt.Errorf("重置时间格式错误，应为 HH:mm")
+	}
+
+	return hour*60 + minute, nil
+}
+
+func FormatFixedResetTime(minutes *int) *string {
+	if minutes == nil {
+		return nil
+	}
+	if *minutes < 0 || *minutes >= 24*60 {
+		return nil
+	}
+
+	formatted := fmt.Sprintf("%02d:%02d", *minutes/60, *minutes%60)
+	return &formatted
 }

@@ -27,7 +27,7 @@ import { Num } from '@/components/Num'
 import { StatusBadge } from '@/components/StatusBadge'
 import { LogDetailModal } from '@/components/LogDetailModal'
 import { LogFilterBar, FilterValues, localToISO } from '@/components/LogFilterBar'
-import { motion, staggerContainer, staggerItem } from '@/lib/motion'
+import { motion, tableStaggerContainer, tableRowVariants } from '@/lib/motion'
 import { PageSizeSlider } from '@/components/PageSizeSlider'
 
 interface Props {
@@ -44,7 +44,7 @@ export default function RequestLogs({ isAdmin }: Props) {
   const [total, setTotal] = useState(0)
   const [pageSize, setPageSize] = useState(20)
 
-  const [filters, setFilters] = useState<FilterValues>({ userId: '', apiKeyId: '', model: '', from: '', to: '' })
+  const [filters, setFilters] = useState<FilterValues>({ userId: '', apiKeyId: '', model: '', status: '', from: '', to: '' })
 
   const [users, setUsers] = useState<UserInfo[]>([])
   const [models, setModels] = useState<string[]>([])
@@ -195,6 +195,7 @@ export default function RequestLogs({ isAdmin }: Props) {
         page,
         pageSize,
         model: filters.model || undefined,
+        status: filters.status ? Number.parseInt(filters.status, 10) : undefined,
         from: filters.from ? localToISO(filters.from) : undefined,
         to: filters.to ? localToISO(filters.to) : undefined,
       }
@@ -289,7 +290,7 @@ export default function RequestLogs({ isAdmin }: Props) {
               <p className="text-center text-muted-foreground py-8">暂无请求记录</p>
             ) : (
               <>
-                <div className={`relative overflow-auto max-h-[calc(100vh-320px)] min-h-[400px] rounded-md border transition-opacity ${fetching ? 'opacity-50 pointer-events-none' : ''}`}>
+                <div className={`relative overflow-y-auto overflow-x-hidden max-h-[calc(100vh-320px)] min-h-[400px] rounded-md border transition-opacity ${fetching ? 'opacity-50 pointer-events-none' : ''}`}>
                 <Table>
                   <TableHeader className="sticky top-0 z-10 bg-background">
                     <TableRow>
@@ -311,9 +312,9 @@ export default function RequestLogs({ isAdmin }: Props) {
                       <TableHead>流式</TableHead>
                     </TableRow>
                   </TableHeader>
-                  <motion.tbody variants={staggerContainer} initial="hidden" animate="visible" key={`${page}-${pageSize}`}>
+                  <motion.tbody variants={tableStaggerContainer} initial="hidden" animate="visible" key={`${page}-${pageSize}`}>
                     {logs.map((log) => (
-                      <motion.tr key={log.id} variants={staggerItem} className="border-b transition-colors hover:bg-muted/50 data-[state=selected]:bg-muted">
+                      <motion.tr key={log.id} variants={tableRowVariants} className="border-b transition-colors hover:bg-muted/50 data-[state=selected]:bg-muted">
                         <TableCell className="text-xs text-muted-foreground whitespace-nowrap">
                           {formatDate(log.createdAt)}
                         </TableCell>

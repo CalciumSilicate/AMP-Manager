@@ -30,6 +30,19 @@ func NewSubscriptionPlanRepository() *SubscriptionPlanRepository {
 	return &SubscriptionPlanRepository{}
 }
 
+func nullableFixedResetMinute(limit model.SubscriptionPlanLimit) (interface{}, error) {
+	if limit.FixedResetTime == nil {
+		return nil, nil
+	}
+
+	minute, err := model.ParseFixedResetTime(*limit.FixedResetTime)
+	if err != nil {
+		return nil, err
+	}
+
+	return minute, nil
+}
+
 func (r *SubscriptionPlanRepository) Create(plan *model.SubscriptionPlan, limits []model.SubscriptionPlanLimit) error {
 	db := database.GetDB()
 	tx, err := db.Begin()
@@ -55,9 +68,13 @@ func (r *SubscriptionPlanRepository) Create(plan *model.SubscriptionPlan, limits
 		limits[i].PlanID = plan.ID
 		limits[i].CreatedAt = plan.CreatedAt
 		limits[i].UpdatedAt = plan.CreatedAt
+		fixedResetMinute, err := nullableFixedResetMinute(limits[i])
+		if err != nil {
+			return err
+		}
 		_, err = tx.Exec(
-			`INSERT INTO subscription_plan_limits (id, plan_id, limit_type, window_mode, limit_micros, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)`,
-			limits[i].ID, limits[i].PlanID, limits[i].LimitType, limits[i].WindowMode, limits[i].LimitMicros, limits[i].CreatedAt, limits[i].UpdatedAt,
+			`INSERT INTO subscription_plan_limits (id, plan_id, limit_type, window_mode, limit_micros, fixed_reset_minute, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+			limits[i].ID, limits[i].PlanID, limits[i].LimitType, limits[i].WindowMode, limits[i].LimitMicros, fixedResetMinute, limits[i].CreatedAt, limits[i].UpdatedAt,
 		)
 		if err != nil {
 			return err
@@ -156,9 +173,13 @@ func (r *SubscriptionPlanRepository) Update(id string, plan *model.SubscriptionP
 		limits[i].PlanID = id
 		limits[i].CreatedAt = now
 		limits[i].UpdatedAt = now
+		fixedResetMinute, err := nullableFixedResetMinute(limits[i])
+		if err != nil {
+			return err
+		}
 		_, err = tx.Exec(
-			`INSERT INTO subscription_plan_limits (id, plan_id, limit_type, window_mode, limit_micros, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)`,
-			limits[i].ID, limits[i].PlanID, limits[i].LimitType, limits[i].WindowMode, limits[i].LimitMicros, limits[i].CreatedAt, limits[i].UpdatedAt,
+			`INSERT INTO subscription_plan_limits (id, plan_id, limit_type, window_mode, limit_micros, fixed_reset_minute, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+			limits[i].ID, limits[i].PlanID, limits[i].LimitType, limits[i].WindowMode, limits[i].LimitMicros, fixedResetMinute, limits[i].CreatedAt, limits[i].UpdatedAt,
 		)
 		if err != nil {
 			return err
@@ -195,7 +216,7 @@ func (r *SubscriptionPlanRepository) SetEnabled(id string, enabled bool) error {
 
 func (r *SubscriptionPlanRepository) getLimitsByPlanID(db *sql.DB, planID string) ([]model.SubscriptionPlanLimit, error) {
 	rows, err := db.Query(
-		`SELECT id, plan_id, limit_type, window_mode, limit_micros, created_at, updated_at FROM subscription_plan_limits WHERE plan_id = ? ORDER BY limit_type`,
+		`SELECT id, plan_id, limit_type, window_mode, limit_micros, fixed_reset_minute, created_at, updated_at FROM subscription_plan_limits WHERE plan_id = ? ORDER BY limit_type`,
 		planID,
 	)
 	if err != nil {
@@ -206,8 +227,13 @@ func (r *SubscriptionPlanRepository) getLimitsByPlanID(db *sql.DB, planID string
 	var limits []model.SubscriptionPlanLimit
 	for rows.Next() {
 		l := model.SubscriptionPlanLimit{}
-		if err := rows.Scan(&l.ID, &l.PlanID, &l.LimitType, &l.WindowMode, &l.LimitMicros, &l.CreatedAt, &l.UpdatedAt); err != nil {
+		var fixedResetMinute sql.NullInt64
+		if err := rows.Scan(&l.ID, &l.PlanID, &l.LimitType, &l.WindowMode, &l.LimitMicros, &fixedResetMinute, &l.CreatedAt, &l.UpdatedAt); err != nil {
 			return nil, err
+		}
+		if fixedResetMinute.Valid {
+			minutes := int(fixedResetMinute.Int64)
+			l.FixedResetTime = model.FormatFixedResetTime(&minutes)
 		}
 		limits = append(limits, l)
 	}

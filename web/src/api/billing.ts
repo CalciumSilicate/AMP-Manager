@@ -95,6 +95,7 @@ export interface BillingStateSubscription {
     limitType: LimitType
     windowMode: WindowMode
     limitMicros: number
+    fixedResetTime?: string | null
     createdAt: string
     updatedAt: string
   }[]

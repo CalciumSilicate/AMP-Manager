@@ -57,7 +57,9 @@ interface Props {
   username: string
   isAdmin: boolean
   siteName: string
+  siteTimeZone: string
   onSiteNameChange: (siteName: string) => void
+  onSiteTimeZoneChange: (timeZone: string) => void
   onLogout: () => void
 }
 
@@ -81,7 +83,15 @@ const navIcons: Record<Page, React.ElementType> = {
   'subscription-plans': CreditCard,
 }
 
-export default function Dashboard({ username: initialUsername, isAdmin, siteName, onSiteNameChange, onLogout }: Props) {
+export default function Dashboard({
+  username: initialUsername,
+  isAdmin,
+  siteName,
+  siteTimeZone,
+  onSiteNameChange,
+  onSiteTimeZoneChange,
+  onLogout,
+}: Props) {
   const [currentPage, setCurrentPage] = useState<Page>('overview')
   const [username, setUsername] = useState(initialUsername)
   const [collapsed, setCollapsed] = useState(false)
@@ -315,7 +325,12 @@ export default function Dashboard({ username: initialUsername, isAdmin, siteName
                   {currentPage === 'prices' && isAdmin && <Prices />}
                   {currentPage === 'user-management' && isAdmin && <UserManagement />}
                   {currentPage === 'system-settings' && isAdmin && (
-                    <SystemSettings siteName={siteName} onSiteNameChange={onSiteNameChange} />
+                    <SystemSettings
+                      siteName={siteName}
+                      siteTimeZone={siteTimeZone}
+                      onSiteNameChange={onSiteNameChange}
+                      onSiteTimeZoneChange={onSiteTimeZoneChange}
+                    />
                   )}
                 </motion.div>
               </AnimatePresence>

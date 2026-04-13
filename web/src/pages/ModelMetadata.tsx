@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { motion, staggerContainer, staggerItem } from '@/lib/motion'
+import { motion, tableStaggerContainer, tableRowVariants } from '@/lib/motion'
 import {
   listModelMetadata,
   createModelMetadata,
@@ -29,6 +29,7 @@ import {
   DialogDescription,
   DialogFooter,
 } from '@/components/ui/dialog'
+import { formatDate } from '@/lib/formatters'
 
 
 const PROVIDERS = ['anthropic', 'openai', 'google', 'deepseek', 'alibaba', 'other']
@@ -142,10 +143,6 @@ export default function ModelMetadataPage() {
     }
   }
 
-  const formatDate = (dateStr: string) => {
-    return new Date(dateStr).toLocaleString('zh-CN')
-  }
-
   if (loading) {
     return (
       <div className="flex h-64 items-center justify-center">
@@ -190,9 +187,9 @@ export default function ModelMetadataPage() {
                     <TableHead className="text-right">操作</TableHead>
                   </TableRow>
                 </TableHeader>
-                <motion.tbody variants={staggerContainer} initial="hidden" animate="visible" key={metadata.length}>
+                <motion.tbody variants={tableStaggerContainer} initial="hidden" animate="visible" key={metadata.length}>
                   {metadata.map((item) => (
-                    <motion.tr key={item.id} variants={staggerItem} layout className="border-b transition-colors hover:bg-muted/50 data-[state=selected]:bg-muted">
+                    <motion.tr key={item.id} variants={tableRowVariants} className="border-b transition-colors hover:bg-muted/50 data-[state=selected]:bg-muted">
                       <TableCell className="font-mono">{item.modelPattern}</TableCell>
                       <TableCell>{item.displayName}</TableCell>
                       <TableCell>{formatTokenCount(item.contextLength)}</TableCell>

@@ -8,7 +8,8 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table'
-import { motion, staggerContainer, staggerItem } from '@/lib/motion'
+import { formatDate } from '@/lib/formatters'
+import { motion, tableStaggerContainer, tableRowVariants } from '@/lib/motion'
 import { Channel, ChannelType, TestChannelResult } from '@/api/channels'
 
 export interface ChannelTableProps {
@@ -34,10 +35,6 @@ function getTypeBadgeVariant(type: ChannelType): 'default' | 'secondary' | 'outl
     default:
       return 'default'
   }
-}
-
-function formatDate(dateStr: string): string {
-  return new Date(dateStr).toLocaleString('zh-CN')
 }
 
 export function ChannelTable({
@@ -66,9 +63,9 @@ export function ChannelTable({
             <TableHead className="text-right">操作</TableHead>
           </TableRow>
         </TableHeader>
-        <motion.tbody variants={staggerContainer} initial="hidden" animate="visible" key={channels.length}>
+        <motion.tbody variants={tableStaggerContainer} initial="hidden" animate="visible" key={channels.length}>
           {channels.map((channel) => (
-            <motion.tr key={channel.id} variants={staggerItem} layout className="border-b transition-colors hover:bg-muted/50 data-[state=selected]:bg-muted">
+            <motion.tr key={channel.id} variants={tableRowVariants} className="border-b transition-colors hover:bg-muted/50 data-[state=selected]:bg-muted">
               <TableCell className="font-medium">{channel.name}</TableCell>
               <TableCell>
                 <Badge variant={getTypeBadgeVariant(channel.type)}>

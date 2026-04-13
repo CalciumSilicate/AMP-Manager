@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { motion, AnimatePresence, staggerContainer, staggerItem } from '@/lib/motion'
+import { motion, AnimatePresence, tableStaggerContainer, tableRowVariants } from '@/lib/motion'
 import {
   getAPIKeys,
   createAPIKeyWithOptions,
@@ -29,6 +29,7 @@ import {
   DialogDescription,
   DialogFooter,
 } from '@/components/ui/dialog'
+import { formatDateTime } from '@/lib/formatters'
 
 export default function APIKeys() {
   const [keys, setKeys] = useState<APIKey[]>([])
@@ -122,10 +123,7 @@ export default function APIKeys() {
     setTimeout(() => setCopied(null), 2000)
   }
 
-  const formatDate = (dateStr: string | null) => {
-    if (!dateStr) return '-'
-    return new Date(dateStr).toLocaleString('zh-CN')
-  }
+  const formatDate = (dateStr: string | null) => (dateStr ? formatDateTime(dateStr) : '-')
 
   if (loading) {
     return (
@@ -238,9 +236,9 @@ export default function APIKeys() {
                     <TableHead className="text-right">操作</TableHead>
                   </TableRow>
                 </TableHeader>
-                <motion.tbody variants={staggerContainer} initial="hidden" animate="visible" key={keys.length}>
+                <motion.tbody variants={tableStaggerContainer} initial="hidden" animate="visible" key={keys.length}>
                   {keys.map((key) => (
-                    <motion.tr key={key.id} variants={staggerItem} layout className="border-b transition-colors hover:bg-muted/50 data-[state=selected]:bg-muted">
+                    <motion.tr key={key.id} variants={tableRowVariants} className="border-b transition-colors hover:bg-muted/50 data-[state=selected]:bg-muted">
                       <TableCell className="font-medium">{key.name}</TableCell>
                       <TableCell className="font-mono text-muted-foreground">
                         {key.prefix}...
