@@ -13,7 +13,7 @@ import (
 
 // 预编译正则表达式，避免热路径重复编译
 var (
-	dateRe8Digit = regexp.MustCompile(`(\d{8})`)           // YYYYMMDD 格式
+	dateRe8Digit = regexp.MustCompile(`(\d{8})`)                 // YYYYMMDD 格式
 	dateReDash   = regexp.MustCompile(`(\d{4})-(\d{2})-(\d{2})`) // YYYY-MM-DD 格式
 )
 
@@ -71,7 +71,12 @@ func (c *CostCalculator) Calculate(pricingModel string, usage TokenUsage) CostRe
 	}
 
 	// 使用微美元整数累计，避免浮点误差
-	inputMicros := int64(math.Round(float64(inputTokens) * priceData.InputCostPerToken * 1e6))
+	uncachedInputTokens := inputTokens - cacheReadTokens
+	if uncachedInputTokens < 0 {
+		uncachedInputTokens = 0
+	}
+
+	inputMicros := int64(math.Round(float64(uncachedInputTokens) * priceData.InputCostPerToken * 1e6))
 	outputMicros := int64(math.Round(float64(outputTokens) * priceData.OutputCostPerToken * 1e6))
 	cacheReadMicros := int64(math.Round(float64(cacheReadTokens) * priceData.CacheReadInputPerToken * 1e6))
 	cacheCreateMicros := int64(math.Round(float64(cacheCreationTokens) * priceData.CacheCreationPerToken * 1e6))
@@ -82,8 +87,8 @@ func (c *CostCalculator) Calculate(pricingModel string, usage TokenUsage) CostRe
 	// 从 CostMicros 反推 CostUsd（保留 6 位小数）
 	result.CostUsd = fmt.Sprintf("%.6f", float64(totalMicros)/1e6)
 
-	log.Debugf("billing: calculated cost for %s - input=%d, output=%d, cache_read=%d, cache_creation=%d -> $%s",
-		pricingModel, inputTokens, outputTokens,
+	log.Debugf("billing: calculated cost for %s - input=%d, uncached_input=%d, output=%d, cache_read=%d, cache_creation=%d -> $%s",
+		pricingModel, inputTokens, uncachedInputTokens, outputTokens,
 		cacheReadTokens, cacheCreationTokens, result.CostUsd)
 
 	return result
