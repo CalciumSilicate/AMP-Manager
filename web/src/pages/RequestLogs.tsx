@@ -300,6 +300,8 @@ export default function RequestLogs({ isAdmin }: Props) {
                       <TableHead>思维等级</TableHead>
                       <TableHead>方法</TableHead>
                       <TableHead>状态</TableHead>
+                      <TableHead className="text-right">TTFB</TableHead>
+                      <TableHead className="text-right">TPS</TableHead>
                       <TableHead className="text-right">延迟</TableHead>
                       <TableHead className="text-right">输入(去缓存)</TableHead>
                       <TableHead className="text-right">输出</TableHead>
@@ -375,6 +377,12 @@ export default function RequestLogs({ isAdmin }: Props) {
                           ) : (
                             <StatusBadge status={log.statusCode} />
                           )}
+                        </TableCell>
+                        <TableCell className="text-right text-muted-foreground">
+                          {log.isStreaming && typeof log.ttfbMs === 'number' ? `${log.ttfbMs}ms` : '-'}
+                        </TableCell>
+                        <TableCell className="text-right text-muted-foreground">
+                          {log.isStreaming && typeof log.tps === 'number' ? `${log.tps.toFixed(1)}/s` : '-'}
                         </TableCell>
                         <TableCell className="text-right text-muted-foreground">
                           {log.latencyMs}ms

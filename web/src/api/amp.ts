@@ -116,9 +116,13 @@ export async function getAPIKeys(): Promise<APIKey[]> {
 }
 
 export async function createAPIKey(name: string): Promise<CreateAPIKeyResponse> {
+  return createAPIKeyWithOptions({ name })
+}
+
+export async function createAPIKeyWithOptions(data: { name: string; customKey?: string }): Promise<CreateAPIKeyResponse> {
   const response = await authFetch(`${API_BASE}/api-keys`, {
     method: 'POST',
-    body: JSON.stringify({ name }),
+    body: JSON.stringify(data),
   })
   return handleResponse<CreateAPIKeyResponse>(response)
 }
@@ -163,6 +167,8 @@ export interface RequestLog {
   path: string
   statusCode: number
   latencyMs: number
+  ttfbMs?: number
+  tps?: number
   isStreaming: boolean
   inputTokens?: number
   outputTokens?: number

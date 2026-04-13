@@ -16,8 +16,13 @@ import { Label } from '@/components/ui/label'
 import { Switch } from '@/components/ui/switch'
 import { Badge } from '@/components/ui/badge'
 import { Alert, AlertDescription } from '@/components/ui/alert'
-import { Separator } from '@/components/ui/separator'
-import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+
+const WEB_SEARCH_OPTIONS: { value: WebSearchMode; label: string }[] = [
+    { value: 'upstream', label: '上游代理' },
+    { value: 'builtin_free', label: '内置免费搜索' },
+    { value: 'local_duckduckgo', label: '本地搜索' },
+]
 
 export default function AmpSettings() {
     const [settings, setSettings] = useState<AmpSettingsType | null>(null)
@@ -120,7 +125,7 @@ export default function AmpSettings() {
             <form onSubmit={handleSubmit} className="space-y-6">
                 <div className="space-y-2">
                     <h1 className="text-2xl font-semibold tracking-tight">Amp 设置</h1>
-                    <p className="text-sm text-muted-foreground">配置 Amp 代理服务的上游连接、运行模式和模型映射。</p>
+                    <p className="text-sm text-muted-foreground">连接与运行参数。</p>
                 </div>
 
                 {error && (
@@ -142,137 +147,104 @@ export default function AmpSettings() {
                     <Card>
                         <CardHeader className="space-y-1">
                             <CardTitle>基础设置</CardTitle>
-                            <CardDescription>保留现有设置项，将连接、模式和搜索策略整理为更易读的分区表单。</CardDescription>
+                            <CardDescription>连接与模式</CardDescription>
                         </CardHeader>
                         <CardContent className="space-y-8">
-                            <div className="grid gap-6 lg:grid-cols-[minmax(0,1.2fr)_minmax(18rem,0.8fr)]">
-                                <div className="space-y-6">
-                                    <div className="rounded-lg border p-4">
-                                        <div className="space-y-4">
-                                            <div className="flex items-start justify-between gap-4">
-                                                <div className="space-y-0.5">
-                                                    <Label htmlFor="enabled">启用代理</Label>
-                                                    <p className="text-sm text-muted-foreground">开启后启用 AMP 增强功能，关闭则纯透传到上游。</p>
-                                                </div>
-                                                <Switch id="enabled" checked={enabled} onCheckedChange={setEnabled} />
+                            <div className="grid gap-8">
+                                <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_18rem] lg:items-stretch">
+                                    <div className="flex h-full flex-col justify-between gap-4 border-b pb-5 lg:border-b-0 lg:pb-0">
+                                        <div className="flex items-start justify-between gap-4">
+                                            <div className="space-y-1">
+                                                <Label htmlFor="enabled">启用代理</Label>
+                                                <p className="text-sm text-muted-foreground">开启后启用增强功能。</p>
                                             </div>
-                                            <Separator />
-                                            <div className="flex items-start justify-between gap-4">
-                                                <div className="space-y-0.5">
-                                                    <Label htmlFor="nativeMode">原生模式</Label>
-                                                    <p className="text-sm text-muted-foreground">开启后所有请求直接转发到上游，不做拦截、映射或渠道路由。</p>
-                                                </div>
-                                                <Switch id="nativeMode" checked={nativeMode} onCheckedChange={setNativeMode} />
-                                            </div>
-                                            {nativeMode && (
-                                                <Alert className="border-amber-200 bg-amber-50 text-amber-800">
-                                                    <AlertDescription>原生模式已开启，以下设置将不生效。所有请求将直接转发到上游服务器。</AlertDescription>
-                                                </Alert>
-                                            )}
+                                            <Switch id="enabled" checked={enabled} onCheckedChange={setEnabled} />
                                         </div>
+                                        <div className="flex items-start justify-between gap-4">
+                                            <div className="space-y-1">
+                                                <Label htmlFor="nativeMode">原生模式</Label>
+                                                <p className="text-sm text-muted-foreground">开启后仅直连上游。</p>
+                                            </div>
+                                            <Switch id="nativeMode" checked={nativeMode} onCheckedChange={setNativeMode} />
+                                        </div>
+                                        {nativeMode && (
+                                            <Alert className="border-amber-200 bg-amber-50 text-amber-800">
+                                                <AlertDescription>原生模式已开启，以下设置将不生效。</AlertDescription>
+                                            </Alert>
+                                        )}
                                     </div>
 
-                                    <div className={nativeMode ? 'space-y-6 opacity-50 pointer-events-none' : 'space-y-6'}>
-                                        <div className="grid gap-6 xl:grid-cols-2">
-                                            <div className="space-y-2 xl:col-span-2">
-                                                <Label htmlFor="upstreamUrl">Upstream URL</Label>
-                                                <Input
-                                                    id="upstreamUrl"
-                                                    type="url"
-                                                    value={upstreamUrl}
-                                                    onChange={(e) => setUpstreamUrl(e.target.value)}
-                                                    placeholder="https://ampcode.com"
-                                                />
-                                            </div>
-
-                                            <div className="space-y-2">
-                                                <Label htmlFor="upstreamApiKey">Upstream API Key</Label>
-                                                <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
-                                                    <Input
-                                                        id="upstreamApiKey"
-                                                        type="password"
-                                                        value={upstreamApiKey}
-                                                        onChange={(e) => setUpstreamApiKey(e.target.value)}
-                                                        placeholder={settings?.apiKeySet ? '••••••••（已设置，留空保持不变）' : '请输入 API Key'}
-                                                        className="flex-1"
-                                                    />
-                                                    <Badge variant={settings?.apiKeySet ? 'default' : 'secondary'} className="w-fit shrink-0">
-                                                        {settings?.apiKeySet ? '已设置' : '未设置'}
-                                                    </Badge>
-                                                </div>
-                                            </div>
-
-                                            <div className="space-y-2">
-                                                <Label htmlFor="socks5Proxy">SOCKS5 代理</Label>
-                                                <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
-                                                    <Input
-                                                        id="socks5Proxy"
-                                                        type="password"
-                                                        value={socks5Proxy}
-                                                        onChange={(e) => setSocks5Proxy(e.target.value)}
-                                                        placeholder={settings?.socks5ProxySet ? '••••••••（已设置，留空保持不变）' : 'socks5://user:pass@host:port'}
-                                                        className="flex-1"
-                                                    />
-                                                    <Badge variant={settings?.socks5ProxySet ? 'default' : 'secondary'} className="w-fit shrink-0">
-                                                        {settings?.socks5ProxySet ? '已设置' : '未设置'}
-                                                    </Badge>
-                                                </div>
-                                                <p className="text-sm text-muted-foreground">设置 SOCKS5 代理后，所有到 ampcode.com 的请求将通过此代理转发。格式：socks5://用户名:密码@主机:端口</p>
-                                            </div>
+                                    <div className={nativeMode ? 'flex h-full flex-col justify-between gap-3 opacity-50 pointer-events-none' : 'flex h-full flex-col justify-between gap-3'}>
+                                        <div className="space-y-2">
+                                            <Label htmlFor="webSearchMode">网页搜索模式</Label>
+                                            <Select value={webSearchMode} onValueChange={(value) => setWebSearchMode(value as WebSearchMode)}>
+                                                <SelectTrigger id="webSearchMode" className="h-10 w-full">
+                                                    <SelectValue />
+                                                </SelectTrigger>
+                                                <SelectContent>
+                                                    {WEB_SEARCH_OPTIONS.map((option) => (
+                                                        <SelectItem key={option.value} value={option.value}>
+                                                            {option.label}
+                                                        </SelectItem>
+                                                    ))}
+                                                </SelectContent>
+                                            </Select>
                                         </div>
                                     </div>
                                 </div>
 
-                                <div className={nativeMode ? 'space-y-6 opacity-50 pointer-events-none' : 'space-y-6'}>
-                                    <div className="rounded-lg border p-4">
-                                        <div className="space-y-3">
-                                            <div className="space-y-0.5">
-                                                <Label>网页搜索模式</Label>
-                                                <p className="text-sm text-muted-foreground">选择网页搜索和网页内容获取的处理方式。</p>
-                                            </div>
-                                            <RadioGroup
-                                                value={webSearchMode}
-                                                onValueChange={(value) => setWebSearchMode(value as WebSearchMode)}
-                                                className="space-y-3"
-                                            >
-                                                <div className="rounded-md border p-3">
-                                                    <div className="flex items-start space-x-3">
-                                                        <RadioGroupItem value="upstream" id="upstream" className="mt-0.5" />
-                                                        <Label htmlFor="upstream" className="cursor-pointer space-y-1 font-normal">
-                                                            <span className="block font-medium">上游代理</span>
-                                                            <span className="block text-sm text-muted-foreground">直接转发到上游，不做任何修改。</span>
-                                                        </Label>
-                                                    </div>
-                                                </div>
-                                                <div className="rounded-md border p-3">
-                                                    <div className="flex items-start space-x-3">
-                                                        <RadioGroupItem value="builtin_free" id="builtin_free" className="mt-0.5" />
-                                                        <Label htmlFor="builtin_free" className="cursor-pointer space-y-1 font-normal">
-                                                            <span className="block font-medium">内置免费搜索</span>
-                                                            <span className="block text-sm text-muted-foreground">使用 Amp 内置的免费搜索功能。</span>
-                                                        </Label>
-                                                    </div>
-                                                </div>
-                                                <div className="rounded-md border p-3">
-                                                    <div className="flex items-start space-x-3">
-                                                        <RadioGroupItem value="local_duckduckgo" id="local_duckduckgo" className="mt-0.5" />
-                                                        <Label htmlFor="local_duckduckgo" className="cursor-pointer space-y-1 font-normal">
-                                                            <span className="block font-medium">本地搜索</span>
-                                                            <span className="block text-sm text-muted-foreground">使用本地 DuckDuckGo 搜索，完全免费。</span>
-                                                        </Label>
-                                                    </div>
-                                                </div>
-                                            </RadioGroup>
+                                <div className={nativeMode ? 'grid gap-4 opacity-50 pointer-events-none xl:grid-cols-[minmax(0,1fr)_18rem]' : 'grid gap-4 xl:grid-cols-[minmax(0,1fr)_18rem]'}>
+                                    <div className="space-y-2">
+                                        <Label htmlFor="upstreamUrl">Upstream URL</Label>
+                                        <Input
+                                            id="upstreamUrl"
+                                            type="url"
+                                            value={upstreamUrl}
+                                            onChange={(e) => setUpstreamUrl(e.target.value)}
+                                            placeholder="https://ampcode.com"
+                                            className="h-10"
+                                        />
+                                    </div>
+
+                                    <div className="space-y-2">
+                                        <Label htmlFor="showBalanceInAd">显示余额提醒</Label>
+                                        <div className="flex h-10 items-center justify-between rounded-md border border-input bg-background px-3">
+                                            <span className="text-sm text-muted-foreground">在广告位显示余额</span>
+                                            <Switch id="showBalanceInAd" checked={showBalanceInAd} onCheckedChange={setShowBalanceInAd} />
                                         </div>
                                     </div>
 
-                                    <div className="rounded-lg border p-4">
-                                        <div className="flex items-start justify-between gap-4">
-                                            <div className="space-y-0.5">
-                                                <Label htmlFor="showBalanceInAd">显示余额提醒</Label>
-                                                <p className="text-sm text-muted-foreground">在 Amp CLI 的广告位显示当前账户余额。</p>
-                                            </div>
-                                            <Switch id="showBalanceInAd" checked={showBalanceInAd} onCheckedChange={setShowBalanceInAd} />
+                                    <div className="space-y-2">
+                                        <Label htmlFor="upstreamApiKey">Upstream API Key</Label>
+                                        <div className="flex items-center gap-2">
+                                            <Input
+                                                id="upstreamApiKey"
+                                                type="password"
+                                                value={upstreamApiKey}
+                                                onChange={(e) => setUpstreamApiKey(e.target.value)}
+                                                placeholder={settings?.apiKeySet ? '••••••••（已设置，留空保持不变）' : '请输入 API Key'}
+                                                className="h-10"
+                                            />
+                                            <Badge variant={settings?.apiKeySet ? 'default' : 'secondary'} className="shrink-0">
+                                                {settings?.apiKeySet ? '已设置' : '未设置'}
+                                            </Badge>
+                                        </div>
+                                    </div>
+
+                                    <div className="space-y-2">
+                                        <Label htmlFor="socks5Proxy">SOCKS5 代理</Label>
+                                        <div className="flex items-center gap-2">
+                                            <Input
+                                                id="socks5Proxy"
+                                                type="password"
+                                                value={socks5Proxy}
+                                                onChange={(e) => setSocks5Proxy(e.target.value)}
+                                                placeholder={settings?.socks5ProxySet ? '••••••••（已设置，留空保持不变）' : 'socks5://user:pass@host:port'}
+                                                className="h-10"
+                                            />
+                                            <Badge variant={settings?.socks5ProxySet ? 'default' : 'secondary'} className="shrink-0">
+                                                {settings?.socks5ProxySet ? '已设置' : '未设置'}
+                                            </Badge>
                                         </div>
                                     </div>
                                 </div>
@@ -288,8 +260,8 @@ export default function AmpSettings() {
                 >
                     <Card>
                         <CardHeader>
-                            <CardTitle>Model Mappings</CardTitle>
-                            <CardDescription>映射编辑器作为独立工作区展示，优先保证宽表格可读性和批量编辑体验。</CardDescription>
+                            <CardTitle>映射规则</CardTitle>
+                            <CardDescription>模型映射与路由。</CardDescription>
                         </CardHeader>
                         <CardContent>
                             <div className={nativeMode ? 'opacity-50 pointer-events-none' : ''}>

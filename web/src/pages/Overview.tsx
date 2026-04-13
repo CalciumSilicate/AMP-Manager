@@ -3,9 +3,10 @@ import { getDashboard, DashboardData, DashboardCacheHitRate } from '@/api/dashbo
 import { getBillingState, updateBillingPriority, BillingStateResponse } from '@/api/billing'
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
-import { Progress } from '@/components/ui/progress'
 import { Button } from '@/components/ui/button'
+import { CircularProgress } from '@/components/CircularProgress'
 import { Num } from '@/components/Num'
+import { formatDecimal, formatGroupedNumericString } from '@/lib/formatters'
 import { motion, AnimatePresence, staggerContainer, staggerItem } from '@/lib/motion'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import {
@@ -171,6 +172,8 @@ export default function Overview() {
   const balanceUsd = parseFloat(data.balance.balanceUsd)
   const todayCost = parseFloat(data.today.costUsd)
   const weekCost = parseFloat(data.week.costUsd)
+  const formatUsd = (value: number, digits: number) => `$${formatDecimal(value, digits)}`
+  const formatWindowUsd = (micros: number) => formatDecimal(micros / 1e6, 2)
 
   return (
     <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-6">
@@ -206,7 +209,7 @@ export default function Overview() {
                 账户余额
               </CardDescription>
               <CardTitle className="text-3xl text-blue-600 dark:text-blue-400">
-                ${balanceUsd.toFixed(2)}
+                {formatUsd(balanceUsd, 2)}
               </CardTitle>
             </CardHeader>
           </Card>
@@ -222,16 +225,16 @@ export default function Overview() {
                 </CardDescription>
                 {data.today.errorCount > 0 && (
                   <Badge variant="destructive" className="text-[10px]">
-                    {data.today.errorCount} 错误
+                    <Num value={data.today.errorCount} compact={false} /> 错误
                   </Badge>
                 )}
               </div>
-              <CardTitle className="text-2xl"><Num value={data.today.requestCount} /></CardTitle>
+              <CardTitle className="text-2xl"><Num value={data.today.requestCount} compact={false} /></CardTitle>
             </CardHeader>
             <CardContent className="pb-3">
               <p className="text-xs text-muted-foreground flex items-center gap-1">
                 <DollarSign className="h-3 w-3" />
-                ${todayCost.toFixed(4)}
+                {formatUsd(todayCost, 4)}
               </p>
             </CardContent>
           </Card>
@@ -244,12 +247,12 @@ export default function Overview() {
                 <TrendingUp className="h-4 w-4" />
                 近 7 天
               </CardDescription>
-              <CardTitle className="text-2xl"><Num value={data.week.requestCount} /></CardTitle>
+              <CardTitle className="text-2xl"><Num value={data.week.requestCount} compact={false} /></CardTitle>
             </CardHeader>
             <CardContent className="pb-3">
               <p className="text-xs text-muted-foreground flex items-center gap-1">
                 <DollarSign className="h-3 w-3" />
-                ${weekCost.toFixed(4)}
+                {formatUsd(weekCost, 4)}
               </p>
             </CardContent>
           </Card>
@@ -262,12 +265,12 @@ export default function Overview() {
                 <Activity className="h-4 w-4" />
                 近 30 天
               </CardDescription>
-              <CardTitle className="text-2xl"><Num value={data.month.requestCount} /></CardTitle>
+              <CardTitle className="text-2xl"><Num value={data.month.requestCount} compact={false} /></CardTitle>
             </CardHeader>
             <CardContent className="pb-3">
               <p className="text-xs text-green-600 dark:text-green-400 flex items-center gap-1 font-medium">
                 <DollarSign className="h-3 w-3" />
-                ${parseFloat(data.month.costUsd).toFixed(4)}
+                {formatUsd(parseFloat(data.month.costUsd), 4)}
               </p>
             </CardContent>
           </Card>
@@ -300,7 +303,7 @@ export default function Overview() {
                   <item.icon className={`h-4 w-4 ${item.color}`} />
                   {item.label}
                 </CardDescription>
-                <CardTitle className="text-xl"><Num value={item.value} /></CardTitle>
+                <CardTitle className="text-xl"><Num value={item.value} compact={false} /></CardTitle>
               </CardHeader>
             </Card>
           </motion.div>
@@ -407,13 +410,49 @@ export default function Overview() {
                     )}
                   </div>
                   {billingState.subscription ? (
-                    <div className="space-y-1">
+                    <div className="space-y-3">
                       <p className="text-lg font-semibold">{billingState.subscription.planName}</p>
                       <p className="text-xs text-muted-foreground">
                         {billingState.subscription.expiresAt
                           ? `到期: ${new Date(billingState.subscription.expiresAt).toLocaleDateString('zh-CN')}`
                           : '永不过期'}
                       </p>
+                      {billingState.windows && billingState.windows.length > 0 && (
+                        <div className="space-y-2 pt-1">
+                          {billingState.windows.map((w, i) => {
+                            const limitTypeLabels: Record<string, string> = {
+                              daily: '日限制', weekly: '周限制', monthly: '月限制',
+                              rolling_5h: '5小时滚动', total: '总量限制',
+                            }
+                            const windowModeLabels: Record<string, string> = {
+                              fixed: '固定窗口', sliding: '滑动窗口',
+                            }
+                            const usedPct = w.limitMicros > 0 ? (w.usedMicros / w.limitMicros) * 100 : 0
+                            return (
+                              <div key={i} className="flex items-center justify-between gap-3 rounded-md border border-border/60 px-3 py-2">
+                                <div className="min-w-0">
+                                  <p className="text-sm font-medium">
+                                    {limitTypeLabels[w.limitType] || w.limitType}
+                                    <span className="ml-1 text-[11px] text-muted-foreground">({windowModeLabels[w.windowMode] || w.windowMode})</span>
+                                  </p>
+                                  <p className="text-[11px] text-muted-foreground">
+                                    ${formatWindowUsd(w.leftMicros)} / ${formatWindowUsd(w.limitMicros)}
+                                  </p>
+                                </div>
+                                <CircularProgress
+                                  value={usedPct}
+                                  size={40}
+                                  strokeWidth={4}
+                                  label={`${Math.round(Math.min(usedPct, 100))}%`}
+                                  className="shrink-0"
+                                  indicatorClassName="stroke-purple-500"
+                                  trackClassName="stroke-border"
+                                />
+                              </div>
+                            )
+                          })}
+                        </div>
+                      )}
                     </div>
                   ) : (
                     <p className="text-sm text-muted-foreground">暂未订阅任何套餐</p>
@@ -425,49 +464,13 @@ export default function Overview() {
                       <Wallet className="h-4 w-4 text-blue-500" />
                       余额
                     </span>
-                    <span className="text-lg font-bold">${parseFloat(billingState.balanceUsd).toFixed(2)}</span>
+                    <span className="text-lg font-bold">${formatGroupedNumericString(parseFloat(billingState.balanceUsd).toFixed(2))}</span>
                   </div>
                   <p className="text-xs text-muted-foreground">
                     扣费优先级: {billingState.primarySource === 'subscription' ? '① 订阅 → ② 余额' : '① 余额 → ② 订阅'}
                   </p>
                 </div>
               </div>
-              {billingState.windows && billingState.windows.length > 0 && (
-                <div className="space-y-3">
-                  <p className="text-sm font-medium">订阅额度使用情况</p>
-                  {billingState.windows.map((w, i) => {
-                    const limitTypeLabels: Record<string, string> = {
-                      daily: '日限制', weekly: '周限制', monthly: '月限制',
-                      rolling_5h: '5小时滚动', total: '总量限制',
-                    }
-                    const windowModeLabels: Record<string, string> = {
-                      fixed: '固定窗口', sliding: '滑动窗口',
-                    }
-                    const usedPct = w.limitMicros > 0 ? (w.usedMicros / w.limitMicros) * 100 : 0
-                    const leftUsd = (w.leftMicros / 1e6).toFixed(2)
-                    const limitUsd = (w.limitMicros / 1e6).toFixed(2)
-                    return (
-                      <div key={i} className="space-y-1">
-                        <div className="flex items-center justify-between text-xs">
-                          <span className="text-muted-foreground">
-                            {limitTypeLabels[w.limitType] || w.limitType}
-                            <span className="ml-1 opacity-60">({windowModeLabels[w.windowMode] || w.windowMode})</span>
-                          </span>
-                          <span className="font-mono">${leftUsd} / ${limitUsd}</span>
-                        </div>
-                        <Progress value={Math.min(usedPct, 100)} className="h-2" />
-                        {w.limitType !== 'total' && w.windowEnd && (
-                          <div className="text-[10px] text-muted-foreground">
-                            {w.windowMode === 'fixed'
-                              ? `重置于 ${new Date(w.windowEnd).toLocaleString('zh-CN')}`
-                              : `统计窗口: ${new Date(w.windowStart).toLocaleString('zh-CN')} ~ 现在`}
-                          </div>
-                        )}
-                      </div>
-                    )
-                  })}
-                </div>
-              )}
             </CardContent>
           </Card>
         </motion.div>
@@ -828,17 +831,16 @@ export default function Overview() {
                           </CardTitle>
                           {hasData && (
                             <Badge variant="outline" className="text-[10px] font-mono">
-                              <Num value={rate!.requestCount} /> 请求
+                              <Num value={rate!.requestCount} compact={false} /> 请求
                             </Badge>
                           )}
                         </div>
                       </CardHeader>
                       <CardContent className="pb-4">
-                        {!hasData ? (
-                          <p className="text-sm text-muted-foreground py-4">暂无数据</p>
-                        ) : (
-                          <div className="flex items-center gap-4">
-                            <ChartContainer config={cacheChartConfig} className="w-20 h-20 shrink-0">
+                        <div className="flex min-h-[112px] items-center gap-4">
+                          {hasData ? (
+                            <>
+                              <ChartContainer config={cacheChartConfig} className="w-20 h-20 shrink-0">
                               <PieChart>
                                 <Pie
                                   data={ringData}
@@ -869,8 +871,8 @@ export default function Overview() {
                                   />
                                 </Pie>
                               </PieChart>
-                            </ChartContainer>
-                            <div className="flex-1 space-y-2">
+                              </ChartContainer>
+                              <div className="flex-1 space-y-2">
                               <div className="flex items-baseline gap-1.5">
                                 <span className={`text-2xl font-bold ${colors.text}`}>
                                   {rate!.hitRate}%
@@ -879,15 +881,36 @@ export default function Overview() {
                               </div>
                               <div className="grid grid-cols-2 gap-x-3 gap-y-0.5 text-[11px] text-muted-foreground">
                                 <span>缓存读取</span>
-                                <span className="text-right font-mono"><Num value={rate!.cacheReadTokens} /></span>
+                                <span className="text-right font-mono"><Num value={rate!.cacheReadTokens} compact={false} /></span>
                                 <span>缓存写入</span>
-                                <span className="text-right font-mono"><Num value={rate!.cacheCreationTokens} /></span>
+                                <span className="text-right font-mono"><Num value={rate!.cacheCreationTokens} compact={false} /></span>
                                 <span>总输入 Tokens</span>
-                                <span className="text-right font-mono"><Num value={rate!.totalInputTokens} /></span>
+                                <span className="text-right font-mono"><Num value={rate!.totalInputTokens} compact={false} /></span>
                               </div>
-                            </div>
-                          </div>
-                        )}
+                              </div>
+                            </>
+                          ) : (
+                            <>
+                              <div className="flex h-20 w-20 shrink-0 items-center justify-center rounded-full border border-dashed border-border/80 text-xs text-muted-foreground">
+                                --
+                              </div>
+                              <div className="flex-1 space-y-2">
+                                <div className="flex items-baseline gap-1.5">
+                                  <span className="text-2xl font-bold text-muted-foreground">--</span>
+                                  <span className="text-[10px] text-muted-foreground">命中率</span>
+                                </div>
+                                <div className="grid grid-cols-2 gap-x-3 gap-y-0.5 text-[11px] text-muted-foreground">
+                                  <span>缓存读取</span>
+                                  <span className="text-right font-mono">-</span>
+                                  <span>缓存写入</span>
+                                  <span className="text-right font-mono">-</span>
+                                  <span>总输入 Tokens</span>
+                                  <span className="text-right font-mono">-</span>
+                                </div>
+                              </div>
+                            </>
+                          )}
+                        </div>
                       </CardContent>
                     </Card>
                   </motion.div>

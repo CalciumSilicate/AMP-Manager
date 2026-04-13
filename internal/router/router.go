@@ -81,6 +81,11 @@ func Setup() *gin.Engine {
 			manageAuth.POST("/login", userHandler.Login)
 		}
 
+		public := api.Group("/public")
+		{
+			public.GET("/site-config", systemHandler.GetPublicSiteConfig)
+		}
+
 		me := api.Group("/me")
 		me.Use(middleware.JWTAuthMiddleware())
 		{
@@ -179,10 +184,15 @@ func Setup() *gin.Engine {
 				// 缓存 TTL 配置
 				system.GET("/cache-ttl", systemHandler.GetCacheTTLConfig)
 				system.PUT("/cache-ttl", systemHandler.UpdateCacheTTLConfig)
+
+				// 站点配置
+				system.GET("/site-config", systemHandler.GetSiteConfig)
+				system.PUT("/site-config", systemHandler.UpdateSiteConfig)
 			}
 
 			users := admin.Group("/users")
 			{
+				users.GET("/paged", userHandler.ListUsersPaged)
 				users.GET("", userHandler.ListUsers)
 				users.PATCH("/:id/admin", userHandler.SetAdmin)
 				users.PATCH("/:id/group", userHandler.SetGroup)

@@ -5,7 +5,6 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Checkbox } from '@/components/ui/checkbox'
-import { Card, CardContent } from '@/components/ui/card'
 import { Textarea } from '@/components/ui/textarea'
 import {
   Table,
@@ -154,7 +153,7 @@ export default function ModelMappingEditor({ mappings, onChange }: Props) {
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div className="space-y-1">
           <Label>映射规则</Label>
-          <p className="text-sm text-muted-foreground">桌面端使用宽表格编辑，窄屏时可横向滚动查看全部列。</p>
+          <p className="text-sm text-muted-foreground">按规则匹配模型与渠道。</p>
         </div>
         <Button type="button" size="sm" onClick={handleAdd}>
           + 添加映射
@@ -166,20 +165,20 @@ export default function ModelMappingEditor({ mappings, onChange }: Props) {
           暂无模型映射，点击上方按钮添加
         </div>
       ) : (
-        <div className="overflow-x-auto rounded-md border">
-          <Table className="min-w-[84rem] table-fixed">
+        <div className="rounded-md border">
+          <Table className="w-full table-fixed">
             <TableHeader>
               <TableRow>
-                <TableHead className="w-[16rem] whitespace-nowrap align-top">From</TableHead>
-                <TableHead className="w-[18rem] whitespace-nowrap align-top">To</TableHead>
-                <TableHead className="w-[15rem] whitespace-nowrap align-top">目标渠道</TableHead>
-                <TableHead className="w-[8rem] whitespace-nowrap text-center align-top">思维强度</TableHead>
-                <TableHead className="w-[5rem] whitespace-nowrap text-center align-top">伪非流</TableHead>
-                <TableHead className="w-[5rem] whitespace-nowrap text-center align-top">仅AMP</TableHead>
-                <TableHead className="w-[5rem] whitespace-nowrap text-center align-top">Fast</TableHead>
-                <TableHead className="w-[5rem] whitespace-nowrap text-center align-top">指令</TableHead>
-                <TableHead className="w-[5rem] whitespace-nowrap text-center align-top">Regex</TableHead>
-                <TableHead className="w-[6rem] whitespace-nowrap text-center align-top">操作</TableHead>
+                <TableHead className="w-[11rem] whitespace-nowrap align-middle">From</TableHead>
+                <TableHead className="w-[12rem] whitespace-nowrap align-middle">To</TableHead>
+                <TableHead className="w-[10rem] whitespace-nowrap align-middle">目标渠道</TableHead>
+                <TableHead className="w-[7rem] whitespace-nowrap text-center align-middle">思维强度</TableHead>
+                <TableHead className="w-[4rem] whitespace-nowrap text-center align-middle">伪非流</TableHead>
+                <TableHead className="w-[4rem] whitespace-nowrap text-center align-middle">仅AMP</TableHead>
+                <TableHead className="w-[4rem] whitespace-nowrap text-center align-middle">Fast</TableHead>
+                <TableHead className="w-[4rem] whitespace-nowrap text-center align-middle">指令</TableHead>
+                <TableHead className="w-[4rem] whitespace-nowrap text-center align-middle">Regex</TableHead>
+                <TableHead className="w-[5rem] whitespace-nowrap text-center align-middle">操作</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -214,8 +213,9 @@ export default function ModelMappingEditor({ mappings, onChange }: Props) {
                         <Button
                           type="button"
                           variant="outline"
-                          size="sm"
+                          size="icon"
                           onClick={() => showDropdown === index ? setShowDropdown(null) : openDropdown(index)}
+                          className="h-8 w-8 shrink-0"
                         >
                           ▼
                         </Button>
@@ -379,23 +379,9 @@ export default function ModelMappingEditor({ mappings, onChange }: Props) {
         </div>
       )}
 
-      <Card className="bg-muted/50">
-        <CardContent className="p-3 text-xs text-muted-foreground">
-          <p><strong>说明:</strong></p>
-          <ul className="mt-1 list-inside list-disc space-y-1">
-            <li><strong>From:</strong> 请求中的模型名称（支持正则表达式）</li>
-            <li><strong>To:</strong> 映射到的目标模型（可从列表选择或手动输入）</li>
-            <li><strong>目标渠道:</strong> 可选，指定后优先路由到该渠道；留空时保持自动选择</li>
-            <li><strong>思维强度:</strong> 设置模型的推理/思考强度 (low/medium/high/xhigh)</li>
-            <li><strong>伪非流:</strong> 以流式请求上游，但完整接收后才返回给客户端（用于响应审查）</li>
-            <li><strong>仅AMP:</strong> 仅当请求来自 AMP 客户端时才应用此映射（检测 X-Amp-Feature 请求头）</li>
-            <li><strong>Fast:</strong> 为 GPT 模型启用快速模式，设置 service_tier 为 priority</li>
-            <li><strong>指令:</strong> 自定义 instructions，启用后可注入或替换请求中的 system message / instructions 字段</li>
-            <li><strong>审计关键词:</strong> 伪非流启用时，额外检测的自定义关键词（每行一个，留空使用默认列表）</li>
-            <li><strong>Regex:</strong> 是否将 From 字段作为正则表达式匹配</li>
-          </ul>
-        </CardContent>
-      </Card>
+      <div className="text-xs text-muted-foreground">
+        开启伪非流或指令后，会在当前规则下展开附加输入区。
+      </div>
     </div>
   )
 }

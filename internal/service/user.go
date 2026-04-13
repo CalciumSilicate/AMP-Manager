@@ -119,6 +119,39 @@ func (s *UserService) ListUsers() ([]*model.UserInfo, error) {
 		return nil, err
 	}
 
+	return s.buildUserInfos(users)
+}
+
+func (s *UserService) ListUsersPaged(page, pageSize int) (*model.UserListPage, error) {
+	users, total, err := s.repo.ListPaged(page, pageSize)
+	if err != nil {
+		return nil, err
+	}
+
+	items, err := s.buildUserInfos(users)
+	if err != nil {
+		return nil, err
+	}
+
+	if page < 1 {
+		page = 1
+	}
+	if pageSize < 1 {
+		pageSize = 20
+	}
+	if pageSize > 100 {
+		pageSize = 100
+	}
+
+	return &model.UserListPage{
+		Items:    items,
+		Total:    total,
+		Page:     page,
+		PageSize: pageSize,
+	}, nil
+}
+
+func (s *UserService) buildUserInfos(users []*model.User) ([]*model.UserInfo, error) {
 	// 批量获取所有用户的 groupID 映射 (1 次查询替代 N 次)
 	userGroupMap, err := s.repo.GetAllUserGroupIDs()
 	if err != nil {

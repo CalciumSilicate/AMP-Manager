@@ -16,11 +16,12 @@ import { Separator } from '@/components/ui/separator'
 import { LogIn, EyeIcon, EyeOffIcon, ShieldCheck, Zap } from 'lucide-react'
 
 interface Props {
+  siteName: string
   onSwitch: () => void
   onSuccess: (username: string, token?: string, isAdmin?: boolean) => void
 }
 
-export default function Login({ onSwitch, onSuccess }: Props) {
+export default function Login({ siteName, onSwitch, onSuccess }: Props) {
   const [formData, setFormData] = useState<LoginRequest>({
     username: '',
     password: '',
@@ -79,12 +80,12 @@ export default function Login({ onSwitch, onSuccess }: Props) {
             <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-primary text-primary-foreground">
               <ShieldCheck className="h-5 w-5" />
             </div>
-            <span className="text-lg font-semibold">AMPManager</span>
+            <span className="text-lg font-semibold">{siteName}</span>
           </motion.div>
 
           <div>
             <CardTitle className="mb-1.5 text-2xl font-bold">欢迎回来</CardTitle>
-            <CardDescription className="text-base">登录到 AMPManager 管理面板</CardDescription>
+            <CardDescription className="text-base">登录到 {siteName}</CardDescription>
           </div>
         </CardHeader>
 

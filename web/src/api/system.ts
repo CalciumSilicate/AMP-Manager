@@ -279,3 +279,43 @@ export async function updateCacheTTLConfig(cacheTTL: string): Promise<{ message:
 
   return res.json()
 }
+
+export interface SiteConfig {
+  siteName: string
+}
+
+export async function getPublicSiteConfig(): Promise<SiteConfig> {
+  const res = await fetch(`${API_BASE}/public/site-config`)
+
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}))
+    throw new Error((data as { error?: string }).error || '获取站点配置失败')
+  }
+
+  return res.json()
+}
+
+export async function getSiteConfig(): Promise<SiteConfig> {
+  const res = await authFetch(`${API_BASE}/admin/system/site-config`)
+
+  if (!res.ok) {
+    const data = await res.json()
+    throw new Error(data.error || '获取站点配置失败')
+  }
+
+  return res.json()
+}
+
+export async function updateSiteConfig(siteName: string): Promise<{ message: string; config: SiteConfig }> {
+  const res = await authFetch(`${API_BASE}/admin/system/site-config`, {
+    method: 'PUT',
+    body: JSON.stringify({ siteName }),
+  })
+
+  if (!res.ok) {
+    const data = await res.json()
+    throw new Error(data.error || '更新站点配置失败')
+  }
+
+  return res.json()
+}

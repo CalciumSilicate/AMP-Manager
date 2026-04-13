@@ -8,20 +8,21 @@ import {
 interface NumProps {
   value: number | undefined
   className?: string
+  compact?: boolean
 }
 
-export function Num({ value, className }: NumProps) {
-  const compact = formatCompact(value)
+export function Num({ value, className, compact = true }: NumProps) {
+  const compactValue = compact ? formatCompact(value) : formatExact(value)
   const exact = formatExact(value)
 
-  if (value === undefined || value === null || compact === exact) {
-    return <span className={className}>{compact}</span>
+  if (value === undefined || value === null || compactValue === exact) {
+    return <span className={className}>{compactValue}</span>
   }
 
   return (
     <Tooltip>
       <TooltipTrigger asChild>
-        <span className={`cursor-default ${className || ''}`}>{compact}</span>
+        <span className={`cursor-default ${className || ''}`}>{compactValue}</span>
       </TooltipTrigger>
       <TooltipContent>
         <span className="font-mono">{exact}</span>

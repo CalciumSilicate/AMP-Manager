@@ -145,6 +145,41 @@ func TestGetDashboardStatsDisplaysUncachedInputTokens(t *testing.T) {
 	}
 }
 
+func TestGetDashboardStatsFillsMissingDaysWithZeroes(t *testing.T) {
+	setupRequestLogTestDB(t)
+
+	now := time.Now().UTC()
+	insertRequestLogForCacheTest(t, "log-openai-filled", "user-1", "gpt-5.4", 100, 0, 0, now)
+
+	repo := NewRequestLogRepository()
+	_, _, _, _, dailyTrend, err := repo.GetDashboardStats("user-1")
+	if err != nil {
+		t.Fatalf("GetDashboardStats returned error: %v", err)
+	}
+
+	if len(dailyTrend) != 14 {
+		t.Fatalf("expected 14 daily trend points, got %d", len(dailyTrend))
+	}
+
+	zeroDays := 0
+	requestDays := 0
+	for _, point := range dailyTrend {
+		if point.Requests == 0 && point.CostMicros == 0 {
+			zeroDays++
+		}
+		if point.Requests > 0 {
+			requestDays++
+		}
+	}
+
+	if zeroDays == 0 {
+		t.Fatalf("expected zero-filled days in trend, got %+v", dailyTrend)
+	}
+	if requestDays != 1 {
+		t.Fatalf("expected exactly one populated trend day, got %d", requestDays)
+	}
+}
+
 func setupRequestLogTestDB(t *testing.T) {
 	t.Helper()
 

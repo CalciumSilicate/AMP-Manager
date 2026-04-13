@@ -85,7 +85,8 @@ type TestConnectionResponse struct {
 }
 
 type CreateAPIKeyRequest struct {
-	Name string `json:"name" binding:"required,min=1,max=64"`
+	Name      string `json:"name" binding:"required,min=1,max=64"`
+	CustomKey string `json:"customKey,omitempty"`
 }
 
 type CreateAPIKeyResponse struct {
@@ -150,6 +151,8 @@ type RequestLog struct {
 	Path                     string           `json:"path"`
 	StatusCode               int              `json:"statusCode"`
 	LatencyMs                int64            `json:"latencyMs"`
+	TTFBMs                   *int64           `json:"ttfbMs,omitempty"`
+	TPS                      *float64         `json:"tps,omitempty"`
 	IsStreaming              bool             `json:"isStreaming"`
 	InputTokens              *int             `json:"inputTokens,omitempty"`
 	OutputTokens             *int             `json:"outputTokens,omitempty"`
@@ -193,13 +196,13 @@ type UsageSummaryResponse struct {
 
 // RequestLogDetail 请求日志详情（包含请求/响应头和体）
 type RequestLogDetail struct {
-	RequestID              string            `json:"requestId"`
-	RequestHeaders         map[string]string `json:"requestHeaders"`
-	RequestBody            string            `json:"requestBody"`
+	RequestID                string            `json:"requestId"`
+	RequestHeaders           map[string]string `json:"requestHeaders"`
+	RequestBody              string            `json:"requestBody"`
 	TranslatedRequestBody    string            `json:"translatedRequestBody,omitempty"`    // 翻译后发送给上游的请求体
 	TranslatedRequestHeaders map[string]string `json:"translatedRequestHeaders,omitempty"` // 翻译后发送给上游的请求头
 	ResponseHeaders          map[string]string `json:"responseHeaders"`
-	ResponseBody           string            `json:"responseBody"`
-	TranslatedResponseBody string            `json:"translatedResponseBody,omitempty"` // 翻译后发送给客户端的响应
-	CreatedAt              time.Time         `json:"createdAt"`
+	ResponseBody             string            `json:"responseBody"`
+	TranslatedResponseBody   string            `json:"translatedResponseBody,omitempty"` // 翻译后发送给客户端的响应
+	CreatedAt                time.Time         `json:"createdAt"`
 }

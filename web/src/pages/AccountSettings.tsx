@@ -4,12 +4,13 @@ import { changePassword, changeUsername, getMyBalance, BalanceInfo } from '../ap
 import { getBillingState, updateBillingPriority, BillingStateResponse } from '@/api/billing'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
+import { CircularProgress } from '@/components/CircularProgress'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
-import { Progress } from '@/components/ui/progress'
 import { Badge } from '@/components/ui/badge'
+import { formatDecimal } from '@/lib/formatters'
 import { CheckCircle2, XCircle, Wallet, RefreshCw, CreditCard, ArrowRightLeft, Shield } from 'lucide-react'
 
 type AccountTab = 'security' | 'balance' | 'billing'
@@ -128,8 +129,7 @@ export default function AccountSettings({ username, onUsernameChange }: Props) {
   }
 
   const formatBalance = (micros: number) => {
-    const usd = micros / 1e6
-    return `$${usd.toFixed(6)}`
+    return `$${formatDecimal(micros / 1e6, 6)}`
   }
 
   const handlePriorityChange = async (value: string) => {
@@ -369,9 +369,9 @@ export default function AccountSettings({ username, onUsernameChange }: Props) {
                   <CardHeader>
                     <CardTitle className="flex items-center gap-2">
                       <Shield className="h-5 w-5" />
-                      当前订阅
+                      订阅状态
                     </CardTitle>
-                    <CardDescription>订阅套餐信息与额度使用情况</CardDescription>
+                    <CardDescription>订阅套餐信息</CardDescription>
                   </CardHeader>
                   <CardContent className="space-y-4">
                     <div className="flex items-center justify-between rounded-lg border p-4">
@@ -390,7 +390,6 @@ export default function AccountSettings({ username, onUsernameChange }: Props) {
 
                     {billingState.windows && billingState.windows.length > 0 && (
                       <div className="space-y-3">
-                        <p className="text-sm font-medium">额度使用情况</p>
                         {billingState.windows.map((w, i) => {
                           const limitTypeLabels: Record<string, string> = {
                             daily: '日限制', weekly: '周限制', monthly: '月限制',
@@ -400,28 +399,33 @@ export default function AccountSettings({ username, onUsernameChange }: Props) {
                             fixed: '固定窗口', sliding: '滑动窗口',
                           }
                           const usedPct = w.limitMicros > 0 ? (w.usedMicros / w.limitMicros) * 100 : 0
-                          const usedUsd = (w.usedMicros / 1e6).toFixed(2)
-                          const leftUsd = (w.leftMicros / 1e6).toFixed(2)
-                          const limitUsd = (w.limitMicros / 1e6).toFixed(2)
                           return (
-                            <div key={i} className="space-y-1.5">
-                              <div className="flex items-center justify-between text-sm">
-                                <span>
+                            <div key={i} className="flex items-center justify-between gap-3 rounded-lg border px-3 py-2">
+                              <div className="min-w-0">
+                                <p className="text-sm font-medium">
                                   {limitTypeLabels[w.limitType] || w.limitType}
                                   <span className="ml-1 text-muted-foreground text-xs">({windowModeLabels[w.windowMode] || w.windowMode})</span>
-                                </span>
-                                <span className="font-mono text-xs">
-                                  已用 ${usedUsd} / 剩余 ${leftUsd} / 限额 ${limitUsd}
-                                </span>
+                                </p>
+                                <p className="font-mono text-xs text-muted-foreground">
+                                  已用 ${formatDecimal(w.usedMicros / 1e6, 2)} / 剩余 ${formatDecimal(w.leftMicros / 1e6, 2)} / 限额 ${formatDecimal(w.limitMicros / 1e6, 2)}
+                                </p>
+                                {w.limitType !== 'total' && w.windowEnd && (
+                                  <div className="text-[10px] text-muted-foreground">
+                                    {w.windowMode === 'fixed'
+                                      ? `重置于 ${new Date(w.windowEnd).toLocaleString('zh-CN')}`
+                                      : `统计窗口: ${new Date(w.windowStart).toLocaleString('zh-CN')} ~ 现在`}
+                                  </div>
+                                )}
                               </div>
-                              <Progress value={Math.min(usedPct, 100)} className="h-2" />
-                              {w.limitType !== 'total' && w.windowEnd && (
-                                <div className="text-[10px] text-muted-foreground">
-                                  {w.windowMode === 'fixed'
-                                    ? `重置于 ${new Date(w.windowEnd).toLocaleString('zh-CN')}`
-                                    : `统计窗口: ${new Date(w.windowStart).toLocaleString('zh-CN')} ~ 现在`}
-                                </div>
-                              )}
+                              <CircularProgress
+                                value={usedPct}
+                                size={42}
+                                strokeWidth={4}
+                                label={`${Math.round(Math.min(usedPct, 100))}%`}
+                                className="shrink-0"
+                                indicatorClassName="stroke-purple-500"
+                                trackClassName="stroke-border"
+                              />
                             </div>
                           )
                         })}

@@ -353,6 +353,7 @@ func createTables() error {
 		path TEXT NOT NULL,
 		status_code INTEGER NOT NULL,
 		latency_ms INTEGER NOT NULL,
+		ttfb_ms INTEGER,
 		is_streaming INTEGER NOT NULL DEFAULT 0,
 		input_tokens INTEGER,
 		output_tokens INTEGER,
@@ -588,6 +589,10 @@ func runMigrations() error {
 		{
 			name: "add_request_logs_thinking_level",
 			sql:  `ALTER TABLE request_logs ADD COLUMN thinking_level TEXT`,
+		},
+		{
+			name: "add_request_logs_ttfb_ms",
+			sql:  `ALTER TABLE request_logs ADD COLUMN ttfb_ms INTEGER`,
 		},
 		{
 			name: "add_native_mode",

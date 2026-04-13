@@ -42,6 +42,13 @@ type UserInfo struct {
 	UpdatedAt     time.Time `json:"updatedAt"`
 }
 
+type UserListPage struct {
+	Items    []*UserInfo `json:"items"`
+	Total    int64       `json:"total"`
+	Page     int         `json:"page"`
+	PageSize int         `json:"pageSize"`
+}
+
 type ChangePasswordRequest struct {
 	OldPassword string `json:"oldPassword" binding:"required"`
 	NewPassword string `json:"newPassword" binding:"required,min=6,max=128"`

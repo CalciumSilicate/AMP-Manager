@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
 import { motion, AnimatePresence, staggerContainer, staggerItem } from '@/lib/motion'
 import {
-  listUsers,
+  listUsersPaged,
   setUserAdmin,
   deleteUser,
   resetUserPassword,
@@ -53,6 +53,7 @@ import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover
 import { Checkbox } from '@/components/ui/checkbox'
 import { CheckCircle2, XCircle, Trash2, KeyRound, Wallet, CreditCard, CalendarClock, Eye, X } from 'lucide-react'
 import { DateTimePicker } from '@/components/ui/datetime-picker'
+import { PageSizeSlider } from '@/components/PageSizeSlider'
 
 const LIMIT_TYPE_LABELS: Record<LimitType, string> = {
   daily: '日限制',
@@ -70,6 +71,9 @@ export default function UserManagement() {
   const [users, setUsers] = useState<UserInfo[]>([])
   const [groups, setGroups] = useState<Group[]>([])
   const [loading, setLoading] = useState(true)
+  const [page, setPage] = useState(1)
+  const [pageSize, setPageSize] = useState(20)
+  const [total, setTotal] = useState(0)
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
   const [resetPasswordModal, setResetPasswordModal] = useState<{ userId: string; username: string } | null>(null)
   const [newPassword, setNewPassword] = useState('')
@@ -89,14 +93,19 @@ export default function UserManagement() {
 
   useEffect(() => {
     fetchUsers()
+  }, [page, pageSize])
+
+  useEffect(() => {
     fetchGroups()
     fetchPlansList()
   }, [])
 
-  const fetchUsers = async () => {
+  const fetchUsers = async (targetPage = page, targetPageSize = pageSize) => {
+    setLoading(true)
     try {
-      const data = await listUsers()
-      setUsers(data)
+      const data = await listUsersPaged(targetPage, targetPageSize)
+      setUsers(data.items || [])
+      setTotal(data.total || 0)
     } catch (err) {
       showMessage('error', err instanceof Error ? err.message : '获取用户列表失败')
     } finally {
@@ -202,7 +211,11 @@ export default function UserManagement() {
       await deleteUser(deleteConfirmModal.id)
       showMessage('success', '用户已删除')
       setDeleteConfirmModal(null)
-      fetchUsers()
+      if (users.length === 1 && page > 1) {
+        setPage(page - 1)
+      } else {
+        fetchUsers()
+      }
     } catch (err) {
       showMessage('error', err instanceof Error ? err.message : '删除失败')
     }
@@ -238,6 +251,13 @@ export default function UserManagement() {
       showMessage('error', err instanceof Error ? err.message : '充值失败')
     }
   }
+
+  const handlePageSizeChange = (value: number) => {
+    setPageSize(value)
+    setPage(1)
+  }
+
+  const totalPages = Math.max(1, Math.ceil(total / pageSize))
 
   const formatDate = (dateStr: string) => {
     return new Date(dateStr).toLocaleString('zh-CN')
@@ -429,6 +449,22 @@ export default function UserManagement() {
               ))}
             </motion.tbody>
           </Table>
+          <div className="mt-4 flex items-center justify-between">
+            <div className="flex items-center gap-4">
+              <p className="text-sm text-muted-foreground">
+                第 {page} 页，共 {totalPages} 页（{total} 条）
+              </p>
+              <PageSizeSlider value={pageSize} onChange={handlePageSizeChange} />
+            </div>
+            <div className="flex gap-2">
+              <Button variant="outline" size="sm" disabled={page <= 1} onClick={() => setPage((current) => current - 1)}>
+                上一页
+              </Button>
+              <Button variant="outline" size="sm" disabled={page >= totalPages} onClick={() => setPage((current) => current + 1)}>
+                下一页
+              </Button>
+            </div>
+          </div>
         </CardContent>
       </Card>
       </motion.div>

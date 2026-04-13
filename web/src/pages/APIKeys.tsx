@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react'
 import { motion, AnimatePresence, staggerContainer, staggerItem } from '@/lib/motion'
 import {
   getAPIKeys,
-  createAPIKey,
+  createAPIKeyWithOptions,
   deleteAPIKey,
   getAPIKey,
   APIKey,
@@ -36,6 +36,7 @@ export default function APIKeys() {
   const [error, setError] = useState('')
   const [showCreate, setShowCreate] = useState(false)
   const [createName, setCreateName] = useState('')
+  const [customKey, setCustomKey] = useState('')
   const [creating, setCreating] = useState(false)
   const [newKey, setNewKey] = useState<CreateAPIKeyResponse | null>(null)
   const [revealKey, setRevealKey] = useState<APIKeyRevealResponse | null>(null)
@@ -60,14 +61,22 @@ export default function APIKeys() {
 
   const handleCreate = async () => {
     if (!createName.trim()) return
+    if (customKey && !/^[A-Za-z0-9]{16,}$/.test(customKey)) {
+      setError('自定义 API Key 只能包含字母和数字，且长度至少为 16')
+      return
+    }
 
     setCreating(true)
     setError('')
 
     try {
-      const result = await createAPIKey(createName.trim())
+      const result = await createAPIKeyWithOptions({
+        name: createName.trim(),
+        ...(customKey ? { customKey } : {}),
+      })
       setNewKey(result)
       setCreateName('')
+      setCustomKey('')
       setShowCreate(false)
       loadData()
     } catch (err) {
@@ -287,6 +296,17 @@ export default function APIKeys() {
                 placeholder="输入 API Key 名称（如：工作电脑）"
               />
             </div>
+            <div className="space-y-2">
+              <Label htmlFor="customKey">自定义 API Key</Label>
+              <Input
+                id="customKey"
+                value={customKey}
+                onChange={(e) => setCustomKey(e.target.value.trim())}
+                placeholder="留空自动生成；或输入 16 位以上字母数字"
+                autoComplete="off"
+              />
+              <p className="text-xs text-muted-foreground">不允许修改已有 API Key。</p>
+            </div>
           </div>
           <DialogFooter>
             <Button
@@ -294,13 +314,14 @@ export default function APIKeys() {
               onClick={() => {
                 setShowCreate(false)
                 setCreateName('')
+                setCustomKey('')
               }}
             >
               取消
             </Button>
             <Button
               onClick={handleCreate}
-              disabled={creating || !createName.trim()}
+              disabled={creating || !createName.trim() || !!(customKey && !/^[A-Za-z0-9]{16,}$/.test(customKey))}
             >
               {creating ? '创建中...' : '创建'}
             </Button>

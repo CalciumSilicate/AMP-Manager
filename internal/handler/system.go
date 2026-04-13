@@ -50,6 +50,47 @@ func NewSystemHandler() *SystemHandler {
 	}
 }
 
+func (h *SystemHandler) GetPublicSiteConfig(c *gin.Context) {
+	cfg, err := service.NewSystemConfigService().GetSiteConfig()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "获取站点配置失败"})
+		return
+	}
+
+	c.JSON(http.StatusOK, cfg)
+}
+
+func (h *SystemHandler) GetSiteConfig(c *gin.Context) {
+	cfg, err := service.NewSystemConfigService().GetSiteConfig()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "获取站点配置失败"})
+		return
+	}
+
+	c.JSON(http.StatusOK, cfg)
+}
+
+func (h *SystemHandler) UpdateSiteConfig(c *gin.Context) {
+	var req model.SiteConfigRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "参数错误"})
+		return
+	}
+
+	if len(strings.TrimSpace(req.SiteName)) > 64 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "网站名称长度不能超过 64 个字符"})
+		return
+	}
+
+	cfg, err := service.NewSystemConfigService().SetSiteConfig(req)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "保存站点配置失败"})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"message": "站点配置已更新", "config": cfg})
+}
+
 func maskDatabaseURL(raw string) string {
 	if raw == "" {
 		return ""

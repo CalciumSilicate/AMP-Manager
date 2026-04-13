@@ -4,6 +4,7 @@ import (
 	"ampmanager/internal/model"
 	"ampmanager/internal/repository"
 	"strconv"
+	"strings"
 	"time"
 )
 
@@ -17,6 +18,8 @@ const (
 	requestDetailPersistEnabledKey = "request_detail_persist_enabled"
 	timeoutConfigKey               = "timeout_config"
 	cacheTTLOverrideKey            = "cache_ttl_override"
+	siteNameKey                    = "site_name"
+	defaultSiteName                = "AMP Manager"
 )
 
 type SystemConfigService struct {
@@ -125,6 +128,36 @@ func (s *SystemConfigService) GetTimeoutConfigJSON() (string, error) {
 // GetCacheTTLOverride 获取缓存 TTL 覆盖配置
 func (s *SystemConfigService) GetCacheTTLOverride() (string, error) {
 	return s.repo.Get(cacheTTLOverrideKey)
+}
+
+func (s *SystemConfigService) GetSiteConfig() (model.SiteConfigResponse, error) {
+	value, err := s.repo.Get(siteNameKey)
+	if err != nil {
+		return model.SiteConfigResponse{}, err
+	}
+
+	siteName := strings.TrimSpace(value)
+	if siteName == "" {
+		siteName = defaultSiteName
+	}
+
+	return model.SiteConfigResponse{SiteName: siteName}, nil
+}
+
+func (s *SystemConfigService) SetSiteConfig(req model.SiteConfigRequest) (model.SiteConfigResponse, error) {
+	siteName := strings.TrimSpace(req.SiteName)
+	if siteName == "" || siteName == defaultSiteName {
+		if err := s.repo.Delete(siteNameKey); err != nil {
+			return model.SiteConfigResponse{}, err
+		}
+		return model.SiteConfigResponse{SiteName: defaultSiteName}, nil
+	}
+
+	if err := s.repo.Set(siteNameKey, siteName); err != nil {
+		return model.SiteConfigResponse{}, err
+	}
+
+	return model.SiteConfigResponse{SiteName: siteName}, nil
 }
 
 func boolToConfigString(value bool) string {

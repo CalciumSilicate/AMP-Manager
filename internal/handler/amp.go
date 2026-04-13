@@ -92,7 +92,18 @@ func (h *AmpHandler) CreateAPIKey(c *gin.Context) {
 
 	key, err := h.ampService.CreateAPIKey(userID, &req)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "创建 API Key 失败"})
+		status := http.StatusInternalServerError
+		msg := "创建 API Key 失败"
+
+		if errors.Is(err, service.ErrInvalidAPIKeyFormat) {
+			status = http.StatusBadRequest
+			msg = err.Error()
+		} else if errors.Is(err, service.ErrDuplicateAPIKey) {
+			status = http.StatusConflict
+			msg = err.Error()
+		}
+
+		c.JSON(status, gin.H{"error": msg})
 		return
 	}
 

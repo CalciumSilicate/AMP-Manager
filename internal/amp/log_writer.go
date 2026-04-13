@@ -41,6 +41,7 @@ type LogEntry struct {
 	Path                     string
 	StatusCode               int
 	LatencyMs                int64
+	TTFBMs                   *int64
 	IsStreaming              bool
 	InputTokens              *int
 	OutputTokens             *int
@@ -131,8 +132,8 @@ func (w *LogWriter) WritePendingFromTrace(trace *RequestTrace) bool {
 	_, err := w.db.Exec(`
 		INSERT INTO request_logs (
 			id, created_at, status, user_id, api_key_id, original_model, mapped_model,
-			provider, channel_id, endpoint, method, path, status_code, latency_ms, is_streaming
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+			provider, channel_id, endpoint, method, path, status_code, latency_ms, ttfb_ms, is_streaming
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 	`,
 		snapshot.RequestID, // 使用 RequestID 作为数据库 ID
 		snapshot.StartTime.UTC(),
@@ -148,6 +149,7 @@ func (w *LogWriter) WritePendingFromTrace(trace *RequestTrace) bool {
 		snapshot.Path,
 		0, // pending 时 status_code 为 0
 		0, // pending 时 latency_ms 为 0
+		nil,
 		0, // pending 时 is_streaming 为 0
 	)
 
@@ -230,6 +232,7 @@ func (w *LogWriter) UpdateFromTrace(trace *RequestTrace) bool {
 			endpoint = COALESCE(?, endpoint),
 			status_code = ?,
 			latency_ms = ?,
+			ttfb_ms = ?,
 			is_streaming = ?,
 			input_tokens = ?,
 			output_tokens = ?,
@@ -253,6 +256,7 @@ func (w *LogWriter) UpdateFromTrace(trace *RequestTrace) bool {
 		endpoint,
 		snapshot.StatusCode,
 		snapshot.LatencyMs,
+		snapshot.TTFBMs,
 		isStreaming,
 		snapshot.InputTokens,
 		snapshot.OutputTokens,
@@ -338,10 +342,10 @@ func (w *LogWriter) insertComplete(trace *RequestTrace) bool {
 	_, err := w.db.Exec(`
 		INSERT INTO request_logs (
 			id, created_at, updated_at, status, user_id, api_key_id, original_model, mapped_model,
-			provider, channel_id, endpoint, method, path, status_code, latency_ms,
+			provider, channel_id, endpoint, method, path, status_code, latency_ms, ttfb_ms,
 			is_streaming, input_tokens, output_tokens, cache_read_input_tokens,
 			cache_creation_input_tokens, error_type, cost_micros, cost_usd, pricing_model, thinking_level, rate_multiplier
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 	`,
 		snapshot.RequestID,
 		snapshot.StartTime.UTC(),
@@ -358,6 +362,7 @@ func (w *LogWriter) insertComplete(trace *RequestTrace) bool {
 		snapshot.Path,
 		snapshot.StatusCode,
 		snapshot.LatencyMs,
+		snapshot.TTFBMs,
 		isStreaming,
 		snapshot.InputTokens,
 		snapshot.OutputTokens,
@@ -451,10 +456,10 @@ func (w *LogWriter) flush(entries []LogEntry) {
 	stmt, err := tx.Prepare(`
 		INSERT INTO request_logs (
 			id, created_at, updated_at, status, user_id, api_key_id, original_model, mapped_model,
-			provider, channel_id, endpoint, method, path, status_code, latency_ms,
+			provider, channel_id, endpoint, method, path, status_code, latency_ms, ttfb_ms,
 			is_streaming, input_tokens, output_tokens, cache_read_input_tokens,
 			cache_creation_input_tokens, error_type
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 	`)
 	if err != nil {
 		log.Errorf("log writer: failed to prepare statement: %v", err)
@@ -472,6 +477,7 @@ func (w *LogWriter) flush(entries []LogEntry) {
 		_, err := stmt.Exec(
 			e.ID, e.CreatedAt.UTC(), e.CreatedAt.UTC(), LogEntryStatusSuccess, e.UserID, e.APIKeyID, e.OriginalModel, e.MappedModel,
 			e.Provider, e.ChannelID, e.Endpoint, e.Method, e.Path, e.StatusCode, e.LatencyMs,
+			e.TTFBMs,
 			isStreaming, e.InputTokens, e.OutputTokens, e.CacheReadInputTokens,
 			e.CacheCreationInputTokens, e.ErrorType,
 		)

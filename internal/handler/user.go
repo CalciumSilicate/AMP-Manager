@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"strconv"
 
 	"ampmanager/internal/middleware"
 	"ampmanager/internal/model"
@@ -154,6 +155,37 @@ func (h *UserHandler) ListUsers(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, users)
+}
+
+func (h *UserHandler) ListUsersPaged(c *gin.Context) {
+	page := 1
+	pageSize := 20
+
+	if value := c.Query("page"); value != "" {
+		parsed, err := strconv.Atoi(value)
+		if err != nil || parsed < 1 {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "page 参数无效"})
+			return
+		}
+		page = parsed
+	}
+
+	if value := c.Query("pageSize"); value != "" {
+		parsed, err := strconv.Atoi(value)
+		if err != nil || parsed < 1 {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "pageSize 参数无效"})
+			return
+		}
+		pageSize = parsed
+	}
+
+	result, err := h.userService.ListUsersPaged(page, pageSize)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "获取用户列表失败"})
+		return
+	}
+
+	c.JSON(http.StatusOK, result)
 }
 
 func (h *UserHandler) SetAdmin(c *gin.Context) {

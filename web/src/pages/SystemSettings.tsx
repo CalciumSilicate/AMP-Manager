@@ -23,6 +23,7 @@ import {
   TimeoutConfig,
   getCacheTTLConfig,
   updateCacheTTLConfig,
+  updateSiteConfig,
 } from '../api/system'
 import { Button } from '@/components/ui/button'
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/card'
@@ -43,9 +44,10 @@ import { Textarea } from '@/components/ui/textarea'
 import { Progress } from '@/components/ui/progress'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 
-type SettingsTab = 'database' | 'retry' | 'monitoring' | 'cache' | 'timeout'
+type SettingsTab = 'site' | 'database' | 'retry' | 'monitoring' | 'cache' | 'timeout'
 
 const tabs: { key: SettingsTab; label: string }[] = [
+  { key: 'site', label: '网站配置' },
   { key: 'database', label: '数据库管理' },
   { key: 'retry', label: '重试策略' },
   { key: 'monitoring', label: '请求监控' },
@@ -53,8 +55,13 @@ const tabs: { key: SettingsTab; label: string }[] = [
   { key: 'timeout', label: '超时配置' },
 ]
 
-export default function SystemSettings() {
-  const [activeTab, setActiveTab] = useState<SettingsTab>('database')
+interface Props {
+  siteName: string
+  onSiteNameChange: (siteName: string) => void
+}
+
+export default function SystemSettings({ siteName, onSiteNameChange }: Props) {
+  const [activeTab, setActiveTab] = useState<SettingsTab>('site')
 
   const [backups, setBackups] = useState<Backup[]>([])
   const [databaseInfo, setDatabaseInfo] = useState<DatabaseInfo | null>(null)
@@ -77,6 +84,8 @@ export default function SystemSettings() {
   const [timeoutLoading, setTimeoutLoading] = useState(false)
   const [cacheTTL, setCacheTTL] = useState<string>('1h')
   const [cacheTTLLoading, setCacheTTLLoading] = useState(false)
+  const [siteNameInput, setSiteNameInput] = useState(siteName)
+  const [siteConfigSaving, setSiteConfigSaving] = useState(false)
 
   useEffect(() => {
     fetchDatabaseInfo()
@@ -85,6 +94,10 @@ export default function SystemSettings() {
     fetchTimeoutConfig()
     fetchCacheTTLConfig()
   }, [])
+
+  useEffect(() => {
+    setSiteNameInput(siteName)
+  }, [siteName])
 
   const fetchDatabaseInfo = async () => {
     setDatabaseInfoLoading(true)
@@ -163,6 +176,20 @@ export default function SystemSettings() {
       showMessage('error', err instanceof Error ? err.message : '保存失败')
     } finally {
       setCacheTTLLoading(false)
+    }
+  }
+
+  const handleSaveSiteConfig = async () => {
+    setSiteConfigSaving(true)
+    try {
+      const result = await updateSiteConfig(siteNameInput)
+      onSiteNameChange(result.config.siteName)
+      setSiteNameInput(result.config.siteName)
+      showMessage('success', '网站配置已保存')
+    } catch (err) {
+      showMessage('error', err instanceof Error ? err.message : '保存失败')
+    } finally {
+      setSiteConfigSaving(false)
     }
   }
 
@@ -419,6 +446,32 @@ export default function SystemSettings() {
           transition={{ type: 'spring', bounce: 0.2, duration: 0.4 }}
           className="space-y-6"
         >
+          {activeTab === 'site' && (
+            <Card>
+              <CardHeader>
+                <CardTitle>网站名称</CardTitle>
+                <CardDescription>同步影响登录、注册、左上角和浏览器标签标题。</CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="max-w-xl space-y-2">
+                  <Label htmlFor="siteName">网站名称</Label>
+                  <Input
+                    id="siteName"
+                    value={siteNameInput}
+                    onChange={(e) => setSiteNameInput(e.target.value)}
+                    placeholder="AMP Manager"
+                    maxLength={64}
+                  />
+                </div>
+                <div className="flex justify-end">
+                  <Button onClick={handleSaveSiteConfig} disabled={siteConfigSaving}>
+                    {siteConfigSaving ? '保存中...' : '保存设置'}
+                  </Button>
+                </div>
+              </CardContent>
+            </Card>
+          )}
+
           {activeTab === 'database' && (
             <>
               <Card>

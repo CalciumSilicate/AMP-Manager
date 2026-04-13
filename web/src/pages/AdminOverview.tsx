@@ -4,6 +4,7 @@ import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/com
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Num } from '@/components/Num'
+import { formatDecimal, formatGroupedNumericString } from '@/lib/formatters'
 import { motion, staggerContainer, staggerItem } from '@/lib/motion'
 import {
   type ChartConfig,
@@ -141,6 +142,7 @@ export default function AdminOverview() {
   const totalBalanceUsd = parseFloat(data.balance.totalBalanceUsd)
   const todayCost = parseFloat(data.today.costUsd)
   const weekCost = parseFloat(data.week.costUsd)
+  const formatUsd = (value: number, digits: number) => `$${formatDecimal(value, digits)}`
 
   return (
     <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-6">
@@ -176,7 +178,7 @@ export default function AdminOverview() {
                 全部用户总余额
               </CardDescription>
               <CardTitle className="text-3xl text-blue-600 dark:text-blue-400">
-                ${totalBalanceUsd.toFixed(2)}
+                {formatUsd(totalBalanceUsd, 2)}
               </CardTitle>
             </CardHeader>
           </Card>
@@ -190,12 +192,12 @@ export default function AdminOverview() {
                 注册用户数
               </CardDescription>
               <CardTitle className="text-3xl text-purple-600 dark:text-purple-400">
-                <Num value={data.balance.userCount} />
+                <Num value={data.balance.userCount} compact={false} />
               </CardTitle>
             </CardHeader>
             <CardContent className="pb-3">
               <p className="text-xs text-muted-foreground">
-                人均余额 ${data.balance.userCount > 0 ? (totalBalanceUsd / data.balance.userCount).toFixed(2) : '0.00'}
+                人均余额 ${formatGroupedNumericString((data.balance.userCount > 0 ? (totalBalanceUsd / data.balance.userCount) : 0).toFixed(2))}
               </p>
             </CardContent>
           </Card>
@@ -211,16 +213,16 @@ export default function AdminOverview() {
                 </CardDescription>
                 {data.today.errorCount > 0 && (
                   <Badge variant="destructive" className="text-[10px]">
-                    {data.today.errorCount} 错误
+                    <Num value={data.today.errorCount} compact={false} /> 错误
                   </Badge>
                 )}
               </div>
-              <CardTitle className="text-2xl"><Num value={data.today.requestCount} /></CardTitle>
+              <CardTitle className="text-2xl"><Num value={data.today.requestCount} compact={false} /></CardTitle>
             </CardHeader>
             <CardContent className="pb-3">
               <p className="text-xs text-muted-foreground flex items-center gap-1">
                 <DollarSign className="h-3 w-3" />
-                ${todayCost.toFixed(4)}
+                {formatUsd(todayCost, 4)}
               </p>
             </CardContent>
           </Card>
@@ -233,12 +235,12 @@ export default function AdminOverview() {
                 <TrendingUp className="h-4 w-4" />
                 近 7 天
               </CardDescription>
-              <CardTitle className="text-2xl"><Num value={data.week.requestCount} /></CardTitle>
+              <CardTitle className="text-2xl"><Num value={data.week.requestCount} compact={false} /></CardTitle>
             </CardHeader>
             <CardContent className="pb-3">
               <p className="text-xs text-muted-foreground flex items-center gap-1">
                 <DollarSign className="h-3 w-3" />
-                ${weekCost.toFixed(4)}
+                {formatUsd(weekCost, 4)}
               </p>
             </CardContent>
           </Card>
@@ -251,12 +253,12 @@ export default function AdminOverview() {
                 <Activity className="h-4 w-4" />
                 近 30 天
               </CardDescription>
-              <CardTitle className="text-2xl"><Num value={data.month.requestCount} /></CardTitle>
+              <CardTitle className="text-2xl"><Num value={data.month.requestCount} compact={false} /></CardTitle>
             </CardHeader>
             <CardContent className="pb-3">
               <p className="text-xs text-green-600 dark:text-green-400 flex items-center gap-1 font-medium">
                 <DollarSign className="h-3 w-3" />
-                ${parseFloat(data.month.costUsd).toFixed(4)}
+                {formatUsd(parseFloat(data.month.costUsd), 4)}
               </p>
             </CardContent>
           </Card>
@@ -283,7 +285,7 @@ export default function AdminOverview() {
                   <item.icon className={`h-4 w-4 ${item.color}`} />
                   {item.label}
                 </CardDescription>
-                <CardTitle className="text-xl"><Num value={item.value} /></CardTitle>
+                <CardTitle className="text-xl"><Num value={item.value} compact={false} /></CardTitle>
               </CardHeader>
             </Card>
           </motion.div>
@@ -613,17 +615,16 @@ export default function AdminOverview() {
                           </CardTitle>
                           {hasData && (
                             <Badge variant="outline" className="text-[10px] font-mono">
-                              <Num value={rate!.requestCount} /> 请求
+                              <Num value={rate!.requestCount} compact={false} /> 请求
                             </Badge>
                           )}
                         </div>
                       </CardHeader>
                       <CardContent className="pb-4">
-                        {!hasData ? (
-                          <p className="text-sm text-muted-foreground py-4">暂无数据</p>
-                        ) : (
-                          <div className="flex items-center gap-4">
-                            <ChartContainer config={cacheChartConfig} className="w-20 h-20 shrink-0">
+                        <div className="flex min-h-[112px] items-center gap-4">
+                          {hasData ? (
+                            <>
+                              <ChartContainer config={cacheChartConfig} className="w-20 h-20 shrink-0">
                               <PieChart>
                                 <Pie
                                   data={ringData}
@@ -654,8 +655,8 @@ export default function AdminOverview() {
                                   />
                                 </Pie>
                               </PieChart>
-                            </ChartContainer>
-                            <div className="flex-1 space-y-2">
+                              </ChartContainer>
+                              <div className="flex-1 space-y-2">
                               <div className="flex items-baseline gap-1.5">
                                 <span className={`text-2xl font-bold ${colors.text}`}>
                                   {rate!.hitRate}%
@@ -664,15 +665,36 @@ export default function AdminOverview() {
                               </div>
                               <div className="grid grid-cols-2 gap-x-3 gap-y-0.5 text-[11px] text-muted-foreground">
                                 <span>缓存读取</span>
-                                <span className="text-right font-mono"><Num value={rate!.cacheReadTokens} /></span>
+                                <span className="text-right font-mono"><Num value={rate!.cacheReadTokens} compact={false} /></span>
                                 <span>缓存写入</span>
-                                <span className="text-right font-mono"><Num value={rate!.cacheCreationTokens} /></span>
+                                <span className="text-right font-mono"><Num value={rate!.cacheCreationTokens} compact={false} /></span>
                                 <span>总输入 Tokens</span>
-                                <span className="text-right font-mono"><Num value={rate!.totalInputTokens} /></span>
+                                <span className="text-right font-mono"><Num value={rate!.totalInputTokens} compact={false} /></span>
                               </div>
-                            </div>
-                          </div>
-                        )}
+                              </div>
+                            </>
+                          ) : (
+                            <>
+                              <div className="flex h-20 w-20 shrink-0 items-center justify-center rounded-full border border-dashed border-border/80 text-xs text-muted-foreground">
+                                --
+                              </div>
+                              <div className="flex-1 space-y-2">
+                                <div className="flex items-baseline gap-1.5">
+                                  <span className="text-2xl font-bold text-muted-foreground">--</span>
+                                  <span className="text-[10px] text-muted-foreground">命中率</span>
+                                </div>
+                                <div className="grid grid-cols-2 gap-x-3 gap-y-0.5 text-[11px] text-muted-foreground">
+                                  <span>缓存读取</span>
+                                  <span className="text-right font-mono">-</span>
+                                  <span>缓存写入</span>
+                                  <span className="text-right font-mono">-</span>
+                                  <span>总输入 Tokens</span>
+                                  <span className="text-right font-mono">-</span>
+                                </div>
+                              </div>
+                            </>
+                          )}
+                        </div>
                       </CardContent>
                     </Card>
                   </motion.div>

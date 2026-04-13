@@ -122,6 +122,9 @@ func (h *HealthyStreamWrapper) Read(p []byte) (int, error) {
 		h.mu.Lock()
 		h.lastReadTime = time.Now()
 		h.mu.Unlock()
+		if h.trace != nil {
+			h.trace.MarkFirstByte()
+		}
 	}
 
 	// 处理超时错误

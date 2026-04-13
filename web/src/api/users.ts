@@ -14,8 +14,25 @@ export interface UserInfo {
   updatedAt: string
 }
 
+export interface UserListPage {
+  items: UserInfo[]
+  total: number
+  page: number
+  pageSize: number
+}
+
 export async function listUsers(): Promise<UserInfo[]> {
   const res = await authFetch(`${API_BASE}/admin/users`)
+  if (!res.ok) throw new Error('获取用户列表失败')
+  return res.json()
+}
+
+export async function listUsersPaged(page = 1, pageSize = 20): Promise<UserListPage> {
+  const params = new URLSearchParams({
+    page: String(page),
+    pageSize: String(pageSize),
+  })
+  const res = await authFetch(`${API_BASE}/admin/users/paged?${params.toString()}`)
   if (!res.ok) throw new Error('获取用户列表失败')
   return res.json()
 }

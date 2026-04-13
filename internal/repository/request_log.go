@@ -49,6 +49,32 @@ func normalizeRequestLogDisplay(log *model.RequestLog) {
 	log.InputTokens = displayInputTokens(log.InputTokens, log.CacheReadInputTokens)
 }
 
+func enrichRequestLogMetrics(log *model.RequestLog) {
+	if log == nil {
+		return
+	}
+
+	normalizeRequestLogDisplay(log)
+
+	if !log.IsStreaming {
+		log.TTFBMs = nil
+		log.TPS = nil
+		return
+	}
+
+	if log.TTFBMs == nil || log.OutputTokens == nil {
+		return
+	}
+
+	streamDurationMs := log.LatencyMs - *log.TTFBMs
+	if streamDurationMs <= 0 {
+		return
+	}
+
+	tps := float64(*log.OutputTokens) / (float64(streamDurationMs) / 1000)
+	log.TPS = &tps
+}
+
 // ListParams 查询参数
 type ListParams struct {
 	UserID      string
@@ -133,7 +159,7 @@ func (r *RequestLogRepository) List(params ListParams) ([]model.RequestLog, int6
 	// 查询数据
 	query := fmt.Sprintf(`
 		SELECT r.id, r.created_at, r.updated_at, r.status, r.user_id, u.username, r.api_key_id, k.name as api_key_name, k.prefix as api_key_prefix, r.original_model, r.mapped_model,
-		       r.provider, r.channel_id, c.name as channel_name, r.endpoint, r.method, r.path, r.status_code, r.latency_ms,
+		       r.provider, r.channel_id, c.name as channel_name, r.endpoint, r.method, r.path, r.status_code, r.latency_ms, r.ttfb_ms,
 		       r.is_streaming, r.input_tokens, r.output_tokens, r.cache_read_input_tokens,
 		       r.cache_creation_input_tokens, r.error_type, r.request_id, r.cost_micros, r.cost_usd, r.pricing_model, r.thinking_level,
 		       %s as output_preview
@@ -163,12 +189,12 @@ func (r *RequestLogRepository) List(params ListParams) ([]model.RequestLog, int6
 		var isStreaming int
 		var username, apiKeyName, apiKeyPrefix sql.NullString
 		var originalModel, mappedModel, provider, channelID, channelName, endpoint, errorType, requestID, costUsd, pricingModel, thinkingLevel, outputPreview sql.NullString
-		var inputTokens, outputTokens, cacheRead, cacheCreation, costMicros sql.NullInt64
+		var inputTokens, outputTokens, cacheRead, cacheCreation, costMicros, ttfbMs sql.NullInt64
 
 		err := rows.Scan(
 			&log.ID, &createdAt, &updatedAt, &status, &log.UserID, &username, &log.APIKeyID, &apiKeyName, &apiKeyPrefix,
 			&originalModel, &mappedModel, &provider, &channelID, &channelName, &endpoint,
-			&log.Method, &log.Path, &log.StatusCode, &log.LatencyMs,
+			&log.Method, &log.Path, &log.StatusCode, &log.LatencyMs, &ttfbMs,
 			&isStreaming, &inputTokens, &outputTokens, &cacheRead, &cacheCreation,
 			&errorType, &requestID, &costMicros, &costUsd, &pricingModel, &thinkingLevel,
 			&outputPreview,
@@ -192,6 +218,9 @@ func (r *RequestLogRepository) List(params ListParams) ([]model.RequestLog, int6
 		if updatedAt.Valid {
 			formatted := updatedAt.Time.Format(time.RFC3339)
 			log.UpdatedAt = &formatted
+		}
+		if ttfbMs.Valid {
+			log.TTFBMs = &ttfbMs.Int64
 		}
 		if status.Valid {
 			log.Status = model.RequestLogStatus(status.String)
@@ -251,13 +280,13 @@ func (r *RequestLogRepository) List(params ListParams) ([]model.RequestLog, int6
 		if thinkingLevel.Valid {
 			log.ThinkingLevel = &thinkingLevel.String
 		}
-			if outputPreview.Valid {
-				log.OutputPreview = &outputPreview.String
-			}
-			normalizeRequestLogDisplay(&log)
-
-			logs = append(logs, log)
+		if outputPreview.Valid {
+			log.OutputPreview = &outputPreview.String
 		}
+		enrichRequestLogMetrics(&log)
+
+		logs = append(logs, log)
+	}
 
 	return logs, total, rows.Err()
 }
@@ -487,6 +516,30 @@ type DashboardDailyTrend struct {
 	Requests   int64
 }
 
+func fillDashboardDailyTrend(start time.Time, days int, trends []DashboardDailyTrend) []DashboardDailyTrend {
+	byDate := make(map[string]DashboardDailyTrend, len(trends))
+	for _, trend := range trends {
+		byDate[trend.Date] = trend
+	}
+
+	filled := make([]DashboardDailyTrend, 0, days)
+	for i := 0; i < days; i++ {
+		day := start.AddDate(0, 0, i)
+		key := day.Format("2006-01-02")
+		if trend, ok := byDate[key]; ok {
+			filled = append(filled, trend)
+			continue
+		}
+		filled = append(filled, DashboardDailyTrend{
+			Date:       key,
+			CostMicros: 0,
+			Requests:   0,
+		})
+	}
+
+	return filled
+}
+
 // DashboardCacheHitRate 按提供商分类的缓存命中率
 type DashboardCacheHitRate struct {
 	Provider            string
@@ -504,10 +557,11 @@ func (r *RequestLogRepository) GetDashboardStats(userID string) (today, week, mo
 	todayStart := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, time.UTC)
 	weekStart := todayStart.AddDate(0, 0, -7)
 	monthStart := todayStart.AddDate(0, 0, -30)
+	trendStart := todayStart.AddDate(0, 0, -13)
 
-		queryPeriod := func(from time.Time) (DashboardPeriodStats, error) {
-			var s DashboardPeriodStats
-			err := db.QueryRow(`
+	queryPeriod := func(from time.Time) (DashboardPeriodStats, error) {
+		var s DashboardPeriodStats
+		err := db.QueryRow(`
 				SELECT COUNT(*),
 				       COALESCE(SUM(CASE
 				           WHEN COALESCE(input_tokens, 0) > COALESCE(cache_read_input_tokens, 0)
@@ -568,7 +622,7 @@ func (r *RequestLogRepository) GetDashboardStats(userID string) (today, week, mo
 		WHERE user_id = ? AND created_at >= ?
 		GROUP BY day
 		ORDER BY day ASC
-	`, database.DayBucketExpr("created_at")), userID, todayStart.AddDate(0, 0, -13).UTC())
+	`, database.DayBucketExpr("created_at")), userID, trendStart.UTC())
 	if err != nil {
 		return
 	}
@@ -581,6 +635,9 @@ func (r *RequestLogRepository) GetDashboardStats(userID string) (today, week, mo
 		dailyTrend = append(dailyTrend, d)
 	}
 	err = rows2.Err()
+	if err == nil {
+		dailyTrend = fillDashboardDailyTrend(trendStart, 14, dailyTrend)
+	}
 	return
 }
 
@@ -642,10 +699,11 @@ func (r *RequestLogRepository) GetAdminDashboardStats() (today, week, month Dash
 	todayStart := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, time.UTC)
 	weekStart := todayStart.AddDate(0, 0, -7)
 	monthStart := todayStart.AddDate(0, 0, -30)
+	trendStart := todayStart.AddDate(0, 0, -13)
 
-		queryPeriod := func(from time.Time) (DashboardPeriodStats, error) {
-			var s DashboardPeriodStats
-			err := db.QueryRow(`
+	queryPeriod := func(from time.Time) (DashboardPeriodStats, error) {
+		var s DashboardPeriodStats
+		err := db.QueryRow(`
 				SELECT COUNT(*),
 				       COALESCE(SUM(CASE
 				           WHEN COALESCE(input_tokens, 0) > COALESCE(cache_read_input_tokens, 0)
@@ -706,7 +764,7 @@ func (r *RequestLogRepository) GetAdminDashboardStats() (today, week, month Dash
 		WHERE created_at >= ?
 		GROUP BY day
 		ORDER BY day ASC
-	`, database.DayBucketExpr("created_at")), todayStart.AddDate(0, 0, -13).UTC())
+	`, database.DayBucketExpr("created_at")), trendStart.UTC())
 	if err != nil {
 		return
 	}
@@ -719,6 +777,9 @@ func (r *RequestLogRepository) GetAdminDashboardStats() (today, week, month Dash
 		dailyTrend = append(dailyTrend, d)
 	}
 	err = rows2.Err()
+	if err == nil {
+		dailyTrend = fillDashboardDailyTrend(trendStart, 14, dailyTrend)
+	}
 	return
 }
 
@@ -783,11 +844,11 @@ func (r *RequestLogRepository) GetByID(id string) (*model.RequestLog, error) {
 	var status sql.NullString
 	var isStreaming int
 	var originalModel, mappedModel, provider, channelID, channelName, endpoint, errorType, requestID, costUsd, pricingModel, thinkingLevel sql.NullString
-	var inputTokens, outputTokens, cacheRead, cacheCreation, costMicros sql.NullInt64
+	var inputTokens, outputTokens, cacheRead, cacheCreation, costMicros, ttfbMs sql.NullInt64
 
 	err := db.QueryRow(`
 		SELECT r.id, r.created_at, r.updated_at, r.status, r.user_id, r.api_key_id, r.original_model, r.mapped_model,
-		       r.provider, r.channel_id, c.name as channel_name, r.endpoint, r.method, r.path, r.status_code, r.latency_ms,
+		       r.provider, r.channel_id, c.name as channel_name, r.endpoint, r.method, r.path, r.status_code, r.latency_ms, r.ttfb_ms,
 		       r.is_streaming, r.input_tokens, r.output_tokens, r.cache_read_input_tokens,
 		       r.cache_creation_input_tokens, r.error_type, r.request_id, r.cost_micros, r.cost_usd, r.pricing_model, r.thinking_level
 		FROM request_logs r
@@ -796,7 +857,7 @@ func (r *RequestLogRepository) GetByID(id string) (*model.RequestLog, error) {
 	`, id).Scan(
 		&log.ID, &createdAt, &updatedAt, &status, &log.UserID, &log.APIKeyID,
 		&originalModel, &mappedModel, &provider, &channelID, &channelName, &endpoint,
-		&log.Method, &log.Path, &log.StatusCode, &log.LatencyMs,
+		&log.Method, &log.Path, &log.StatusCode, &log.LatencyMs, &ttfbMs,
 		&isStreaming, &inputTokens, &outputTokens, &cacheRead, &cacheCreation,
 		&errorType, &requestID, &costMicros, &costUsd, &pricingModel, &thinkingLevel,
 	)
@@ -814,6 +875,9 @@ func (r *RequestLogRepository) GetByID(id string) (*model.RequestLog, error) {
 	if updatedAt.Valid {
 		formatted := updatedAt.Time.Format(time.RFC3339)
 		log.UpdatedAt = &formatted
+	}
+	if ttfbMs.Valid {
+		log.TTFBMs = &ttfbMs.Int64
 	}
 	if status.Valid {
 		log.Status = model.RequestLogStatus(status.String)
@@ -873,7 +937,7 @@ func (r *RequestLogRepository) GetByID(id string) (*model.RequestLog, error) {
 	if thinkingLevel.Valid {
 		log.ThinkingLevel = &thinkingLevel.String
 	}
-	normalizeRequestLogDisplay(&log)
+	enrichRequestLogMetrics(&log)
 
 	return &log, nil
 }
@@ -889,12 +953,12 @@ func (r *RequestLogRepository) GetByIDWithJoins(id string) (*model.RequestLog, e
 	var isStreaming int
 	var username, apiKeyName, apiKeyPrefix sql.NullString
 	var originalModel, mappedModel, provider, channelID, channelName, endpoint, errorType, requestID, costUsd, pricingModel, thinkingLevel sql.NullString
-	var inputTokens, outputTokens, cacheRead, cacheCreation, costMicros sql.NullInt64
+	var inputTokens, outputTokens, cacheRead, cacheCreation, costMicros, ttfbMs sql.NullInt64
 
 	err := db.QueryRow(`
 		SELECT r.id, r.created_at, r.updated_at, r.status, r.user_id, u.username, r.api_key_id, k.name, k.prefix,
 		       r.original_model, r.mapped_model, r.provider, r.channel_id, c.name, r.endpoint,
-		       r.method, r.path, r.status_code, r.latency_ms,
+		       r.method, r.path, r.status_code, r.latency_ms, r.ttfb_ms,
 		       r.is_streaming, r.input_tokens, r.output_tokens, r.cache_read_input_tokens,
 		       r.cache_creation_input_tokens, r.error_type, r.request_id, r.cost_micros, r.cost_usd, r.pricing_model, r.thinking_level
 		FROM request_logs r
@@ -905,7 +969,7 @@ func (r *RequestLogRepository) GetByIDWithJoins(id string) (*model.RequestLog, e
 	`, id).Scan(
 		&l.ID, &createdAt, &updatedAt, &status, &l.UserID, &username, &l.APIKeyID, &apiKeyName, &apiKeyPrefix,
 		&originalModel, &mappedModel, &provider, &channelID, &channelName, &endpoint,
-		&l.Method, &l.Path, &l.StatusCode, &l.LatencyMs,
+		&l.Method, &l.Path, &l.StatusCode, &l.LatencyMs, &ttfbMs,
 		&isStreaming, &inputTokens, &outputTokens, &cacheRead, &cacheCreation,
 		&errorType, &requestID, &costMicros, &costUsd, &pricingModel, &thinkingLevel,
 	)
@@ -932,6 +996,9 @@ func (r *RequestLogRepository) GetByIDWithJoins(id string) (*model.RequestLog, e
 	if updatedAt.Valid {
 		f := updatedAt.Time.Format(time.RFC3339)
 		l.UpdatedAt = &f
+	}
+	if ttfbMs.Valid {
+		l.TTFBMs = &ttfbMs.Int64
 	}
 	if status.Valid {
 		l.Status = model.RequestLogStatus(status.String)
@@ -990,7 +1057,7 @@ func (r *RequestLogRepository) GetByIDWithJoins(id string) (*model.RequestLog, e
 	if thinkingLevel.Valid {
 		l.ThinkingLevel = &thinkingLevel.String
 	}
-	normalizeRequestLogDisplay(&l)
+	enrichRequestLogMetrics(&l)
 
 	return &l, nil
 }

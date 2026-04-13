@@ -31,6 +31,7 @@ type RequestTrace struct {
 	// 响应信息
 	StatusCode int
 	LatencyMs  int64
+	TTFBMs     *int64
 
 	// Token 使用量
 	InputTokens              *int
@@ -110,6 +111,17 @@ func (t *RequestTrace) SetResponse(statusCode int) {
 	defer t.mu.Unlock()
 	t.StatusCode = statusCode
 	t.LatencyMs = time.Since(t.StartTime).Milliseconds()
+}
+
+// MarkFirstByte 记录流式响应首字节时间
+func (t *RequestTrace) MarkFirstByte() {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if t.TTFBMs != nil {
+		return
+	}
+	ttfbMs := time.Since(t.StartTime).Milliseconds()
+	t.TTFBMs = &ttfbMs
 }
 
 // SetUsage 设置 token 使用量
@@ -198,6 +210,7 @@ func (t *RequestTrace) Clone() RequestTrace {
 		ThinkingLevel:            t.ThinkingLevel,
 		StatusCode:               t.StatusCode,
 		LatencyMs:                t.LatencyMs,
+		TTFBMs:                   copyInt64Ptr(t.TTFBMs),
 		InputTokens:              copyIntPtr(t.InputTokens),
 		OutputTokens:             copyIntPtr(t.OutputTokens),
 		CacheReadInputTokens:     copyIntPtr(t.CacheReadInputTokens),

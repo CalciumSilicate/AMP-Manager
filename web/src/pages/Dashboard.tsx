@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { motion, AnimatePresence, sidebarContainerVariants, sidebarItemVariants } from '@/lib/motion'
 import Overview from './Overview'
 import AdminOverview from './AdminOverview'
@@ -56,6 +56,8 @@ import {
 interface Props {
   username: string
   isAdmin: boolean
+  siteName: string
+  onSiteNameChange: (siteName: string) => void
   onLogout: () => void
 }
 
@@ -79,7 +81,7 @@ const navIcons: Record<Page, React.ElementType> = {
   'subscription-plans': CreditCard,
 }
 
-export default function Dashboard({ username: initialUsername, isAdmin, onLogout }: Props) {
+export default function Dashboard({ username: initialUsername, isAdmin, siteName, onSiteNameChange, onLogout }: Props) {
   const [currentPage, setCurrentPage] = useState<Page>('overview')
   const [username, setUsername] = useState(initialUsername)
   const [collapsed, setCollapsed] = useState(false)
@@ -105,6 +107,11 @@ export default function Dashboard({ username: initialUsername, isAdmin, onLogout
   const visibleNavItems = navItems.filter(item => !item.adminOnly || isAdmin)
   const userNavItems = visibleNavItems.filter(item => !item.adminOnly)
   const adminNavItems = visibleNavItems.filter(item => item.adminOnly)
+  const currentPageLabel = visibleNavItems.find((item) => item.key === currentPage)?.label || '概览'
+
+  useEffect(() => {
+    document.title = `${currentPageLabel} - ${siteName}`
+  }, [currentPageLabel, siteName])
 
   const renderNavItem = (item: { key: Page; label: string; adminOnly?: boolean }) => {
     const Icon = navIcons[item.key]
@@ -186,7 +193,7 @@ export default function Dashboard({ username: initialUsername, isAdmin, onLogout
                   animate={{ opacity: 1, width: 'auto' }}
                   exit={{ opacity: 0, width: 0 }}
                 >
-                  AMPManager
+                  {siteName}
                 </motion.span>
               )}
             </motion.div>
@@ -250,9 +257,7 @@ export default function Dashboard({ username: initialUsername, isAdmin, onLogout
                     const Icon = navIcons[currentPage]
                     return <Icon className="h-5 w-5 text-primary" />
                   })()}
-                  <h2 className="text-lg font-semibold">
-                    {visibleNavItems.find((item) => item.key === currentPage)?.label}
-                  </h2>
+                  <h2 className="text-lg font-semibold">{currentPageLabel}</h2>
                 </motion.div>
               </AnimatePresence>
               <div className="flex items-center gap-3">
@@ -309,7 +314,9 @@ export default function Dashboard({ username: initialUsername, isAdmin, onLogout
                   {currentPage === 'model-metadata' && isAdmin && <ModelMetadata />}
                   {currentPage === 'prices' && isAdmin && <Prices />}
                   {currentPage === 'user-management' && isAdmin && <UserManagement />}
-                  {currentPage === 'system-settings' && isAdmin && <SystemSettings />}
+                  {currentPage === 'system-settings' && isAdmin && (
+                    <SystemSettings siteName={siteName} onSiteNameChange={onSiteNameChange} />
+                  )}
                 </motion.div>
               </AnimatePresence>
             </main>

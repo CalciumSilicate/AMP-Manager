@@ -74,3 +74,13 @@ type RequestDetailConfigRequest struct {
 	BodyCapKB      int   `json:"bodyCapKB"`
 	PersistEnabled bool  `json:"persistEnabled"`
 }
+
+// SiteConfigResponse 站点配置响应
+type SiteConfigResponse struct {
+	SiteName string `json:"siteName"`
+}
+
+// SiteConfigRequest 站点配置请求
+type SiteConfigRequest struct {
+	SiteName string `json:"siteName"`
+}

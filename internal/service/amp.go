@@ -23,6 +23,8 @@ var (
 	ErrAPIKeyRevoked        = errors.New("API Key 已被撤销")
 	ErrAPIKeyNotRetrievable = errors.New("API Key 只在创建时显示一次，无法再次获取")
 	ErrNotOwner             = errors.New("无权操作此资源")
+	ErrInvalidAPIKeyFormat  = errors.New("自定义 API Key 只能包含字母和数字，且长度至少为 16")
+	ErrDuplicateAPIKey      = errors.New("API Key 已存在，请使用其他值")
 )
 
 type AmpService struct {
@@ -235,14 +237,27 @@ func (s *AmpService) TestConnection(userID string) (*model.TestConnectionRespons
 }
 
 func (s *AmpService) CreateAPIKey(userID string, req *model.CreateAPIKeyRequest) (*model.CreateAPIKeyResponse, error) {
-	keyBytes := make([]byte, 32)
-	if _, err := rand.Read(keyBytes); err != nil {
-		return nil, err
+	rawKey := req.CustomKey
+	if rawKey == "" {
+		keyBytes := make([]byte, 32)
+		if _, err := rand.Read(keyBytes); err != nil {
+			return nil, err
+		}
+		rawKey = base64.RawURLEncoding.EncodeToString(keyBytes)
+	} else if !isValidCustomAPIKey(rawKey) {
+		return nil, ErrInvalidAPIKeyFormat
 	}
-	rawKey := base64.RawURLEncoding.EncodeToString(keyBytes)
 
 	hash := sha256.Sum256([]byte(rawKey))
 	keyHash := hex.EncodeToString(hash[:])
+
+	existing, err := s.apiKeyRepo.GetByKeyHash(keyHash)
+	if err != nil {
+		return nil, err
+	}
+	if existing != nil {
+		return nil, ErrDuplicateAPIKey
+	}
 
 	prefix := rawKey[:8]
 
@@ -266,6 +281,23 @@ func (s *AmpService) CreateAPIKey(userID string, req *model.CreateAPIKeyRequest)
 		CreatedAt: apiKey.CreatedAt,
 		Message:   "API Key 创建成功，请妥善保存，可在列表中再次查看",
 	}, nil
+}
+
+func isValidCustomAPIKey(value string) bool {
+	if len(value) < 16 {
+		return false
+	}
+
+	for _, r := range value {
+		isDigit := r >= '0' && r <= '9'
+		isLower := r >= 'a' && r <= 'z'
+		isUpper := r >= 'A' && r <= 'Z'
+		if !isDigit && !isLower && !isUpper {
+			return false
+		}
+	}
+
+	return true
 }
 
 func (s *AmpService) ListAPIKeys(userID string) ([]*model.APIKeyListItem, error) {

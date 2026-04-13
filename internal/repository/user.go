@@ -19,6 +19,7 @@ type UserRepositoryInterface interface {
 	ExistsByUsername(username string) (bool, error)
 	GetByID(id string) (*model.User, error)
 	List() ([]*model.User, error)
+	ListPaged(page, pageSize int) ([]*model.User, int64, error)
 	UpdatePassword(id string, passwordHash string) error
 	UpdateUsername(id string, username string) error
 	SetAdmin(id string, isAdmin bool) error
@@ -106,6 +107,49 @@ func (r *UserRepository) List() ([]*model.User, error) {
 		users = append(users, user)
 	}
 	return users, nil
+}
+
+func (r *UserRepository) ListPaged(page, pageSize int) ([]*model.User, int64, error) {
+	db := database.GetDB()
+
+	if page < 1 {
+		page = 1
+	}
+	if pageSize < 1 {
+		pageSize = 20
+	}
+	if pageSize > 100 {
+		pageSize = 100
+	}
+
+	var total int64
+	if err := db.QueryRow(`SELECT COUNT(*) FROM users`).Scan(&total); err != nil {
+		return nil, 0, err
+	}
+
+	offset := (page - 1) * pageSize
+	rows, err := db.Query(
+		`SELECT id, username, password_hash, is_admin, balance_micros, created_at, updated_at
+		 FROM users
+		 ORDER BY created_at DESC
+		 LIMIT ? OFFSET ?`,
+		pageSize, offset,
+	)
+	if err != nil {
+		return nil, 0, err
+	}
+	defer rows.Close()
+
+	var users []*model.User
+	for rows.Next() {
+		user := &model.User{}
+		if err := rows.Scan(&user.ID, &user.Username, &user.PasswordHash, &user.IsAdmin, &user.BalanceMicros, &user.CreatedAt, &user.UpdatedAt); err != nil {
+			return nil, 0, err
+		}
+		users = append(users, user)
+	}
+
+	return users, total, rows.Err()
 }
 
 func (r *UserRepository) UpdatePassword(id string, passwordHash string) error {

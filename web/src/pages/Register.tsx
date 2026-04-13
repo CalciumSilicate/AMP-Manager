@@ -16,11 +16,12 @@ import { Alert, AlertDescription } from '@/components/ui/alert'
 import { UserPlus } from 'lucide-react'
 
 interface Props {
+  siteName: string
   onSwitch: () => void
   onSuccess: (username: string, token?: string, isAdmin?: boolean) => void
 }
 
-export default function Register({ onSwitch, onSuccess }: Props) {
+export default function Register({ siteName, onSwitch, onSuccess }: Props) {
   const [formData, setFormData] = useState<RegisterRequest>({
     username: '',
     password: '',
@@ -66,7 +67,7 @@ export default function Register({ onSwitch, onSuccess }: Props) {
             <UserPlus className="h-7 w-7 text-primary" />
           </motion.div>
           <CardTitle className="text-2xl font-bold">创建账号</CardTitle>
-          <CardDescription>注册 AMPManager 管理面板</CardDescription>
+          <CardDescription>注册 {siteName}</CardDescription>
         </CardHeader>
 
         <CardContent>
