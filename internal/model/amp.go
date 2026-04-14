@@ -163,9 +163,13 @@ type RequestLog struct {
 	ThinkingLevel            *string          `json:"thinkingLevel,omitempty"` // 思维等级
 	OutputPreview            *string          `json:"outputPreview,omitempty"` // 响应输出预览（前200字符）
 	// 成本相关字段
-	CostMicros   *int64  `json:"costMicros,omitempty"`   // 成本（微美元，USD * 1e6）
-	CostUsd      *string `json:"costUsd,omitempty"`      // 成本（USD，用于展示）
-	PricingModel *string `json:"pricingModel,omitempty"` // 计价模型名
+	CostMicros                *int64  `json:"costMicros,omitempty"`   // 成本（微美元，USD * 1e6）
+	CostUsd                   *string `json:"costUsd,omitempty"`      // 成本（USD，用于展示）
+	PricingModel              *string `json:"pricingModel,omitempty"` // 计价模型名
+	BillingStatus             string  `json:"billingStatus"`
+	ChargedSubscriptionMicros int64   `json:"chargedSubscriptionMicros"`
+	ChargedBalanceMicros      int64   `json:"chargedBalanceMicros"`
+	BillingGapMicros          *int64  `json:"billingGapMicros,omitempty"`
 }
 
 // RequestLogListResponse 请求日志列表响应
@@ -196,13 +200,19 @@ type UsageSummaryResponse struct {
 
 // RequestLogDetail 请求日志详情（包含请求/响应头和体）
 type RequestLogDetail struct {
-	RequestID                string            `json:"requestId"`
-	RequestHeaders           map[string]string `json:"requestHeaders"`
-	RequestBody              string            `json:"requestBody"`
-	TranslatedRequestBody    string            `json:"translatedRequestBody,omitempty"`    // 翻译后发送给上游的请求体
-	TranslatedRequestHeaders map[string]string `json:"translatedRequestHeaders,omitempty"` // 翻译后发送给上游的请求头
-	ResponseHeaders          map[string]string `json:"responseHeaders"`
-	ResponseBody             string            `json:"responseBody"`
-	TranslatedResponseBody   string            `json:"translatedResponseBody,omitempty"` // 翻译后发送给客户端的响应
-	CreatedAt                time.Time         `json:"createdAt"`
+	RequestID                 string            `json:"requestId"`
+	RequestHeaders            map[string]string `json:"requestHeaders"`
+	RequestBody               string            `json:"requestBody"`
+	TranslatedRequestBody     string            `json:"translatedRequestBody,omitempty"`    // 翻译后发送给上游的请求体
+	TranslatedRequestHeaders  map[string]string `json:"translatedRequestHeaders,omitempty"` // 翻译后发送给上游的请求头
+	ResponseHeaders           map[string]string `json:"responseHeaders"`
+	ResponseBody              string            `json:"responseBody"`
+	TranslatedResponseBody    string            `json:"translatedResponseBody,omitempty"` // 翻译后发送给客户端的响应
+	CreatedAt                 time.Time         `json:"createdAt"`
+	BillingStatus             string            `json:"billingStatus"`
+	ChargedSubscriptionMicros int64             `json:"chargedSubscriptionMicros"`
+	ChargedBalanceMicros      int64             `json:"chargedBalanceMicros"`
+	BillingGapMicros          *int64            `json:"billingGapMicros,omitempty"`
+	CostMicros                *int64            `json:"costMicros,omitempty"`
+	CostUsd                   *string           `json:"costUsd,omitempty"`
 }

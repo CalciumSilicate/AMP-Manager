@@ -55,6 +55,16 @@ func enrichRequestLogMetrics(log *model.RequestLog) {
 	}
 
 	normalizeRequestLogDisplay(log)
+	if log.BillingStatus == "" {
+		log.BillingStatus = "none"
+	}
+	if log.CostMicros != nil {
+		gap := *log.CostMicros - log.ChargedSubscriptionMicros - log.ChargedBalanceMicros
+		if gap < 0 {
+			gap = 0
+		}
+		log.BillingGapMicros = &gap
+	}
 
 	if !log.IsStreaming {
 		log.TTFBMs = nil
@@ -162,6 +172,7 @@ func (r *RequestLogRepository) List(params ListParams) ([]model.RequestLog, int6
 		       r.provider, r.channel_id, c.name as channel_name, r.endpoint, r.method, r.path, r.status_code, r.latency_ms, r.ttfb_ms,
 		       r.is_streaming, r.input_tokens, r.output_tokens, r.cache_read_input_tokens,
 		       r.cache_creation_input_tokens, r.error_type, r.request_id, r.cost_micros, r.cost_usd, r.pricing_model, r.thinking_level,
+		       r.charged_subscription_micros, r.charged_balance_micros, r.billing_status,
 		       %s as output_preview
 		FROM request_logs r
                 LEFT JOIN users u ON r.user_id = u.id
@@ -188,8 +199,8 @@ func (r *RequestLogRepository) List(params ListParams) ([]model.RequestLog, int6
 		var status sql.NullString
 		var isStreaming int
 		var username, apiKeyName, apiKeyPrefix sql.NullString
-		var originalModel, mappedModel, provider, channelID, channelName, endpoint, errorType, requestID, costUsd, pricingModel, thinkingLevel, outputPreview sql.NullString
-		var inputTokens, outputTokens, cacheRead, cacheCreation, costMicros, ttfbMs sql.NullInt64
+		var originalModel, mappedModel, provider, channelID, channelName, endpoint, errorType, requestID, costUsd, pricingModel, thinkingLevel, outputPreview, billingStatus sql.NullString
+		var inputTokens, outputTokens, cacheRead, cacheCreation, costMicros, ttfbMs, chargedSubscriptionMicros, chargedBalanceMicros sql.NullInt64
 
 		err := rows.Scan(
 			&log.ID, &createdAt, &updatedAt, &status, &log.UserID, &username, &log.APIKeyID, &apiKeyName, &apiKeyPrefix,
@@ -197,6 +208,7 @@ func (r *RequestLogRepository) List(params ListParams) ([]model.RequestLog, int6
 			&log.Method, &log.Path, &log.StatusCode, &log.LatencyMs, &ttfbMs,
 			&isStreaming, &inputTokens, &outputTokens, &cacheRead, &cacheCreation,
 			&errorType, &requestID, &costMicros, &costUsd, &pricingModel, &thinkingLevel,
+			&chargedSubscriptionMicros, &chargedBalanceMicros, &billingStatus,
 			&outputPreview,
 		)
 		if err != nil {
@@ -271,11 +283,20 @@ func (r *RequestLogRepository) List(params ListParams) ([]model.RequestLog, int6
 		if costMicros.Valid {
 			log.CostMicros = &costMicros.Int64
 		}
+		if chargedSubscriptionMicros.Valid {
+			log.ChargedSubscriptionMicros = chargedSubscriptionMicros.Int64
+		}
+		if chargedBalanceMicros.Valid {
+			log.ChargedBalanceMicros = chargedBalanceMicros.Int64
+		}
 		if costUsd.Valid {
 			log.CostUsd = &costUsd.String
 		}
 		if pricingModel.Valid {
 			log.PricingModel = &pricingModel.String
+		}
+		if billingStatus.Valid {
+			log.BillingStatus = billingStatus.String
 		}
 		if thinkingLevel.Valid {
 			log.ThinkingLevel = &thinkingLevel.String
@@ -843,14 +864,15 @@ func (r *RequestLogRepository) GetByID(id string) (*model.RequestLog, error) {
 	var updatedAt sql.NullTime
 	var status sql.NullString
 	var isStreaming int
-	var originalModel, mappedModel, provider, channelID, channelName, endpoint, errorType, requestID, costUsd, pricingModel, thinkingLevel sql.NullString
-	var inputTokens, outputTokens, cacheRead, cacheCreation, costMicros, ttfbMs sql.NullInt64
+	var originalModel, mappedModel, provider, channelID, channelName, endpoint, errorType, requestID, costUsd, pricingModel, thinkingLevel, billingStatus sql.NullString
+	var inputTokens, outputTokens, cacheRead, cacheCreation, costMicros, ttfbMs, chargedSubscriptionMicros, chargedBalanceMicros sql.NullInt64
 
 	err := db.QueryRow(`
 		SELECT r.id, r.created_at, r.updated_at, r.status, r.user_id, r.api_key_id, r.original_model, r.mapped_model,
 		       r.provider, r.channel_id, c.name as channel_name, r.endpoint, r.method, r.path, r.status_code, r.latency_ms, r.ttfb_ms,
 		       r.is_streaming, r.input_tokens, r.output_tokens, r.cache_read_input_tokens,
-		       r.cache_creation_input_tokens, r.error_type, r.request_id, r.cost_micros, r.cost_usd, r.pricing_model, r.thinking_level
+		       r.cache_creation_input_tokens, r.error_type, r.request_id, r.cost_micros, r.cost_usd, r.pricing_model, r.thinking_level,
+		       r.charged_subscription_micros, r.charged_balance_micros, r.billing_status
 		FROM request_logs r
 		LEFT JOIN channels c ON r.channel_id = c.id
 		WHERE r.id = ?
@@ -860,6 +882,7 @@ func (r *RequestLogRepository) GetByID(id string) (*model.RequestLog, error) {
 		&log.Method, &log.Path, &log.StatusCode, &log.LatencyMs, &ttfbMs,
 		&isStreaming, &inputTokens, &outputTokens, &cacheRead, &cacheCreation,
 		&errorType, &requestID, &costMicros, &costUsd, &pricingModel, &thinkingLevel,
+		&chargedSubscriptionMicros, &chargedBalanceMicros, &billingStatus,
 	)
 
 	if err == sql.ErrNoRows {
@@ -928,11 +951,20 @@ func (r *RequestLogRepository) GetByID(id string) (*model.RequestLog, error) {
 	if costMicros.Valid {
 		log.CostMicros = &costMicros.Int64
 	}
+	if chargedSubscriptionMicros.Valid {
+		log.ChargedSubscriptionMicros = chargedSubscriptionMicros.Int64
+	}
+	if chargedBalanceMicros.Valid {
+		log.ChargedBalanceMicros = chargedBalanceMicros.Int64
+	}
 	if costUsd.Valid {
 		log.CostUsd = &costUsd.String
 	}
 	if pricingModel.Valid {
 		log.PricingModel = &pricingModel.String
+	}
+	if billingStatus.Valid {
+		log.BillingStatus = billingStatus.String
 	}
 	if thinkingLevel.Valid {
 		log.ThinkingLevel = &thinkingLevel.String
@@ -952,15 +984,16 @@ func (r *RequestLogRepository) GetByIDWithJoins(id string) (*model.RequestLog, e
 	var status sql.NullString
 	var isStreaming int
 	var username, apiKeyName, apiKeyPrefix sql.NullString
-	var originalModel, mappedModel, provider, channelID, channelName, endpoint, errorType, requestID, costUsd, pricingModel, thinkingLevel sql.NullString
-	var inputTokens, outputTokens, cacheRead, cacheCreation, costMicros, ttfbMs sql.NullInt64
+	var originalModel, mappedModel, provider, channelID, channelName, endpoint, errorType, requestID, costUsd, pricingModel, thinkingLevel, billingStatus sql.NullString
+	var inputTokens, outputTokens, cacheRead, cacheCreation, costMicros, ttfbMs, chargedSubscriptionMicros, chargedBalanceMicros sql.NullInt64
 
 	err := db.QueryRow(`
 		SELECT r.id, r.created_at, r.updated_at, r.status, r.user_id, u.username, r.api_key_id, k.name, k.prefix,
 		       r.original_model, r.mapped_model, r.provider, r.channel_id, c.name, r.endpoint,
 		       r.method, r.path, r.status_code, r.latency_ms, r.ttfb_ms,
 		       r.is_streaming, r.input_tokens, r.output_tokens, r.cache_read_input_tokens,
-		       r.cache_creation_input_tokens, r.error_type, r.request_id, r.cost_micros, r.cost_usd, r.pricing_model, r.thinking_level
+		       r.cache_creation_input_tokens, r.error_type, r.request_id, r.cost_micros, r.cost_usd, r.pricing_model, r.thinking_level,
+		       r.charged_subscription_micros, r.charged_balance_micros, r.billing_status
 		FROM request_logs r
 		LEFT JOIN users u ON r.user_id = u.id
 		LEFT JOIN user_api_keys k ON r.api_key_id = k.id
@@ -972,6 +1005,7 @@ func (r *RequestLogRepository) GetByIDWithJoins(id string) (*model.RequestLog, e
 		&l.Method, &l.Path, &l.StatusCode, &l.LatencyMs, &ttfbMs,
 		&isStreaming, &inputTokens, &outputTokens, &cacheRead, &cacheCreation,
 		&errorType, &requestID, &costMicros, &costUsd, &pricingModel, &thinkingLevel,
+		&chargedSubscriptionMicros, &chargedBalanceMicros, &billingStatus,
 	)
 
 	if err == sql.ErrNoRows {
@@ -1048,11 +1082,20 @@ func (r *RequestLogRepository) GetByIDWithJoins(id string) (*model.RequestLog, e
 	if costMicros.Valid {
 		l.CostMicros = &costMicros.Int64
 	}
+	if chargedSubscriptionMicros.Valid {
+		l.ChargedSubscriptionMicros = chargedSubscriptionMicros.Int64
+	}
+	if chargedBalanceMicros.Valid {
+		l.ChargedBalanceMicros = chargedBalanceMicros.Int64
+	}
 	if costUsd.Valid {
 		l.CostUsd = &costUsd.String
 	}
 	if pricingModel.Valid {
 		l.PricingModel = &pricingModel.String
+	}
+	if billingStatus.Valid {
+		l.BillingStatus = billingStatus.String
 	}
 	if thinkingLevel.Valid {
 		l.ThinkingLevel = &thinkingLevel.String

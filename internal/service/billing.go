@@ -175,7 +175,11 @@ func (s *BillingService) SettleRequestCost(requestLogID, userID string, costMicr
 		if result != nil {
 			status = result.Status
 			if status == "" {
-				status = "settled"
+				if costMicros == 0 {
+					status = "free"
+				} else {
+					status = "settled"
+				}
 			}
 		}
 		chargedSub := int64(0)
@@ -243,7 +247,7 @@ func (s *BillingService) settleRequestCostLegacy(requestLogID, userID string, co
 				if charge > subscriptionRemaining {
 					charge = subscriptionRemaining
 				}
-				chargedSubscription = charge
+				chargedSubscription += charge
 				remaining -= charge
 				subscriptionRemaining -= charge
 			}
@@ -253,7 +257,7 @@ func (s *BillingService) settleRequestCostLegacy(requestLogID, userID string, co
 				if charge > balance {
 					charge = balance
 				}
-				chargedBalance = charge
+				chargedBalance += charge
 				remaining -= charge
 				balance -= charge
 			}
@@ -284,6 +288,9 @@ func (s *BillingService) settleRequestCostLegacy(requestLogID, userID string, co
 	}
 
 	billingStatus := "settled"
+	if costMicros == 0 {
+		billingStatus = "free"
+	}
 	if remaining > 0 {
 		billingStatus = "overuse"
 	}

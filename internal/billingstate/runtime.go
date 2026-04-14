@@ -1416,10 +1416,19 @@ func applySettleEvent(tx *sql.Tx, values map[string]any) error {
 	status := stringField(values["status"])
 	actual := parseInt64(stringField(values["actual_cost_micros"]))
 	reservedSub := parseInt64(stringField(values["reserved_subscription_micros"]))
+	reservedBal := parseInt64(stringField(values["reserved_balance_micros"]))
 	chargedSub := parseInt64(stringField(values["charged_subscription_micros"]))
 	releasedSub := parseInt64(stringField(values["released_subscription_micros"]))
 	chargedBal := parseInt64(stringField(values["charged_balance_micros"]))
 	releasedBal := parseInt64(stringField(values["released_balance_micros"]))
+	extraSub := chargedSub - minInt64(actual, reservedSub)
+	if extraSub < 0 {
+		extraSub = 0
+	}
+	extraBal := chargedBal - minInt64(maxInt64(0, actual-reservedSub), reservedBal)
+	if extraBal < 0 {
+		extraBal = 0
+	}
 
 	_, err := tx.Exec(
 		`UPDATE billing_reservations SET
@@ -1459,6 +1468,11 @@ func applySettleEvent(tx *sql.Tx, values map[string]any) error {
 			return err
 		}
 	}
+	if extraBal > 0 {
+		if _, err := tx.Exec(`UPDATE billing_account_state SET balance_micros = balance_micros - ?, revision = revision + 1, updated_at = ? WHERE user_id = ?`, extraBal, now, userID); err != nil {
+			return err
+		}
+	}
 
 	if _, err := tx.Exec(`UPDATE request_logs SET charged_subscription_micros = ?, charged_balance_micros = ?, billing_status = ? WHERE id = ?`, chargedSub, chargedBal, status, requestID); err != nil {
 		return err
@@ -1476,7 +1490,7 @@ func applySettleEvent(tx *sql.Tx, values map[string]any) error {
 			`UPDATE subscription_window_state
 			 SET reserved_micros = reserved_micros - ?, used_micros = used_micros + ?, remaining_micros = remaining_micros + ?, revision = revision + 1, updated_at = ?
 			 WHERE id = ?`,
-			reservedSub, chargedSub, releasedSub, now, ref.StateID,
+			reservedSub, chargedSub, releasedSub-extraSub, now, ref.StateID,
 		); err != nil {
 			return err
 		}
@@ -1660,6 +1674,16 @@ func maxInt64(values ...int64) int64 {
 	out := int64(math.MinInt64)
 	for _, value := range values {
 		if value > out {
+			out = value
+		}
+	}
+	return out
+}
+
+func minInt64(values ...int64) int64 {
+	out := int64(math.MaxInt64)
+	for _, value := range values {
+		if value < out {
 			out = value
 		}
 	}
