@@ -143,6 +143,42 @@ func TestReleaseExpiredReservationsDrainsMultiplePagesWithinSingleTick(t *testin
 	}
 }
 
+func TestReleaseExpiredReservationsSkipsBlockedPageAndContinuesLaterEntries(t *testing.T) {
+	mr := miniredis.RunT(t)
+	client := redis.NewClient(&redis.Options{Addr: mr.Addr()})
+	t.Cleanup(func() { _ = client.Close() })
+
+	rt := &Runtime{
+		client: client,
+		cfg: Config{
+			Prefix:          "amp",
+			StreamBatchSize: 2,
+		},
+	}
+
+	seedStaleExpiredReservation(t, mr, rt, "user-1", "req-done", 1)
+	seedStaleExpiredReservation(t, mr, rt, "user-1", "req-done-2", 2)
+	seedExpiredReservation(t, mr, rt, "user-1", "req-good", 3, 9)
+
+	count, err := rt.releaseExpiredReservations(context.Background(), 10)
+	if err != nil {
+		t.Fatalf("releaseExpiredReservations returned error: %v", err)
+	}
+	if count != 3 {
+		t.Fatalf("processed count = %d, want 3", count)
+	}
+	if got := mr.HGet(rt.reservationKey("req-good"), "status"); got != "expired" {
+		t.Fatalf("req-good status = %q, want expired", got)
+	}
+	size, err := client.ZCard(context.Background(), rt.reservationExpiryKey()).Result()
+	if err != nil {
+		t.Fatalf("ZCard returned error: %v", err)
+	}
+	if size != 0 {
+		t.Fatalf("expiry zset cardinality = %d, want 0", size)
+	}
+}
+
 func seedExpiredReservation(t *testing.T, mr *miniredis.Miniredis, rt *Runtime, userID, requestID string, score int64, reservedBalance int64) {
 	t.Helper()
 
@@ -159,6 +195,21 @@ func seedExpiredReservation(t *testing.T, mr *miniredis.Miniredis, rt *Runtime, 
 		"reserved_balance_micros", fmt.Sprintf("%d", reservedBalance),
 		"window_key_list", "",
 		"window_refs_json", "[]",
+	)
+	mr.ZAdd(rt.reservationExpiryKey(), float64(score), requestID)
+}
+
+func seedStaleExpiredReservation(t *testing.T, mr *miniredis.Miniredis, rt *Runtime, userID, requestID string, score int64) {
+	t.Helper()
+
+	accountKey := rt.accountKey(userID)
+	if !mr.Exists(accountKey) {
+		mr.HSet(accountKey, "balance_micros", "0")
+	}
+	mr.HSet(rt.reservationKey(requestID),
+		"status", "settled",
+		"request_id", requestID,
+		"user_id", userID,
 	)
 	mr.ZAdd(rt.reservationExpiryKey(), float64(score), requestID)
 }
