@@ -101,6 +101,48 @@ func TestReleaseExpiredReservationsBatchCanContinueAcrossCalls(t *testing.T) {
 	}
 }
 
+func TestReleaseExpiredReservationsDrainsMultiplePagesWithinSingleTick(t *testing.T) {
+	mr := miniredis.RunT(t)
+	client := redis.NewClient(&redis.Options{Addr: mr.Addr()})
+	t.Cleanup(func() { _ = client.Close() })
+
+	rt := &Runtime{
+		client: client,
+		cfg: Config{
+			Prefix:          "amp",
+			StreamBatchSize: 1,
+		},
+	}
+
+	seedExpiredReservation(t, mr, rt, "user-1", "req-1", 1, 5)
+	seedExpiredReservation(t, mr, rt, "user-1", "req-2", 2, 7)
+	seedExpiredReservation(t, mr, rt, "user-1", "req-3", 3, 9)
+
+	count, err := rt.releaseExpiredReservations(context.Background(), 10)
+	if err != nil {
+		t.Fatalf("releaseExpiredReservations returned error: %v", err)
+	}
+	if count != 3 {
+		t.Fatalf("processed count = %d, want 3", count)
+	}
+
+	for _, requestID := range []string{"req-1", "req-2", "req-3"} {
+		if got := mr.HGet(rt.reservationKey(requestID), "status"); got != "expired" {
+			t.Fatalf("%s status = %q, want expired", requestID, got)
+		}
+	}
+	if got := mr.HGet(rt.accountKey("user-1"), "balance_micros"); got != "21" {
+		t.Fatalf("balance_micros = %q, want 21", got)
+	}
+	size, err := client.ZCard(context.Background(), rt.reservationExpiryKey()).Result()
+	if err != nil {
+		t.Fatalf("ZCard returned error: %v", err)
+	}
+	if size != 0 {
+		t.Fatalf("expiry zset cardinality = %d, want 0", size)
+	}
+}
+
 func seedExpiredReservation(t *testing.T, mr *miniredis.Miniredis, rt *Runtime, userID, requestID string, score int64, reservedBalance int64) {
 	t.Helper()
 
