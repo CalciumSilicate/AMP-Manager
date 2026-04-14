@@ -75,6 +75,7 @@ type runtimeKnobs struct {
 	streamBatchSize    int
 	reconcileBatchSize int
 	expiryBatchSize    int
+	projectorWorkers   int
 }
 
 type scenario struct {
@@ -253,7 +254,7 @@ func main() {
 	flag.IntVar(&streamBatchSize, "stream-batch-size", 100, "billing runtime stream batch size for shared billing mode")
 	flag.IntVar(&reconcileBatchSize, "reconcile-batch-size", 0, "billing runtime reconcile batch size for shared billing mode; defaults to stream batch size when <= 0")
 	flag.IntVar(&expiryBatchSize, "expiry-batch-size", 0, "billing runtime expiry batch size for shared billing mode; defaults to stream batch size when <= 0")
-	flag.IntVar(&projectorWorkers, "projector-workers", 0, "reserved loadtest knob for billing projector workers; ignored until runtime exposes this setting")
+	flag.IntVar(&projectorWorkers, "projector-workers", 0, "billing runtime projector worker count for shared billing mode; defaults to runtime default when <= 0")
 	flag.BoolVar(&legacyLocal, "legacy-local", false, "use self-contained sqlite smoke mode instead of real shared billing")
 	flag.Parse()
 
@@ -267,6 +268,7 @@ func main() {
 		streamBatchSize:    streamBatchSize,
 		reconcileBatchSize: reconcileBatchSize,
 		expiryBatchSize:    expiryBatchSize,
+		projectorWorkers:   projectorWorkers,
 	}, projectorWorkers)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "invalid options: %v\n", err)
@@ -305,11 +307,8 @@ func main() {
 		options.runtimeKnobs.reconcileBatchSize,
 		options.runtimeKnobs.expiryBatchSize,
 		displayOptionalInt(options.projectorRequested),
-		false,
+		options.projectorRequested > 0,
 	)
-	if options.projectorRequested > 0 {
-		fmt.Println("runtime_knobs_note=projector_workers flag is reserved in this branch and is not applied because billingstate.Config has no projector worker field yet")
-	}
 	printStageTableHeader()
 
 	overallOK := true
@@ -394,6 +393,9 @@ func normalizeRuntimeKnobs(knobs runtimeKnobs) runtimeKnobs {
 	}
 	if knobs.expiryBatchSize <= 0 {
 		knobs.expiryBatchSize = knobs.streamBatchSize
+	}
+	if knobs.projectorWorkers <= 0 {
+		knobs.projectorWorkers = 1
 	}
 	return knobs
 }
@@ -512,6 +514,7 @@ func setupBenchmarkEnv(mode string, timeout time.Duration, seed int64, databaseU
 			StreamBatchSize:    int64(knobs.streamBatchSize),
 			ReconcileBatchSize: int64(knobs.reconcileBatchSize),
 			ExpiryBatchSize:    int64(knobs.expiryBatchSize),
+			ProjectorWorkers:   knobs.projectorWorkers,
 		}); err != nil {
 			database.Close()
 			mock.Close()
@@ -873,7 +876,7 @@ func buildBenchmarkReport(profile benchmarkProfile, options runOptions, env *ben
 			OutputFormat:              options.outputFormat,
 			RuntimeKnobs:              options.runtimeKnobs,
 			ProjectorWorkersRequested: options.projectorRequested,
-			ProjectorWorkersApplied:   false,
+			ProjectorWorkersApplied:   options.projectorRequested > 0,
 			CompareFields:             []string{"profile", "label", "mode", "stage_rpm", "e2e_p95", "e2e_p99", "throughput_rps", "error_rate", "admission_p95", "settle_p95", "project_p95"},
 		},
 		Summary: reportSummary{
