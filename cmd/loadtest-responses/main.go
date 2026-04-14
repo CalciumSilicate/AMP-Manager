@@ -56,17 +56,25 @@ type benchmarkProfile struct {
 }
 
 type runOptions struct {
-	profileName  string
-	label        string
-	stageSeconds int
-	stageRPMs    []int
-	timeout      time.Duration
-	seed         int64
-	databaseURL  string
-	redisURL     string
-	redisPrefix  string
-	outputPath   string
-	outputFormat string
+	profileName        string
+	label              string
+	stageSeconds       int
+	stageRPMs          []int
+	timeout            time.Duration
+	seed               int64
+	databaseURL        string
+	redisURL           string
+	redisPrefix        string
+	outputPath         string
+	outputFormat       string
+	runtimeKnobs       runtimeKnobs
+	projectorRequested int
+}
+
+type runtimeKnobs struct {
+	streamBatchSize    int
+	reconcileBatchSize int
+	expiryBatchSize    int
 }
 
 type scenario struct {
@@ -112,21 +120,24 @@ type stageMetrics struct {
 }
 
 type reportMetadata struct {
-	Profile       string   `json:"profile"`
-	Label         string   `json:"label,omitempty"`
-	Mode          string   `json:"mode"`
-	Description   string   `json:"description"`
-	Model         string   `json:"model"`
-	StageSeconds  int      `json:"stage_seconds"`
-	StageRPMs     []int    `json:"stage_rpms"`
-	Timeout       string   `json:"timeout"`
-	Seed          int64    `json:"seed"`
-	TargetURL     string   `json:"target_url"`
-	MockURL       string   `json:"mock_url"`
-	StartedAt     string   `json:"started_at"`
-	CompletedAt   string   `json:"completed_at"`
-	OutputFormat  string   `json:"output_format,omitempty"`
-	CompareFields []string `json:"compare_fields,omitempty"`
+	Profile                   string       `json:"profile"`
+	Label                     string       `json:"label,omitempty"`
+	Mode                      string       `json:"mode"`
+	Description               string       `json:"description"`
+	Model                     string       `json:"model"`
+	StageSeconds              int          `json:"stage_seconds"`
+	StageRPMs                 []int        `json:"stage_rpms"`
+	Timeout                   string       `json:"timeout"`
+	Seed                      int64        `json:"seed"`
+	TargetURL                 string       `json:"target_url"`
+	MockURL                   string       `json:"mock_url"`
+	StartedAt                 string       `json:"started_at"`
+	CompletedAt               string       `json:"completed_at"`
+	OutputFormat              string       `json:"output_format,omitempty"`
+	RuntimeKnobs              runtimeKnobs `json:"runtime_knobs"`
+	ProjectorWorkersRequested int          `json:"projector_workers_requested,omitempty"`
+	ProjectorWorkersApplied   bool         `json:"projector_workers_applied"`
+	CompareFields             []string     `json:"compare_fields,omitempty"`
 }
 
 type reportSummary struct {
@@ -210,18 +221,22 @@ var benchmarkProfiles = map[string]benchmarkProfile{
 
 func main() {
 	var (
-		stageSeconds int
-		timeout      time.Duration
-		seed         int64
-		databaseURL  string
-		redisURL     string
-		redisPrefix  string
-		legacyLocal  bool
-		profileName  string
-		stageList    string
-		label        string
-		outputPath   string
-		outputFormat string
+		stageSeconds       int
+		timeout            time.Duration
+		seed               int64
+		databaseURL        string
+		redisURL           string
+		redisPrefix        string
+		legacyLocal        bool
+		profileName        string
+		stageList          string
+		label              string
+		outputPath         string
+		outputFormat       string
+		streamBatchSize    int
+		reconcileBatchSize int
+		expiryBatchSize    int
+		projectorWorkers   int
 	)
 
 	flag.IntVar(&stageSeconds, "stage-seconds", 8, "duration of each RPM stage in seconds")
@@ -235,6 +250,10 @@ func main() {
 	flag.StringVar(&redisPrefix, "redis-prefix", os.Getenv("REDIS_PREFIX"), "redis key prefix for shared billing benchmark")
 	flag.StringVar(&outputPath, "output", "", "optional path to persist the benchmark report")
 	flag.StringVar(&outputFormat, "output-format", "json", "report format for -output; supported: json")
+	flag.IntVar(&streamBatchSize, "stream-batch-size", 100, "billing runtime stream batch size for shared billing mode")
+	flag.IntVar(&reconcileBatchSize, "reconcile-batch-size", 0, "billing runtime reconcile batch size for shared billing mode; defaults to stream batch size when <= 0")
+	flag.IntVar(&expiryBatchSize, "expiry-batch-size", 0, "billing runtime expiry batch size for shared billing mode; defaults to stream batch size when <= 0")
+	flag.IntVar(&projectorWorkers, "projector-workers", 0, "reserved loadtest knob for billing projector workers; ignored until runtime exposes this setting")
 	flag.BoolVar(&legacyLocal, "legacy-local", false, "use self-contained sqlite smoke mode instead of real shared billing")
 	flag.Parse()
 
@@ -244,14 +263,18 @@ func main() {
 	gin.DefaultWriter = io.Discard
 	gin.DefaultErrorWriter = io.Discard
 
-	options, profile, err := buildRunOptions(profileName, stageSeconds, stageList, timeout, seed, databaseURL, redisURL, redisPrefix, label, outputPath, outputFormat, legacyLocal)
+	options, profile, err := buildRunOptions(profileName, stageSeconds, stageList, timeout, seed, databaseURL, redisURL, redisPrefix, label, outputPath, outputFormat, legacyLocal, runtimeKnobs{
+		streamBatchSize:    streamBatchSize,
+		reconcileBatchSize: reconcileBatchSize,
+		expiryBatchSize:    expiryBatchSize,
+	}, projectorWorkers)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "invalid options: %v\n", err)
 		os.Exit(1)
 	}
 
 	startedAt := time.Now().UTC()
-	env, err := setupBenchmarkEnv(profile.Mode, options.timeout, options.seed, options.databaseURL, options.redisURL, options.redisPrefix)
+	env, err := setupBenchmarkEnv(profile.Mode, options.timeout, options.seed, options.databaseURL, options.redisURL, options.redisPrefix, options.runtimeKnobs)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "setup failed: %v\n", err)
 		os.Exit(1)
@@ -276,6 +299,17 @@ func main() {
 	}
 	fmt.Printf("compare_fields=profile,label,mode,stage_rpm,e2e_p95,e2e_p99,throughput_rps,error_rate,admission_p95,settle_p95,project_p95\n")
 	fmt.Printf("stage_plan=%s\n", joinRPMs(options.stageRPMs))
+	fmt.Printf(
+		"runtime_knobs=stream_batch_size:%d reconcile_batch_size:%d expiry_batch_size:%d projector_workers_requested:%s projector_workers_applied:%t\n",
+		options.runtimeKnobs.streamBatchSize,
+		options.runtimeKnobs.reconcileBatchSize,
+		options.runtimeKnobs.expiryBatchSize,
+		displayOptionalInt(options.projectorRequested),
+		false,
+	)
+	if options.projectorRequested > 0 {
+		fmt.Println("runtime_knobs_note=projector_workers flag is reserved in this branch and is not applied because billingstate.Config has no projector worker field yet")
+	}
 	printStageTableHeader()
 
 	overallOK := true
@@ -314,7 +348,7 @@ func main() {
 	os.Exit(1)
 }
 
-func buildRunOptions(profileName string, stageSeconds int, stageList string, timeout time.Duration, seed int64, databaseURL, redisURL, redisPrefix, label, outputPath, outputFormat string, legacyLocal bool) (runOptions, benchmarkProfile, error) {
+func buildRunOptions(profileName string, stageSeconds int, stageList string, timeout time.Duration, seed int64, databaseURL, redisURL, redisPrefix, label, outputPath, outputFormat string, legacyLocal bool, knobs runtimeKnobs, projectorWorkers int) (runOptions, benchmarkProfile, error) {
 	profile, err := resolveProfile(profileName, legacyLocal)
 	if err != nil {
 		return runOptions{}, benchmarkProfile{}, err
@@ -330,19 +364,38 @@ func buildRunOptions(profileName string, stageSeconds int, stageList string, tim
 	if outputPath != "" && outputFormat != "json" {
 		return runOptions{}, benchmarkProfile{}, fmt.Errorf("unsupported output format %q", outputFormat)
 	}
+	knobs = normalizeRuntimeKnobs(knobs)
+	if projectorWorkers < 0 {
+		return runOptions{}, benchmarkProfile{}, fmt.Errorf("projector workers must be >= 0")
+	}
 	return runOptions{
-		profileName:  profile.Name,
-		label:        strings.TrimSpace(label),
-		stageSeconds: stageSeconds,
-		stageRPMs:    stageRPMs,
-		timeout:      timeout,
-		seed:         seed,
-		databaseURL:  databaseURL,
-		redisURL:     redisURL,
-		redisPrefix:  redisPrefix,
-		outputPath:   strings.TrimSpace(outputPath),
-		outputFormat: outputFormat,
+		profileName:        profile.Name,
+		label:              strings.TrimSpace(label),
+		stageSeconds:       stageSeconds,
+		stageRPMs:          stageRPMs,
+		timeout:            timeout,
+		seed:               seed,
+		databaseURL:        databaseURL,
+		redisURL:           redisURL,
+		redisPrefix:        redisPrefix,
+		outputPath:         strings.TrimSpace(outputPath),
+		outputFormat:       outputFormat,
+		runtimeKnobs:       knobs,
+		projectorRequested: projectorWorkers,
 	}, profile, nil
+}
+
+func normalizeRuntimeKnobs(knobs runtimeKnobs) runtimeKnobs {
+	if knobs.streamBatchSize <= 0 {
+		knobs.streamBatchSize = 100
+	}
+	if knobs.reconcileBatchSize <= 0 {
+		knobs.reconcileBatchSize = knobs.streamBatchSize
+	}
+	if knobs.expiryBatchSize <= 0 {
+		knobs.expiryBatchSize = knobs.streamBatchSize
+	}
+	return knobs
 }
 
 func resolveProfile(profileName string, legacyLocal bool) (benchmarkProfile, error) {
@@ -391,7 +444,7 @@ func parseStages(raw string, defaults []int) ([]int, error) {
 	return stages, nil
 }
 
-func setupBenchmarkEnv(mode string, timeout time.Duration, seed int64, databaseURL, redisURL, redisPrefix string) (*benchmarkEnv, error) {
+func setupBenchmarkEnv(mode string, timeout time.Duration, seed int64, databaseURL, redisURL, redisPrefix string, knobs runtimeKnobs) (*benchmarkEnv, error) {
 	_ = os.Setenv("ALLOW_INSECURE_DEFAULTS", "true")
 	_ = os.Setenv("RATE_LIMIT_PROXY_RPS", "20000")
 	_ = os.Setenv("RATE_LIMIT_AUTH_RPS", "20000")
@@ -452,11 +505,13 @@ func setupBenchmarkEnv(mode string, timeout time.Duration, seed int64, databaseU
 	}
 	if cfg.RedisURL != "" {
 		if err := billingstate.Init(billingstate.Config{
-			RedisURL:          cfg.RedisURL,
-			Prefix:            cfg.RedisPrefix,
-			ReservationTTL:    10 * time.Minute,
-			ReconcileInterval: time.Minute,
-			StreamBatchSize:   100,
+			RedisURL:           cfg.RedisURL,
+			Prefix:             cfg.RedisPrefix,
+			ReservationTTL:     10 * time.Minute,
+			ReconcileInterval:  time.Minute,
+			StreamBatchSize:    int64(knobs.streamBatchSize),
+			ReconcileBatchSize: int64(knobs.reconcileBatchSize),
+			ExpiryBatchSize:    int64(knobs.expiryBatchSize),
 		}); err != nil {
 			database.Close()
 			mock.Close()
@@ -802,21 +857,24 @@ func buildBenchmarkReport(profile benchmarkProfile, options runOptions, env *ben
 
 	return benchmarkReport{
 		Metadata: reportMetadata{
-			Profile:       profile.Name,
-			Label:         options.label,
-			Mode:          env.mode,
-			Description:   profile.Description,
-			Model:         env.model,
-			StageSeconds:  options.stageSeconds,
-			StageRPMs:     append([]int(nil), options.stageRPMs...),
-			Timeout:       options.timeout.String(),
-			Seed:          options.seed,
-			TargetURL:     env.appURL,
-			MockURL:       env.mockURL,
-			StartedAt:     startedAt.Format(time.RFC3339),
-			CompletedAt:   completedAt.Format(time.RFC3339),
-			OutputFormat:  options.outputFormat,
-			CompareFields: []string{"profile", "label", "mode", "stage_rpm", "e2e_p95", "e2e_p99", "throughput_rps", "error_rate", "admission_p95", "settle_p95", "project_p95"},
+			Profile:                   profile.Name,
+			Label:                     options.label,
+			Mode:                      env.mode,
+			Description:               profile.Description,
+			Model:                     env.model,
+			StageSeconds:              options.stageSeconds,
+			StageRPMs:                 append([]int(nil), options.stageRPMs...),
+			Timeout:                   options.timeout.String(),
+			Seed:                      options.seed,
+			TargetURL:                 env.appURL,
+			MockURL:                   env.mockURL,
+			StartedAt:                 startedAt.Format(time.RFC3339),
+			CompletedAt:               completedAt.Format(time.RFC3339),
+			OutputFormat:              options.outputFormat,
+			RuntimeKnobs:              options.runtimeKnobs,
+			ProjectorWorkersRequested: options.projectorRequested,
+			ProjectorWorkersApplied:   false,
+			CompareFields:             []string{"profile", "label", "mode", "stage_rpm", "e2e_p95", "e2e_p99", "throughput_rps", "error_rate", "admission_p95", "settle_p95", "project_p95"},
 		},
 		Summary: reportSummary{
 			Stages:         len(stages),
@@ -904,6 +962,13 @@ func displayValue(value, fallback string) string {
 		return fallback
 	}
 	return value
+}
+
+func displayOptionalInt(value int) string {
+	if value <= 0 {
+		return "-"
+	}
+	return fmt.Sprintf("%d", value)
 }
 
 func roundDuration(value time.Duration) string {
