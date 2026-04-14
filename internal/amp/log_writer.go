@@ -9,7 +9,6 @@ import (
 	"time"
 
 	"ampmanager/internal/billing"
-	"ampmanager/internal/billingstate"
 	"ampmanager/internal/realtime"
 	"ampmanager/internal/service"
 
@@ -626,17 +625,11 @@ func (w *LoggingBodyWrapper) Close() error {
 
 							if proxyCfg != nil && adjustedCostMicros > 0 {
 								billingSvc := service.NewBillingService()
-								if billingstate.Get() != nil {
-									result, err := billingSvc.SettleRequestCostResult(w.trace.RequestID, proxyCfg.UserID, adjustedCostMicros)
-									if err != nil {
-										log.Warnf("log writer: failed to settle cost for user %s: %v", proxyCfg.UserID, err)
-									} else {
-										w.trace.SetBillingResult(result)
-									}
+								result, err := billingSvc.SettleRequestCostResult(w.trace.RequestID, proxyCfg.UserID, adjustedCostMicros)
+								if err != nil {
+									log.Warnf("log writer: failed to settle cost for user %s: %v", proxyCfg.UserID, err)
 								} else {
-									if err := billingSvc.SettleRequestCost(w.trace.RequestID, proxyCfg.UserID, adjustedCostMicros); err != nil {
-										log.Warnf("log writer: failed to settle cost for user %s: %v", proxyCfg.UserID, err)
-									}
+									w.trace.SetBillingResult(result)
 								}
 							}
 						}
@@ -645,7 +638,14 @@ func (w *LoggingBodyWrapper) Close() error {
 			}
 
 			if writer := GetLogWriter(); writer != nil {
-				writer.UpdateFromTrace(w.trace)
+				if ok := writer.UpdateFromTrace(w.trace); !ok {
+					if billingResult := w.trace.BillingResult(); billingResult != nil {
+						billingSvc := service.NewBillingService()
+						if err := billingSvc.ApplyBillingResult(w.trace.RequestID, billingResult); err != nil {
+							log.Warnf("log writer: failed to apply billing fallback for request %s: %v", w.trace.RequestID, err)
+						}
+					}
+				}
 			}
 		}
 	})
