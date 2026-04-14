@@ -80,7 +80,7 @@ export function LogFilterBar({ isAdmin, users, keys, models, values, onChange }:
     if (values.from || values.to) {
       setActivePreset('custom')
     }
-  }, [])
+  }, [values.from, values.to])
 
   const update = (partial: Partial<FilterValues>) => {
     onChange({ ...values, ...partial })
