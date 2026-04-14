@@ -62,6 +62,21 @@ func TestShouldCaptureRequestDetailHighRPMSampleMode(t *testing.T) {
 	}
 }
 
+func TestRequestDetailRPMCounterRollsWindowForward(t *testing.T) {
+	counter := newRequestDetailRPMCounter()
+	start := time.Unix(1000, 0)
+
+	for i := 0; i < 60; i++ {
+		if got, want := counter.Record(start.Add(time.Duration(i)*time.Second)), i+1; got != want {
+			t.Fatalf("counter at second %d = %d, want %d", i, got, want)
+		}
+	}
+
+	if got, want := counter.Record(start.Add(60*time.Second)), 60; got != want {
+		t.Fatalf("counter after rolling window = %d, want %d", got, want)
+	}
+}
+
 func TestRequestDetailStoreEnforcesMaxEntries(t *testing.T) {
 	prevCfg := GetRequestDetailConfig()
 	t.Cleanup(func() {

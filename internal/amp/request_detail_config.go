@@ -185,7 +185,7 @@ func (c *requestDetailRPMCounter) Record(now time.Time) int {
 	idx := int(sec % int64(len(c.buckets)))
 	bucket := &c.buckets[idx]
 	if bucket.sec != sec {
-		if bucket.sec != 0 && sec-bucket.sec < int64(len(c.buckets)) {
+		if bucket.count > 0 {
 			c.total -= bucket.count
 		}
 		bucket.sec = sec
