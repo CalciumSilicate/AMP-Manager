@@ -98,6 +98,41 @@ func TestGetByIDWithJoinsDisplaysUncachedInputTokens(t *testing.T) {
 	}
 }
 
+func TestGetByIDWithJoinsIncludesBillingOutcomeAndGap(t *testing.T) {
+	setupRequestLogTestDB(t)
+
+	now := time.Now().UTC()
+	db := database.GetDB()
+	_, err := db.Exec(`
+		INSERT INTO request_logs (
+			id, created_at, user_id, api_key_id, original_model, method, path, status_code, latency_ms,
+			is_streaming, input_tokens, output_tokens, cost_micros, cost_usd,
+			charged_subscription_micros, charged_balance_micros, billing_status
+		) VALUES (?, ?, ?, ?, ?, 'POST', '/v1/responses', 200, 123, 0, 100, 20, 140, '0.000140', 100, 10, 'overuse')
+	`, "log-billing-1", now, "user-1", "key-user-1", "gpt-5.4")
+	if err != nil {
+		t.Fatalf("insert request log failed: %v", err)
+	}
+
+	repo := NewRequestLogRepository()
+	logEntry, err := repo.GetByIDWithJoins("log-billing-1")
+	if err != nil {
+		t.Fatalf("GetByIDWithJoins returned error: %v", err)
+	}
+	if logEntry == nil {
+		t.Fatal("expected log entry")
+	}
+	if logEntry.BillingStatus != "overuse" {
+		t.Fatalf("billing status = %q, want overuse", logEntry.BillingStatus)
+	}
+	if logEntry.ChargedSubscriptionMicros != 100 || logEntry.ChargedBalanceMicros != 10 {
+		t.Fatalf("charged micros = sub:%d bal:%d", logEntry.ChargedSubscriptionMicros, logEntry.ChargedBalanceMicros)
+	}
+	if logEntry.BillingGapMicros == nil || *logEntry.BillingGapMicros != 30 {
+		t.Fatalf("billing gap = %v, want 30", logEntry.BillingGapMicros)
+	}
+}
+
 func TestGetUsageSummaryDisplaysUncachedInputTokens(t *testing.T) {
 	setupRequestLogTestDB(t)
 

@@ -180,6 +180,10 @@ export interface RequestLog {
   costUsd?: string
   pricingModel?: string
   thinkingLevel?: string
+  billingStatus: 'free' | 'settled' | 'overuse' | 'expired' | 'none'
+  chargedSubscriptionMicros: number
+  chargedBalanceMicros: number
+  billingGapMicros?: number
 }
 
 export interface RequestLogListResponse {
@@ -337,6 +341,12 @@ export interface RequestLogDetail {
   responseBody: string
   translatedResponseBody?: string
   createdAt: string
+  billingStatus: 'free' | 'settled' | 'overuse' | 'expired' | 'none'
+  chargedSubscriptionMicros: number
+  chargedBalanceMicros: number
+  billingGapMicros?: number
+  costMicros?: number
+  costUsd?: string
 }
 
 export async function getAdminRequestLogDetail(logId: string, signal?: AbortSignal): Promise<RequestLogDetail> {
