@@ -47,6 +47,28 @@ type benchmarkEnv struct {
 	client  *http.Client
 }
 
+type benchmarkProfile struct {
+	Name                string
+	Description         string
+	Mode                string
+	DefaultStagesRPM    []int
+	DefaultStageSeconds int
+}
+
+type runOptions struct {
+	profileName  string
+	label        string
+	stageSeconds int
+	stageRPMs    []int
+	timeout      time.Duration
+	seed         int64
+	databaseURL  string
+	redisURL     string
+	redisPrefix  string
+	outputPath   string
+	outputFormat string
+}
+
 type scenario struct {
 	name             string
 	clientStream     bool
@@ -61,6 +83,7 @@ type scenario struct {
 
 type stageMetrics struct {
 	rpm               int
+	stageIndex        int
 	total             int64
 	success           int64
 	failures          int64
@@ -88,6 +111,103 @@ type stageMetrics struct {
 	errorSamples      []string
 }
 
+type reportMetadata struct {
+	Profile       string   `json:"profile"`
+	Label         string   `json:"label,omitempty"`
+	Mode          string   `json:"mode"`
+	Description   string   `json:"description"`
+	Model         string   `json:"model"`
+	StageSeconds  int      `json:"stage_seconds"`
+	StageRPMs     []int    `json:"stage_rpms"`
+	Timeout       string   `json:"timeout"`
+	Seed          int64    `json:"seed"`
+	TargetURL     string   `json:"target_url"`
+	MockURL       string   `json:"mock_url"`
+	StartedAt     string   `json:"started_at"`
+	CompletedAt   string   `json:"completed_at"`
+	OutputFormat  string   `json:"output_format,omitempty"`
+	CompareFields []string `json:"compare_fields,omitempty"`
+}
+
+type reportSummary struct {
+	Stages         int     `json:"stages"`
+	TotalRequests  int64   `json:"total_requests"`
+	Successes      int64   `json:"successes"`
+	Failures       int64   `json:"failures"`
+	ErrorRate      float64 `json:"error_rate"`
+	AvgThroughput  float64 `json:"avg_throughput_rps"`
+	WorstStageRPM  int     `json:"worst_stage_rpm"`
+	WorstStageP95  string  `json:"worst_stage_e2e_p95"`
+	ValidationFail int64   `json:"validation_failures"`
+}
+
+type reportStage struct {
+	StageIndex        int      `json:"stage_index"`
+	RPM               int      `json:"rpm"`
+	Total             int64    `json:"total"`
+	Success           int64    `json:"success"`
+	Failures          int64    `json:"failures"`
+	Elapsed           string   `json:"elapsed"`
+	ThroughputRPS     float64  `json:"throughput_rps"`
+	ErrorRate         float64  `json:"error_rate"`
+	EndToEndP50       string   `json:"e2e_p50"`
+	EndToEndP95       string   `json:"e2e_p95"`
+	EndToEndP99       string   `json:"e2e_p99"`
+	AdmissionP50      string   `json:"admission_p50"`
+	AdmissionP95      string   `json:"admission_p95"`
+	AdmissionP99      string   `json:"admission_p99"`
+	SettleP50         string   `json:"settle_p50"`
+	SettleP95         string   `json:"settle_p95"`
+	SettleP99         string   `json:"settle_p99"`
+	ProjectP50        string   `json:"project_p50"`
+	ProjectP95        string   `json:"project_p95"`
+	ProjectP99        string   `json:"project_p99"`
+	ValidationFail    int64    `json:"validation_failures"`
+	AdmissionFailures int64    `json:"admission_failures"`
+	SettleFailures    int64    `json:"settle_failures"`
+	ProjectFailures   int64    `json:"project_failures"`
+	ReconcileFailures int64    `json:"reconcile_failures"`
+	ReconcileRepairs  int64    `json:"reconcile_repairs"`
+	ErrorSamples      []string `json:"error_samples,omitempty"`
+}
+
+type benchmarkReport struct {
+	Metadata reportMetadata `json:"metadata"`
+	Summary  reportSummary  `json:"summary"`
+	Stages   []reportStage  `json:"stages"`
+}
+
+var benchmarkProfiles = map[string]benchmarkProfile{
+	"benchmark-shared-billing": {
+		Name:                "benchmark-shared-billing",
+		Description:         "A/B benchmark profile backed by PostgreSQL + Redis shared billing state.",
+		Mode:                "shared-billing",
+		DefaultStagesRPM:    []int{100, 300, 1000, 3000, 6000, 10000},
+		DefaultStageSeconds: 8,
+	},
+	"benchmark-legacy-local": {
+		Name:                "benchmark-legacy-local",
+		Description:         "Self-contained sqlite benchmark profile for local comparison baselines only.",
+		Mode:                "legacy-local",
+		DefaultStagesRPM:    []int{100, 300, 1000, 3000, 6000, 10000},
+		DefaultStageSeconds: 8,
+	},
+	"smoke-shared-billing": {
+		Name:                "smoke-shared-billing",
+		Description:         "Shared billing smoke profile for quick verification before wider benchmark runs.",
+		Mode:                "shared-billing",
+		DefaultStagesRPM:    []int{100, 300},
+		DefaultStageSeconds: 4,
+	},
+	"smoke-legacy-local": {
+		Name:                "smoke-legacy-local",
+		Description:         "Local smoke profile without external billing dependencies.",
+		Mode:                "legacy-local",
+		DefaultStagesRPM:    []int{100, 300},
+		DefaultStageSeconds: 4,
+	},
+}
+
 func main() {
 	var (
 		stageSeconds int
@@ -97,14 +217,24 @@ func main() {
 		redisURL     string
 		redisPrefix  string
 		legacyLocal  bool
+		profileName  string
+		stageList    string
+		label        string
+		outputPath   string
+		outputFormat string
 	)
 
 	flag.IntVar(&stageSeconds, "stage-seconds", 8, "duration of each RPM stage in seconds")
 	flag.DurationVar(&timeout, "timeout", 30*time.Second, "per-request timeout")
 	flag.Int64Var(&seed, "seed", 42, "random seed")
+	flag.StringVar(&profileName, "profile", "benchmark-shared-billing", "benchmark profile: benchmark-shared-billing, benchmark-legacy-local, smoke-shared-billing, smoke-legacy-local")
+	flag.StringVar(&stageList, "stages", "", "comma-separated RPM stage list; overrides profile defaults")
+	flag.StringVar(&label, "label", "", "optional run label for A/B result comparison")
 	flag.StringVar(&databaseURL, "database-url", os.Getenv("DATABASE_URL"), "postgres database url for shared billing benchmark")
 	flag.StringVar(&redisURL, "redis-url", os.Getenv("REDIS_URL"), "redis url for shared billing benchmark")
 	flag.StringVar(&redisPrefix, "redis-prefix", os.Getenv("REDIS_PREFIX"), "redis key prefix for shared billing benchmark")
+	flag.StringVar(&outputPath, "output", "", "optional path to persist the benchmark report")
+	flag.StringVar(&outputFormat, "output-format", "json", "report format for -output; supported: json")
 	flag.BoolVar(&legacyLocal, "legacy-local", false, "use self-contained sqlite smoke mode instead of real shared billing")
 	flag.Parse()
 
@@ -114,58 +244,65 @@ func main() {
 	gin.DefaultWriter = io.Discard
 	gin.DefaultErrorWriter = io.Discard
 
-	env, err := setupBenchmarkEnv(timeout, seed, databaseURL, redisURL, redisPrefix, legacyLocal)
+	options, profile, err := buildRunOptions(profileName, stageSeconds, stageList, timeout, seed, databaseURL, redisURL, redisPrefix, label, outputPath, outputFormat, legacyLocal)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "invalid options: %v\n", err)
+		os.Exit(1)
+	}
+
+	startedAt := time.Now().UTC()
+	env, err := setupBenchmarkEnv(profile.Mode, options.timeout, options.seed, options.databaseURL, options.redisURL, options.redisPrefix)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "setup failed: %v\n", err)
 		os.Exit(1)
 	}
 	defer env.cleanup()
 
-	fmt.Printf("loadtest mode=%s target=%s mock=%s model=%s stage_duration=%ds\n", env.mode, env.appURL, env.mockURL, env.model, stageSeconds)
+	fmt.Printf("loadtest profile=%s label=%s mode=%s target=%s mock=%s model=%s stage_duration=%ds\n",
+		profile.Name,
+		displayValue(options.label, "-"),
+		env.mode,
+		env.appURL,
+		env.mockURL,
+		env.model,
+		options.stageSeconds,
+	)
 	if env.mode == "shared-billing" {
+		fmt.Printf("profile_desc=%s\n", profile.Description)
 		fmt.Printf("billing path enabled with Redis + PostgreSQL, metrics include admission/settle/projector\n")
 	} else {
+		fmt.Printf("profile_desc=%s\n", profile.Description)
 		fmt.Printf("legacy-local mode: only for smoke verification, not representative of real billing throughput\n")
 	}
+	fmt.Printf("compare_fields=profile,label,mode,stage_rpm,e2e_p95,e2e_p99,throughput_rps,error_rate,admission_p95,settle_p95,project_p95\n")
+	fmt.Printf("stage_plan=%s\n", joinRPMs(options.stageRPMs))
+	printStageTableHeader()
 
-	stages := []int{100, 300, 1000, 3000, 6000, 10000}
 	overallOK := true
+	stageResults := make([]stageMetrics, 0, len(options.stageRPMs))
 
-	for _, rpm := range stages {
-		metrics := runStage(env, rpm, time.Duration(stageSeconds)*time.Second)
-		fmt.Printf(
-			"stage rpm=%5d total=%4d ok=%4d err=%3d err_rate=%5.2f%% throughput=%6.1f rps e2e[p50=%7s p95=%7s p99=%7s] admission[p50=%7s p95=%7s p99=%7s] settle[p50=%7s p95=%7s p99=%7s] projector[p50=%7s p95=%7s p99=%7s] validation_err=%d reserve_err=%d settle_err=%d projector_err=%d reconcile_err=%d repairs=%d\n",
-			metrics.rpm,
-			metrics.total,
-			metrics.success,
-			metrics.failures,
-			metrics.errorRate*100,
-			metrics.throughputRPS,
-			metrics.endToEndP50.Round(time.Millisecond),
-			metrics.endToEndP95.Round(time.Millisecond),
-			metrics.endToEndP99.Round(time.Millisecond),
-			metrics.admissionP50.Round(time.Millisecond),
-			metrics.admissionP95.Round(time.Millisecond),
-			metrics.admissionP99.Round(time.Millisecond),
-			metrics.settleP50.Round(time.Millisecond),
-			metrics.settleP95.Round(time.Millisecond),
-			metrics.settleP99.Round(time.Millisecond),
-			metrics.projectP50.Round(time.Millisecond),
-			metrics.projectP95.Round(time.Millisecond),
-			metrics.projectP99.Round(time.Millisecond),
-			metrics.validationFail,
-			metrics.admissionFailures,
-			metrics.settleFailures,
-			metrics.projectFailures,
-			metrics.reconcileFailures,
-			metrics.reconcileRepairs,
-		)
+	for idx, rpm := range options.stageRPMs {
+		metrics := runStage(env, rpm, time.Duration(options.stageSeconds)*time.Second)
+		metrics.stageIndex = idx + 1
+		stageResults = append(stageResults, metrics)
+		printStageTableRow(profile.Name, options.label, metrics)
 		for _, sample := range metrics.errorSamples {
 			fmt.Printf("  error_sample: %s\n", sample)
 		}
 		if metrics.failures > 0 {
 			overallOK = false
 		}
+	}
+
+	completedAt := time.Now().UTC()
+	report := buildBenchmarkReport(profile, options, env, startedAt, completedAt, stageResults)
+	printSummary(report.Summary)
+	if options.outputPath != "" {
+		if err := writeReport(options.outputPath, options.outputFormat, report); err != nil {
+			fmt.Fprintf(os.Stderr, "write report failed: %v\n", err)
+			os.Exit(1)
+		}
+		fmt.Printf("report_written=%s format=%s\n", options.outputPath, options.outputFormat)
 	}
 
 	if overallOK {
@@ -177,7 +314,84 @@ func main() {
 	os.Exit(1)
 }
 
-func setupBenchmarkEnv(timeout time.Duration, seed int64, databaseURL, redisURL, redisPrefix string, legacyLocal bool) (*benchmarkEnv, error) {
+func buildRunOptions(profileName string, stageSeconds int, stageList string, timeout time.Duration, seed int64, databaseURL, redisURL, redisPrefix, label, outputPath, outputFormat string, legacyLocal bool) (runOptions, benchmarkProfile, error) {
+	profile, err := resolveProfile(profileName, legacyLocal)
+	if err != nil {
+		return runOptions{}, benchmarkProfile{}, err
+	}
+	if stageSeconds <= 0 {
+		stageSeconds = profile.DefaultStageSeconds
+	}
+	stageRPMs, err := parseStages(stageList, profile.DefaultStagesRPM)
+	if err != nil {
+		return runOptions{}, benchmarkProfile{}, err
+	}
+	outputFormat = strings.ToLower(strings.TrimSpace(outputFormat))
+	if outputPath != "" && outputFormat != "json" {
+		return runOptions{}, benchmarkProfile{}, fmt.Errorf("unsupported output format %q", outputFormat)
+	}
+	return runOptions{
+		profileName:  profile.Name,
+		label:        strings.TrimSpace(label),
+		stageSeconds: stageSeconds,
+		stageRPMs:    stageRPMs,
+		timeout:      timeout,
+		seed:         seed,
+		databaseURL:  databaseURL,
+		redisURL:     redisURL,
+		redisPrefix:  redisPrefix,
+		outputPath:   strings.TrimSpace(outputPath),
+		outputFormat: outputFormat,
+	}, profile, nil
+}
+
+func resolveProfile(profileName string, legacyLocal bool) (benchmarkProfile, error) {
+	if legacyLocal && strings.TrimSpace(profileName) == "benchmark-shared-billing" {
+		profileName = "benchmark-legacy-local"
+	}
+	switch strings.TrimSpace(profileName) {
+	case "shared-billing":
+		profileName = "benchmark-shared-billing"
+	case "legacy-local":
+		profileName = "benchmark-legacy-local"
+	case "smoke":
+		if legacyLocal {
+			profileName = "smoke-legacy-local"
+		} else {
+			profileName = "smoke-shared-billing"
+		}
+	}
+	profile, ok := benchmarkProfiles[profileName]
+	if !ok {
+		return benchmarkProfile{}, fmt.Errorf("unknown profile %q", profileName)
+	}
+	return profile, nil
+}
+
+func parseStages(raw string, defaults []int) ([]int, error) {
+	if strings.TrimSpace(raw) == "" {
+		return append([]int(nil), defaults...), nil
+	}
+	parts := strings.Split(raw, ",")
+	stages := make([]int, 0, len(parts))
+	for _, part := range parts {
+		part = strings.TrimSpace(part)
+		if part == "" {
+			continue
+		}
+		var rpm int
+		if _, err := fmt.Sscanf(part, "%d", &rpm); err != nil || rpm <= 0 {
+			return nil, fmt.Errorf("invalid stage rpm %q", part)
+		}
+		stages = append(stages, rpm)
+	}
+	if len(stages) == 0 {
+		return nil, fmt.Errorf("no valid stages configured")
+	}
+	return stages, nil
+}
+
+func setupBenchmarkEnv(mode string, timeout time.Duration, seed int64, databaseURL, redisURL, redisPrefix string) (*benchmarkEnv, error) {
 	_ = os.Setenv("ALLOW_INSECURE_DEFAULTS", "true")
 	_ = os.Setenv("RATE_LIMIT_PROXY_RPS", "20000")
 	_ = os.Setenv("RATE_LIMIT_AUTH_RPS", "20000")
@@ -192,17 +406,15 @@ func setupBenchmarkEnv(timeout time.Duration, seed int64, databaseURL, redisURL,
 		return nil, err
 	}
 
-	mode := "legacy-local"
 	cfg := config.Load()
-	if !legacyLocal {
+	if mode == "shared-billing" {
 		if databaseURL == "" || redisURL == "" {
 			mock.Close()
 			_ = os.RemoveAll(tempDir)
 			return nil, fmt.Errorf("shared billing benchmark requires both -database-url and -redis-url")
 		}
 	}
-	if databaseURL != "" && redisURL != "" && !legacyLocal {
-		mode = "shared-billing"
+	if mode == "shared-billing" {
 		cfg.DBType = string(database.DBTypePostgres)
 		cfg.DatabaseURL = databaseURL
 		cfg.RedisURL = redisURL
@@ -525,6 +737,185 @@ func runStage(env *benchmarkEnv, rpm int, duration time.Duration) stageMetrics {
 		reconcileRepairs:  runtimeMetricsAfter.ReconcileRepairs,
 		errorSamples:      append([]string(nil), errorSamples...),
 	}
+}
+
+func buildBenchmarkReport(profile benchmarkProfile, options runOptions, env *benchmarkEnv, startedAt, completedAt time.Time, stages []stageMetrics) benchmarkReport {
+	reportStages := make([]reportStage, 0, len(stages))
+	var totalRequests int64
+	var successes int64
+	var failures int64
+	var validationFailures int64
+	var throughputSum float64
+	worstStageRPM := 0
+	worstStageP95 := time.Duration(0)
+
+	for _, stage := range stages {
+		totalRequests += stage.total
+		successes += stage.success
+		failures += stage.failures
+		validationFailures += stage.validationFail
+		throughputSum += stage.throughputRPS
+		if stage.endToEndP95 > worstStageP95 {
+			worstStageP95 = stage.endToEndP95
+			worstStageRPM = stage.rpm
+		}
+		reportStages = append(reportStages, reportStage{
+			StageIndex:        stage.stageIndex,
+			RPM:               stage.rpm,
+			Total:             stage.total,
+			Success:           stage.success,
+			Failures:          stage.failures,
+			Elapsed:           stage.elapsed.Round(time.Millisecond).String(),
+			ThroughputRPS:     roundFloat(stage.throughputRPS, 2),
+			ErrorRate:         roundFloat(stage.errorRate, 6),
+			EndToEndP50:       roundDuration(stage.endToEndP50),
+			EndToEndP95:       roundDuration(stage.endToEndP95),
+			EndToEndP99:       roundDuration(stage.endToEndP99),
+			AdmissionP50:      roundDuration(stage.admissionP50),
+			AdmissionP95:      roundDuration(stage.admissionP95),
+			AdmissionP99:      roundDuration(stage.admissionP99),
+			SettleP50:         roundDuration(stage.settleP50),
+			SettleP95:         roundDuration(stage.settleP95),
+			SettleP99:         roundDuration(stage.settleP99),
+			ProjectP50:        roundDuration(stage.projectP50),
+			ProjectP95:        roundDuration(stage.projectP95),
+			ProjectP99:        roundDuration(stage.projectP99),
+			ValidationFail:    stage.validationFail,
+			AdmissionFailures: stage.admissionFailures,
+			SettleFailures:    stage.settleFailures,
+			ProjectFailures:   stage.projectFailures,
+			ReconcileFailures: stage.reconcileFailures,
+			ReconcileRepairs:  stage.reconcileRepairs,
+			ErrorSamples:      append([]string(nil), stage.errorSamples...),
+		})
+	}
+
+	avgThroughput := 0.0
+	if len(stages) > 0 {
+		avgThroughput = throughputSum / float64(len(stages))
+	}
+
+	errorRate := 0.0
+	if totalRequests > 0 {
+		errorRate = float64(failures) / float64(totalRequests)
+	}
+
+	return benchmarkReport{
+		Metadata: reportMetadata{
+			Profile:       profile.Name,
+			Label:         options.label,
+			Mode:          env.mode,
+			Description:   profile.Description,
+			Model:         env.model,
+			StageSeconds:  options.stageSeconds,
+			StageRPMs:     append([]int(nil), options.stageRPMs...),
+			Timeout:       options.timeout.String(),
+			Seed:          options.seed,
+			TargetURL:     env.appURL,
+			MockURL:       env.mockURL,
+			StartedAt:     startedAt.Format(time.RFC3339),
+			CompletedAt:   completedAt.Format(time.RFC3339),
+			OutputFormat:  options.outputFormat,
+			CompareFields: []string{"profile", "label", "mode", "stage_rpm", "e2e_p95", "e2e_p99", "throughput_rps", "error_rate", "admission_p95", "settle_p95", "project_p95"},
+		},
+		Summary: reportSummary{
+			Stages:         len(stages),
+			TotalRequests:  totalRequests,
+			Successes:      successes,
+			Failures:       failures,
+			ErrorRate:      roundFloat(errorRate, 6),
+			AvgThroughput:  roundFloat(avgThroughput, 2),
+			WorstStageRPM:  worstStageRPM,
+			WorstStageP95:  roundDuration(worstStageP95),
+			ValidationFail: validationFailures,
+		},
+		Stages: reportStages,
+	}
+}
+
+func writeReport(path, format string, report benchmarkReport) error {
+	if format != "json" {
+		return fmt.Errorf("unsupported output format %q", format)
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return err
+	}
+	encoded, err := json.MarshalIndent(report, "", "  ")
+	if err != nil {
+		return err
+	}
+	encoded = append(encoded, '\n')
+	return os.WriteFile(path, encoded, 0o644)
+}
+
+func printStageTableHeader() {
+	fmt.Printf("%-26s %-16s %3s %6s %6s %6s %7s %9s %9s %9s %9s %9s %9s %6s %6s %6s %6s %6s %6s\n",
+		"profile", "label", "#", "rpm", "ok", "err", "err%", "rps", "e2e_p95", "e2e_p99", "adm_p95", "set_p95", "prj_p95", "val", "resv", "stl", "prj", "recon", "fix")
+}
+
+func printStageTableRow(profileName, label string, metrics stageMetrics) {
+	fmt.Printf("%-26s %-16s %3d %6d %6d %6d %6.2f %9.1f %9s %9s %9s %9s %9s %6d %6d %6d %6d %6d %6d\n",
+		profileName,
+		displayValue(label, "-"),
+		metrics.stageIndex,
+		metrics.rpm,
+		metrics.success,
+		metrics.failures,
+		metrics.errorRate*100,
+		metrics.throughputRPS,
+		roundDuration(metrics.endToEndP95),
+		roundDuration(metrics.endToEndP99),
+		roundDuration(metrics.admissionP95),
+		roundDuration(metrics.settleP95),
+		roundDuration(metrics.projectP95),
+		metrics.validationFail,
+		metrics.admissionFailures,
+		metrics.settleFailures,
+		metrics.projectFailures,
+		metrics.reconcileFailures,
+		metrics.reconcileRepairs,
+	)
+}
+
+func printSummary(summary reportSummary) {
+	fmt.Printf("summary stages=%d total=%d ok=%d err=%d err_rate=%.2f%% avg_throughput=%.1f rps worst_stage_rpm=%d worst_e2e_p95=%s validation_err=%d\n",
+		summary.Stages,
+		summary.TotalRequests,
+		summary.Successes,
+		summary.Failures,
+		summary.ErrorRate*100,
+		summary.AvgThroughput,
+		summary.WorstStageRPM,
+		summary.WorstStageP95,
+		summary.ValidationFail,
+	)
+}
+
+func joinRPMs(values []int) string {
+	parts := make([]string, 0, len(values))
+	for _, value := range values {
+		parts = append(parts, fmt.Sprintf("%d", value))
+	}
+	return strings.Join(parts, ",")
+}
+
+func displayValue(value, fallback string) string {
+	if strings.TrimSpace(value) == "" {
+		return fallback
+	}
+	return value
+}
+
+func roundDuration(value time.Duration) string {
+	return value.Round(time.Millisecond).String()
+}
+
+func roundFloat(value float64, places int) float64 {
+	if places < 0 {
+		return value
+	}
+	factor := math.Pow(10, float64(places))
+	return math.Round(value*factor) / factor
 }
 
 func issueRequest(env *benchmarkEnv, sc scenario, body []byte) error {

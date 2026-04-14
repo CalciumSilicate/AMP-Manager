@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/gin-gonic/gin"
+	"github.com/google/uuid"
 	log "github.com/sirupsen/logrus"
 )
 
@@ -18,6 +19,7 @@ type multiReaderCloser struct {
 }
 
 type captureDataKey struct{}
+type requestDetailCaptureEnabledKey struct{}
 
 // CaptureData holds captured request data
 type CaptureData struct {
@@ -40,6 +42,19 @@ func GetCaptureData(ctx context.Context) *CaptureData {
 	return nil
 }
 
+func WithRequestDetailCaptureEnabled(ctx context.Context, enabled bool) context.Context {
+	return context.WithValue(ctx, requestDetailCaptureEnabledKey{}, enabled)
+}
+
+func IsRequestDetailCaptureEnabled(ctx context.Context) bool {
+	if val := ctx.Value(requestDetailCaptureEnabledKey{}); val != nil {
+		if enabled, ok := val.(bool); ok {
+			return enabled
+		}
+	}
+	return false
+}
+
 // RequestCaptureMiddleware captures request headers and body for detail logging
 func RequestCaptureMiddleware() gin.HandlerFunc {
 	return func(c *gin.Context) {
@@ -50,6 +65,20 @@ func RequestCaptureMiddleware() gin.HandlerFunc {
 
 		// Only capture for model invocation requests
 		if !IsModelInvocation(c.Request.Method, c.Request.URL.Path) {
+			c.Next()
+			return
+		}
+
+		ctx := c.Request.Context()
+		requestID := GetRequestID(ctx)
+		if requestID == "" {
+			requestID = uuid.New().String()
+			ctx = WithRequestID(ctx, requestID)
+		}
+		captureEnabled := ShouldCaptureRequestDetail(requestID)
+		ctx = WithRequestDetailCaptureEnabled(ctx, captureEnabled)
+		c.Request = c.Request.WithContext(ctx)
+		if !captureEnabled {
 			c.Next()
 			return
 		}
@@ -81,7 +110,7 @@ func RequestCaptureMiddleware() gin.HandlerFunc {
 			RequestHeaders: requestHeaders,
 			RequestBody:    requestBody,
 		}
-		ctx := WithCaptureData(c.Request.Context(), captureData)
+		ctx = WithCaptureData(c.Request.Context(), captureData)
 		c.Request = c.Request.WithContext(ctx)
 
 		c.Next()
