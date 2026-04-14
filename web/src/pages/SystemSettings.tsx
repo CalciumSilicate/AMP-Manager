@@ -247,6 +247,7 @@ export default function SystemSettings({ siteName, onSiteNameChange }: Props) {
         reconcileBatchSize: billingRuntimeConfig.reconcileBatchSize,
         expiryBatchSize: billingRuntimeConfig.expiryBatchSize,
         projectorWorkers: billingRuntimeConfig.projectorWorkers,
+        projectorClaimIdleSec: billingRuntimeConfig.projectorClaimIdleSec,
       })
       setBillingRuntimeConfig(result.config)
       showMessage('success', 'Redis 计费配置已保存并已热更新')
@@ -1281,6 +1282,16 @@ export default function SystemSettings({ siteName, onSiteNameChange }: Props) {
                           min={1}
                           value={billingRuntimeConfig.projectorWorkers}
                           onChange={(e) => handleBillingRuntimeConfigChange('projectorWorkers', parseInt(e.target.value) || 1)}
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <Label htmlFor="projectorClaimIdleSec">Projector reclaim idle (秒)</Label>
+                        <Input
+                          id="projectorClaimIdleSec"
+                          type="number"
+                          min={1}
+                          value={billingRuntimeConfig.projectorClaimIdleSec}
+                          onChange={(e) => handleBillingRuntimeConfigChange('projectorClaimIdleSec', parseInt(e.target.value) || 1)}
                         />
                       </div>
                       <div className="space-y-2">

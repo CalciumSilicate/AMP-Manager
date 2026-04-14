@@ -371,6 +371,7 @@ export interface BillingRuntimeConfig {
   reconcileBatchSize: number
   expiryBatchSize: number
   projectorWorkers: number
+  projectorClaimIdleSec: number
   runtimeEnabled: boolean
   runtimeHealthy: boolean
 }
@@ -384,6 +385,7 @@ export interface BillingRuntimeConfigRequest {
   reconcileBatchSize: number
   expiryBatchSize: number
   projectorWorkers: number
+  projectorClaimIdleSec: number
 }
 
 export async function getBillingRuntimeConfig(): Promise<BillingRuntimeConfig> {
