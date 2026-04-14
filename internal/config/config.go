@@ -36,6 +36,7 @@ type Config struct {
 	BillingStreamBatchSize      int
 	BillingReconcileBatchSize   int
 	BillingExpiryBatchSize      int
+	BillingProjectorWorkers     int
 	BillingEnvExplicit          BillingEnvExplicit
 }
 
@@ -87,6 +88,7 @@ func Load() *Config {
 		BillingStreamBatchSize:      getEnvInt("BILLING_STREAM_BATCH_SIZE", 100),
 		BillingReconcileBatchSize:   getEnvInt("BILLING_RECONCILE_BATCH_SIZE", getEnvInt("BILLING_STREAM_BATCH_SIZE", 100)),
 		BillingExpiryBatchSize:      getEnvInt("BILLING_EXPIRY_BATCH_SIZE", getEnvInt("BILLING_STREAM_BATCH_SIZE", 100)),
+		BillingProjectorWorkers:     getEnvInt("BILLING_PROJECTOR_WORKERS", 1),
 		BillingEnvExplicit: BillingEnvExplicit{
 			ReconcileBatchSize: hasEnv("BILLING_RECONCILE_BATCH_SIZE"),
 			ExpiryBatchSize:    hasEnv("BILLING_EXPIRY_BATCH_SIZE"),

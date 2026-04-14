@@ -100,6 +100,7 @@ type BillingRuntimeConfigResponse struct {
 	StreamBatchSize      int    `json:"streamBatchSize"`
 	ReconcileBatchSize   int    `json:"reconcileBatchSize"`
 	ExpiryBatchSize      int    `json:"expiryBatchSize"`
+	ProjectorWorkers     int    `json:"projectorWorkers"`
 	RuntimeEnabled       bool   `json:"runtimeEnabled"`
 	RuntimeHealthy       bool   `json:"runtimeHealthy"`
 }
@@ -112,4 +113,5 @@ type BillingRuntimeConfigRequest struct {
 	StreamBatchSize      int    `json:"streamBatchSize"`
 	ReconcileBatchSize   int    `json:"reconcileBatchSize"`
 	ExpiryBatchSize      int    `json:"expiryBatchSize"`
+	ProjectorWorkers     int    `json:"projectorWorkers"`
 }

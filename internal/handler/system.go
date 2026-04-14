@@ -324,6 +324,13 @@ func (h *SystemHandler) UpdateBillingRuntimeConfig(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "expiryBatchSize 必须 >= 1"})
 		return
 	}
+	if req.ProjectorWorkers == 0 {
+		req.ProjectorWorkers = 1
+	}
+	if req.ProjectorWorkers < 1 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "projectorWorkers 必须 >= 1"})
+		return
+	}
 
 	cfgService := service.NewSystemConfigService()
 	if err := cfgService.ApplyAndStoreBillingRuntimeConfig(req); err != nil {

@@ -2,13 +2,61 @@ package billingstate
 
 import (
 	"context"
+	"fmt"
 	"testing"
 	"time"
 
 	"ampmanager/internal/database"
 
+	"github.com/alicebob/miniredis/v2"
 	"github.com/redis/go-redis/v9"
 )
+
+func TestBuildProjectorConsumerNamesReturnsUniqueStableNames(t *testing.T) {
+	names := buildProjectorConsumerNames("host-a", 1234, "instance-a", 3)
+	want := []string{
+		"host-a-1234-instance-a-projector-1",
+		"host-a-1234-instance-a-projector-2",
+		"host-a-1234-instance-a-projector-3",
+	}
+
+	if len(names) != len(want) {
+		t.Fatalf("consumer names length = %d, want %d", len(names), len(want))
+	}
+	for idx := range want {
+		if names[idx] != want[idx] {
+			t.Fatalf("consumer name[%d] = %q, want %q", idx, names[idx], want[idx])
+		}
+	}
+}
+
+func TestBuildStartsConfiguredProjectorWorkers(t *testing.T) {
+	mr := miniredis.RunT(t)
+	rt, err := Build(Config{
+		RedisURL:         fmt.Sprintf("redis://%s/0", mr.Addr()),
+		Prefix:           "amp",
+		StreamBatchSize:  2,
+		ProjectorWorkers: 3,
+	})
+	if err != nil {
+		t.Fatalf("Build returned error: %v", err)
+	}
+	if rt == nil {
+		t.Fatal("Build returned nil runtime")
+	}
+	defer rt.Close()
+
+	if got := len(rt.projectorConsumers); got != 3 {
+		t.Fatalf("projector consumer count = %d, want 3", got)
+	}
+	seen := make(map[string]struct{}, len(rt.projectorConsumers))
+	for _, name := range rt.projectorConsumers {
+		if _, ok := seen[name]; ok {
+			t.Fatalf("duplicate projector consumer name %q", name)
+		}
+		seen[name] = struct{}{}
+	}
+}
 
 func TestProjectMessagesFallsBackToPerMessageAck(t *testing.T) {
 	setupBillingStateTestDB(t)
