@@ -1623,7 +1623,7 @@ func applySettleEvent(tx *sql.Tx, values map[string]any) error {
 		}
 	}
 
-	if _, err := tx.Exec(`UPDATE request_logs SET charged_subscription_micros = ?, charged_balance_micros = ?, billing_status = ? WHERE id = ?`, chargedSub, chargedBal, status, requestID); err != nil {
+	if err := updateRequestLogBillingTx(tx, requestID, status, chargedSub, chargedBal); err != nil {
 		return err
 	}
 
@@ -1683,6 +1683,22 @@ func applyExpireEvent(tx *sql.Tx, values map[string]any) error {
 	}
 
 	return nil
+}
+
+func updateRequestLogBillingTx(tx *sql.Tx, requestID, status string, chargedSub, chargedBal int64) error {
+	_, err := tx.Exec(
+		`UPDATE request_logs
+		 SET charged_subscription_micros = ?, charged_balance_micros = ?, billing_status = ?
+		 WHERE id = ?
+		   AND (
+		     COALESCE(charged_subscription_micros, -1) <> ?
+		     OR COALESCE(charged_balance_micros, -1) <> ?
+		     OR COALESCE(billing_status, '') <> ?
+		   )`,
+		chargedSub, chargedBal, status, requestID,
+		chargedSub, chargedBal, status,
+	)
+	return err
 }
 
 func lookupReservationSubscriptionID(tx *sql.Tx, requestID string) (string, error) {

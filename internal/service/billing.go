@@ -294,10 +294,7 @@ func (s *BillingService) settleRequestCostLegacy(requestLogID, userID string, co
 	if remaining > 0 {
 		billingStatus = "overuse"
 	}
-	if _, err := tx.Exec(
-		`UPDATE request_logs SET charged_subscription_micros = ?, charged_balance_micros = ?, billing_status = ? WHERE id = ?`,
-		chargedSubscription, chargedBalance, billingStatus, requestLogID,
-	); err != nil {
+	if err := updateRequestLogBillingTx(tx, requestLogID, billingStatus, chargedSubscription, chargedBalance); err != nil {
 		return fmt.Errorf("billing: update request_logs: %w", err)
 	}
 
@@ -464,9 +461,27 @@ func (s *BillingService) insertBillingEvent(tx *sql.Tx, requestLogID, userID str
 
 func (s *BillingService) markBillingStatus(requestLogID, status string, subMicros, balMicros int64) error {
 	db := database.GetDB()
-	_, err := db.Exec(
-		`UPDATE request_logs SET charged_subscription_micros = ?, charged_balance_micros = ?, billing_status = ? WHERE id = ?`,
+	return updateRequestLogBilling(db, requestLogID, status, subMicros, balMicros)
+}
+
+func updateRequestLogBilling(exec interface {
+	Exec(query string, args ...any) (sql.Result, error)
+}, requestLogID, status string, subMicros, balMicros int64) error {
+	_, err := exec.Exec(
+		`UPDATE request_logs
+		 SET charged_subscription_micros = ?, charged_balance_micros = ?, billing_status = ?
+		 WHERE id = ?
+		   AND (
+		     COALESCE(charged_subscription_micros, -1) <> ?
+		     OR COALESCE(charged_balance_micros, -1) <> ?
+		     OR COALESCE(billing_status, '') <> ?
+		   )`,
 		subMicros, balMicros, status, requestLogID,
+		subMicros, balMicros, status,
 	)
 	return err
+}
+
+func updateRequestLogBillingTx(tx *sql.Tx, requestLogID, status string, subMicros, balMicros int64) error {
+	return updateRequestLogBilling(tx, requestLogID, status, subMicros, balMicros)
 }
