@@ -87,7 +87,7 @@ function tokenizeLine(line: string): Token[] {
     }
 
     // 括号
-    const punctMatch = remaining.match(/^([{}\[\],])/)
+    const punctMatch = remaining.match(/^([{}[\],])/)
     if (punctMatch) {
       tokens.push({ type: 'punctuation', value: punctMatch[1] })
       remaining = remaining.slice(1)

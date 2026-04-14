@@ -508,19 +508,62 @@ func (r *Runtime) expiryLoop() {
 			return
 		case <-ticker.C:
 			now := time.Now().Unix()
-			requestIDs, err := r.client.ZRangeByScore(ctx, r.reservationExpiryKey(), &redis.ZRangeBy{
-				Min: "0",
-				Max: fmt.Sprintf("%d", now),
-			}).Result()
-			if err != nil && err != redis.Nil {
+			if _, err := r.releaseExpiredReservations(ctx, now); err != nil && err != redis.Nil {
 				log.Warnf("billing state: expiry scan failed: %v", err)
-				continue
-			}
-			for _, requestID := range requestIDs {
-				_ = r.releaseExpiredReservation(ctx, requestID, now)
 			}
 		}
 	}
+}
+
+func (r *Runtime) releaseExpiredReservations(ctx context.Context, nowUnix int64) (int, error) {
+	batchSize := r.expiryBatchSize()
+	total := 0
+
+	for {
+		before, err := r.countExpiredReservations(ctx, nowUnix)
+		if err != nil {
+			return total, err
+		}
+		if before == 0 {
+			return total, nil
+		}
+
+		count, err := r.releaseExpiredReservationsBatch(ctx, nowUnix)
+		if err != nil {
+			return total, err
+		}
+		total += count
+		if int64(count) < batchSize {
+			return total, nil
+		}
+
+		after, err := r.countExpiredReservations(ctx, nowUnix)
+		if err != nil {
+			return total, err
+		}
+		if after == 0 || after >= before {
+			return total, nil
+		}
+	}
+}
+
+func (r *Runtime) releaseExpiredReservationsBatch(ctx context.Context, nowUnix int64) (int, error) {
+	requestIDs, err := r.client.ZRangeByScore(ctx, r.reservationExpiryKey(), &redis.ZRangeBy{
+		Min:   "0",
+		Max:   fmt.Sprintf("%d", nowUnix),
+		Count: r.expiryBatchSize(),
+	}).Result()
+	if err != nil {
+		return 0, err
+	}
+	for _, requestID := range requestIDs {
+		_ = r.releaseExpiredReservation(ctx, requestID, nowUnix)
+	}
+	return len(requestIDs), nil
+}
+
+func (r *Runtime) countExpiredReservations(ctx context.Context, nowUnix int64) (int64, error) {
+	return r.client.ZCount(ctx, r.reservationExpiryKey(), "0", fmt.Sprintf("%d", nowUnix)).Result()
 }
 
 func (r *Runtime) releaseExpiredReservation(ctx context.Context, requestID string, nowUnix int64) error {
@@ -1408,6 +1451,10 @@ func (r *Runtime) reconcileBatchSize() int64 {
 		return r.cfg.StreamBatchSize
 	}
 	return defaultReconcileBatch
+}
+
+func (r *Runtime) expiryBatchSize() int64 {
+	return r.reconcileBatchSize()
 }
 
 func (r *Runtime) projectMessages(ctx context.Context, messages []redis.XMessage) []string {
