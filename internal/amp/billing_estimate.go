@@ -9,6 +9,7 @@ import (
 	"unicode"
 
 	"ampmanager/internal/billing"
+	"ampmanager/internal/billingstate"
 	"ampmanager/internal/database"
 
 	"github.com/gin-gonic/gin"
@@ -51,6 +52,10 @@ const (
 func BillingEstimateMiddleware() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		if !IsModelInvocation(c.Request.Method, c.Request.URL.Path) {
+			c.Next()
+			return
+		}
+		if !shouldEstimateBilling(c.Request.Context()) {
 			c.Next()
 			return
 		}
@@ -109,6 +114,19 @@ func BillingEstimateMiddleware() gin.HandlerFunc {
 		c.Request = c.Request.WithContext(ctx)
 		c.Next()
 	}
+}
+
+func shouldEstimateBilling(ctx context.Context) bool {
+	if billingstate.Get() == nil {
+		return false
+	}
+
+	cfg := GetProxyConfig(ctx)
+	if cfg == nil {
+		return false
+	}
+
+	return cfg.RateMultiplier != 0
 }
 
 func extractReservationMaxOutputTokens(payload map[string]interface{}, modelName string) int {

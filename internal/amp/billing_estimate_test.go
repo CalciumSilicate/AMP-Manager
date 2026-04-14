@@ -1,8 +1,16 @@
 package amp
 
 import (
+	"bytes"
 	"encoding/json"
+	"io"
+	"net/http"
+	"net/http/httptest"
 	"testing"
+
+	"ampmanager/internal/billingstate"
+
+	"github.com/gin-gonic/gin"
 )
 
 func TestEstimateReservationInputTokens_OpenAIChat(t *testing.T) {
@@ -235,6 +243,147 @@ func TestDetectBillingRequestKind(t *testing.T) {
 	}
 }
 
+func TestBillingEstimateMiddleware_SkipsBodyReadWhenRuntimeDisabled(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	previousRuntime := billingstate.Replace(nil)
+	defer billingstate.Replace(previousRuntime)
+
+	body := &trackingReadCloser{Reader: bytes.NewBufferString(`{"model":"gpt-4.1","messages":[{"role":"user","content":"hello"}]}`)}
+	var estimate *BillingEstimate
+	var payload *RequestPayload
+
+	router := gin.New()
+	router.Use(func(c *gin.Context) {
+		c.Request = c.Request.WithContext(WithProxyConfig(c.Request.Context(), &ProxyConfig{
+			UserID:         "user-1",
+			RateMultiplier: 1,
+		}))
+		c.Next()
+	})
+	router.Use(BillingEstimateMiddleware())
+	router.POST("/v1/chat/completions", func(c *gin.Context) {
+		estimate = GetBillingEstimate(c.Request.Context())
+		payload = GetRequestPayload(c.Request.Context())
+		c.Status(http.StatusNoContent)
+	})
+
+	req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
+	req.Body = body
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("expected status %d, got %d", http.StatusNoContent, rec.Code)
+	}
+	if body.reads != 0 {
+		t.Fatalf("expected request body to remain unread, got %d reads", body.reads)
+	}
+	if estimate != nil {
+		t.Fatalf("expected no billing estimate when runtime is disabled, got %#v", estimate)
+	}
+	if payload != nil {
+		t.Fatalf("expected request payload cache to remain empty when runtime is disabled")
+	}
+}
+
+func TestBillingEstimateMiddleware_SkipsBodyReadForFreeRequests(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	previousRuntime := billingstate.Replace(&billingstate.Runtime{})
+	defer billingstate.Replace(previousRuntime)
+
+	body := &trackingReadCloser{Reader: bytes.NewBufferString(`{"model":"gpt-4.1","messages":[{"role":"user","content":"hello"}]}`)}
+	var estimate *BillingEstimate
+	var payload *RequestPayload
+
+	router := gin.New()
+	router.Use(func(c *gin.Context) {
+		c.Request = c.Request.WithContext(WithProxyConfig(c.Request.Context(), &ProxyConfig{
+			UserID:         "user-1",
+			RateMultiplier: 0,
+		}))
+		c.Next()
+	})
+	router.Use(BillingEstimateMiddleware())
+	router.POST("/v1/chat/completions", func(c *gin.Context) {
+		estimate = GetBillingEstimate(c.Request.Context())
+		payload = GetRequestPayload(c.Request.Context())
+		c.Status(http.StatusNoContent)
+	})
+
+	req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
+	req.Body = body
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("expected status %d, got %d", http.StatusNoContent, rec.Code)
+	}
+	if body.reads != 0 {
+		t.Fatalf("expected request body to remain unread for free request, got %d reads", body.reads)
+	}
+	if estimate != nil {
+		t.Fatalf("expected no billing estimate for free request, got %#v", estimate)
+	}
+	if payload != nil {
+		t.Fatalf("expected request payload cache to remain empty for free request")
+	}
+}
+
+func TestBillingEstimateMiddleware_ReadsBodyWhenReservationMayBeNeeded(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	previousRuntime := billingstate.Replace(&billingstate.Runtime{})
+	defer billingstate.Replace(previousRuntime)
+
+	body := &trackingReadCloser{Reader: bytes.NewBufferString(`{"model":"gpt-4.1","messages":[{"role":"user","content":"hello"}],"max_tokens":42}`)}
+	var estimate *BillingEstimate
+	var payload *RequestPayload
+
+	router := gin.New()
+	router.Use(func(c *gin.Context) {
+		c.Request = c.Request.WithContext(WithProxyConfig(c.Request.Context(), &ProxyConfig{
+			UserID:         "user-1",
+			RateMultiplier: 1,
+		}))
+		c.Next()
+	})
+	router.Use(BillingEstimateMiddleware())
+	router.POST("/v1/chat/completions", func(c *gin.Context) {
+		estimate = GetBillingEstimate(c.Request.Context())
+		payload = GetRequestPayload(c.Request.Context())
+		c.Status(http.StatusNoContent)
+	})
+
+	req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
+	req.Body = body
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("expected status %d, got %d", http.StatusNoContent, rec.Code)
+	}
+	if body.reads == 0 {
+		t.Fatal("expected request body to be read when reservation may be needed")
+	}
+	if payload == nil || payload.JSON == nil {
+		t.Fatal("expected request payload cache to be populated")
+	}
+	if estimate == nil {
+		t.Fatal("expected billing estimate to be populated")
+	}
+	if estimate.PricingModel != "gpt-4.1" {
+		t.Fatalf("expected pricing model gpt-4.1, got %q", estimate.PricingModel)
+	}
+	if estimate.EstimatedOutputTokens != 42 {
+		t.Fatalf("expected max tokens 42, got %d", estimate.EstimatedOutputTokens)
+	}
+}
+
 func mustEstimatePayload(t *testing.T, raw string) map[string]interface{} {
 	t.Helper()
 	var payload map[string]interface{}
@@ -242,4 +391,18 @@ func mustEstimatePayload(t *testing.T, raw string) map[string]interface{} {
 		t.Fatalf("unmarshal payload: %v", err)
 	}
 	return payload
+}
+
+type trackingReadCloser struct {
+	io.Reader
+	reads int
+}
+
+func (t *trackingReadCloser) Read(p []byte) (int, error) {
+	t.reads++
+	return t.Reader.Read(p)
+}
+
+func (t *trackingReadCloser) Close() error {
+	return nil
 }
