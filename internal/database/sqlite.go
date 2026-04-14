@@ -460,6 +460,53 @@ func createTables() error {
 		FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
 	);
 
+	CREATE TABLE IF NOT EXISTS purchase_products (
+		id TEXT PRIMARY KEY,
+		name TEXT NOT NULL,
+		summary TEXT NOT NULL DEFAULT '',
+		subscription_plan_id TEXT NOT NULL,
+		duration_days INTEGER NOT NULL CHECK (duration_days > 0),
+		price_cny_cent BIGINT NOT NULL CHECK (price_cny_cent > 0),
+		is_recommended INTEGER NOT NULL DEFAULT 0,
+		sort_order INTEGER NOT NULL DEFAULT 0,
+		enabled INTEGER NOT NULL DEFAULT 1,
+		created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+		updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+		FOREIGN KEY (subscription_plan_id) REFERENCES subscription_plans(id) ON DELETE RESTRICT
+	);
+	CREATE INDEX IF NOT EXISTS idx_purchase_products_enabled_sort ON purchase_products(enabled, is_recommended DESC, sort_order ASC, created_at DESC);
+	CREATE INDEX IF NOT EXISTS idx_purchase_products_plan ON purchase_products(subscription_plan_id);
+
+	CREATE TABLE IF NOT EXISTS purchase_orders (
+		id TEXT PRIMARY KEY,
+		order_no TEXT UNIQUE NOT NULL,
+		user_id TEXT NOT NULL,
+		product_id TEXT NOT NULL,
+		subscription_plan_id TEXT NOT NULL,
+		duration_days INTEGER NOT NULL CHECK (duration_days > 0),
+		amount_cny_cent BIGINT NOT NULL CHECK (amount_cny_cent > 0),
+		payment_channel TEXT NOT NULL CHECK (payment_channel IN ('alipay')),
+		payment_status TEXT NOT NULL DEFAULT 'pending' CHECK (payment_status IN ('pending', 'paid', 'expired', 'closed', 'failed')),
+		fulfillment_status TEXT NOT NULL DEFAULT 'pending' CHECK (fulfillment_status IN ('pending', 'fulfilled', 'failed')),
+		alipay_trade_no TEXT NOT NULL DEFAULT '',
+		alipay_qr_code TEXT NOT NULL DEFAULT '',
+		alipay_qr_url TEXT NOT NULL DEFAULT '',
+		expires_at DATETIME,
+		paid_at DATETIME,
+		fulfilled_at DATETIME,
+		failure_reason TEXT NOT NULL DEFAULT '',
+		created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+		updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+		FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+		FOREIGN KEY (product_id) REFERENCES purchase_products(id) ON DELETE RESTRICT,
+		FOREIGN KEY (subscription_plan_id) REFERENCES subscription_plans(id) ON DELETE RESTRICT
+	);
+	CREATE INDEX IF NOT EXISTS idx_purchase_orders_user_created ON purchase_orders(user_id, created_at DESC);
+	CREATE INDEX IF NOT EXISTS idx_purchase_orders_payment_created ON purchase_orders(payment_status, created_at DESC);
+	CREATE INDEX IF NOT EXISTS idx_purchase_orders_fulfillment_created ON purchase_orders(fulfillment_status, created_at DESC);
+	CREATE INDEX IF NOT EXISTS idx_purchase_orders_product_created ON purchase_orders(product_id, created_at DESC);
+	CREATE INDEX IF NOT EXISTS idx_purchase_orders_trade_no ON purchase_orders(alipay_trade_no);
+
 	CREATE TABLE IF NOT EXISTS billing_events (
 		id TEXT PRIMARY KEY,
 		request_log_id TEXT,
@@ -810,6 +857,56 @@ func runMigrations() error {
 		{
 			name: "add_channels_simulate_ua",
 			sql:  `ALTER TABLE channels ADD COLUMN simulate_ua INTEGER NOT NULL DEFAULT 0`,
+		},
+		{
+			name: "create_purchase_products_and_orders",
+			sql: `
+				CREATE TABLE IF NOT EXISTS purchase_products (
+					id TEXT PRIMARY KEY,
+					name TEXT NOT NULL,
+					summary TEXT NOT NULL DEFAULT '',
+					subscription_plan_id TEXT NOT NULL,
+					duration_days INTEGER NOT NULL CHECK (duration_days > 0),
+					price_cny_cent BIGINT NOT NULL CHECK (price_cny_cent > 0),
+					is_recommended INTEGER NOT NULL DEFAULT 0,
+					sort_order INTEGER NOT NULL DEFAULT 0,
+					enabled INTEGER NOT NULL DEFAULT 1,
+					created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+					updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+					FOREIGN KEY (subscription_plan_id) REFERENCES subscription_plans(id) ON DELETE RESTRICT
+				);
+				CREATE INDEX IF NOT EXISTS idx_purchase_products_enabled_sort ON purchase_products(enabled, is_recommended DESC, sort_order ASC, created_at DESC);
+				CREATE INDEX IF NOT EXISTS idx_purchase_products_plan ON purchase_products(subscription_plan_id);
+				CREATE TABLE IF NOT EXISTS purchase_orders (
+					id TEXT PRIMARY KEY,
+					order_no TEXT UNIQUE NOT NULL,
+					user_id TEXT NOT NULL,
+					product_id TEXT NOT NULL,
+					subscription_plan_id TEXT NOT NULL,
+					duration_days INTEGER NOT NULL CHECK (duration_days > 0),
+					amount_cny_cent BIGINT NOT NULL CHECK (amount_cny_cent > 0),
+					payment_channel TEXT NOT NULL CHECK (payment_channel IN ('alipay')),
+					payment_status TEXT NOT NULL DEFAULT 'pending' CHECK (payment_status IN ('pending', 'paid', 'expired', 'closed', 'failed')),
+					fulfillment_status TEXT NOT NULL DEFAULT 'pending' CHECK (fulfillment_status IN ('pending', 'fulfilled', 'failed')),
+					alipay_trade_no TEXT NOT NULL DEFAULT '',
+					alipay_qr_code TEXT NOT NULL DEFAULT '',
+					alipay_qr_url TEXT NOT NULL DEFAULT '',
+					expires_at DATETIME,
+					paid_at DATETIME,
+					fulfilled_at DATETIME,
+					failure_reason TEXT NOT NULL DEFAULT '',
+					created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+					updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+					FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+					FOREIGN KEY (product_id) REFERENCES purchase_products(id) ON DELETE RESTRICT,
+					FOREIGN KEY (subscription_plan_id) REFERENCES subscription_plans(id) ON DELETE RESTRICT
+				);
+				CREATE INDEX IF NOT EXISTS idx_purchase_orders_user_created ON purchase_orders(user_id, created_at DESC);
+				CREATE INDEX IF NOT EXISTS idx_purchase_orders_payment_created ON purchase_orders(payment_status, created_at DESC);
+				CREATE INDEX IF NOT EXISTS idx_purchase_orders_fulfillment_created ON purchase_orders(fulfillment_status, created_at DESC);
+				CREATE INDEX IF NOT EXISTS idx_purchase_orders_product_created ON purchase_orders(product_id, created_at DESC);
+				CREATE INDEX IF NOT EXISTS idx_purchase_orders_trade_no ON purchase_orders(alipay_trade_no)
+			`,
 		},
 	}
 

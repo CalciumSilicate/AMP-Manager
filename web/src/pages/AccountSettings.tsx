@@ -11,6 +11,7 @@ import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group'
 import { formatDateTime, formatDecimal } from '@/lib/formatters'
+import { navigateDashboard } from '@/lib/dashboard-navigation'
 import { cn } from '@/lib/utils'
 import { CheckCircle2, XCircle, Wallet, RefreshCw, CreditCard, ArrowRightLeft, Shield } from 'lucide-react'
 
@@ -402,11 +403,19 @@ export default function AccountSettings({ username, onUsernameChange }: Props) {
             {billingState?.subscription && (
               <Card>
                   <CardHeader>
-                    <CardTitle className="flex items-center gap-2">
-                      <Shield className="h-5 w-5" />
-                      订阅状态
-                    </CardTitle>
-                    <CardDescription>订阅套餐信息</CardDescription>
+                    <div className="flex items-start justify-between gap-3">
+                      <div>
+                        <CardTitle className="flex items-center gap-2">
+                          <Shield className="h-5 w-5" />
+                          订阅状态
+                        </CardTitle>
+                        <CardDescription>订阅套餐信息</CardDescription>
+                      </div>
+                      <Button variant="outline" size="sm" onClick={() => navigateDashboard('purchase-center')}>
+                        <CreditCard className="mr-2 h-4 w-4" />
+                        购买续费
+                      </Button>
+                    </div>
                   </CardHeader>
                   <CardContent className="space-y-4">
                     <div className="flex flex-wrap items-start justify-between gap-3 border-b pb-4">
@@ -470,7 +479,11 @@ export default function AccountSettings({ username, onUsernameChange }: Props) {
                     <div className="text-center text-muted-foreground">
                       <CreditCard className="h-8 w-8 mx-auto mb-2 opacity-50" />
                       <p>暂未订阅任何套餐</p>
-                      <p className="text-xs mt-1">联系管理员分配订阅套餐</p>
+                      <p className="text-xs mt-1">可直接前往购买订阅。</p>
+                      <Button variant="outline" size="sm" className="mt-4" onClick={() => navigateDashboard('purchase-center')}>
+                        <CreditCard className="mr-2 h-4 w-4" />
+                        购买订阅
+                      </Button>
                     </div>
                   </CardContent>
                 </Card>

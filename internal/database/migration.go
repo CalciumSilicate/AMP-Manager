@@ -40,6 +40,8 @@ var migrationTables = []string{
 	"request_logs",
 	"request_log_details",
 	"system_config",
+	"purchase_products",
+	"purchase_orders",
 	"billing_events",
 }
 

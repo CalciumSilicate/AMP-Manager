@@ -15,11 +15,14 @@ import Groups from './Groups'
 import SubscriptionPlans from './SubscriptionPlans'
 import UserManagement from './UserManagement'
 import AccountSettings from './AccountSettings'
+import PurchaseCenter from './PurchaseCenter'
+import PaidSubscriptions from './PaidSubscriptions'
 import { Button } from '@/components/ui/button'
 // Card components available if needed by child pages
 import { Badge } from '@/components/ui/badge'
 import { Separator } from '@/components/ui/separator'
 import { ScrollArea } from '@/components/ui/scroll-area'
+import { DASHBOARD_NAVIGATE_EVENT } from '@/lib/dashboard-navigation'
 import {
   Tooltip,
   TooltipContent,
@@ -51,6 +54,7 @@ import {
   FolderOpen,
   LayoutDashboard,
   CreditCard,
+  ShoppingCart,
 } from 'lucide-react'
 
 interface Props {
@@ -63,7 +67,7 @@ interface Props {
   onLogout: () => void
 }
 
-type Page = 'overview' | 'amp-settings' | 'api-keys' | 'request-logs' | 'usage-stats' | 'channels' | 'models' | 'model-metadata' | 'prices' | 'system-settings' | 'user-management' | 'account-settings' | 'groups' | 'subscription-plans' | 'admin-overview'
+type Page = 'overview' | 'amp-settings' | 'api-keys' | 'request-logs' | 'usage-stats' | 'channels' | 'models' | 'model-metadata' | 'prices' | 'system-settings' | 'user-management' | 'account-settings' | 'groups' | 'subscription-plans' | 'admin-overview' | 'purchase-center' | 'paid-subscriptions'
 
 const navIcons: Record<Page, React.ElementType> = {
   'overview': LayoutDashboard,
@@ -81,6 +85,8 @@ const navIcons: Record<Page, React.ElementType> = {
   'system-settings': Wrench,
   'groups': FolderOpen,
   'subscription-plans': CreditCard,
+  'purchase-center': ShoppingCart,
+  'paid-subscriptions': CreditCard,
 }
 
 export default function Dashboard({
@@ -104,9 +110,11 @@ export default function Dashboard({
     { key: 'usage-stats', label: '使用量统计' },
     { key: 'models', label: '可用模型' },
     { key: 'account-settings', label: '账户设置' },
+    { key: 'purchase-center', label: '购买订阅' },
     { key: 'admin-overview', label: '管理概览', adminOnly: true },
     { key: 'groups', label: '分组管理', adminOnly: true },
     { key: 'subscription-plans', label: '订阅套餐', adminOnly: true },
+    { key: 'paid-subscriptions', label: '付费订阅', adminOnly: true },
     { key: 'channels', label: '渠道管理', adminOnly: true },
     { key: 'model-metadata', label: '模型元数据', adminOnly: true },
     { key: 'prices', label: '模型价格', adminOnly: true },
@@ -122,6 +130,22 @@ export default function Dashboard({
   useEffect(() => {
     document.title = `${currentPageLabel} - ${siteName}`
   }, [currentPageLabel, siteName])
+
+  useEffect(() => {
+    const handleNavigate = (event: Event) => {
+      const detail = (event as CustomEvent<{ page?: string }>).detail
+      const nextPage = detail?.page
+      if (!nextPage) return
+
+      const target = visibleNavItems.find((item) => item.key === nextPage)
+      if (target) {
+        setCurrentPage(target.key)
+      }
+    }
+
+    window.addEventListener(DASHBOARD_NAVIGATE_EVENT, handleNavigate)
+    return () => window.removeEventListener(DASHBOARD_NAVIGATE_EVENT, handleNavigate)
+  }, [visibleNavItems])
 
   const renderNavItem = (item: { key: Page; label: string; adminOnly?: boolean }) => {
     const Icon = navIcons[item.key]
@@ -318,9 +342,11 @@ export default function Dashboard({
                   {currentPage === 'usage-stats' && <UsageStats isAdmin={isAdmin} />}
                   {currentPage === 'models' && <Models isAdmin={isAdmin} />}
                   {currentPage === 'account-settings' && <AccountSettings username={username} onUsernameChange={setUsername} />}
+                  {currentPage === 'purchase-center' && <PurchaseCenter />}
                   {currentPage === 'channels' && isAdmin && <Channels />}
                   {currentPage === 'groups' && isAdmin && <Groups />}
                   {currentPage === 'subscription-plans' && isAdmin && <SubscriptionPlans />}
+                  {currentPage === 'paid-subscriptions' && isAdmin && <PaidSubscriptions />}
                   {currentPage === 'model-metadata' && isAdmin && <ModelMetadata />}
                   {currentPage === 'prices' && isAdmin && <Prices />}
                   {currentPage === 'user-management' && isAdmin && <UserManagement />}

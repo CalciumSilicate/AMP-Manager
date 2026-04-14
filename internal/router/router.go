@@ -70,6 +70,7 @@ func Setup() *gin.Engine {
 	groupHandler := handler.NewGroupHandler()
 	subscriptionHandler := handler.NewSubscriptionHandler()
 	billingSettingHandler := handler.NewBillingSettingHandler()
+	purchaseHandler := handler.NewPurchaseHandler()
 
 	api := r.Group("/api")
 	{
@@ -84,6 +85,7 @@ func Setup() *gin.Engine {
 		public := api.Group("/public")
 		{
 			public.GET("/site-config", systemHandler.GetPublicSiteConfig)
+			public.POST("/purchase/alipay/notify", purchaseHandler.AlipayNotify)
 		}
 
 		me := api.Group("/me")
@@ -96,6 +98,15 @@ func Setup() *gin.Engine {
 			me.GET("/billing/state", billingSettingHandler.GetBillingState)
 			me.PUT("/billing/priority", billingSettingHandler.UpdateBillingPriority)
 			me.GET("/subscription", billingSettingHandler.GetMySubscription)
+
+			purchase := me.Group("/purchase")
+			{
+				purchase.GET("/products", purchaseHandler.GetCatalog)
+				purchase.GET("/orders", purchaseHandler.ListMyOrders)
+				purchase.POST("/orders", purchaseHandler.CreateOrder)
+				purchase.GET("/orders/:orderNo", purchaseHandler.GetMyOrder)
+				purchase.POST("/orders/:orderNo/refresh", purchaseHandler.RefreshMyOrder)
+			}
 
 			ampGroup := me.Group("/amp")
 			{
@@ -241,6 +252,21 @@ func Setup() *gin.Engine {
 				prices.GET("", billingHandler.ListPrices)
 				prices.GET("/stats", billingHandler.GetPriceStats)
 				prices.POST("/refresh", billingHandler.RefreshPrices)
+			}
+
+			purchase := admin.Group("/purchase")
+			{
+				purchase.GET("/settings", purchaseHandler.GetSettings)
+				purchase.PUT("/settings", purchaseHandler.UpdateSettings)
+
+				purchase.GET("/products", purchaseHandler.ListProductsAdmin)
+				purchase.POST("/products", purchaseHandler.CreateProduct)
+				purchase.PUT("/products/:id", purchaseHandler.UpdateProduct)
+				purchase.DELETE("/products/:id", purchaseHandler.DeleteProduct)
+				purchase.PATCH("/products/:id/enabled", purchaseHandler.SetProductEnabled)
+
+				purchase.GET("/orders", purchaseHandler.ListOrdersAdmin)
+				purchase.POST("/orders/:orderNo/refresh", purchaseHandler.RefreshOrderAdmin)
 			}
 		}
 	}

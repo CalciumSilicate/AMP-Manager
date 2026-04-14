@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/button'
 import { CircularProgress } from '@/components/CircularProgress'
 import { Num } from '@/components/Num'
 import { formatDateTime, formatDateTimeWithSeconds, formatDecimal, formatGroupedNumericString } from '@/lib/formatters'
+import { navigateDashboard } from '@/lib/dashboard-navigation'
 import { motion, AnimatePresence, staggerContainer, staggerItem } from '@/lib/motion'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import {
@@ -454,6 +455,15 @@ export default function Overview() {
                               ? '永不过期'
                               : '联系管理员分配订阅'}
                         </p>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="mt-1"
+                          onClick={() => navigateDashboard('purchase-center')}
+                        >
+                          <CreditCard className="mr-2 h-4 w-4" />
+                          {billingState.subscription ? '购买续费' : '购买订阅'}
+                        </Button>
                       </div>
                     </div>
                     <div className="space-y-2 sm:justify-self-end sm:text-right">
