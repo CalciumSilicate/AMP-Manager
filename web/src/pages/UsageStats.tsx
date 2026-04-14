@@ -75,7 +75,7 @@ export default function UsageStats({ isAdmin }: Props) {
 
   useEffect(() => {
     loadSummary()
-  }, [summaryGroupBy, filters])
+  }, [loadSummary])
 
   useEffect(() => {
     if (autoRefresh) {
@@ -89,7 +89,7 @@ export default function UsageStats({ isAdmin }: Props) {
     return () => {
       if (refreshTimerRef.current) clearInterval(refreshTimerRef.current)
     }
-  }, [autoRefresh, refreshInterval, summaryGroupBy, filters])
+  }, [autoRefresh, refreshInterval, loadSummary])
 
   useEffect(() => {
     return () => {

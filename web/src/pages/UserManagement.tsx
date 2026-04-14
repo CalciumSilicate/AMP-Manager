@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { motion, AnimatePresence, staggerContainer, staggerItem } from '@/lib/motion'
 import {
   listUsersPaged,
@@ -91,16 +91,12 @@ export default function UserManagement() {
   const [extendDate, setExtendDate] = useState('')
   const [cancelSubConfirm, setCancelSubConfirm] = useState<{ userId: string; username: string } | null>(null)
 
-  useEffect(() => {
-    fetchUsers()
-  }, [page, pageSize])
-
-  useEffect(() => {
-    fetchGroups()
-    fetchPlansList()
+  const showMessage = useCallback((type: 'success' | 'error', text: string) => {
+    setMessage({ type, text })
+    setTimeout(() => setMessage(null), 3000)
   }, [])
 
-  const fetchUsers = async (targetPage = page, targetPageSize = pageSize) => {
+  const fetchUsers = useCallback(async (targetPage = page, targetPageSize = pageSize) => {
     setLoading(true)
     try {
       const data = await listUsersPaged(targetPage, targetPageSize)
@@ -111,21 +107,30 @@ export default function UserManagement() {
     } finally {
       setLoading(false)
     }
-  }
+  }, [page, pageSize, showMessage])
 
-  const fetchGroups = async () => {
+  const fetchGroups = useCallback(async () => {
     try {
       const data = await listGroups()
       setGroups(data)
     } catch {}
-  }
+  }, [])
 
-  const fetchPlansList = async () => {
+  const fetchPlansList = useCallback(async () => {
     try {
       const data = await getPlans()
       setPlans(data.filter((p) => p.enabled))
     } catch {}
-  }
+  }, [])
+
+  useEffect(() => {
+    fetchUsers()
+  }, [fetchUsers])
+
+  useEffect(() => {
+    fetchGroups()
+    fetchPlansList()
+  }, [fetchGroups, fetchPlansList])
 
   const handleOpenAssignSub = (userId: string, username: string) => {
     setAssignPlanId('')
@@ -187,11 +192,6 @@ export default function UserManagement() {
     } catch (err) {
       showMessage('error', err instanceof Error ? err.message : '更新到期时间失败')
     }
-  }
-
-  const showMessage = (type: 'success' | 'error', text: string) => {
-    setMessage({ type, text })
-    setTimeout(() => setMessage(null), 3000)
   }
 
   const handleToggleAdmin = async (user: UserInfo) => {

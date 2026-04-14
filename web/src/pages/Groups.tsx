@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { motion, AnimatePresence, staggerContainer, staggerItem, fadeInScale } from '@/lib/motion'
 import {
   listGroups,
@@ -42,11 +42,12 @@ export default function Groups() {
   const [saving, setSaving] = useState(false)
   const [deleteConfirmModal, setDeleteConfirmModal] = useState<Group | null>(null)
 
-  useEffect(() => {
-    fetchGroups()
+  const showMessage = useCallback((type: 'success' | 'error', text: string) => {
+    setMessage({ type, text })
+    setTimeout(() => setMessage(null), 3000)
   }, [])
 
-  const fetchGroups = async () => {
+  const fetchGroups = useCallback(async () => {
     try {
       const data = await listGroups()
       setGroups(data)
@@ -55,12 +56,11 @@ export default function Groups() {
     } finally {
       setLoading(false)
     }
-  }
+  }, [showMessage])
 
-  const showMessage = (type: 'success' | 'error', text: string) => {
-    setMessage({ type, text })
-    setTimeout(() => setMessage(null), 3000)
-  }
+  useEffect(() => {
+    fetchGroups()
+  }, [fetchGroups])
 
   const handleCreate = () => {
     setEditingGroup(null)

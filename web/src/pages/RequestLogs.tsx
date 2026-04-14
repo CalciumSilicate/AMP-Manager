@@ -125,7 +125,7 @@ export default function RequestLogs({ isAdmin }: Props) {
 
   useEffect(() => {
     loadData()
-  }, [page, pageSize, filters])
+  }, [loadData])
 
   useEffect(() => {
     if (autoRefresh && isAdmin) {

@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, useCallback } from 'react'
 import { motion, AnimatePresence } from '@/lib/motion'
 import {
   getDatabaseInfo,
@@ -96,19 +96,24 @@ export default function SystemSettings({ siteName, onSiteNameChange }: Props) {
   const [billingRuntimeLoading, setBillingRuntimeLoading] = useState(false)
 
   useEffect(() => {
-    fetchDatabaseInfo()
-    fetchRetryConfig()
-    fetchRequestDetailConfig()
-    fetchTimeoutConfig()
-    fetchCacheTTLConfig()
-    fetchBillingRuntimeConfig()
-  }, [])
-
-  useEffect(() => {
     setSiteNameInput(siteName)
   }, [siteName])
 
-  const fetchDatabaseInfo = async () => {
+  const showMessage = useCallback((type: 'success' | 'error', text: string) => {
+    setMessage({ type, text })
+    setTimeout(() => setMessage(null), 5000)
+  }, [])
+
+  const fetchBackups = useCallback(async () => {
+    try {
+      const data = await listBackups()
+      setBackups(data)
+    } catch (err) {
+      console.error('获取备份列表失败:', err)
+    }
+  }, [])
+
+  const fetchDatabaseInfo = useCallback(async () => {
     setDatabaseInfoLoading(true)
     try {
       const data = await getDatabaseInfo()
@@ -119,7 +124,7 @@ export default function SystemSettings({ siteName, onSiteNameChange }: Props) {
         setMigrationTargetDatabaseUrl(data.databaseURL)
       }
       if (data.supportsFileBackups) {
-        fetchBackups()
+        await fetchBackups()
       } else {
         setBackups([])
       }
@@ -128,27 +133,18 @@ export default function SystemSettings({ siteName, onSiteNameChange }: Props) {
     } finally {
       setDatabaseInfoLoading(false)
     }
-  }
+  }, [fetchBackups])
 
-  const fetchBackups = async () => {
-    try {
-      const data = await listBackups()
-      setBackups(data)
-    } catch (err) {
-      console.error('获取备份列表失败:', err)
-    }
-  }
-
-  const fetchRetryConfig = async () => {
+  const fetchRetryConfig = useCallback(async () => {
     try {
       const data = await getRetryConfig()
       setRetryConfig(data)
     } catch (err) {
       console.error('获取重试配置失败:', err)
     }
-  }
+  }, [])
 
-  const fetchRequestDetailConfig = async () => {
+  const fetchRequestDetailConfig = useCallback(async () => {
     setRequestDetailLoading(true)
     setRequestDetailLoadError(null)
     try {
@@ -160,34 +156,50 @@ export default function SystemSettings({ siteName, onSiteNameChange }: Props) {
     } finally {
       setRequestDetailLoading(false)
     }
-  }
+  }, [])
 
-  const fetchTimeoutConfig = async () => {
+  const fetchTimeoutConfig = useCallback(async () => {
     try {
       const data = await getTimeoutConfig()
       setTimeoutConfig(data)
     } catch (err) {
       console.error('获取超时配置失败:', err)
     }
-  }
+  }, [])
 
-  const fetchCacheTTLConfig = async () => {
+  const fetchCacheTTLConfig = useCallback(async () => {
     try {
       const data = await getCacheTTLConfig()
       setCacheTTL(data.cacheTTL)
     } catch (err) {
       console.error('获取缓存TTL配置失败:', err)
     }
-  }
+  }, [])
 
-  const fetchBillingRuntimeConfig = async () => {
+  const fetchBillingRuntimeConfig = useCallback(async () => {
     try {
       const data = await getBillingRuntimeConfig()
       setBillingRuntimeConfig(data)
     } catch (err) {
       console.error('获取 Redis 计费配置失败:', err)
     }
-  }
+  }, [])
+
+  useEffect(() => {
+    fetchDatabaseInfo()
+    fetchRetryConfig()
+    fetchRequestDetailConfig()
+    fetchTimeoutConfig()
+    fetchCacheTTLConfig()
+    fetchBillingRuntimeConfig()
+  }, [
+    fetchBillingRuntimeConfig,
+    fetchCacheTTLConfig,
+    fetchDatabaseInfo,
+    fetchRequestDetailConfig,
+    fetchRetryConfig,
+    fetchTimeoutConfig,
+  ])
 
   const handleCacheTTLChange = async (value: string) => {
     setCacheTTLLoading(true)
@@ -305,11 +317,6 @@ export default function SystemSettings({ siteName, onSiteNameChange }: Props) {
     }
   }
 
-  const showMessage = (type: 'success' | 'error', text: string) => {
-    setMessage({ type, text })
-    setTimeout(() => setMessage(null), 5000)
-  }
-
   const billingRuntimeBadge = !billingRuntimeConfig?.runtimeEnabled
     ? { label: 'Legacy', variant: 'secondary' as const }
     : billingRuntimeConfig.runtimeHealthy
@@ -413,7 +420,7 @@ export default function SystemSettings({ siteName, onSiteNameChange }: Props) {
     }, 1500)
 
     return () => window.clearInterval(timer)
-  }, [migrationTask])
+  }, [fetchDatabaseInfo, migrationTask, showMessage])
 
   const handleRestore = async (filename: string) => {
     if (!confirm(`确定要恢复备份 ${filename} 吗？当前数据将被备份。`)) {
