@@ -5,14 +5,17 @@ import (
 	"context"
 	"encoding/json"
 	"io"
+	"math"
 	"net/http"
 	"os"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strings"
 	"time"
 
 	"ampmanager/internal/amp"
+	"ampmanager/internal/billingstate"
 	"ampmanager/internal/database"
 	"ampmanager/internal/model"
 	"ampmanager/internal/repository"
@@ -286,6 +289,36 @@ func (h *SystemHandler) GetBillingRuntimeConfig(c *gin.Context) {
 	c.JSON(http.StatusOK, resp)
 }
 
+func (h *SystemHandler) GetBillingRuntimeStats(c *gin.Context) {
+	cfg, err := service.NewSystemConfigService().GetBillingRuntimeConfig()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "获取运行时状态失败"})
+		return
+	}
+
+	resp := model.BillingRuntimeStatsResponse{
+		RuntimeEnabled: cfg.RuntimeEnabled,
+		RuntimeHealthy: cfg.RuntimeHealthy,
+	}
+
+	rt := billingstate.Get()
+	if rt == nil {
+		c.JSON(http.StatusOK, resp)
+		return
+	}
+
+	snapshot := rt.SnapshotMetrics(false)
+	resp.Reserve = summarizeBillingRuntimeMetric(snapshot.ReserveDurations, snapshot.ReserveFailures)
+	resp.Settle = summarizeBillingRuntimeMetric(snapshot.SettleDurations, snapshot.SettleFailures)
+	resp.Project = summarizeBillingRuntimeMetric(snapshot.ProjectDurations, snapshot.ProjectFailures)
+	resp.Reclaim = summarizeBillingRuntimeMetric(snapshot.ReclaimDurations, snapshot.ReclaimFailures)
+	resp.Reconcile = summarizeBillingRuntimeMetric(snapshot.ReconcileDurations, snapshot.ReconcileFailures)
+	resp.ReclaimClaimed = snapshot.ReclaimClaimed
+	resp.ReconcileRepairs = snapshot.ReconcileRepairs
+
+	c.JSON(http.StatusOK, resp)
+}
+
 func (h *SystemHandler) UpdateBillingRuntimeConfig(c *gin.Context) {
 	var req model.BillingRuntimeConfigRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -355,6 +388,35 @@ func (h *SystemHandler) UpdateBillingRuntimeConfig(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"message": "配置已更新", "config": resp})
+}
+
+func summarizeBillingRuntimeMetric(durations []time.Duration, failures int64) model.BillingRuntimeMetricSummary {
+	return model.BillingRuntimeMetricSummary{
+		Samples:  len(durations),
+		P95Ms:    percentileDurationMs(durations, 0.95),
+		P99Ms:    percentileDurationMs(durations, 0.99),
+		Failures: failures,
+	}
+}
+
+func percentileDurationMs(durations []time.Duration, percentile float64) int64 {
+	if len(durations) == 0 {
+		return 0
+	}
+
+	sorted := append([]time.Duration(nil), durations...)
+	sort.Slice(sorted, func(i, j int) bool {
+		return sorted[i] < sorted[j]
+	})
+
+	index := int(math.Ceil(percentile*float64(len(sorted)))) - 1
+	if index < 0 {
+		index = 0
+	}
+	if index >= len(sorted) {
+		index = len(sorted) - 1
+	}
+	return sorted[index].Milliseconds()
 }
 
 func (h *SystemHandler) UploadDatabase(c *gin.Context) {

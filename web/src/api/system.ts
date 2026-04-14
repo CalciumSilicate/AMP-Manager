@@ -388,12 +388,42 @@ export interface BillingRuntimeConfigRequest {
   projectorClaimIdleSec: number
 }
 
+export interface BillingRuntimeMetricSummary {
+  samples: number
+  p95Ms: number
+  p99Ms: number
+  failures: number
+}
+
+export interface BillingRuntimeStats {
+  runtimeEnabled: boolean
+  runtimeHealthy: boolean
+  reserve: BillingRuntimeMetricSummary
+  settle: BillingRuntimeMetricSummary
+  project: BillingRuntimeMetricSummary
+  reclaim: BillingRuntimeMetricSummary
+  reconcile: BillingRuntimeMetricSummary
+  reclaimClaimed: number
+  reconcileRepairs: number
+}
+
 export async function getBillingRuntimeConfig(): Promise<BillingRuntimeConfig> {
   const res = await authFetch(`${API_BASE}/admin/system/billing-runtime-config`)
 
   if (!res.ok) {
     const data = await res.json()
     throw new Error(data.error || '获取 Redis 计费配置失败')
+  }
+
+  return res.json()
+}
+
+export async function getBillingRuntimeStats(): Promise<BillingRuntimeStats> {
+  const res = await authFetch(`${API_BASE}/admin/system/billing-runtime-stats`)
+
+  if (!res.ok) {
+    const data = await res.json()
+    throw new Error(data.error || '获取 Redis 计费运行时统计失败')
   }
 
   return res.json()
