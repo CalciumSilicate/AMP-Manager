@@ -1211,8 +1211,11 @@ func handleNonStreamingResponse(resp *http.Response, trace *RequestTrace, transI
 
 						if proxyCfg != nil && adjustedCostMicros > 0 {
 							billingSvc := service.NewBillingService()
-							if err := billingSvc.SettleRequestCost(trace.RequestID, proxyCfg.UserID, adjustedCostMicros); err != nil {
+							result, err := billingSvc.SettleRequestCostResult(trace.RequestID, proxyCfg.UserID, adjustedCostMicros)
+							if err != nil {
 								log.Warnf("channel router: failed to settle cost for user %s: %v", proxyCfg.UserID, err)
+							} else {
+								trace.SetBillingResult(result)
 							}
 						}
 					}

@@ -31,6 +31,12 @@ type BillingService struct {
 	subSvc      *UserSubscriptionService
 }
 
+type RequestBillingResult struct {
+	Status                    string
+	ChargedSubscriptionMicros int64
+	ChargedBalanceMicros      int64
+}
+
 type AdmissionRequest struct {
 	RequestID           string
 	UserID              string
@@ -162,13 +168,24 @@ func (s *BillingService) calcSubscriptionRemaining(sub *model.UserSubscription, 
 }
 
 func (s *BillingService) SettleRequestCost(requestLogID, userID string, costMicros int64) error {
+	result, err := s.SettleRequestCostResult(requestLogID, userID, costMicros)
+	if err != nil {
+		return err
+	}
+	if result == nil {
+		return nil
+	}
+	return s.markBillingStatus(requestLogID, result.Status, result.ChargedSubscriptionMicros, result.ChargedBalanceMicros)
+}
+
+func (s *BillingService) SettleRequestCostResult(requestLogID, userID string, costMicros int64) (*RequestBillingResult, error) {
 	if runtime := billingstate.Get(); runtime != nil {
 		result, err := runtime.SettleRequest(context.Background(), requestLogID, userID, costMicros)
 		if err != nil {
 			if errors.Is(err, billingstate.ErrReservationNotFound) {
 				return s.settleRequestCostLegacy(requestLogID, userID, costMicros)
 			}
-			return err
+			return nil, err
 		}
 
 		status := "free"
@@ -188,48 +205,52 @@ func (s *BillingService) SettleRequestCost(requestLogID, userID string, costMicr
 			chargedSub = result.ChargedSubscriptionMicros
 			chargedBal = result.ChargedBalanceMicros
 		}
-		return s.markBillingStatus(requestLogID, status, chargedSub, chargedBal)
+		return &RequestBillingResult{
+			Status:                    status,
+			ChargedSubscriptionMicros: chargedSub,
+			ChargedBalanceMicros:      chargedBal,
+		}, nil
 	}
 	return s.settleRequestCostLegacy(requestLogID, userID, costMicros)
 }
 
-func (s *BillingService) settleRequestCostLegacy(requestLogID, userID string, costMicros int64) error {
+func (s *BillingService) settleRequestCostLegacy(requestLogID, userID string, costMicros int64) (*RequestBillingResult, error) {
 	if costMicros < 0 {
-		return fmt.Errorf("billing: invalid negative cost %d", costMicros)
+		return nil, fmt.Errorf("billing: invalid negative cost %d", costMicros)
 	}
 	if costMicros == 0 {
-		return s.markBillingStatus(requestLogID, "free", 0, 0)
+		return &RequestBillingResult{Status: "free"}, nil
 	}
 
 	db := database.GetDB()
 
 	tx, err := db.Begin()
 	if err != nil {
-		return fmt.Errorf("billing: begin tx: %w", err)
+		return nil, fmt.Errorf("billing: begin tx: %w", err)
 	}
 	defer tx.Rollback()
 
 	setting, err := s.queryBillingSetting(tx, userID)
 	if err != nil {
-		return fmt.Errorf("billing: query setting: %w", err)
+		return nil, fmt.Errorf("billing: query setting: %w", err)
 	}
 
 	sub, err := s.queryActiveSubscription(tx, userID)
 	if err != nil {
-		return fmt.Errorf("billing: query subscription: %w", err)
+		return nil, fmt.Errorf("billing: query subscription: %w", err)
 	}
 
 	var subscriptionRemaining int64
 	if sub != nil {
 		subscriptionRemaining, err = s.calcSubscriptionRemainingTx(tx, sub)
 		if err != nil {
-			return fmt.Errorf("billing: calc subscription remaining: %w", err)
+			return nil, fmt.Errorf("billing: calc subscription remaining: %w", err)
 		}
 	}
 
 	balance, err := s.queryBalance(tx, userID)
 	if err != nil {
-		return fmt.Errorf("billing: query balance: %w", err)
+		return nil, fmt.Errorf("billing: query balance: %w", err)
 	}
 
 	var chargedSubscription, chargedBalance int64
@@ -271,19 +292,19 @@ func (s *BillingService) settleRequestCostLegacy(requestLogID, userID string, co
 
 	if chargedSubscription > 0 && sub != nil {
 		if err := s.insertBillingEvent(tx, requestLogID, userID, &sub.ID, model.BillingSourceSubscription, "charge", chargedSubscription, now); err != nil {
-			return fmt.Errorf("billing: insert subscription event: %w", err)
+			return nil, fmt.Errorf("billing: insert subscription event: %w", err)
 		}
 	}
 
 	if chargedBalance > 0 {
 		if err := s.insertBillingEvent(tx, requestLogID, userID, nil, model.BillingSourceBalance, "charge", chargedBalance, now); err != nil {
-			return fmt.Errorf("billing: insert balance event: %w", err)
+			return nil, fmt.Errorf("billing: insert balance event: %w", err)
 		}
 		if _, err := tx.Exec(
 			`UPDATE users SET balance_micros = CASE WHEN balance_micros >= ? THEN balance_micros - ? ELSE 0 END, updated_at = ? WHERE id = ?`,
 			chargedBalance, chargedBalance, now, userID,
 		); err != nil {
-			return fmt.Errorf("billing: deduct balance: %w", err)
+			return nil, fmt.Errorf("billing: deduct balance: %w", err)
 		}
 	}
 
@@ -294,17 +315,18 @@ func (s *BillingService) settleRequestCostLegacy(requestLogID, userID string, co
 	if remaining > 0 {
 		billingStatus = "overuse"
 	}
-	if err := updateRequestLogBillingTx(tx, requestLogID, billingStatus, chargedSubscription, chargedBalance); err != nil {
-		return fmt.Errorf("billing: update request_logs: %w", err)
-	}
 
 	if err := tx.Commit(); err != nil {
-		return fmt.Errorf("billing: commit: %w", err)
+		return nil, fmt.Errorf("billing: commit: %w", err)
 	}
 
 	log.Debugf("billing: settled request %s user %s cost=%d sub=%d bal=%d status=%s",
 		requestLogID, userID, costMicros, chargedSubscription, chargedBalance, billingStatus)
-	return nil
+	return &RequestBillingResult{
+		Status:                    billingStatus,
+		ChargedSubscriptionMicros: chargedSubscription,
+		ChargedBalanceMicros:      chargedBalance,
+	}, nil
 }
 
 func (s *BillingService) GetBillingState(userID string) (*model.BillingStateResponse, error) {
@@ -480,8 +502,4 @@ func updateRequestLogBilling(exec interface {
 		subMicros, balMicros, status,
 	)
 	return err
-}
-
-func updateRequestLogBillingTx(tx *sql.Tx, requestLogID, status string, subMicros, balMicros int64) error {
-	return updateRequestLogBilling(tx, requestLogID, status, subMicros, balMicros)
 }

@@ -9,7 +9,7 @@ import (
 	"ampmanager/internal/database"
 )
 
-func TestSettleRequestCostLegacyMarksOveruseAfterBestEffortCharge(t *testing.T) {
+func TestSettleRequestCostResultLegacyReturnsOveruseAfterBestEffortCharge(t *testing.T) {
 	db := setupBillingServiceTestDB(t)
 	now := time.Now().UTC()
 
@@ -21,8 +21,15 @@ func TestSettleRequestCostLegacyMarksOveruseAfterBestEffortCharge(t *testing.T) 
 	mustExecBillingService(t, db, `INSERT INTO request_logs (id, created_at, user_id, api_key_id, method, path, status_code, latency_ms, cost_micros, cost_usd, billing_status) VALUES (?, ?, ?, 'key-1', 'POST', '/v1/responses', 200, 123, 130, '0.000130', 'none')`, "req-1", now, "user-1")
 
 	svc := NewBillingService()
-	if err := svc.settleRequestCostLegacy("req-1", "user-1", 130); err != nil {
+	result, err := svc.settleRequestCostLegacy("req-1", "user-1", 130)
+	if err != nil {
 		t.Fatalf("settleRequestCostLegacy returned error: %v", err)
+	}
+	if result == nil {
+		t.Fatal("settleRequestCostLegacy returned nil result")
+	}
+	if result.ChargedSubscriptionMicros != 100 || result.ChargedBalanceMicros != 10 || result.Status != "overuse" {
+		t.Fatalf("settle result = %+v", result)
 	}
 
 	var chargedSub, chargedBal int64
@@ -30,7 +37,7 @@ func TestSettleRequestCostLegacyMarksOveruseAfterBestEffortCharge(t *testing.T) 
 	if err := db.QueryRow(`SELECT charged_subscription_micros, charged_balance_micros, billing_status FROM request_logs WHERE id = ?`, "req-1").Scan(&chargedSub, &chargedBal, &status); err != nil {
 		t.Fatalf("query request_logs returned error: %v", err)
 	}
-	if chargedSub != 100 || chargedBal != 10 || status != "overuse" {
+	if chargedSub != 0 || chargedBal != 0 || status != "none" {
 		t.Fatalf("request log billing = sub:%d bal:%d status:%s", chargedSub, chargedBal, status)
 	}
 
@@ -40,6 +47,29 @@ func TestSettleRequestCostLegacyMarksOveruseAfterBestEffortCharge(t *testing.T) 
 	}
 	if balance != 0 {
 		t.Fatalf("balance after settle = %d, want 0", balance)
+	}
+}
+
+func TestSettleRequestCostFallbackStillMarksRequestLog(t *testing.T) {
+	db := setupBillingServiceTestDB(t)
+	now := time.Now().UTC()
+
+	mustExecBillingService(t, db, `INSERT INTO users (id, username, password_hash, is_admin, balance_micros) VALUES (?, 'alice', 'x', 0, 5)`, "user-1")
+	mustExecBillingService(t, db, `INSERT INTO user_billing_settings (user_id, primary_source, secondary_source) VALUES (?, 'balance', 'subscription')`, "user-1")
+	mustExecBillingService(t, db, `INSERT INTO request_logs (id, created_at, user_id, api_key_id, method, path, status_code, latency_ms, cost_micros, cost_usd, billing_status) VALUES (?, ?, ?, 'key-1', 'POST', '/v1/responses', 200, 123, 5, '0.000005', 'none')`, "req-1", now, "user-1")
+
+	svc := NewBillingService()
+	if err := svc.SettleRequestCost("req-1", "user-1", 5); err != nil {
+		t.Fatalf("SettleRequestCost returned error: %v", err)
+	}
+
+	var chargedSub, chargedBal int64
+	var status string
+	if err := db.QueryRow(`SELECT charged_subscription_micros, charged_balance_micros, billing_status FROM request_logs WHERE id = ?`, "req-1").Scan(&chargedSub, &chargedBal, &status); err != nil {
+		t.Fatalf("query request_logs returned error: %v", err)
+	}
+	if chargedSub != 0 || chargedBal != 5 || status != "settled" {
+		t.Fatalf("request log billing = sub:%d bal:%d status:%s", chargedSub, chargedBal, status)
 	}
 }
 
