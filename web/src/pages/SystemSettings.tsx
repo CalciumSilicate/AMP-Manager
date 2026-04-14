@@ -246,6 +246,7 @@ export default function SystemSettings({ siteName, onSiteNameChange }: Props) {
         streamBatchSize: billingRuntimeConfig.streamBatchSize,
         reconcileBatchSize: billingRuntimeConfig.reconcileBatchSize,
         expiryBatchSize: billingRuntimeConfig.expiryBatchSize,
+        projectorWorkers: billingRuntimeConfig.projectorWorkers,
       })
       setBillingRuntimeConfig(result.config)
       showMessage('success', 'Redis 计费配置已保存并已热更新')
@@ -1270,6 +1271,16 @@ export default function SystemSettings({ siteName, onSiteNameChange }: Props) {
                           min={1}
                           value={billingRuntimeConfig.streamBatchSize}
                           onChange={(e) => handleBillingRuntimeConfigChange('streamBatchSize', parseInt(e.target.value) || 1)}
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <Label htmlFor="projectorWorkers">Projector Workers</Label>
+                        <Input
+                          id="projectorWorkers"
+                          type="number"
+                          min={1}
+                          value={billingRuntimeConfig.projectorWorkers}
+                          onChange={(e) => handleBillingRuntimeConfigChange('projectorWorkers', parseInt(e.target.value) || 1)}
                         />
                       </div>
                       <div className="space-y-2">

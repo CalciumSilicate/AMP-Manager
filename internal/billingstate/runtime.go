@@ -44,15 +44,16 @@ type Config struct {
 	StreamBatchSize    int64
 	ReconcileBatchSize int64
 	ExpiryBatchSize    int64
+	ProjectorWorkers   int
 }
 
 type Runtime struct {
-	client       *redis.Client
-	cfg          Config
-	consumerName string
-	stopCh       chan struct{}
-	wg           sync.WaitGroup
-	metrics      runtimeMetrics
+	client             *redis.Client
+	cfg                Config
+	projectorConsumers []string
+	stopCh             chan struct{}
+	wg                 sync.WaitGroup
+	metrics            runtimeMetrics
 
 	reconcileCursor string
 }
@@ -203,10 +204,10 @@ func Build(cfg Config) (*Runtime, error) {
 
 	host, _ := os.Hostname()
 	rt := &Runtime{
-		client:       client,
-		cfg:          cfg,
-		consumerName: fmt.Sprintf("%s-%d-%d", host, os.Getpid(), time.Now().UnixNano()),
-		stopCh:       make(chan struct{}),
+		client:             client,
+		cfg:                cfg,
+		projectorConsumers: buildProjectorConsumerNames(host, os.Getpid(), uuid.NewString(), cfg.ProjectorWorkers),
+		stopCh:             make(chan struct{}),
 	}
 
 	if err := rt.ensureConsumerGroup(context.Background()); err != nil {
@@ -214,8 +215,10 @@ func Build(cfg Config) (*Runtime, error) {
 		return nil, err
 	}
 
-	rt.wg.Add(3)
-	go rt.projectorLoop()
+	rt.wg.Add(cfg.ProjectorWorkers + 2)
+	for _, consumerName := range rt.projectorConsumers {
+		go rt.projectorLoop(consumerName)
+	}
 	go rt.expiryLoop()
 	go rt.reconcileLoop()
 
@@ -252,7 +255,19 @@ func normalizeConfig(cfg Config) Config {
 	if cfg.ExpiryBatchSize <= 0 {
 		cfg.ExpiryBatchSize = cfg.StreamBatchSize
 	}
+	if cfg.ProjectorWorkers <= 0 {
+		cfg.ProjectorWorkers = 1
+	}
 	return cfg
+}
+
+func buildProjectorConsumerNames(host string, pid int, instanceID string, workers int) []string {
+	names := make([]string, 0, workers)
+	base := fmt.Sprintf("%s-%d-%s", host, pid, instanceID)
+	for idx := 0; idx < workers; idx++ {
+		names = append(names, fmt.Sprintf("%s-projector-%d", base, idx+1))
+	}
+	return names
 }
 
 func (r *Runtime) Close() {
@@ -441,7 +456,7 @@ func (r *Runtime) ensureConsumerGroup(ctx context.Context) error {
 	return nil
 }
 
-func (r *Runtime) projectorLoop() {
+func (r *Runtime) projectorLoop(consumerName string) {
 	defer r.wg.Done()
 
 	ctx := context.Background()
@@ -454,7 +469,7 @@ func (r *Runtime) projectorLoop() {
 
 		streams, err := r.client.XReadGroup(ctx, &redis.XReadGroupArgs{
 			Group:    defaultProjectorGroup,
-			Consumer: r.consumerName,
+			Consumer: consumerName,
 			Streams:  []string{r.streamKey(), ">"},
 			Count:    r.cfg.StreamBatchSize,
 			Block:    time.Second,
