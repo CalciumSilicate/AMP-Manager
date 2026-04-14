@@ -34,6 +34,8 @@ type Config struct {
 	BillingReservationTTLSec    int
 	BillingReconcileIntervalSec int
 	BillingStreamBatchSize      int
+	BillingReconcileBatchSize   int
+	BillingExpiryBatchSize      int
 }
 
 var cfg *Config
@@ -77,6 +79,8 @@ func Load() *Config {
 		BillingReservationTTLSec:    getEnvInt("BILLING_RESERVATION_TTL_SEC", 600),
 		BillingReconcileIntervalSec: getEnvInt("BILLING_RECONCILE_INTERVAL_SEC", 60),
 		BillingStreamBatchSize:      getEnvInt("BILLING_STREAM_BATCH_SIZE", 100),
+		BillingReconcileBatchSize:   getEnvInt("BILLING_RECONCILE_BATCH_SIZE", getEnvInt("BILLING_STREAM_BATCH_SIZE", 100)),
+		BillingExpiryBatchSize:      getEnvInt("BILLING_EXPIRY_BATCH_SIZE", getEnvInt("BILLING_STREAM_BATCH_SIZE", 100)),
 	}
 	return cfg
 }

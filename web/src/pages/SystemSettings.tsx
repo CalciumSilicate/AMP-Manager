@@ -232,6 +232,8 @@ export default function SystemSettings({ siteName, onSiteNameChange }: Props) {
         reservationTtlSec: billingRuntimeConfig.reservationTtlSec,
         reconcileIntervalSec: billingRuntimeConfig.reconcileIntervalSec,
         streamBatchSize: billingRuntimeConfig.streamBatchSize,
+        reconcileBatchSize: billingRuntimeConfig.reconcileBatchSize,
+        expiryBatchSize: billingRuntimeConfig.expiryBatchSize,
       })
       setBillingRuntimeConfig(result.config)
       showMessage('success', 'Redis 计费配置已保存并已热更新')
@@ -1261,6 +1263,26 @@ export default function SystemSettings({ siteName, onSiteNameChange }: Props) {
                           min={1}
                           value={billingRuntimeConfig.streamBatchSize}
                           onChange={(e) => handleBillingRuntimeConfigChange('streamBatchSize', parseInt(e.target.value) || 1)}
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <Label htmlFor="reconcileBatchSize">Reconcile 批大小</Label>
+                        <Input
+                          id="reconcileBatchSize"
+                          type="number"
+                          min={1}
+                          value={billingRuntimeConfig.reconcileBatchSize}
+                          onChange={(e) => handleBillingRuntimeConfigChange('reconcileBatchSize', parseInt(e.target.value) || 1)}
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <Label htmlFor="expiryBatchSize">Expiry 批大小</Label>
+                        <Input
+                          id="expiryBatchSize"
+                          type="number"
+                          min={1}
+                          value={billingRuntimeConfig.expiryBatchSize}
+                          onChange={(e) => handleBillingRuntimeConfigChange('expiryBatchSize', parseInt(e.target.value) || 1)}
                         />
                       </div>
                       <div className="space-y-2">

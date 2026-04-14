@@ -74,6 +74,15 @@ func TestApplyAndStoreBillingRuntimeConfigCommitsNewRuntime(t *testing.T) {
 			if cfg.Prefix != "team-a" {
 				t.Fatalf("build got prefix %q", cfg.Prefix)
 			}
+			if cfg.StreamBatchSize != 8 {
+				t.Fatalf("build got stream batch size %d", cfg.StreamBatchSize)
+			}
+			if cfg.ReconcileBatchSize != 5 {
+				t.Fatalf("build got reconcile batch size %d", cfg.ReconcileBatchSize)
+			}
+			if cfg.ExpiryBatchSize != 3 {
+				t.Fatalf("build got expiry batch size %d", cfg.ExpiryBatchSize)
+			}
 			return newRuntime, nil
 		},
 		func(rt *billingstate.Runtime) *billingstate.Runtime {
@@ -96,6 +105,8 @@ func TestApplyAndStoreBillingRuntimeConfigCommitsNewRuntime(t *testing.T) {
 		ReservationTTLSec:    120,
 		ReconcileIntervalSec: 30,
 		StreamBatchSize:      8,
+		ReconcileBatchSize:   5,
+		ExpiryBatchSize:      3,
 	})
 	if err != nil {
 		t.Fatalf("ApplyAndStoreBillingRuntimeConfig returned error: %v", err)
@@ -144,6 +155,8 @@ func TestApplyAndStoreBillingRuntimeConfigDisablesRuntime(t *testing.T) {
 		ReservationTTLSec:    120,
 		ReconcileIntervalSec: 30,
 		StreamBatchSize:      8,
+		ReconcileBatchSize:   5,
+		ExpiryBatchSize:      3,
 	})
 	if err != nil {
 		t.Fatalf("ApplyAndStoreBillingRuntimeConfig returned error: %v", err)
@@ -165,6 +178,12 @@ func TestApplyAndStoreBillingRuntimeConfigDisablesRuntime(t *testing.T) {
 	if stored.RedisPrefix != "ampmanager" {
 		t.Fatalf("stored redis prefix = %q, want ampmanager", stored.RedisPrefix)
 	}
+	if stored.ReconcileBatchSize != 5 {
+		t.Fatalf("stored reconcile batch size = %d, want 5", stored.ReconcileBatchSize)
+	}
+	if stored.ExpiryBatchSize != 3 {
+		t.Fatalf("stored expiry batch size = %d, want 3", stored.ExpiryBatchSize)
+	}
 }
 
 func TestReloadBillingRuntimeFromSystemConfigBestEffortFallsBackToLegacyOnBuildError(t *testing.T) {
@@ -177,6 +196,8 @@ func TestReloadBillingRuntimeFromSystemConfigBestEffortFallsBackToLegacyOnBuildE
 		ReservationTTLSec:    120,
 		ReconcileIntervalSec: 30,
 		StreamBatchSize:      8,
+		ReconcileBatchSize:   5,
+		ExpiryBatchSize:      3,
 	}); err != nil {
 		t.Fatalf("SetBillingRuntimeConfig returned error: %v", err)
 	}
@@ -191,6 +212,9 @@ func TestReloadBillingRuntimeFromSystemConfigBestEffortFallsBackToLegacyOnBuildE
 		func(cfg billingstate.Config) (*billingstate.Runtime, error) {
 			if cfg.RedisURL != "redis://broken" {
 				t.Fatalf("build got redis URL %q", cfg.RedisURL)
+			}
+			if cfg.ReconcileBatchSize != 5 || cfg.ExpiryBatchSize != 3 {
+				t.Fatalf("build got batch sizes reconcile=%d expiry=%d", cfg.ReconcileBatchSize, cfg.ExpiryBatchSize)
 			}
 			return nil, errors.New("dial failed")
 		},
@@ -222,6 +246,51 @@ func TestReloadBillingRuntimeFromSystemConfigBestEffortFallsBackToLegacyOnBuildE
 	}
 	if currentRuntime != nil {
 		t.Fatalf("current runtime = %p, want nil", currentRuntime)
+	}
+}
+
+func TestGetBillingRuntimeConfigRequestFallsBackNewBatchSizesToStreamBatchSize(t *testing.T) {
+	setupBillingRuntimeServiceTestDB(t)
+
+	svc := NewSystemConfigService()
+	if err := svc.repo.Set(billingRuntimeConfigKey, `{"redisUrl":"redis://legacy","redisPrefix":"team-a","reservationTtlSec":120,"reconcileIntervalSec":30,"streamBatchSize":7}`); err != nil {
+		t.Fatalf("repo.Set returned error: %v", err)
+	}
+
+	req, err := svc.GetBillingRuntimeConfigRequest()
+	if err != nil {
+		t.Fatalf("GetBillingRuntimeConfigRequest returned error: %v", err)
+	}
+	if req.StreamBatchSize != 7 {
+		t.Fatalf("stream batch size = %d, want 7", req.StreamBatchSize)
+	}
+	if req.ReconcileBatchSize != 7 {
+		t.Fatalf("reconcile batch size = %d, want 7", req.ReconcileBatchSize)
+	}
+	if req.ExpiryBatchSize != 7 {
+		t.Fatalf("expiry batch size = %d, want 7", req.ExpiryBatchSize)
+	}
+}
+
+func TestDefaultBillingRuntimeConfigRequestFallsBackEnvBatchSizesToStreamBatchSize(t *testing.T) {
+	t.Setenv("REDIS_URL", "")
+	t.Setenv("REDIS_PREFIX", "ampmanager")
+	t.Setenv("BILLING_RESERVATION_TTL_SEC", "600")
+	t.Setenv("BILLING_RECONCILE_INTERVAL_SEC", "60")
+	t.Setenv("BILLING_STREAM_BATCH_SIZE", "12")
+	t.Setenv("BILLING_RECONCILE_BATCH_SIZE", "")
+	t.Setenv("BILLING_EXPIRY_BATCH_SIZE", "")
+	config.Load()
+
+	req := defaultBillingRuntimeConfigRequest()
+	if req.StreamBatchSize != 12 {
+		t.Fatalf("stream batch size = %d, want 12", req.StreamBatchSize)
+	}
+	if req.ReconcileBatchSize != 12 {
+		t.Fatalf("reconcile batch size = %d, want 12", req.ReconcileBatchSize)
+	}
+	if req.ExpiryBatchSize != 12 {
+		t.Fatalf("expiry batch size = %d, want 12", req.ExpiryBatchSize)
 	}
 }
 

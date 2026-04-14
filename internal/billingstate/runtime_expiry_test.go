@@ -18,7 +18,8 @@ func TestReleaseExpiredReservationsBatchLimitsPageSize(t *testing.T) {
 		client: client,
 		cfg: Config{
 			Prefix:          "amp",
-			StreamBatchSize: 2,
+			StreamBatchSize: 9,
+			ExpiryBatchSize: 2,
 		},
 	}
 
@@ -68,7 +69,8 @@ func TestReleaseExpiredReservationsBatchCanContinueAcrossCalls(t *testing.T) {
 		client: client,
 		cfg: Config{
 			Prefix:          "amp",
-			StreamBatchSize: 2,
+			StreamBatchSize: 9,
+			ExpiryBatchSize: 2,
 		},
 	}
 
@@ -110,7 +112,8 @@ func TestReleaseExpiredReservationsDrainsMultiplePagesWithinSingleTick(t *testin
 		client: client,
 		cfg: Config{
 			Prefix:          "amp",
-			StreamBatchSize: 1,
+			StreamBatchSize: 9,
+			ExpiryBatchSize: 1,
 		},
 	}
 
@@ -152,7 +155,8 @@ func TestReleaseExpiredReservationsSkipsBlockedPageAndContinuesLaterEntries(t *t
 		client: client,
 		cfg: Config{
 			Prefix:          "amp",
-			StreamBatchSize: 2,
+			StreamBatchSize: 9,
+			ExpiryBatchSize: 2,
 		},
 	}
 
@@ -176,6 +180,18 @@ func TestReleaseExpiredReservationsSkipsBlockedPageAndContinuesLaterEntries(t *t
 	}
 	if size != 0 {
 		t.Fatalf("expiry zset cardinality = %d, want 0", size)
+	}
+}
+
+func TestExpiryBatchSizeDefaultsToStreamBatchSize(t *testing.T) {
+	rt := &Runtime{
+		cfg: Config{
+			StreamBatchSize: 4,
+		},
+	}
+
+	if got := rt.expiryBatchSize(); got != 4 {
+		t.Fatalf("expiryBatchSize = %d, want 4", got)
 	}
 }
 
