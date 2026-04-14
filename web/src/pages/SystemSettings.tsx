@@ -26,8 +26,10 @@ import {
   updateCacheTTLConfig,
   updateSiteConfig,
   getBillingRuntimeConfig,
+  getBillingRuntimeStats,
   updateBillingRuntimeConfig,
   BillingRuntimeConfig,
+  BillingRuntimeStats,
 } from '../api/system'
 import { Button } from '@/components/ui/button'
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/card'
@@ -47,6 +49,7 @@ import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
 import { Progress } from '@/components/ui/progress'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import { RefreshCw } from 'lucide-react'
 
 type SettingsTab = 'site' | 'database' | 'retry' | 'monitoring' | 'cache' | 'timeout' | 'billing'
 
@@ -94,6 +97,8 @@ export default function SystemSettings({ siteName, onSiteNameChange }: Props) {
   const [siteConfigSaving, setSiteConfigSaving] = useState(false)
   const [billingRuntimeConfig, setBillingRuntimeConfig] = useState<BillingRuntimeConfig | null>(null)
   const [billingRuntimeLoading, setBillingRuntimeLoading] = useState(false)
+  const [billingRuntimeStats, setBillingRuntimeStats] = useState<BillingRuntimeStats | null>(null)
+  const [billingRuntimeStatsLoading, setBillingRuntimeStatsLoading] = useState(false)
 
   useEffect(() => {
     setSiteNameInput(siteName)
@@ -185,6 +190,25 @@ export default function SystemSettings({ siteName, onSiteNameChange }: Props) {
     }
   }, [])
 
+  const fetchBillingRuntimeStats = useCallback(async (silent = false) => {
+    if (!silent) {
+      setBillingRuntimeStatsLoading(true)
+    }
+    try {
+      const data = await getBillingRuntimeStats()
+      setBillingRuntimeStats(data)
+    } catch (err) {
+      console.error('获取 Redis 计费运行时统计失败:', err)
+      if (!silent) {
+        showMessage('error', err instanceof Error ? err.message : '获取运行时统计失败')
+      }
+    } finally {
+      if (!silent) {
+        setBillingRuntimeStatsLoading(false)
+      }
+    }
+  }, [showMessage])
+
   useEffect(() => {
     fetchDatabaseInfo()
     fetchRetryConfig()
@@ -192,8 +216,10 @@ export default function SystemSettings({ siteName, onSiteNameChange }: Props) {
     fetchTimeoutConfig()
     fetchCacheTTLConfig()
     fetchBillingRuntimeConfig()
+    fetchBillingRuntimeStats(true)
   }, [
     fetchBillingRuntimeConfig,
+    fetchBillingRuntimeStats,
     fetchCacheTTLConfig,
     fetchDatabaseInfo,
     fetchRequestDetailConfig,
@@ -250,6 +276,7 @@ export default function SystemSettings({ siteName, onSiteNameChange }: Props) {
         projectorClaimIdleSec: billingRuntimeConfig.projectorClaimIdleSec,
       })
       setBillingRuntimeConfig(result.config)
+      await fetchBillingRuntimeStats(true)
       showMessage('success', 'Redis 计费配置已保存并已热更新')
     } catch (err) {
       showMessage('error', err instanceof Error ? err.message : '保存失败')
@@ -332,6 +359,18 @@ export default function SystemSettings({ siteName, onSiteNameChange }: Props) {
     : billingRuntimeConfig.runtimeHealthy
       ? (billingRuntimeConfig.redisUrlMasked || 'Redis 计费运行时已启用。')
       : '已配置 Redis，但当前运行时不可用，系统已回退到 legacy billing。'
+
+  const formatLatency = (ms: number) => (ms > 0 ? `${ms} ms` : '-')
+
+  const billingMetricItems = billingRuntimeStats
+    ? [
+        { key: 'reserve', label: 'Reserve', value: billingRuntimeStats.reserve },
+        { key: 'settle', label: 'Settle', value: billingRuntimeStats.settle },
+        { key: 'project', label: 'Project', value: billingRuntimeStats.project },
+        { key: 'reclaim', label: 'Reclaim', value: billingRuntimeStats.reclaim },
+        { key: 'reconcile', label: 'Reconcile', value: billingRuntimeStats.reconcile },
+      ]
+    : []
 
   const handleUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
@@ -1243,6 +1282,77 @@ export default function SystemSettings({ siteName, onSiteNameChange }: Props) {
                           多实例部署时请确保所有实例共享同一 Redis 和同一前缀。
                         </p>
                       </div>
+                    </div>
+
+                    <div className="rounded-lg border p-4 space-y-4">
+                      <div className="flex items-center justify-between gap-3">
+                        <div className="space-y-1">
+                          <h3 className="text-sm font-medium">运行时摘要</h3>
+                          <p className="text-sm text-muted-foreground">
+                            页面进入时拉取一次，必要时手动刷新；不进行后台轮询。
+                          </p>
+                        </div>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          onClick={() => fetchBillingRuntimeStats()}
+                          disabled={billingRuntimeStatsLoading}
+                        >
+                          <RefreshCw className={`mr-2 h-4 w-4 ${billingRuntimeStatsLoading ? 'animate-spin' : ''}`} />
+                          刷新统计
+                        </Button>
+                      </div>
+
+                      {billingRuntimeStats ? (
+                        <>
+                          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+                            <div className="rounded-md bg-muted/40 p-3">
+                              <div className="text-xs text-muted-foreground">Reclaim claimed</div>
+                              <div className="mt-1 text-2xl font-semibold">{billingRuntimeStats.reclaimClaimed}</div>
+                            </div>
+                            <div className="rounded-md bg-muted/40 p-3">
+                              <div className="text-xs text-muted-foreground">Reconcile repairs</div>
+                              <div className="mt-1 text-2xl font-semibold">{billingRuntimeStats.reconcileRepairs}</div>
+                            </div>
+                            <div className="rounded-md bg-muted/40 p-3">
+                              <div className="text-xs text-muted-foreground">Runtime enabled</div>
+                              <div className="mt-1 text-2xl font-semibold">{billingRuntimeStats.runtimeEnabled ? 'Yes' : 'No'}</div>
+                            </div>
+                            <div className="rounded-md bg-muted/40 p-3">
+                              <div className="text-xs text-muted-foreground">Runtime healthy</div>
+                              <div className="mt-1 text-2xl font-semibold">{billingRuntimeStats.runtimeHealthy ? 'Yes' : 'No'}</div>
+                            </div>
+                          </div>
+
+                          <div className="overflow-x-auto">
+                            <Table>
+                              <TableHeader>
+                                <TableRow>
+                                  <TableHead>阶段</TableHead>
+                                  <TableHead>样本数</TableHead>
+                                  <TableHead>p95</TableHead>
+                                  <TableHead>p99</TableHead>
+                                  <TableHead>失败数</TableHead>
+                                </TableRow>
+                              </TableHeader>
+                              <TableBody>
+                                {billingMetricItems.map((item) => (
+                                  <TableRow key={item.key}>
+                                    <TableCell className="font-medium">{item.label}</TableCell>
+                                    <TableCell>{item.value.samples}</TableCell>
+                                    <TableCell>{formatLatency(item.value.p95Ms)}</TableCell>
+                                    <TableCell>{formatLatency(item.value.p99Ms)}</TableCell>
+                                    <TableCell>{item.value.failures}</TableCell>
+                                  </TableRow>
+                                ))}
+                              </TableBody>
+                            </Table>
+                          </div>
+                        </>
+                      ) : (
+                        <div className="text-sm text-muted-foreground">暂无运行时统计。</div>
+                      )}
                     </div>
 
                     <div className="grid gap-4 md:grid-cols-2">

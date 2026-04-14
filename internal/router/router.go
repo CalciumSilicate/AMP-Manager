@@ -192,6 +192,7 @@ func Setup() *gin.Engine {
 
 				// Redis 计费运行时配置
 				system.GET("/billing-runtime-config", systemHandler.GetBillingRuntimeConfig)
+				system.GET("/billing-runtime-stats", systemHandler.GetBillingRuntimeStats)
 				system.PUT("/billing-runtime-config", systemHandler.UpdateBillingRuntimeConfig)
 
 				// 站点配置

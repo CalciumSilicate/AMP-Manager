@@ -117,3 +117,22 @@ type BillingRuntimeConfigRequest struct {
 	ProjectorWorkers      int    `json:"projectorWorkers"`
 	ProjectorClaimIdleSec int    `json:"projectorClaimIdleSec"`
 }
+
+type BillingRuntimeMetricSummary struct {
+	Samples  int   `json:"samples"`
+	P95Ms    int64 `json:"p95Ms"`
+	P99Ms    int64 `json:"p99Ms"`
+	Failures int64 `json:"failures"`
+}
+
+type BillingRuntimeStatsResponse struct {
+	RuntimeEnabled   bool                        `json:"runtimeEnabled"`
+	RuntimeHealthy   bool                        `json:"runtimeHealthy"`
+	Reserve          BillingRuntimeMetricSummary `json:"reserve"`
+	Settle           BillingRuntimeMetricSummary `json:"settle"`
+	Project          BillingRuntimeMetricSummary `json:"project"`
+	Reclaim          BillingRuntimeMetricSummary `json:"reclaim"`
+	Reconcile        BillingRuntimeMetricSummary `json:"reconcile"`
+	ReclaimClaimed   int64                       `json:"reclaimClaimed"`
+	ReconcileRepairs int64                       `json:"reconcileRepairs"`
+}
