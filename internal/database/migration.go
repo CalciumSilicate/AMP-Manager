@@ -42,6 +42,11 @@ var migrationTables = []string{
 	"system_config",
 	"purchase_products",
 	"purchase_orders",
+	"redeem_campaigns",
+	"redeem_code_batches",
+	"redeem_codes",
+	"redeem_user_counters",
+	"redeem_redemptions",
 	"billing_events",
 }
 

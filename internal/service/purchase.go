@@ -41,6 +41,7 @@ type PurchaseService struct {
 	subRepo     repository.UserSubscriptionRepositoryInterface
 	settingsSvc *PurchaseSettingsService
 	payment     purchasePaymentGateway
+	grantSvc    *RewardGrantService
 }
 
 func NewPurchaseService() *PurchaseService {
@@ -51,6 +52,7 @@ func NewPurchaseService() *PurchaseService {
 		subRepo:     repository.NewUserSubscriptionRepository(),
 		settingsSvc: NewPurchaseSettingsService(),
 		payment:     NewAlipayService(),
+		grantSvc:    NewRewardGrantService(),
 	}
 }
 
@@ -75,6 +77,7 @@ func NewPurchaseServiceWithDeps(
 		subRepo:     subRepo,
 		settingsSvc: settingsSvc,
 		payment:     payment,
+		grantSvc:    NewRewardGrantService(),
 	}
 }
 
@@ -540,65 +543,21 @@ func (s *PurchaseService) fulfillOrderTx(tx *sql.Tx, order *model.PurchaseOrder,
 		return nil
 	}
 
-	activeSub, err := s.getActiveSubscriptionTx(tx, order.UserID)
-	if err != nil {
+	if _, err := s.grantSvc.GrantSubscriptionTx(tx, order.UserID, order.SubscriptionPlanID, order.DurationDays, now); err != nil {
+		if errors.Is(err, ErrDifferentPlanActive) || errors.Is(err, ErrPermanentSubscription) {
+			_, updateErr := tx.Exec(
+				`UPDATE purchase_orders SET fulfillment_status = ?, failure_reason = ?, updated_at = ? WHERE order_no = ?`,
+				model.PurchaseFulfillmentStatusFailed,
+				err.Error(),
+				now,
+				order.OrderNo,
+			)
+			return updateErr
+		}
 		return err
 	}
 
-	var failureReason string
-	if activeSub != nil {
-		if activeSub.PlanID != order.SubscriptionPlanID {
-			failureReason = ErrDifferentPlanActive.Error()
-		} else if activeSub.ExpiresAt == nil {
-			failureReason = ErrPermanentSubscription.Error()
-		}
-	}
-
-	if failureReason != "" {
-		_, err := tx.Exec(
-			`UPDATE purchase_orders SET fulfillment_status = ?, failure_reason = ?, updated_at = ? WHERE order_no = ?`,
-			model.PurchaseFulfillmentStatusFailed,
-			failureReason,
-			now,
-			order.OrderNo,
-		)
-		return err
-	}
-
-	if activeSub == nil {
-		expiresAt := now.AddDate(0, 0, order.DurationDays)
-		_, err := tx.Exec(
-			`INSERT INTO user_subscriptions (id, user_id, plan_id, starts_at, expires_at, status, created_at, updated_at)
-			 VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-			uuid.New().String(),
-			order.UserID,
-			order.SubscriptionPlanID,
-			now,
-			expiresAt,
-			model.SubscriptionStatusActive,
-			now,
-			now,
-		)
-		if err != nil {
-			return err
-		}
-	} else {
-		base := now
-		if activeSub.ExpiresAt != nil && activeSub.ExpiresAt.After(now) {
-			base = activeSub.ExpiresAt.UTC()
-		}
-		expiresAt := base.AddDate(0, 0, order.DurationDays)
-		if _, err := tx.Exec(
-			`UPDATE user_subscriptions SET expires_at = ?, updated_at = ? WHERE id = ?`,
-			expiresAt,
-			now,
-			activeSub.ID,
-		); err != nil {
-			return err
-		}
-	}
-
-	_, err = tx.Exec(
+	_, err := tx.Exec(
 		`UPDATE purchase_orders
 		    SET fulfillment_status = ?, fulfilled_at = COALESCE(fulfilled_at, ?), failure_reason = '', updated_at = ?
 		  WHERE order_no = ?`,
@@ -608,30 +567,6 @@ func (s *PurchaseService) fulfillOrderTx(tx *sql.Tx, order *model.PurchaseOrder,
 		order.OrderNo,
 	)
 	return err
-}
-
-func (s *PurchaseService) getActiveSubscriptionTx(tx *sql.Tx, userID string) (*model.UserSubscription, error) {
-	sub := &model.UserSubscription{}
-	err := tx.QueryRow(
-		`SELECT id, user_id, plan_id, starts_at, expires_at, status, created_at, updated_at
-		   FROM user_subscriptions
-		  WHERE user_id = ? AND status = 'active' AND (expires_at IS NULL OR expires_at > ?)`,
-		userID,
-		time.Now().UTC(),
-	).Scan(
-		&sub.ID,
-		&sub.UserID,
-		&sub.PlanID,
-		&sub.StartsAt,
-		&sub.ExpiresAt,
-		&sub.Status,
-		&sub.CreatedAt,
-		&sub.UpdatedAt,
-	)
-	if err == sql.ErrNoRows {
-		return nil, nil
-	}
-	return sub, err
 }
 
 func (s *PurchaseService) getOrderByOrderNoTx(tx *sql.Tx, orderNo string) (*model.PurchaseOrder, error) {

@@ -71,6 +71,7 @@ func Setup() *gin.Engine {
 	subscriptionHandler := handler.NewSubscriptionHandler()
 	billingSettingHandler := handler.NewBillingSettingHandler()
 	purchaseHandler := handler.NewPurchaseHandler()
+	redeemHandler := handler.NewRedeemHandler()
 
 	api := r.Group("/api")
 	{
@@ -106,6 +107,12 @@ func Setup() *gin.Engine {
 				purchase.POST("/orders", purchaseHandler.CreateOrder)
 				purchase.GET("/orders/:orderNo", purchaseHandler.GetMyOrder)
 				purchase.POST("/orders/:orderNo/refresh", purchaseHandler.RefreshMyOrder)
+			}
+
+			redeem := me.Group("/redeem")
+			{
+				redeem.POST("", redeemHandler.Redeem)
+				redeem.GET("/records", redeemHandler.ListMyRecords)
 			}
 
 			ampGroup := me.Group("/amp")
@@ -267,6 +274,20 @@ func Setup() *gin.Engine {
 
 				purchase.GET("/orders", purchaseHandler.ListOrdersAdmin)
 				purchase.POST("/orders/:orderNo/refresh", purchaseHandler.RefreshOrderAdmin)
+			}
+
+			redeem := admin.Group("/redeem")
+			{
+				redeem.GET("/campaigns", redeemHandler.ListCampaigns)
+				redeem.POST("/campaigns", redeemHandler.CreateCampaign)
+				redeem.PUT("/campaigns/:id", redeemHandler.UpdateCampaign)
+				redeem.DELETE("/campaigns/:id", redeemHandler.DeleteCampaign)
+				redeem.GET("/batches", redeemHandler.ListBatches)
+				redeem.POST("/campaigns/:id/batches", redeemHandler.CreateBatch)
+				redeem.GET("/batches/:id/export", redeemHandler.ExportBatch)
+				redeem.GET("/codes", redeemHandler.ListCodes)
+				redeem.PATCH("/codes/:id/enabled", redeemHandler.SetCodeEnabled)
+				redeem.GET("/redemptions", redeemHandler.ListRedemptions)
 			}
 		}
 	}

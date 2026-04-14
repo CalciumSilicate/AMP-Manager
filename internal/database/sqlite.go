@@ -507,6 +507,98 @@ func createTables() error {
 	CREATE INDEX IF NOT EXISTS idx_purchase_orders_product_created ON purchase_orders(product_id, created_at DESC);
 	CREATE INDEX IF NOT EXISTS idx_purchase_orders_trade_no ON purchase_orders(alipay_trade_no);
 
+	CREATE TABLE IF NOT EXISTS redeem_campaigns (
+		id TEXT PRIMARY KEY,
+		name TEXT NOT NULL,
+		description TEXT NOT NULL DEFAULT '',
+		code_mode TEXT NOT NULL CHECK (code_mode IN ('single_use', 'shared')),
+		subscription_plan_id TEXT NOT NULL DEFAULT '',
+		subscription_duration_days INTEGER NOT NULL DEFAULT 0 CHECK (subscription_duration_days >= 0),
+		balance_micros BIGINT NOT NULL DEFAULT 0 CHECK (balance_micros >= 0),
+		total_redemptions_limit INTEGER NOT NULL DEFAULT 0 CHECK (total_redemptions_limit >= 0),
+		redeemed_count INTEGER NOT NULL DEFAULT 0 CHECK (redeemed_count >= 0),
+		per_user_limit INTEGER NOT NULL DEFAULT 1 CHECK (per_user_limit > 0),
+		starts_at DATETIME,
+		ends_at DATETIME,
+		enabled INTEGER NOT NULL DEFAULT 1,
+		created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+		updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+		FOREIGN KEY (subscription_plan_id) REFERENCES subscription_plans(id) ON DELETE RESTRICT
+	);
+	CREATE INDEX IF NOT EXISTS idx_redeem_campaigns_mode_created ON redeem_campaigns(code_mode, created_at DESC);
+	CREATE INDEX IF NOT EXISTS idx_redeem_campaigns_enabled_window ON redeem_campaigns(enabled, starts_at, ends_at);
+
+	CREATE TABLE IF NOT EXISTS redeem_code_batches (
+		id TEXT PRIMARY KEY,
+		campaign_id TEXT NOT NULL,
+		name TEXT NOT NULL,
+		prefix TEXT NOT NULL DEFAULT '',
+		code_count INTEGER NOT NULL CHECK (code_count > 0),
+		code_length INTEGER NOT NULL CHECK (code_length >= 6),
+		created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+		updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+		FOREIGN KEY (campaign_id) REFERENCES redeem_campaigns(id) ON DELETE CASCADE
+	);
+	CREATE INDEX IF NOT EXISTS idx_redeem_code_batches_campaign_created ON redeem_code_batches(campaign_id, created_at DESC);
+
+	CREATE TABLE IF NOT EXISTS redeem_codes (
+		id TEXT PRIMARY KEY,
+		campaign_id TEXT NOT NULL,
+		batch_id TEXT,
+		code_value TEXT NOT NULL UNIQUE,
+		code_hash TEXT NOT NULL UNIQUE,
+		code_mask TEXT NOT NULL,
+		status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'disabled', 'consumed')),
+		max_redemptions INTEGER NOT NULL DEFAULT 1 CHECK (max_redemptions >= 0),
+		redeemed_count INTEGER NOT NULL DEFAULT 0 CHECK (redeemed_count >= 0),
+		last_redeemed_at DATETIME,
+		created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+		updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+		FOREIGN KEY (campaign_id) REFERENCES redeem_campaigns(id) ON DELETE CASCADE,
+		FOREIGN KEY (batch_id) REFERENCES redeem_code_batches(id) ON DELETE CASCADE
+	);
+	CREATE INDEX IF NOT EXISTS idx_redeem_codes_campaign_status_created ON redeem_codes(campaign_id, status, created_at DESC);
+	CREATE INDEX IF NOT EXISTS idx_redeem_codes_batch_created ON redeem_codes(batch_id, created_at DESC);
+
+	CREATE TABLE IF NOT EXISTS redeem_user_counters (
+		code_id TEXT NOT NULL,
+		user_id TEXT NOT NULL,
+		redeemed_count INTEGER NOT NULL DEFAULT 0 CHECK (redeemed_count >= 0),
+		updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+		PRIMARY KEY (code_id, user_id),
+		FOREIGN KEY (code_id) REFERENCES redeem_codes(id) ON DELETE CASCADE,
+		FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+	);
+	CREATE INDEX IF NOT EXISTS idx_redeem_user_counters_user_updated ON redeem_user_counters(user_id, updated_at DESC);
+
+	CREATE TABLE IF NOT EXISTS redeem_redemptions (
+		id TEXT PRIMARY KEY,
+		campaign_id TEXT,
+		code_id TEXT,
+		user_id TEXT NOT NULL,
+		username TEXT NOT NULL DEFAULT '',
+		code_input TEXT NOT NULL DEFAULT '',
+		code_mask TEXT NOT NULL DEFAULT '',
+		subscription_plan_id TEXT NOT NULL DEFAULT '',
+		subscription_duration_days INTEGER NOT NULL DEFAULT 0 CHECK (subscription_duration_days >= 0),
+		balance_micros BIGINT NOT NULL DEFAULT 0 CHECK (balance_micros >= 0),
+		status TEXT NOT NULL CHECK (status IN ('success', 'rejected')),
+		failure_reason TEXT NOT NULL DEFAULT '',
+		granted_subscription_id TEXT NOT NULL DEFAULT '',
+		granted_expires_at DATETIME,
+		balance_after_micros BIGINT NOT NULL DEFAULT 0 CHECK (balance_after_micros >= 0),
+		created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+		FOREIGN KEY (campaign_id) REFERENCES redeem_campaigns(id) ON DELETE SET NULL,
+		FOREIGN KEY (code_id) REFERENCES redeem_codes(id) ON DELETE SET NULL,
+		FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+		FOREIGN KEY (subscription_plan_id) REFERENCES subscription_plans(id) ON DELETE RESTRICT,
+		FOREIGN KEY (granted_subscription_id) REFERENCES user_subscriptions(id) ON DELETE SET NULL
+	);
+	CREATE INDEX IF NOT EXISTS idx_redeem_redemptions_user_created ON redeem_redemptions(user_id, created_at DESC);
+	CREATE INDEX IF NOT EXISTS idx_redeem_redemptions_campaign_created ON redeem_redemptions(campaign_id, created_at DESC);
+	CREATE INDEX IF NOT EXISTS idx_redeem_redemptions_code_created ON redeem_redemptions(code_id, created_at DESC);
+	CREATE INDEX IF NOT EXISTS idx_redeem_redemptions_status_created ON redeem_redemptions(status, created_at DESC);
+
 	CREATE TABLE IF NOT EXISTS billing_events (
 		id TEXT PRIMARY KEY,
 		request_log_id TEXT,
@@ -906,6 +998,102 @@ func runMigrations() error {
 				CREATE INDEX IF NOT EXISTS idx_purchase_orders_fulfillment_created ON purchase_orders(fulfillment_status, created_at DESC);
 				CREATE INDEX IF NOT EXISTS idx_purchase_orders_product_created ON purchase_orders(product_id, created_at DESC);
 				CREATE INDEX IF NOT EXISTS idx_purchase_orders_trade_no ON purchase_orders(alipay_trade_no)
+			`,
+		},
+		{
+			name: "create_redeem_tables",
+			sql: `
+				CREATE TABLE IF NOT EXISTS redeem_campaigns (
+					id TEXT PRIMARY KEY,
+					name TEXT NOT NULL,
+					description TEXT NOT NULL DEFAULT '',
+					code_mode TEXT NOT NULL CHECK (code_mode IN ('single_use', 'shared')),
+					subscription_plan_id TEXT NOT NULL DEFAULT '',
+					subscription_duration_days INTEGER NOT NULL DEFAULT 0 CHECK (subscription_duration_days >= 0),
+					balance_micros BIGINT NOT NULL DEFAULT 0 CHECK (balance_micros >= 0),
+					total_redemptions_limit INTEGER NOT NULL DEFAULT 0 CHECK (total_redemptions_limit >= 0),
+					redeemed_count INTEGER NOT NULL DEFAULT 0 CHECK (redeemed_count >= 0),
+					per_user_limit INTEGER NOT NULL DEFAULT 1 CHECK (per_user_limit > 0),
+					starts_at DATETIME,
+					ends_at DATETIME,
+					enabled INTEGER NOT NULL DEFAULT 1,
+					created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+					updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+					FOREIGN KEY (subscription_plan_id) REFERENCES subscription_plans(id) ON DELETE RESTRICT
+				);
+				CREATE INDEX IF NOT EXISTS idx_redeem_campaigns_mode_created ON redeem_campaigns(code_mode, created_at DESC);
+				CREATE INDEX IF NOT EXISTS idx_redeem_campaigns_enabled_window ON redeem_campaigns(enabled, starts_at, ends_at);
+
+				CREATE TABLE IF NOT EXISTS redeem_code_batches (
+					id TEXT PRIMARY KEY,
+					campaign_id TEXT NOT NULL,
+					name TEXT NOT NULL,
+					prefix TEXT NOT NULL DEFAULT '',
+					code_count INTEGER NOT NULL CHECK (code_count > 0),
+					code_length INTEGER NOT NULL CHECK (code_length >= 6),
+					created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+					updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+					FOREIGN KEY (campaign_id) REFERENCES redeem_campaigns(id) ON DELETE CASCADE
+				);
+				CREATE INDEX IF NOT EXISTS idx_redeem_code_batches_campaign_created ON redeem_code_batches(campaign_id, created_at DESC);
+
+				CREATE TABLE IF NOT EXISTS redeem_codes (
+					id TEXT PRIMARY KEY,
+					campaign_id TEXT NOT NULL,
+					batch_id TEXT,
+					code_value TEXT NOT NULL UNIQUE,
+					code_hash TEXT NOT NULL UNIQUE,
+					code_mask TEXT NOT NULL,
+					status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'disabled', 'consumed')),
+					max_redemptions INTEGER NOT NULL DEFAULT 1 CHECK (max_redemptions >= 0),
+					redeemed_count INTEGER NOT NULL DEFAULT 0 CHECK (redeemed_count >= 0),
+					last_redeemed_at DATETIME,
+					created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+					updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+					FOREIGN KEY (campaign_id) REFERENCES redeem_campaigns(id) ON DELETE CASCADE,
+					FOREIGN KEY (batch_id) REFERENCES redeem_code_batches(id) ON DELETE CASCADE
+				);
+				CREATE INDEX IF NOT EXISTS idx_redeem_codes_campaign_status_created ON redeem_codes(campaign_id, status, created_at DESC);
+				CREATE INDEX IF NOT EXISTS idx_redeem_codes_batch_created ON redeem_codes(batch_id, created_at DESC);
+
+				CREATE TABLE IF NOT EXISTS redeem_user_counters (
+					code_id TEXT NOT NULL,
+					user_id TEXT NOT NULL,
+					redeemed_count INTEGER NOT NULL DEFAULT 0 CHECK (redeemed_count >= 0),
+					updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+					PRIMARY KEY (code_id, user_id),
+					FOREIGN KEY (code_id) REFERENCES redeem_codes(id) ON DELETE CASCADE,
+					FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+				);
+				CREATE INDEX IF NOT EXISTS idx_redeem_user_counters_user_updated ON redeem_user_counters(user_id, updated_at DESC);
+
+				CREATE TABLE IF NOT EXISTS redeem_redemptions (
+					id TEXT PRIMARY KEY,
+					campaign_id TEXT,
+					code_id TEXT,
+					user_id TEXT NOT NULL,
+					username TEXT NOT NULL DEFAULT '',
+					code_input TEXT NOT NULL DEFAULT '',
+					code_mask TEXT NOT NULL DEFAULT '',
+					subscription_plan_id TEXT NOT NULL DEFAULT '',
+					subscription_duration_days INTEGER NOT NULL DEFAULT 0 CHECK (subscription_duration_days >= 0),
+					balance_micros BIGINT NOT NULL DEFAULT 0 CHECK (balance_micros >= 0),
+					status TEXT NOT NULL CHECK (status IN ('success', 'rejected')),
+					failure_reason TEXT NOT NULL DEFAULT '',
+					granted_subscription_id TEXT NOT NULL DEFAULT '',
+					granted_expires_at DATETIME,
+					balance_after_micros BIGINT NOT NULL DEFAULT 0 CHECK (balance_after_micros >= 0),
+					created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+					FOREIGN KEY (campaign_id) REFERENCES redeem_campaigns(id) ON DELETE SET NULL,
+					FOREIGN KEY (code_id) REFERENCES redeem_codes(id) ON DELETE SET NULL,
+					FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+					FOREIGN KEY (subscription_plan_id) REFERENCES subscription_plans(id) ON DELETE RESTRICT,
+					FOREIGN KEY (granted_subscription_id) REFERENCES user_subscriptions(id) ON DELETE SET NULL
+				);
+				CREATE INDEX IF NOT EXISTS idx_redeem_redemptions_user_created ON redeem_redemptions(user_id, created_at DESC);
+				CREATE INDEX IF NOT EXISTS idx_redeem_redemptions_campaign_created ON redeem_redemptions(campaign_id, created_at DESC);
+				CREATE INDEX IF NOT EXISTS idx_redeem_redemptions_code_created ON redeem_redemptions(code_id, created_at DESC);
+				CREATE INDEX IF NOT EXISTS idx_redeem_redemptions_status_created ON redeem_redemptions(status, created_at DESC)
 			`,
 		},
 	}
