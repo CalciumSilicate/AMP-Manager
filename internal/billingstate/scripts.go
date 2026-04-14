@@ -169,20 +169,70 @@ local reservedBal = tonumber(redis.call('HGET', reservationKey, 'reserved_balanc
 local windowKeyList = redis.call('HGET', reservationKey, 'window_key_list') or ''
 local windowRefsJSON = redis.call('HGET', reservationKey, 'window_refs_json') or ''
 local windowKeys = split_keys(windowKeyList)
+local primary = redis.call('HGET', accountKey, 'primary_source') or 'subscription'
+local secondary = redis.call('HGET', accountKey, 'secondary_source') or 'balance'
+local balance = tonumber(redis.call('HGET', accountKey, 'balance_micros') or '0')
+local minWindowRemaining = 0
 
-local chargedSub = math.min(actual, reservedSub)
-local remaining = actual - chargedSub
-local chargedBal = math.min(remaining, reservedBal)
-remaining = remaining - chargedBal
-local releasedSub = reservedSub - chargedSub
-local releasedBal = reservedBal - chargedBal
+if #windowKeys > 0 then
+  minWindowRemaining = math.huge
+  for _, windowKey in ipairs(windowKeys) do
+    local current = tonumber(redis.call('HGET', windowKey, 'remaining_micros') or '0')
+    if current < minWindowRemaining then
+      minWindowRemaining = current
+    end
+  end
+  if minWindowRemaining == math.huge then
+    minWindowRemaining = 0
+  end
+end
+
+local reservedChargedSub = math.min(actual, reservedSub)
+local remaining = actual - reservedChargedSub
+local reservedChargedBal = math.min(remaining, reservedBal)
+remaining = remaining - reservedChargedBal
+local chargedSub = reservedChargedSub
+local chargedBal = reservedChargedBal
+local extraSub = 0
+local extraBal = 0
+
+local function consume_extra(source)
+  if remaining <= 0 then
+    return
+  end
+  if source == 'subscription' and #windowKeys > 0 and minWindowRemaining > 0 then
+    local take = math.min(remaining, minWindowRemaining)
+    extraSub = extraSub + take
+    remaining = remaining - take
+    minWindowRemaining = minWindowRemaining - take
+  elseif source == 'balance' and balance > 0 then
+    local take = math.min(remaining, balance)
+    extraBal = extraBal + take
+    remaining = remaining - take
+    balance = balance - take
+  end
+end
+
+consume_extra(primary)
+consume_extra(secondary)
+
+chargedSub = chargedSub + extraSub
+chargedBal = chargedBal + extraBal
+local releasedSub = reservedSub - reservedChargedSub
+local releasedBal = reservedBal - reservedChargedBal
 local finalStatus = 'settled'
+if actual <= 0 then
+  finalStatus = 'free'
+end
 if remaining > 0 then
-  finalStatus = 'under_reserved'
+  finalStatus = 'overuse'
 end
 
 if releasedBal > 0 then
   redis.call('HINCRBY', accountKey, 'balance_micros', releasedBal)
+end
+if extraBal > 0 then
+  redis.call('HINCRBY', accountKey, 'balance_micros', -extraBal)
 end
 if reservedSub > 0 then
   for _, windowKey in ipairs(windowKeys) do
@@ -190,9 +240,14 @@ if reservedSub > 0 then
     if chargedSub > 0 then
       redis.call('HINCRBY', windowKey, 'used_micros', chargedSub)
     end
-    if releasedSub > 0 then
-      redis.call('HINCRBY', windowKey, 'remaining_micros', releasedSub)
+    if releasedSub ~= extraSub then
+      redis.call('HINCRBY', windowKey, 'remaining_micros', releasedSub - extraSub)
     end
+  end
+elseif extraSub > 0 then
+  for _, windowKey in ipairs(windowKeys) do
+    redis.call('HINCRBY', windowKey, 'used_micros', chargedSub)
+    redis.call('HINCRBY', windowKey, 'remaining_micros', -extraSub)
   end
 end
 

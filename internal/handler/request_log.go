@@ -319,6 +319,15 @@ func (h *RequestLogHandler) AdminGetRequestLogDetail(c *gin.Context) {
 		c.JSON(http.StatusNotFound, gin.H{"error": "日志详情不存在或已过期"})
 		return
 	}
+	logEntry, err := h.logService.GetByIDAdmin(logID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "获取日志计费信息失败"})
+		return
+	}
+	if logEntry == nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "日志不存在"})
+		return
+	}
 
 	// Convert headers to map[string]string for JSON response
 	requestHeaders := make(map[string]string)
@@ -343,15 +352,21 @@ func (h *RequestLogHandler) AdminGetRequestLogDetail(c *gin.Context) {
 	}
 
 	result := &model.RequestLogDetail{
-		RequestID:                detail.RequestID,
-		RequestHeaders:           requestHeaders,
-		RequestBody:              string(detail.RequestBody),
-		TranslatedRequestBody:    string(detail.TranslatedRequestBody),
-		TranslatedRequestHeaders: translatedRequestHeaders,
-		ResponseHeaders:          responseHeaders,
-		ResponseBody:             string(detail.ResponseBody),
-		TranslatedResponseBody:   string(detail.TranslatedResponseBody),
-		CreatedAt:                detail.CreatedAt,
+		RequestID:                 detail.RequestID,
+		RequestHeaders:            requestHeaders,
+		RequestBody:               string(detail.RequestBody),
+		TranslatedRequestBody:     string(detail.TranslatedRequestBody),
+		TranslatedRequestHeaders:  translatedRequestHeaders,
+		ResponseHeaders:           responseHeaders,
+		ResponseBody:              string(detail.ResponseBody),
+		TranslatedResponseBody:    string(detail.TranslatedResponseBody),
+		CreatedAt:                 detail.CreatedAt,
+		BillingStatus:             logEntry.BillingStatus,
+		ChargedSubscriptionMicros: logEntry.ChargedSubscriptionMicros,
+		ChargedBalanceMicros:      logEntry.ChargedBalanceMicros,
+		BillingGapMicros:          logEntry.BillingGapMicros,
+		CostMicros:                logEntry.CostMicros,
+		CostUsd:                   logEntry.CostUsd,
 	}
 
 	c.JSON(http.StatusOK, result)

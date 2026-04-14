@@ -66,6 +66,11 @@ jobs:
         with:
           go-version: '1.24'
 
+      - name: Validate embedded frontend mode
+        shell: bash
+        run: |
+          go test -tags embed_frontend ./cmd/server ./internal/router ./internal/web
+
       - name: Install cross-compiler (Linux ARM64)
         if: matrix.goos == 'linux' && matrix.goarch == 'arm64'
         run: |
@@ -82,7 +87,7 @@ jobs:
           if [ "${{ matrix.goos }}" = "linux" ] && [ "${{ matrix.goarch }}" = "arm64" ]; then
             export CC=aarch64-linux-gnu-gcc
           fi
-          go build -ldflags="-s -w" -o ampmanager-${{ matrix.suffix }}${{ matrix.ext }} ./cmd/server
+          go build -tags embed_frontend -ldflags="-s -w" -o ampmanager-${{ matrix.suffix }}${{ matrix.ext }} ./cmd/server
 
       - name: Create archive (Unix)
         if: matrix.goos != 'windows'

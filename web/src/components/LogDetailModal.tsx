@@ -52,6 +52,27 @@ function getBadgeInfo(detail: RequestLogDetail, value: TabValue): string | null 
 
 const HEIGHT_SPRING = { type: 'spring' as const, stiffness: 300, damping: 30, mass: 0.8 }
 
+const billingBadgeVariant: Record<RequestLogDetail['billingStatus'], 'secondary' | 'default' | 'destructive' | 'outline'> = {
+  free: 'secondary',
+  settled: 'default',
+  overuse: 'destructive',
+  expired: 'outline',
+  none: 'outline',
+}
+
+const billingBadgeLabel: Record<RequestLogDetail['billingStatus'], string> = {
+  free: '免费',
+  settled: '已结算',
+  overuse: '超额',
+  expired: '已过期',
+  none: '未结算',
+}
+
+function formatUsdMicros(value?: number) {
+  if (value === undefined) return '-'
+  return `$${(value / 1_000_000).toFixed(6)}`
+}
+
 export function LogDetailModal({ logId, open, onOpenChange }: LogDetailModalProps) {
   const [detail, setDetail] = useState<RequestLogDetail | null>(null)
   const [loading, setLoading] = useState(false)
@@ -201,6 +222,24 @@ export function LogDetailModal({ logId, open, onOpenChange }: LogDetailModalProp
               onValueChange={(v) => setActiveTab(v as TabValue)}
               className="h-full flex flex-col"
             >
+              <div className="mb-4 grid gap-3 rounded-lg border bg-muted/20 p-4 md:grid-cols-4">
+                <div className="space-y-1">
+                  <div className="text-xs text-muted-foreground">计费状态</div>
+                  <Badge variant={billingBadgeVariant[detail.billingStatus]}>{billingBadgeLabel[detail.billingStatus]}</Badge>
+                </div>
+                <div className="space-y-1">
+                  <div className="text-xs text-muted-foreground">订阅扣费</div>
+                  <div className="text-sm font-medium">{formatUsdMicros(detail.chargedSubscriptionMicros)}</div>
+                </div>
+                <div className="space-y-1">
+                  <div className="text-xs text-muted-foreground">余额扣费</div>
+                  <div className="text-sm font-medium">{formatUsdMicros(detail.chargedBalanceMicros)}</div>
+                </div>
+                <div className="space-y-1">
+                  <div className="text-xs text-muted-foreground">未补足差额</div>
+                  <div className="text-sm font-medium">{detail.billingGapMicros && detail.billingGapMicros > 0 ? formatUsdMicros(detail.billingGapMicros) : '-'}</div>
+                </div>
+              </div>
               <motion.div
                 initial="hidden"
                 animate="visible"

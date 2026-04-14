@@ -157,3 +157,7 @@ func (s *RequestLogService) GetByID(id, userID string) (*model.RequestLog, error
 
 	return log, nil
 }
+
+func (s *RequestLogService) GetByIDAdmin(id string) (*model.RequestLog, error) {
+	return s.repo.GetByID(id)
+}

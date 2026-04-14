@@ -60,7 +60,7 @@ Copy-Item -Path "web\dist\*" -Destination "internal\web\dist\" -Recurse -Force
 
 Write-Host ""
 Write-Host "[4/4] 编译后端二进制文件..." -ForegroundColor Green
-& go build -ldflags="-s -w" -o ampmanager.exe ./cmd/server
+& go build -tags embed_frontend -ldflags="-s -w" -o ampmanager.exe ./cmd/server
 if (-not $?) {
     Write-Host "[错误] 后端编译失败" -ForegroundColor Red
     Read-Host "按回车键退出"

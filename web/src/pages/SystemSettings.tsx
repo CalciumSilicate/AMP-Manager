@@ -293,6 +293,18 @@ export default function SystemSettings({ siteName, onSiteNameChange }: Props) {
     setTimeout(() => setMessage(null), 5000)
   }
 
+  const billingRuntimeBadge = !billingRuntimeConfig?.runtimeEnabled
+    ? { label: 'Legacy', variant: 'secondary' as const }
+    : billingRuntimeConfig.runtimeHealthy
+      ? { label: 'Healthy', variant: 'default' as const }
+      : { label: 'Fallback', variant: 'destructive' as const }
+
+  const billingRuntimeDescription = !billingRuntimeConfig?.runtimeEnabled
+    ? '当前未配置 Redis，系统使用旧的 SQL 计费路径。'
+    : billingRuntimeConfig.runtimeHealthy
+      ? (billingRuntimeConfig.redisUrlMasked || 'Redis 计费运行时已启用。')
+      : '已配置 Redis，但当前运行时不可用，系统已回退到 legacy billing。'
+
   const handleUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
     if (!file) return
@@ -1026,15 +1038,9 @@ export default function SystemSettings({ siteName, onSiteNameChange }: Props) {
                       <div className="rounded-lg border p-4 space-y-2">
                         <div className="flex items-center justify-between">
                           <span className="text-sm text-muted-foreground">运行时状态</span>
-                          <Badge variant={billingRuntimeConfig.runtimeHealthy ? 'default' : 'destructive'}>
-                            {billingRuntimeConfig.runtimeHealthy ? 'Healthy' : 'Unavailable'}
-                          </Badge>
+                          <Badge variant={billingRuntimeBadge.variant}>{billingRuntimeBadge.label}</Badge>
                         </div>
-                        <p className="text-sm text-muted-foreground">
-                          {billingRuntimeConfig.runtimeEnabled
-                            ? billingRuntimeConfig.redisUrlMasked || '已启用'
-                            : '当前未配置 Redis，系统会退回旧的 SQL 计费路径'}
-                        </p>
+                        <p className="text-sm text-muted-foreground">{billingRuntimeDescription}</p>
                       </div>
                       <div className="rounded-lg border p-4 space-y-2">
                         <div className="flex items-center justify-between">
