@@ -518,52 +518,57 @@ func (r *Runtime) expiryLoop() {
 func (r *Runtime) releaseExpiredReservations(ctx context.Context, nowUnix int64) (int, error) {
 	batchSize := r.expiryBatchSize()
 	total := 0
+	offset := int64(0)
 
 	for {
-		before, err := r.countExpiredReservations(ctx, nowUnix)
+		requestIDs, err := r.listExpiredReservationsPage(ctx, nowUnix, offset, batchSize)
 		if err != nil {
 			return total, err
 		}
-		if before == 0 {
+		if len(requestIDs) == 0 {
 			return total, nil
 		}
 
-		count, err := r.releaseExpiredReservationsBatch(ctx, nowUnix)
-		if err != nil {
-			return total, err
+		processed := r.releaseExpiredReservationsPage(ctx, requestIDs, nowUnix)
+		total += processed
+		if processed > 0 {
+			offset = 0
+			continue
 		}
-		total += count
-		if int64(count) < batchSize {
+		if int64(len(requestIDs)) < batchSize {
 			return total, nil
 		}
-
-		after, err := r.countExpiredReservations(ctx, nowUnix)
-		if err != nil {
-			return total, err
-		}
-		if after == 0 || after >= before {
-			return total, nil
-		}
+		offset += int64(len(requestIDs))
 	}
 }
 
 func (r *Runtime) releaseExpiredReservationsBatch(ctx context.Context, nowUnix int64) (int, error) {
-	requestIDs, err := r.client.ZRangeByScore(ctx, r.reservationExpiryKey(), &redis.ZRangeBy{
-		Min:   "0",
-		Max:   fmt.Sprintf("%d", nowUnix),
-		Count: r.expiryBatchSize(),
-	}).Result()
+	requestIDs, err := r.listExpiredReservationsPage(ctx, nowUnix, 0, r.expiryBatchSize())
 	if err != nil {
 		return 0, err
 	}
-	for _, requestID := range requestIDs {
-		_ = r.releaseExpiredReservation(ctx, requestID, nowUnix)
-	}
-	return len(requestIDs), nil
+	return r.releaseExpiredReservationsPage(ctx, requestIDs, nowUnix), nil
 }
 
-func (r *Runtime) countExpiredReservations(ctx context.Context, nowUnix int64) (int64, error) {
-	return r.client.ZCount(ctx, r.reservationExpiryKey(), "0", fmt.Sprintf("%d", nowUnix)).Result()
+func (r *Runtime) listExpiredReservationsPage(ctx context.Context, nowUnix, offset, count int64) ([]string, error) {
+	return r.client.ZRangeByScore(ctx, r.reservationExpiryKey(), &redis.ZRangeBy{
+		Min:    "0",
+		Max:    fmt.Sprintf("%d", nowUnix),
+		Offset: offset,
+		Count:  count,
+	}).Result()
+}
+
+func (r *Runtime) releaseExpiredReservationsPage(ctx context.Context, requestIDs []string, nowUnix int64) int {
+	processed := 0
+	for _, requestID := range requestIDs {
+		if err := r.releaseExpiredReservation(ctx, requestID, nowUnix); err != nil {
+			log.Warnf("billing state: expiry release failed for %s: %v", requestID, err)
+			continue
+		}
+		processed++
+	}
+	return processed
 }
 
 func (r *Runtime) releaseExpiredReservation(ctx context.Context, requestID string, nowUnix int64) error {
@@ -592,7 +597,11 @@ func (r *Runtime) releaseExpiredReservation(ctx context.Context, requestID strin
 	}
 
 	values := stringifyRedisResult(result)
-	if len(values) > 0 && (values[0] == "OK" || values[0] == "DONE" || values[0] == "NOT_FOUND") {
+	if len(values) > 0 && values[0] == "OK" {
+		return nil
+	}
+	if len(values) > 0 && (values[0] == "DONE" || values[0] == "NOT_FOUND") {
+		_, _ = r.client.ZRem(ctx, r.reservationExpiryKey(), requestID).Result()
 		return nil
 	}
 	return ErrRedisStateUnhealthy
