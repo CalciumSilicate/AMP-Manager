@@ -74,24 +74,6 @@ export default function UsageStats({ isAdmin }: Props) {
   }, [isAdmin])
 
   useEffect(() => {
-    loadSummary()
-  }, [loadSummary])
-
-  useEffect(() => {
-    if (autoRefresh) {
-      refreshTimerRef.current = setInterval(loadSummary, refreshInterval * 1000)
-    } else {
-      if (refreshTimerRef.current) {
-        clearInterval(refreshTimerRef.current)
-        refreshTimerRef.current = null
-      }
-    }
-    return () => {
-      if (refreshTimerRef.current) clearInterval(refreshTimerRef.current)
-    }
-  }, [autoRefresh, refreshInterval, loadSummary])
-
-  useEffect(() => {
     return () => {
       if (summaryAbortControllerRef.current) summaryAbortControllerRef.current.abort()
     }
@@ -120,6 +102,24 @@ export default function UsageStats({ isAdmin }: Props) {
       setError(err instanceof Error ? err.message : '加载失败')
     }
   }, [isAdmin, summaryGroupBy, filters])
+
+  useEffect(() => {
+    loadSummary()
+  }, [loadSummary])
+
+  useEffect(() => {
+    if (autoRefresh) {
+      refreshTimerRef.current = setInterval(loadSummary, refreshInterval * 1000)
+    } else {
+      if (refreshTimerRef.current) {
+        clearInterval(refreshTimerRef.current)
+        refreshTimerRef.current = null
+      }
+    }
+    return () => {
+      if (refreshTimerRef.current) clearInterval(refreshTimerRef.current)
+    }
+  }, [autoRefresh, refreshInterval, loadSummary])
 
   const handleFilterChange = (newFilters: FilterValues) => {
     setFilters(newFilters)

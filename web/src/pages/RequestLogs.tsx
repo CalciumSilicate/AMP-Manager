@@ -124,10 +124,6 @@ export default function RequestLogs({ isAdmin }: Props) {
   }, [total])
 
   useEffect(() => {
-    loadData()
-  }, [loadData])
-
-  useEffect(() => {
     if (autoRefresh && isAdmin) {
       const flushBuf = () => {
         const batch = wsBufRef.current
@@ -237,6 +233,10 @@ export default function RequestLogs({ isAdmin }: Props) {
       }
     }
   }, [isAdmin, page, pageSize, filters])
+
+  useEffect(() => {
+    loadData()
+  }, [loadData])
 
   const handleFilterChange = (newFilters: FilterValues) => {
     setFilters(newFilters)
