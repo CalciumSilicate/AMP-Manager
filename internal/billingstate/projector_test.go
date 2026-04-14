@@ -257,6 +257,105 @@ func TestReclaimPendingEntriesProjectsAndAcksClaimedMessages(t *testing.T) {
 	}
 }
 
+func TestReclaimPendingEntriesDrainsMultipleClaimBatchesInSingleCall(t *testing.T) {
+	setupBillingStateTestDB(t)
+
+	now := time.Now().UTC()
+	db := database.GetDB()
+	mustExecBillingState(t, db, `INSERT INTO users (id, username, password_hash, is_admin, balance_micros) VALUES (?, 'alice', 'x', 0, 100)`, "user-1")
+	mustExecBillingState(t, db, `INSERT INTO billing_account_state (user_id, primary_source, secondary_source, balance_micros, revision, created_at, updated_at) VALUES (?, 'subscription', 'balance', 100, 0, ?, ?)`, "user-1", now, now)
+
+	mr := miniredis.RunT(t)
+	mr.SetTime(now)
+	client := redis.NewClient(&redis.Options{Addr: mr.Addr()})
+	t.Cleanup(func() { _ = client.Close() })
+
+	rt := &Runtime{
+		client: client,
+		cfg: Config{
+			Prefix:             "amp",
+			StreamBatchSize:    2,
+			ProjectorClaimIdle: 30 * time.Second,
+		},
+	}
+	if err := rt.ensureConsumerGroup(context.Background()); err != nil {
+		t.Fatalf("ensureConsumerGroup returned error: %v", err)
+	}
+
+	requestIDs := []string{"req-batch-1", "req-batch-2", "req-batch-3", "req-batch-4", "req-batch-5"}
+	for _, requestID := range requestIDs {
+		if _, err := client.XAdd(context.Background(), &redis.XAddArgs{
+			Stream: rt.streamKey(),
+			Values: map[string]any{
+				"event_type":                   "reserve",
+				"request_id":                   requestID,
+				"user_id":                      "user-1",
+				"user_subscription_id":         "",
+				"status":                       "reserved",
+				"estimated_cost_micros":        "5",
+				"reserved_subscription_micros": "0",
+				"reserved_balance_micros":      "5",
+				"window_refs_json":             "[]",
+				"expires_at_unix":              now.Add(5 * time.Minute).Unix(),
+			},
+		}).Result(); err != nil {
+			t.Fatalf("XAdd returned error: %v", err)
+		}
+	}
+
+	streams, err := client.XReadGroup(context.Background(), &redis.XReadGroupArgs{
+		Group:    defaultProjectorGroup,
+		Consumer: "stale-consumer",
+		Streams:  []string{rt.streamKey(), ">"},
+		Count:    int64(len(requestIDs)),
+	}).Result()
+	if err != nil {
+		t.Fatalf("XReadGroup returned error: %v", err)
+	}
+	if len(streams) != 1 || len(streams[0].Messages) != len(requestIDs) {
+		t.Fatalf("unexpected initial read result: %+v", streams)
+	}
+
+	mr.SetTime(now.Add(31 * time.Second))
+
+	reclaimed, err := rt.reclaimPendingEntries(context.Background(), "worker-1")
+	if err != nil {
+		t.Fatalf("reclaimPendingEntries returned error: %v", err)
+	}
+	if reclaimed != len(requestIDs) {
+		t.Fatalf("reclaimed count = %d, want %d", reclaimed, len(requestIDs))
+	}
+
+	for _, requestID := range requestIDs {
+		var reservationCount int
+		if err := db.QueryRow(`SELECT COUNT(*) FROM billing_reservations WHERE request_id = ?`, requestID).Scan(&reservationCount); err != nil {
+			t.Fatalf("query reservation returned error: %v", err)
+		}
+		if reservationCount != 1 {
+			t.Fatalf("reservation count for %s = %d, want 1", requestID, reservationCount)
+		}
+	}
+
+	pending, err := client.XPending(context.Background(), rt.streamKey(), defaultProjectorGroup).Result()
+	if err != nil {
+		t.Fatalf("XPending returned error: %v", err)
+	}
+	if pending.Count != 0 {
+		t.Fatalf("pending count = %d, want 0", pending.Count)
+	}
+
+	metrics := rt.SnapshotMetrics(false)
+	if got := len(metrics.ReclaimDurations); got != 1 {
+		t.Fatalf("reclaim duration samples = %d, want 1", got)
+	}
+	if metrics.ReclaimFailures != 0 {
+		t.Fatalf("reclaim failures = %d, want 0", metrics.ReclaimFailures)
+	}
+	if metrics.ReclaimClaimed != int64(len(requestIDs)) {
+		t.Fatalf("reclaim claimed = %d, want %d", metrics.ReclaimClaimed, len(requestIDs))
+	}
+}
+
 func TestReclaimPendingEntriesAfterCrashProcessesStalePendingAcrossConsumers(t *testing.T) {
 	setupBillingStateTestDB(t)
 
