@@ -159,7 +159,7 @@ func (m *TokenExtractionMiddleware) WrapReader(reader io.ReadCloser, ctx *Respon
 type ResponseCaptureMiddleware struct{}
 
 func (m *ResponseCaptureMiddleware) WrapReader(reader io.ReadCloser, ctx *ResponseContext) io.ReadCloser {
-	if ctx.RequestID == "" || !IsRequestDetailEnabled() {
+	if ctx.RequestID == "" || !IsRequestDetailCaptureEnabled(ctx.Ctx) {
 		return reader
 	}
 	return NewResponseCaptureWrapper(reader, ctx.RequestID, ctx.Headers)
@@ -195,7 +195,7 @@ func (m *TokenUsageMiddleware) ProcessBody(body []byte, ctx *ResponseContext) ([
 type ResponseStorageMiddleware struct{}
 
 func (m *ResponseStorageMiddleware) ProcessBody(body []byte, ctx *ResponseContext) ([]byte, error) {
-	if ctx.RequestID != "" && len(body) > 0 {
+	if ctx.RequestID != "" && len(body) > 0 && IsRequestDetailCaptureEnabled(ctx.Ctx) {
 		StoreResponseDetail(ctx.RequestID, sanitizeHeaders(ctx.Headers), body)
 	}
 	return body, nil
@@ -366,7 +366,7 @@ func (p *StreamingPipelineWithContext) ProcessStreamingResponse(resp *http.Respo
 	// 2. Token 提取器
 	tokenExtractor := NewSSETokenExtractor(healthWrapper, ctx.Trace, ctx.Provider)
 	streamBody := io.ReadCloser(tokenExtractor)
-	if IsRequestDetailEnabled() && ctx.RequestID != "" {
+	if ctx.RequestID != "" && IsRequestDetailCaptureEnabled(ctx.Ctx) {
 		streamBody = NewResponseCaptureWrapper(tokenExtractor, ctx.RequestID, ctx.Headers)
 	}
 	// 4. 日志包装器（最外层）

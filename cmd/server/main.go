@@ -88,12 +88,15 @@ func main() {
 	// 加载请求详情监控配置
 	if requestDetailCfg, err := sysConfigService.GetRequestDetailConfig(); err == nil {
 		amp.UpdateRequestDetailConfig(amp.RequestDetailConfig{
-			Enabled:        requestDetailCfg.Enabled,
-			TTL:            time.Duration(requestDetailCfg.TTLSec) * time.Second,
-			MaxEntries:     requestDetailCfg.MaxEntries,
-			MaxMemoryBytes: requestDetailCfg.MaxMemoryMB * 1024 * 1024,
-			BodyCapBytes:   requestDetailCfg.BodyCapKB * 1024,
-			PersistEnabled: requestDetailCfg.PersistEnabled,
+			Enabled:              requestDetailCfg.Enabled,
+			TTL:                  time.Duration(requestDetailCfg.TTLSec) * time.Second,
+			MaxEntries:           requestDetailCfg.MaxEntries,
+			MaxMemoryBytes:       requestDetailCfg.MaxMemoryMB * 1024 * 1024,
+			BodyCapBytes:         requestDetailCfg.BodyCapKB * 1024,
+			PersistEnabled:       requestDetailCfg.PersistEnabled,
+			HighRPMMode:          requestDetailCfg.HighRPMMode,
+			HighRPMThreshold:     requestDetailCfg.HighRPMThreshold,
+			HighRPMSamplePercent: requestDetailCfg.HighRPMSamplePercent,
 		})
 	}
 

@@ -759,14 +759,31 @@ func (h *SystemHandler) UpdateRequestDetailConfig(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "bodyCapKB 必须 >= 4"})
 		return
 	}
+	switch req.HighRPMMode {
+	case amp.RequestDetailModeFull, amp.RequestDetailModeOff, amp.RequestDetailModeSample:
+	default:
+		c.JSON(http.StatusBadRequest, gin.H{"error": "highRpmMode 必须是 full/off/sample"})
+		return
+	}
+	if req.HighRPMThreshold < 100 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "highRpmThreshold 必须 >= 100"})
+		return
+	}
+	if req.HighRPMSamplePercent < 1 || req.HighRPMSamplePercent > 100 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "highRpmSamplePercent 必须在 1-100"})
+		return
+	}
 
 	resp := model.RequestDetailConfigResponse{
-		Enabled:        req.Enabled,
-		TTLSec:         req.TTLSec,
-		MaxEntries:     req.MaxEntries,
-		MaxMemoryMB:    req.MaxMemoryMB,
-		BodyCapKB:      req.BodyCapKB,
-		PersistEnabled: req.PersistEnabled,
+		Enabled:              req.Enabled,
+		TTLSec:               req.TTLSec,
+		MaxEntries:           req.MaxEntries,
+		MaxMemoryMB:          req.MaxMemoryMB,
+		BodyCapKB:            req.BodyCapKB,
+		PersistEnabled:       req.PersistEnabled,
+		HighRPMMode:          req.HighRPMMode,
+		HighRPMThreshold:     req.HighRPMThreshold,
+		HighRPMSamplePercent: req.HighRPMSamplePercent,
 	}
 
 	if err := service.NewSystemConfigService().SetRequestDetailConfig(resp); err != nil {
@@ -774,12 +791,15 @@ func (h *SystemHandler) UpdateRequestDetailConfig(c *gin.Context) {
 		return
 	}
 	amp.UpdateRequestDetailConfig(amp.RequestDetailConfig{
-		Enabled:        resp.Enabled,
-		TTL:            time.Duration(resp.TTLSec) * time.Second,
-		MaxEntries:     resp.MaxEntries,
-		MaxMemoryBytes: resp.MaxMemoryMB * 1024 * 1024,
-		BodyCapBytes:   resp.BodyCapKB * 1024,
-		PersistEnabled: resp.PersistEnabled,
+		Enabled:              resp.Enabled,
+		TTL:                  time.Duration(resp.TTLSec) * time.Second,
+		MaxEntries:           resp.MaxEntries,
+		MaxMemoryBytes:       resp.MaxMemoryMB * 1024 * 1024,
+		BodyCapBytes:         resp.BodyCapKB * 1024,
+		PersistEnabled:       resp.PersistEnabled,
+		HighRPMMode:          resp.HighRPMMode,
+		HighRPMThreshold:     resp.HighRPMThreshold,
+		HighRPMSamplePercent: resp.HighRPMSamplePercent,
 	})
 
 	c.JSON(http.StatusOK, gin.H{"message": "配置已更新", "config": resp})

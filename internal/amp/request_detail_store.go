@@ -315,7 +315,7 @@ func (s *RequestDetailStore) UpdateTranslatedRequestBody(requestID string, body 
 		detail.TranslatedRequestBody = cloneBodyWithCap(body, cfg.BodyCapBytes)
 		detail.MetadataOnly = false
 		detail.Truncated = detail.Truncated || len(body) > cfg.BodyCapBytes
-	}, true)
+	}, false)
 }
 
 func (s *RequestDetailStore) UpdateTranslatedRequestHeaders(requestID string, headers http.Header) {
@@ -325,7 +325,7 @@ func (s *RequestDetailStore) UpdateTranslatedRequestHeaders(requestID string, he
 
 	s.mutateDetail(requestID, func(detail *RequestDetail, _ RequestDetailConfig) {
 		detail.TranslatedRequestHeaders = cloneHeaders(headers)
-	}, true)
+	}, false)
 }
 
 func (s *RequestDetailStore) UpdateResponseData(requestID string, headers http.Header, body []byte) {
@@ -334,7 +334,7 @@ func (s *RequestDetailStore) UpdateResponseData(requestID string, headers http.H
 		detail.ResponseBody = cloneBodyWithCap(body, cfg.BodyCapBytes)
 		detail.MetadataOnly = false
 		detail.Truncated = detail.Truncated || len(body) > cfg.BodyCapBytes
-	}, true)
+	}, false)
 }
 
 func (s *RequestDetailStore) AppendTranslatedResponse(requestID string, data []byte) {
