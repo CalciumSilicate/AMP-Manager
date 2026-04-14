@@ -49,11 +49,13 @@ func IsBillingRuntimePersistError(err error) bool {
 func billingRuntimeStateConfig(req model.BillingRuntimeConfigRequest) billingstate.Config {
 	req = normalizeBillingRuntimeConfigRequest(req)
 	return billingstate.Config{
-		RedisURL:          req.RedisURL,
-		Prefix:            req.RedisPrefix,
-		ReservationTTL:    time.Duration(req.ReservationTTLSec) * time.Second,
-		ReconcileInterval: time.Duration(req.ReconcileIntervalSec) * time.Second,
-		StreamBatchSize:   int64(req.StreamBatchSize),
+		RedisURL:           req.RedisURL,
+		Prefix:             req.RedisPrefix,
+		ReservationTTL:     time.Duration(req.ReservationTTLSec) * time.Second,
+		ReconcileInterval:  time.Duration(req.ReconcileIntervalSec) * time.Second,
+		StreamBatchSize:    int64(req.StreamBatchSize),
+		ReconcileBatchSize: int64(req.ReconcileBatchSize),
+		ExpiryBatchSize:    int64(req.ExpiryBatchSize),
 	}
 }
 

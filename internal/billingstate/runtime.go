@@ -37,11 +37,13 @@ const (
 )
 
 type Config struct {
-	RedisURL          string
-	Prefix            string
-	ReservationTTL    time.Duration
-	ReconcileInterval time.Duration
-	StreamBatchSize   int64
+	RedisURL           string
+	Prefix             string
+	ReservationTTL     time.Duration
+	ReconcileInterval  time.Duration
+	StreamBatchSize    int64
+	ReconcileBatchSize int64
+	ExpiryBatchSize    int64
 }
 
 type Runtime struct {
@@ -243,6 +245,12 @@ func normalizeConfig(cfg Config) Config {
 	}
 	if cfg.StreamBatchSize <= 0 {
 		cfg.StreamBatchSize = 100
+	}
+	if cfg.ReconcileBatchSize <= 0 {
+		cfg.ReconcileBatchSize = cfg.StreamBatchSize
+	}
+	if cfg.ExpiryBatchSize <= 0 {
+		cfg.ExpiryBatchSize = cfg.StreamBatchSize
 	}
 	return cfg
 }
@@ -1456,6 +1464,9 @@ func windowStateID(subscriptionID string, limitType model.LimitType, windowStart
 }
 
 func (r *Runtime) reconcileBatchSize() int64 {
+	if r.cfg.ReconcileBatchSize > 0 {
+		return r.cfg.ReconcileBatchSize
+	}
 	if r.cfg.StreamBatchSize > 0 {
 		return r.cfg.StreamBatchSize
 	}
@@ -1463,7 +1474,13 @@ func (r *Runtime) reconcileBatchSize() int64 {
 }
 
 func (r *Runtime) expiryBatchSize() int64 {
-	return r.reconcileBatchSize()
+	if r.cfg.ExpiryBatchSize > 0 {
+		return r.cfg.ExpiryBatchSize
+	}
+	if r.cfg.StreamBatchSize > 0 {
+		return r.cfg.StreamBatchSize
+	}
+	return defaultReconcileBatch
 }
 
 func (r *Runtime) projectMessages(ctx context.Context, messages []redis.XMessage) []string {

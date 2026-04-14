@@ -368,6 +368,8 @@ export interface BillingRuntimeConfig {
   reservationTtlSec: number
   reconcileIntervalSec: number
   streamBatchSize: number
+  reconcileBatchSize: number
+  expiryBatchSize: number
   runtimeEnabled: boolean
   runtimeHealthy: boolean
 }
@@ -378,6 +380,8 @@ export interface BillingRuntimeConfigRequest {
   reservationTtlSec: number
   reconcileIntervalSec: number
   streamBatchSize: number
+  reconcileBatchSize: number
+  expiryBatchSize: number
 }
 
 export async function getBillingRuntimeConfig(): Promise<BillingRuntimeConfig> {

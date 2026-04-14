@@ -28,8 +28,9 @@ func TestReconcileNextPageAdvancesByCursor(t *testing.T) {
 	rt := &Runtime{
 		client: client,
 		cfg: Config{
-			Prefix:          "amp",
-			StreamBatchSize: 2,
+			Prefix:             "amp",
+			StreamBatchSize:    9,
+			ReconcileBatchSize: 2,
 		},
 	}
 
@@ -62,5 +63,17 @@ func TestReconcileNextPageAdvancesByCursor(t *testing.T) {
 	}
 	if !mr.Exists(rt.accountKey("user-3")) {
 		t.Fatalf("expected second page user to be reconciled into redis")
+	}
+}
+
+func TestReconcileBatchSizeDefaultsToStreamBatchSize(t *testing.T) {
+	rt := &Runtime{
+		cfg: Config{
+			StreamBatchSize: 6,
+		},
+	}
+
+	if got := rt.reconcileBatchSize(); got != 6 {
+		t.Fatalf("reconcileBatchSize = %d, want 6", got)
 	}
 }

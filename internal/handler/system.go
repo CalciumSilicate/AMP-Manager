@@ -310,6 +310,20 @@ func (h *SystemHandler) UpdateBillingRuntimeConfig(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "streamBatchSize 必须 >= 1"})
 		return
 	}
+	if req.ReconcileBatchSize <= 0 {
+		req.ReconcileBatchSize = req.StreamBatchSize
+	}
+	if req.ExpiryBatchSize <= 0 {
+		req.ExpiryBatchSize = req.StreamBatchSize
+	}
+	if req.ReconcileBatchSize < 1 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "reconcileBatchSize 必须 >= 1"})
+		return
+	}
+	if req.ExpiryBatchSize < 1 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "expiryBatchSize 必须 >= 1"})
+		return
+	}
 
 	cfgService := service.NewSystemConfigService()
 	if err := cfgService.ApplyAndStoreBillingRuntimeConfig(req); err != nil {
