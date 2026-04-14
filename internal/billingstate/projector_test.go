@@ -217,6 +217,128 @@ func TestReclaimPendingEntriesProjectsAndAcksClaimedMessages(t *testing.T) {
 	if pending.Count != 0 {
 		t.Fatalf("pending count = %d, want 0", pending.Count)
 	}
+
+	metrics := rt.SnapshotMetrics(false)
+	if got := len(metrics.ReclaimDurations); got != 1 {
+		t.Fatalf("reclaim duration samples = %d, want 1", got)
+	}
+	if metrics.ReclaimFailures != 0 {
+		t.Fatalf("reclaim failures = %d, want 0", metrics.ReclaimFailures)
+	}
+	if metrics.ReclaimClaimed != 1 {
+		t.Fatalf("reclaim claimed = %d, want 1", metrics.ReclaimClaimed)
+	}
+}
+
+func TestReclaimPendingEntriesAfterCrashProcessesStalePendingAcrossConsumers(t *testing.T) {
+	setupBillingStateTestDB(t)
+
+	now := time.Now().UTC()
+	db := database.GetDB()
+	mustExecBillingState(t, db, `INSERT INTO users (id, username, password_hash, is_admin, balance_micros) VALUES (?, 'alice', 'x', 0, 20)`, "user-1")
+	mustExecBillingState(t, db, `INSERT INTO billing_account_state (user_id, primary_source, secondary_source, balance_micros, revision, created_at, updated_at) VALUES (?, 'subscription', 'balance', 20, 0, ?, ?)`, "user-1", now, now)
+
+	mr := miniredis.RunT(t)
+	mr.SetTime(now)
+	crashClient := redis.NewClient(&redis.Options{Addr: mr.Addr()})
+	restartClient := redis.NewClient(&redis.Options{Addr: mr.Addr()})
+	t.Cleanup(func() { _ = restartClient.Close() })
+
+	rtBeforeCrash := &Runtime{
+		client: crashClient,
+		cfg: Config{
+			Prefix:          "amp",
+			StreamBatchSize: 8,
+		},
+		projectorConsumers: []string{"worker-a", "worker-b"},
+		stopCh:             make(chan struct{}),
+	}
+	if err := rtBeforeCrash.ensureConsumerGroup(context.Background()); err != nil {
+		t.Fatalf("ensureConsumerGroup returned error: %v", err)
+	}
+
+	for _, requestID := range []string{"req-crash-1", "req-crash-2"} {
+		if _, err := crashClient.XAdd(context.Background(), &redis.XAddArgs{
+			Stream: rtBeforeCrash.streamKey(),
+			Values: map[string]any{
+				"event_type":                   "reserve",
+				"request_id":                   requestID,
+				"user_id":                      "user-1",
+				"user_subscription_id":         "",
+				"status":                       "reserved",
+				"estimated_cost_micros":        "5",
+				"reserved_subscription_micros": "0",
+				"reserved_balance_micros":      "5",
+				"window_refs_json":             "[]",
+				"expires_at_unix":              now.Add(5 * time.Minute).Unix(),
+			},
+		}).Result(); err != nil {
+			t.Fatalf("XAdd returned error: %v", err)
+		}
+	}
+
+	for _, consumerName := range []string{"worker-a", "worker-b"} {
+		streams, err := crashClient.XReadGroup(context.Background(), &redis.XReadGroupArgs{
+			Group:    defaultProjectorGroup,
+			Consumer: consumerName,
+			Streams:  []string{rtBeforeCrash.streamKey(), ">"},
+			Count:    1,
+		}).Result()
+		if err != nil {
+			t.Fatalf("XReadGroup returned error: %v", err)
+		}
+		if len(streams) != 1 || len(streams[0].Messages) != 1 {
+			t.Fatalf("unexpected initial read result for %s: %+v", consumerName, streams)
+		}
+	}
+
+	rtBeforeCrash.Close()
+	mr.SetTime(now.Add(defaultProjectorClaimIdle + time.Second))
+
+	rtAfterRestart := &Runtime{
+		client: restartClient,
+		cfg: Config{
+			Prefix:          "amp",
+			StreamBatchSize: 8,
+		},
+	}
+
+	reclaimed, err := rtAfterRestart.reclaimPendingEntries(context.Background(), "worker-restart")
+	if err != nil {
+		t.Fatalf("reclaimPendingEntries returned error: %v", err)
+	}
+	if reclaimed != 2 {
+		t.Fatalf("reclaimed count = %d, want 2", reclaimed)
+	}
+
+	for _, requestID := range []string{"req-crash-1", "req-crash-2"} {
+		var reservationCount int
+		if err := db.QueryRow(`SELECT COUNT(*) FROM billing_reservations WHERE request_id = ?`, requestID).Scan(&reservationCount); err != nil {
+			t.Fatalf("query reservation returned error: %v", err)
+		}
+		if reservationCount != 1 {
+			t.Fatalf("reservation count for %s = %d, want 1", requestID, reservationCount)
+		}
+	}
+
+	pending, err := restartClient.XPending(context.Background(), rtAfterRestart.streamKey(), defaultProjectorGroup).Result()
+	if err != nil {
+		t.Fatalf("XPending returned error: %v", err)
+	}
+	if pending.Count != 0 {
+		t.Fatalf("pending count = %d, want 0", pending.Count)
+	}
+
+	metrics := rtAfterRestart.SnapshotMetrics(false)
+	if got := len(metrics.ReclaimDurations); got != 1 {
+		t.Fatalf("reclaim duration samples = %d, want 1", got)
+	}
+	if metrics.ReclaimFailures != 0 {
+		t.Fatalf("reclaim failures = %d, want 0", metrics.ReclaimFailures)
+	}
+	if metrics.ReclaimClaimed != 2 {
+		t.Fatalf("reclaim claimed = %d, want 2", metrics.ReclaimClaimed)
+	}
 }
 
 func TestRuntimeCloseDeletesIdleProjectorConsumer(t *testing.T) {
