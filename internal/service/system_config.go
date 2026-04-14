@@ -286,6 +286,9 @@ func defaultBillingRuntimeConfigRequest() model.BillingRuntimeConfigRequest {
 		if cfg.BillingExpiryBatchSize > 0 {
 			resp.ExpiryBatchSize = cfg.BillingExpiryBatchSize
 		}
+		if cfg.BillingProjectorWorkers > 0 {
+			resp.ProjectorWorkers = cfg.BillingProjectorWorkers
+		}
 	}
 
 	return normalizeBillingRuntimeConfigRequest(resp)
@@ -311,6 +314,9 @@ func normalizeBillingRuntimeConfigRequest(req model.BillingRuntimeConfigRequest)
 	}
 	if req.ExpiryBatchSize <= 0 {
 		req.ExpiryBatchSize = req.StreamBatchSize
+	}
+	if req.ProjectorWorkers <= 0 {
+		req.ProjectorWorkers = 1
 	}
 	return req
 }
@@ -355,6 +361,9 @@ func (s *SystemConfigService) GetBillingRuntimeConfigRequest() (model.BillingRun
 	} else if cfg == nil || !cfg.BillingEnvExplicit.ExpiryBatchSize {
 		resp.ExpiryBatchSize = resp.StreamBatchSize
 	}
+	if stored.ProjectorWorkers > 0 {
+		resp.ProjectorWorkers = stored.ProjectorWorkers
+	}
 
 	return normalizeBillingRuntimeConfigRequest(resp), nil
 }
@@ -374,6 +383,7 @@ func (s *SystemConfigService) GetBillingRuntimeConfig() (model.BillingRuntimeCon
 		StreamBatchSize:      req.StreamBatchSize,
 		ReconcileBatchSize:   req.ReconcileBatchSize,
 		ExpiryBatchSize:      req.ExpiryBatchSize,
+		ProjectorWorkers:     req.ProjectorWorkers,
 		RuntimeEnabled:       strings.TrimSpace(req.RedisURL) != "",
 	}
 	resp.RuntimeHealthy = resp.RuntimeEnabled && billingstate.Get() != nil

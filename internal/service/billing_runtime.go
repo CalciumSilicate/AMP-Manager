@@ -56,6 +56,7 @@ func billingRuntimeStateConfig(req model.BillingRuntimeConfigRequest) billingsta
 		StreamBatchSize:    int64(req.StreamBatchSize),
 		ReconcileBatchSize: int64(req.ReconcileBatchSize),
 		ExpiryBatchSize:    int64(req.ExpiryBatchSize),
+		ProjectorWorkers:   req.ProjectorWorkers,
 	}
 }
 

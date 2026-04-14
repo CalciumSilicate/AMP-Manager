@@ -77,6 +77,9 @@ func TestApplyAndStoreBillingRuntimeConfigCommitsNewRuntime(t *testing.T) {
 			if cfg.StreamBatchSize != 8 {
 				t.Fatalf("build got stream batch size %d", cfg.StreamBatchSize)
 			}
+			if cfg.ProjectorWorkers != 4 {
+				t.Fatalf("build got projector workers %d", cfg.ProjectorWorkers)
+			}
 			if cfg.ReconcileBatchSize != 5 {
 				t.Fatalf("build got reconcile batch size %d", cfg.ReconcileBatchSize)
 			}
@@ -107,6 +110,7 @@ func TestApplyAndStoreBillingRuntimeConfigCommitsNewRuntime(t *testing.T) {
 		StreamBatchSize:      8,
 		ReconcileBatchSize:   5,
 		ExpiryBatchSize:      3,
+		ProjectorWorkers:     4,
 	})
 	if err != nil {
 		t.Fatalf("ApplyAndStoreBillingRuntimeConfig returned error: %v", err)
@@ -183,6 +187,9 @@ func TestApplyAndStoreBillingRuntimeConfigDisablesRuntime(t *testing.T) {
 	}
 	if stored.ExpiryBatchSize != 3 {
 		t.Fatalf("stored expiry batch size = %d, want 3", stored.ExpiryBatchSize)
+	}
+	if stored.ProjectorWorkers != 1 {
+		t.Fatalf("stored projector workers = %d, want 1", stored.ProjectorWorkers)
 	}
 }
 
@@ -270,6 +277,9 @@ func TestGetBillingRuntimeConfigRequestFallsBackNewBatchSizesToStreamBatchSize(t
 	if req.ExpiryBatchSize != 7 {
 		t.Fatalf("expiry batch size = %d, want 7", req.ExpiryBatchSize)
 	}
+	if req.ProjectorWorkers != 1 {
+		t.Fatalf("projector workers = %d, want 1", req.ProjectorWorkers)
+	}
 }
 
 func TestGetBillingRuntimeConfigRequestKeepsExplicitEnvBatchSizesForLegacyStoredConfig(t *testing.T) {
@@ -339,6 +349,7 @@ func TestDefaultBillingRuntimeConfigRequestFallsBackEnvBatchSizesToStreamBatchSi
 	t.Setenv("BILLING_STREAM_BATCH_SIZE", "12")
 	t.Setenv("BILLING_RECONCILE_BATCH_SIZE", "")
 	t.Setenv("BILLING_EXPIRY_BATCH_SIZE", "")
+	t.Setenv("BILLING_PROJECTOR_WORKERS", "")
 	config.Load()
 
 	req := defaultBillingRuntimeConfigRequest()
@@ -350,6 +361,26 @@ func TestDefaultBillingRuntimeConfigRequestFallsBackEnvBatchSizesToStreamBatchSi
 	}
 	if req.ExpiryBatchSize != 12 {
 		t.Fatalf("expiry batch size = %d, want 12", req.ExpiryBatchSize)
+	}
+	if req.ProjectorWorkers != 1 {
+		t.Fatalf("projector workers = %d, want 1", req.ProjectorWorkers)
+	}
+}
+
+func TestDefaultBillingRuntimeConfigRequestUsesConfiguredProjectorWorkers(t *testing.T) {
+	t.Setenv("REDIS_URL", "")
+	t.Setenv("REDIS_PREFIX", "ampmanager")
+	t.Setenv("BILLING_RESERVATION_TTL_SEC", "600")
+	t.Setenv("BILLING_RECONCILE_INTERVAL_SEC", "60")
+	t.Setenv("BILLING_STREAM_BATCH_SIZE", "12")
+	t.Setenv("BILLING_RECONCILE_BATCH_SIZE", "")
+	t.Setenv("BILLING_EXPIRY_BATCH_SIZE", "")
+	t.Setenv("BILLING_PROJECTOR_WORKERS", "6")
+	config.Load()
+
+	req := defaultBillingRuntimeConfigRequest()
+	if req.ProjectorWorkers != 6 {
+		t.Fatalf("projector workers = %d, want 6", req.ProjectorWorkers)
 	}
 }
 
@@ -396,6 +427,7 @@ func setupBillingRuntimeServiceTestDB(t *testing.T) {
 	t.Setenv("BILLING_RESERVATION_TTL_SEC", "600")
 	t.Setenv("BILLING_RECONCILE_INTERVAL_SEC", "60")
 	t.Setenv("BILLING_STREAM_BATCH_SIZE", "100")
+	t.Setenv("BILLING_PROJECTOR_WORKERS", "1")
 	config.Load()
 
 	dbPath := filepath.Join(t.TempDir(), "billing-runtime-test.sqlite")
