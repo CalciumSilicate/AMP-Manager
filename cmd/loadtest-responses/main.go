@@ -203,6 +203,46 @@ type benchmarkReport struct {
 	Stages   []reportStage  `json:"stages"`
 }
 
+type matrixOptions struct {
+	streamBatchSizes    []int
+	reconcileBatchSizes []int
+	expiryBatchSizes    []int
+	projectorWorkers    []int
+	projectorClaimIdle  []int
+}
+
+type matrixRun struct {
+	index   int
+	label   string
+	options runOptions
+}
+
+type matrixRunSummary struct {
+	Index          int          `json:"index"`
+	Label          string       `json:"label"`
+	RuntimeKnobs   runtimeKnobs `json:"runtime_knobs"`
+	TotalRequests  int64        `json:"total_requests"`
+	Failures       int64        `json:"failures"`
+	ErrorRate      float64      `json:"error_rate"`
+	AvgThroughput  float64      `json:"avg_throughput_rps"`
+	WorstStageRPM  int          `json:"worst_stage_rpm"`
+	WorstStageP95  string       `json:"worst_stage_e2e_p95"`
+	ValidationFail int64        `json:"validation_failures"`
+}
+
+type matrixReport struct {
+	Profile      string             `json:"profile"`
+	Mode         string             `json:"mode"`
+	BaseLabel    string             `json:"base_label,omitempty"`
+	StageSeconds int                `json:"stage_seconds"`
+	StageRPMs    []int              `json:"stage_rpms"`
+	StartedAt    string             `json:"started_at"`
+	CompletedAt  string             `json:"completed_at"`
+	CompareBy    []string           `json:"compare_by"`
+	Runs         []matrixRunSummary `json:"runs"`
+	Reports      []benchmarkReport  `json:"reports"`
+}
+
 var benchmarkProfiles = map[string]benchmarkProfile{
 	"benchmark-shared-billing": {
 		Name:                "benchmark-shared-billing",
@@ -253,6 +293,11 @@ func main() {
 		expiryBatchSize    int
 		projectorWorkers   int
 		projectorClaimIdle int
+		matrixStream       string
+		matrixReconcile    string
+		matrixExpiry       string
+		matrixWorkers      string
+		matrixClaimIdle    string
 	)
 
 	flag.IntVar(&stageSeconds, "stage-seconds", 8, "duration of each RPM stage in seconds")
@@ -271,6 +316,11 @@ func main() {
 	flag.IntVar(&expiryBatchSize, "expiry-batch-size", 0, "billing runtime expiry batch size for shared billing mode; defaults to stream batch size when <= 0")
 	flag.IntVar(&projectorWorkers, "projector-workers", 0, "billing runtime projector worker count for shared billing mode; defaults to runtime default when <= 0")
 	flag.IntVar(&projectorClaimIdle, "projector-claim-idle-sec", 0, "billing runtime projector reclaim idle seconds for shared billing mode; defaults to runtime default when <= 0")
+	flag.StringVar(&matrixStream, "matrix-stream-batch-sizes", "", "optional comma-separated stream batch sizes for matrix mode")
+	flag.StringVar(&matrixReconcile, "matrix-reconcile-batch-sizes", "", "optional comma-separated reconcile batch sizes for matrix mode")
+	flag.StringVar(&matrixExpiry, "matrix-expiry-batch-sizes", "", "optional comma-separated expiry batch sizes for matrix mode")
+	flag.StringVar(&matrixWorkers, "matrix-projector-workers", "", "optional comma-separated projector worker counts for matrix mode")
+	flag.StringVar(&matrixClaimIdle, "matrix-projector-claim-idle-secs", "", "optional comma-separated projector reclaim idle seconds for matrix mode")
 	flag.BoolVar(&legacyLocal, "legacy-local", false, "use self-contained sqlite smoke mode instead of real shared billing")
 	flag.Parse()
 
@@ -292,11 +342,71 @@ func main() {
 		os.Exit(1)
 	}
 
+	matrix, err := parseMatrixOptions(matrixStream, matrixReconcile, matrixExpiry, matrixWorkers, matrixClaimIdle)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "invalid matrix options: %v\n", err)
+		os.Exit(1)
+	}
+
+	runs, err := buildMatrixRuns(options, matrix)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "invalid matrix plan: %v\n", err)
+		os.Exit(1)
+	}
+
+	reports := make([]benchmarkReport, 0, len(runs))
+	summaries := make([]matrixRunSummary, 0, len(runs))
+	overallOK := true
+	matrixStartedAt := time.Now().UTC()
+
+	for _, run := range runs {
+		fmt.Printf("run %d/%d label=%s knobs=%s\n", run.index, len(runs), displayValue(run.label, "-"), formatKnobs(run.options.runtimeKnobs))
+		report, ok, err := executeRun(profile, run.options)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "run %d setup failed: %v\n", run.index, err)
+			os.Exit(1)
+		}
+		reports = append(reports, report)
+		summaries = append(summaries, buildMatrixRunSummary(run.index, run.options.label, report))
+		if !ok {
+			overallOK = false
+		}
+	}
+
+	matrixCompletedAt := time.Now().UTC()
+	if len(runs) > 1 {
+		printComparativeSummary(summaries)
+	}
+
+	if options.outputPath != "" {
+		if len(runs) == 1 {
+			if err := writeReport(options.outputPath, options.outputFormat, reports[0]); err != nil {
+				fmt.Fprintf(os.Stderr, "write report failed: %v\n", err)
+				os.Exit(1)
+			}
+		} else {
+			if err := writeMatrixReport(options.outputPath, options.outputFormat, buildMatrixReport(profile, options, matrixStartedAt, matrixCompletedAt, summaries, reports)); err != nil {
+				fmt.Fprintf(os.Stderr, "write matrix report failed: %v\n", err)
+				os.Exit(1)
+			}
+		}
+		fmt.Printf("report_written=%s format=%s\n", options.outputPath, options.outputFormat)
+	}
+
+	if overallOK {
+		fmt.Println("result: all stages completed without request or validation failures")
+		return
+	}
+
+	fmt.Println("result: one or more stages reported failures")
+	os.Exit(1)
+}
+
+func executeRun(profile benchmarkProfile, options runOptions) (benchmarkReport, bool, error) {
 	startedAt := time.Now().UTC()
 	env, err := setupBenchmarkEnv(profile.Mode, options.timeout, options.seed, options.databaseURL, options.redisURL, options.redisPrefix, options.runtimeKnobs)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "setup failed: %v\n", err)
-		os.Exit(1)
+		return benchmarkReport{}, false, err
 	}
 	defer env.cleanup()
 
@@ -334,7 +444,6 @@ func main() {
 
 	overallOK := true
 	stageResults := make([]stageMetrics, 0, len(options.stageRPMs))
-
 	for idx, rpm := range options.stageRPMs {
 		metrics := runStage(env, rpm, time.Duration(options.stageSeconds)*time.Second)
 		metrics.stageIndex = idx + 1
@@ -348,24 +457,9 @@ func main() {
 		}
 	}
 
-	completedAt := time.Now().UTC()
-	report := buildBenchmarkReport(profile, options, env, startedAt, completedAt, stageResults)
+	report := buildBenchmarkReport(profile, options, env, startedAt, time.Now().UTC(), stageResults)
 	printSummary(report.Summary)
-	if options.outputPath != "" {
-		if err := writeReport(options.outputPath, options.outputFormat, report); err != nil {
-			fmt.Fprintf(os.Stderr, "write report failed: %v\n", err)
-			os.Exit(1)
-		}
-		fmt.Printf("report_written=%s format=%s\n", options.outputPath, options.outputFormat)
-	}
-
-	if overallOK {
-		fmt.Println("result: all stages completed without request or validation failures")
-		return
-	}
-
-	fmt.Println("result: one or more stages reported failures")
-	os.Exit(1)
+	return report, overallOK, nil
 }
 
 func buildRunOptions(profileName string, stageSeconds int, stageList string, timeout time.Duration, seed int64, databaseURL, redisURL, redisPrefix, label, outputPath, outputFormat string, legacyLocal bool, knobs runtimeKnobs, projectorWorkers, projectorClaimIdle int) (runOptions, benchmarkProfile, error) {
@@ -469,6 +563,234 @@ func parseStages(raw string, defaults []int) ([]int, error) {
 		return nil, fmt.Errorf("no valid stages configured")
 	}
 	return stages, nil
+}
+
+func parseMatrixOptions(streamRaw, reconcileRaw, expiryRaw, workersRaw, claimIdleRaw string) (matrixOptions, error) {
+	streamValues, err := parseOptionalIntList(streamRaw, "matrix stream batch sizes")
+	if err != nil {
+		return matrixOptions{}, err
+	}
+	reconcileValues, err := parseOptionalIntList(reconcileRaw, "matrix reconcile batch sizes")
+	if err != nil {
+		return matrixOptions{}, err
+	}
+	expiryValues, err := parseOptionalIntList(expiryRaw, "matrix expiry batch sizes")
+	if err != nil {
+		return matrixOptions{}, err
+	}
+	workerValues, err := parseOptionalIntList(workersRaw, "matrix projector workers")
+	if err != nil {
+		return matrixOptions{}, err
+	}
+	claimIdleValues, err := parseOptionalIntList(claimIdleRaw, "matrix projector claim idle secs")
+	if err != nil {
+		return matrixOptions{}, err
+	}
+	return matrixOptions{
+		streamBatchSizes:    streamValues,
+		reconcileBatchSizes: reconcileValues,
+		expiryBatchSizes:    expiryValues,
+		projectorWorkers:    workerValues,
+		projectorClaimIdle:  claimIdleValues,
+	}, nil
+}
+
+func parseOptionalIntList(raw, fieldName string) ([]int, error) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return nil, nil
+	}
+	parts := strings.Split(raw, ",")
+	values := make([]int, 0, len(parts))
+	seen := make(map[int]struct{}, len(parts))
+	for _, part := range parts {
+		part = strings.TrimSpace(part)
+		if part == "" {
+			continue
+		}
+		var value int
+		if _, err := fmt.Sscanf(part, "%d", &value); err != nil || value < 0 {
+			return nil, fmt.Errorf("%s contains invalid value %q", fieldName, part)
+		}
+		if _, ok := seen[value]; ok {
+			continue
+		}
+		seen[value] = struct{}{}
+		values = append(values, value)
+	}
+	if len(values) == 0 {
+		return nil, fmt.Errorf("%s did not contain any values", fieldName)
+	}
+	return values, nil
+}
+
+func buildMatrixRuns(base runOptions, matrix matrixOptions) ([]matrixRun, error) {
+	streamValues := chooseMatrixDimension(matrix.streamBatchSizes, base.runtimeKnobs.streamBatchSize)
+	reconcileValues := chooseMatrixDimension(matrix.reconcileBatchSizes, base.runtimeKnobs.reconcileBatchSize)
+	expiryValues := chooseMatrixDimension(matrix.expiryBatchSizes, base.runtimeKnobs.expiryBatchSize)
+	workerValues := chooseMatrixDimension(matrix.projectorWorkers, base.projectorRequested)
+	claimIdleValues := chooseMatrixDimension(matrix.projectorClaimIdle, base.claimIdleRequested)
+
+	totalRuns := len(streamValues) * len(reconcileValues) * len(expiryValues) * len(workerValues) * len(claimIdleValues)
+	if totalRuns <= 0 {
+		return nil, fmt.Errorf("matrix plan resolved to zero runs")
+	}
+	if totalRuns > 24 {
+		return nil, fmt.Errorf("matrix plan resolves to %d runs; keep it at or below 24", totalRuns)
+	}
+
+	runs := make([]matrixRun, 0, totalRuns)
+	runIndex := 1
+	for _, streamValue := range streamValues {
+		currentReconcileValues := reconcileValues
+		if len(matrix.reconcileBatchSizes) == 0 && base.runtimeKnobs.reconcileBatchSize == base.runtimeKnobs.streamBatchSize {
+			currentReconcileValues = []int{streamValue}
+		}
+		currentExpiryValues := expiryValues
+		if len(matrix.expiryBatchSizes) == 0 && base.runtimeKnobs.expiryBatchSize == base.runtimeKnobs.streamBatchSize {
+			currentExpiryValues = []int{streamValue}
+		}
+		for _, reconcileValue := range currentReconcileValues {
+			for _, expiryValue := range currentExpiryValues {
+				for _, workerValue := range workerValues {
+					for _, claimIdleValue := range claimIdleValues {
+						runOptions := cloneRunOptions(base)
+						runOptions.projectorRequested = workerValue
+						runOptions.claimIdleRequested = claimIdleValue
+						runOptions.runtimeKnobs = normalizeRuntimeKnobs(runtimeKnobs{
+							streamBatchSize:    streamValue,
+							reconcileBatchSize: reconcileValue,
+							expiryBatchSize:    expiryValue,
+							projectorWorkers:   workerValue,
+							projectorClaimIdle: claimIdleValue,
+						})
+						if totalRuns == 1 {
+							runOptions.label = base.label
+						} else {
+							runOptions.label = deriveRunLabel(base.label, runIndex)
+						}
+						if totalRuns > 1 && strings.TrimSpace(runOptions.redisPrefix) != "" {
+							runOptions.redisPrefix = fmt.Sprintf("%s-r%02d", strings.TrimSpace(base.redisPrefix), runIndex)
+						}
+						runs = append(runs, matrixRun{
+							index:   runIndex,
+							label:   runOptions.label,
+							options: runOptions,
+						})
+						runIndex++
+					}
+				}
+			}
+		}
+	}
+	return runs, nil
+}
+
+func chooseMatrixDimension(values []int, baseValue int) []int {
+	if len(values) > 0 {
+		return append([]int(nil), values...)
+	}
+	return []int{baseValue}
+}
+
+func cloneRunOptions(options runOptions) runOptions {
+	cloned := options
+	cloned.stageRPMs = append([]int(nil), options.stageRPMs...)
+	return cloned
+}
+
+func deriveRunLabel(baseLabel string, runIndex int) string {
+	prefix := strings.TrimSpace(baseLabel)
+	if prefix == "" {
+		prefix = fmt.Sprintf("run-%02d", runIndex)
+	} else {
+		prefix = fmt.Sprintf("%s/r%02d", prefix, runIndex)
+	}
+	return prefix
+}
+
+func buildMatrixRunSummary(index int, label string, report benchmarkReport) matrixRunSummary {
+	return matrixRunSummary{
+		Index:          index,
+		Label:          label,
+		RuntimeKnobs:   report.Metadata.RuntimeKnobs,
+		TotalRequests:  report.Summary.TotalRequests,
+		Failures:       report.Summary.Failures,
+		ErrorRate:      report.Summary.ErrorRate,
+		AvgThroughput:  report.Summary.AvgThroughput,
+		WorstStageRPM:  report.Summary.WorstStageRPM,
+		WorstStageP95:  report.Summary.WorstStageP95,
+		ValidationFail: report.Summary.ValidationFail,
+	}
+}
+
+func buildMatrixReport(profile benchmarkProfile, options runOptions, startedAt, completedAt time.Time, summaries []matrixRunSummary, reports []benchmarkReport) matrixReport {
+	return matrixReport{
+		Profile:      profile.Name,
+		Mode:         profile.Mode,
+		BaseLabel:    options.label,
+		StageSeconds: options.stageSeconds,
+		StageRPMs:    append([]int(nil), options.stageRPMs...),
+		StartedAt:    startedAt.Format(time.RFC3339),
+		CompletedAt:  completedAt.Format(time.RFC3339),
+		CompareBy:    []string{"label", "runtime_knobs", "worst_stage_e2e_p95", "error_rate", "avg_throughput_rps"},
+		Runs:         append([]matrixRunSummary(nil), summaries...),
+		Reports:      append([]benchmarkReport(nil), reports...),
+	}
+}
+
+func writeMatrixReport(path, format string, report matrixReport) error {
+	if format != "json" {
+		return fmt.Errorf("unsupported output format %q", format)
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return err
+	}
+	encoded, err := json.MarshalIndent(report, "", "  ")
+	if err != nil {
+		return err
+	}
+	encoded = append(encoded, '\n')
+	return os.WriteFile(path, encoded, 0o644)
+}
+
+func printComparativeSummary(summaries []matrixRunSummary) {
+	fmt.Println("comparative_summary")
+	fmt.Printf("%-6s %-18s %-44s %9s %9s %9s %8s %6s %6s\n",
+		"run", "label", "knobs", "worst_p95", "avg_rps", "err_rate", "worst_rpm", "err", "val")
+	for _, summary := range summaries {
+		fmt.Printf("%-6d %-18s %-44s %9s %9.1f %8.2f%% %8d %6d %6d\n",
+			summary.Index,
+			truncateDisplay(summary.Label, 18),
+			truncateDisplay(formatKnobs(summary.RuntimeKnobs), 44),
+			summary.WorstStageP95,
+			summary.AvgThroughput,
+			summary.ErrorRate*100,
+			summary.WorstStageRPM,
+			summary.Failures,
+			summary.ValidationFail,
+		)
+	}
+}
+
+func formatKnobs(knobs runtimeKnobs) string {
+	return fmt.Sprintf("sb=%d rb=%d eb=%d pw=%d ci=%d",
+		knobs.streamBatchSize,
+		knobs.reconcileBatchSize,
+		knobs.expiryBatchSize,
+		knobs.projectorWorkers,
+		knobs.projectorClaimIdle,
+	)
+}
+
+func truncateDisplay(value string, width int) string {
+	if width <= 0 || len(value) <= width {
+		return value
+	}
+	if width <= 3 {
+		return value[:width]
+	}
+	return value[:width-3] + "..."
 }
 
 func setupBenchmarkEnv(mode string, timeout time.Duration, seed int64, databaseURL, redisURL, redisPrefix string, knobs runtimeKnobs) (*benchmarkEnv, error) {
