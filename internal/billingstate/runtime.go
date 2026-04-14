@@ -479,6 +479,7 @@ func (r *Runtime) projectorLoop(consumerName string) {
 	defer r.wg.Done()
 
 	ctx := context.Background()
+	nextSweep := time.Now().Add(r.projectorStaleConsumerSweepInterval())
 	for {
 		select {
 		case <-r.stopCh:
@@ -494,6 +495,12 @@ func (r *Runtime) projectorLoop(consumerName string) {
 		}
 		if reclaimed > 0 {
 			continue
+		}
+		if r.shouldSweepStaleProjectorConsumers(consumerName) && time.Now().After(nextSweep) {
+			if err := r.cleanupStaleProjectorConsumers(ctx); err != nil {
+				log.Warnf("billing state: stale projector consumer cleanup failed: %v", err)
+			}
+			nextSweep = time.Now().Add(r.projectorStaleConsumerSweepInterval())
 		}
 
 		streams, err := r.client.XReadGroup(ctx, &redis.XReadGroupArgs{
@@ -554,6 +561,57 @@ func (r *Runtime) reclaimPendingEntries(ctx context.Context, consumerName string
 	}
 	r.metrics.recordReclaim(time.Since(start), int64(len(messages)))
 	return len(messages), nil
+}
+
+func (r *Runtime) projectorStaleConsumerSweepInterval() time.Duration {
+	return r.cfg.ProjectorClaimIdle
+}
+
+func (r *Runtime) shouldSweepStaleProjectorConsumers(consumerName string) bool {
+	if len(r.projectorConsumers) == 0 {
+		return true
+	}
+	return consumerName == r.projectorConsumers[0]
+}
+
+func (r *Runtime) cleanupStaleProjectorConsumers(ctx context.Context) error {
+	consumers, err := r.client.XInfoConsumers(ctx, r.streamKey(), defaultProjectorGroup).Result()
+	if err != nil {
+		if err == redis.Nil || isProjectorGroupUnavailable(err) {
+			return nil
+		}
+		return err
+	}
+
+	for _, consumerName := range r.staleProjectorConsumerNames(consumers) {
+		if _, err := r.client.XGroupDelConsumer(ctx, r.streamKey(), defaultProjectorGroup, consumerName).Result(); err != nil {
+			if err == redis.Nil || isProjectorGroupUnavailable(err) {
+				continue
+			}
+			return err
+		}
+	}
+	return nil
+}
+
+func (r *Runtime) staleProjectorConsumerNames(consumers []redis.XInfoConsumer) []string {
+	sweepThreshold := r.cfg.ProjectorClaimIdle
+	owned := make(map[string]struct{}, len(r.projectorConsumers))
+	for _, consumerName := range r.projectorConsumers {
+		owned[consumerName] = struct{}{}
+	}
+
+	names := make([]string, 0, len(consumers))
+	for _, consumer := range consumers {
+		if _, ok := owned[consumer.Name]; ok {
+			continue
+		}
+		if consumer.Pending > 0 || consumer.Idle < 0 || consumer.Idle <= sweepThreshold {
+			continue
+		}
+		names = append(names, consumer.Name)
+	}
+	return names
 }
 
 func (r *Runtime) cleanupProjectorConsumers(ctx context.Context) {

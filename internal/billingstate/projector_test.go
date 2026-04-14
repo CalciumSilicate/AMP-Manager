@@ -3,6 +3,7 @@ package billingstate
 import (
 	"context"
 	"fmt"
+	"slices"
 	"testing"
 	"time"
 
@@ -11,6 +12,21 @@ import (
 	"github.com/alicebob/miniredis/v2"
 	"github.com/redis/go-redis/v9"
 )
+
+func assertProjectorConsumerNames(t *testing.T, names, want []string) {
+	t.Helper()
+
+	slices.Sort(names)
+	slices.Sort(want)
+	if len(names) != len(want) {
+		t.Fatalf("consumer names length = %d, want %d", len(names), len(want))
+	}
+	for idx := range want {
+		if names[idx] != want[idx] {
+			t.Fatalf("consumer name[%d] = %q, want %q", idx, names[idx], want[idx])
+		}
+	}
+}
 
 func TestBuildProjectorConsumerNamesReturnsUniqueStableNames(t *testing.T) {
 	names := buildProjectorConsumerNames("host-a", 1234, "instance-a", 3)
@@ -426,5 +442,38 @@ func TestRuntimeCloseSkipsProjectorConsumerCleanupWithPending(t *testing.T) {
 	}
 	if consumers[0].Pending != 1 {
 		t.Fatalf("pending count = %d, want 1", consumers[0].Pending)
+	}
+}
+
+func TestStaleProjectorConsumerNamesReturnsOnlyIdleConsumersWithoutPending(t *testing.T) {
+	rt := &Runtime{
+		cfg:                Config{Prefix: "amp", ProjectorClaimIdle: 30 * time.Second},
+		projectorConsumers: []string{"worker-owned"},
+	}
+	names := rt.staleProjectorConsumerNames([]redis.XInfoConsumer{
+		{Name: "worker-owned", Pending: 0, Idle: 2 * time.Minute},
+		{Name: "stale-consumer", Pending: 0, Idle: 31 * time.Second},
+		{Name: "active-consumer", Pending: 0, Idle: 15 * time.Second},
+		{Name: "pending-consumer", Pending: 1, Idle: 5 * time.Minute},
+		{Name: "unknown-idle-consumer", Pending: 0, Idle: -1 * time.Millisecond},
+	})
+
+	assertProjectorConsumerNames(t, names, []string{"stale-consumer"})
+}
+
+func TestStaleProjectorConsumerNamesKeepsActiveAndPendingConsumers(t *testing.T) {
+	rt := &Runtime{
+		cfg:                Config{Prefix: "amp", ProjectorClaimIdle: 30 * time.Second},
+		projectorConsumers: []string{"worker-owned"},
+	}
+	names := rt.staleProjectorConsumerNames([]redis.XInfoConsumer{
+		{Name: "worker-owned", Pending: 0, Idle: 31 * time.Second},
+		{Name: "fresh-consumer", Pending: 0, Idle: 30 * time.Second},
+		{Name: "active-consumer", Pending: 0, Idle: 5 * time.Second},
+		{Name: "pending-consumer", Pending: 2, Idle: 2 * time.Minute},
+	})
+
+	if len(names) != 0 {
+		t.Fatalf("stale consumer names = %v, want none", names)
 	}
 }
