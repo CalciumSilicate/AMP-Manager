@@ -135,4 +135,9 @@ type BillingRuntimeStatsResponse struct {
 	Reconcile        BillingRuntimeMetricSummary `json:"reconcile"`
 	ReclaimClaimed   int64                       `json:"reclaimClaimed"`
 	ReconcileRepairs int64                       `json:"reconcileRepairs"`
+	ConsumerCount    int                         `json:"consumerCount"`
+	ActiveConsumers  int                         `json:"activeProjectorConsumers"`
+	StaleConsumers   int                         `json:"staleProjectorConsumers"`
+	PendingEntries   int64                       `json:"pendingEntries"`
+	OldestPendingMs  int64                       `json:"oldestPendingIdleMs"`
 }
