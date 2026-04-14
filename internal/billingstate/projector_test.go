@@ -152,8 +152,9 @@ func TestReclaimPendingEntriesProjectsAndAcksClaimedMessages(t *testing.T) {
 	rt := &Runtime{
 		client: client,
 		cfg: Config{
-			Prefix:          "amp",
-			StreamBatchSize: 4,
+			Prefix:             "amp",
+			StreamBatchSize:    4,
+			ProjectorClaimIdle: 45 * time.Second,
 		},
 	}
 	if err := rt.ensureConsumerGroup(context.Background()); err != nil {
@@ -192,9 +193,19 @@ func TestReclaimPendingEntriesProjectsAndAcksClaimedMessages(t *testing.T) {
 		t.Fatalf("unexpected initial read result: %+v", streams)
 	}
 
-	mr.SetTime(now.Add(defaultProjectorClaimIdle + time.Second))
+	mr.SetTime(now.Add(30 * time.Second))
 
 	count, err := rt.reclaimPendingEntries(context.Background(), "worker-1")
+	if err != nil {
+		t.Fatalf("reclaimPendingEntries returned error: %v", err)
+	}
+	if count != 0 {
+		t.Fatalf("reclaimed count before custom claim idle = %d, want 0", count)
+	}
+
+	mr.SetTime(now.Add(46 * time.Second))
+
+	count, err = rt.reclaimPendingEntries(context.Background(), "worker-1")
 	if err != nil {
 		t.Fatalf("reclaimPendingEntries returned error: %v", err)
 	}

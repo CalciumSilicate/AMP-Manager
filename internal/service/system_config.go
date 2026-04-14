@@ -260,10 +260,11 @@ func parsePositiveInt64(value string) (int64, error) {
 
 func defaultBillingRuntimeConfigRequest() model.BillingRuntimeConfigRequest {
 	resp := model.BillingRuntimeConfigRequest{
-		RedisPrefix:          "ampmanager",
-		ReservationTTLSec:    600,
-		ReconcileIntervalSec: 60,
-		StreamBatchSize:      100,
+		RedisPrefix:           "ampmanager",
+		ReservationTTLSec:     600,
+		ReconcileIntervalSec:  60,
+		StreamBatchSize:       100,
+		ProjectorClaimIdleSec: 30,
 	}
 
 	if cfg := config.Get(); cfg != nil {
@@ -288,6 +289,9 @@ func defaultBillingRuntimeConfigRequest() model.BillingRuntimeConfigRequest {
 		}
 		if cfg.BillingProjectorWorkers > 0 {
 			resp.ProjectorWorkers = cfg.BillingProjectorWorkers
+		}
+		if cfg.BillingProjectorClaimIdleSec > 0 {
+			resp.ProjectorClaimIdleSec = cfg.BillingProjectorClaimIdleSec
 		}
 	}
 
@@ -317,6 +321,9 @@ func normalizeBillingRuntimeConfigRequest(req model.BillingRuntimeConfigRequest)
 	}
 	if req.ProjectorWorkers <= 0 {
 		req.ProjectorWorkers = 1
+	}
+	if req.ProjectorClaimIdleSec <= 0 {
+		req.ProjectorClaimIdleSec = 30
 	}
 	return req
 }
@@ -364,6 +371,9 @@ func (s *SystemConfigService) GetBillingRuntimeConfigRequest() (model.BillingRun
 	if stored.ProjectorWorkers > 0 {
 		resp.ProjectorWorkers = stored.ProjectorWorkers
 	}
+	if stored.ProjectorClaimIdleSec > 0 {
+		resp.ProjectorClaimIdleSec = stored.ProjectorClaimIdleSec
+	}
 
 	return normalizeBillingRuntimeConfigRequest(resp), nil
 }
@@ -375,16 +385,17 @@ func (s *SystemConfigService) GetBillingRuntimeConfig() (model.BillingRuntimeCon
 	}
 
 	resp := model.BillingRuntimeConfigResponse{
-		RedisURL:             req.RedisURL,
-		RedisURLMasked:       maskRedisURL(req.RedisURL),
-		RedisPrefix:          req.RedisPrefix,
-		ReservationTTLSec:    req.ReservationTTLSec,
-		ReconcileIntervalSec: req.ReconcileIntervalSec,
-		StreamBatchSize:      req.StreamBatchSize,
-		ReconcileBatchSize:   req.ReconcileBatchSize,
-		ExpiryBatchSize:      req.ExpiryBatchSize,
-		ProjectorWorkers:     req.ProjectorWorkers,
-		RuntimeEnabled:       strings.TrimSpace(req.RedisURL) != "",
+		RedisURL:              req.RedisURL,
+		RedisURLMasked:        maskRedisURL(req.RedisURL),
+		RedisPrefix:           req.RedisPrefix,
+		ReservationTTLSec:     req.ReservationTTLSec,
+		ReconcileIntervalSec:  req.ReconcileIntervalSec,
+		StreamBatchSize:       req.StreamBatchSize,
+		ReconcileBatchSize:    req.ReconcileBatchSize,
+		ExpiryBatchSize:       req.ExpiryBatchSize,
+		ProjectorWorkers:      req.ProjectorWorkers,
+		ProjectorClaimIdleSec: req.ProjectorClaimIdleSec,
+		RuntimeEnabled:        strings.TrimSpace(req.RedisURL) != "",
 	}
 	resp.RuntimeHealthy = resp.RuntimeEnabled && billingstate.Get() != nil
 	return resp, nil

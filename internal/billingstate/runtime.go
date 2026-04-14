@@ -47,6 +47,7 @@ type Config struct {
 	ReconcileBatchSize int64
 	ExpiryBatchSize    int64
 	ProjectorWorkers   int
+	ProjectorClaimIdle time.Duration
 }
 
 type Runtime struct {
@@ -265,6 +266,9 @@ func normalizeConfig(cfg Config) Config {
 	}
 	if cfg.ProjectorWorkers <= 0 {
 		cfg.ProjectorWorkers = 1
+	}
+	if cfg.ProjectorClaimIdle <= 0 {
+		cfg.ProjectorClaimIdle = defaultProjectorClaimIdle
 	}
 	return cfg
 }
@@ -526,7 +530,7 @@ func (r *Runtime) reclaimPendingEntries(ctx context.Context, consumerName string
 		Stream:   r.streamKey(),
 		Group:    defaultProjectorGroup,
 		Consumer: consumerName,
-		MinIdle:  defaultProjectorClaimIdle,
+		MinIdle:  r.cfg.ProjectorClaimIdle,
 		Start:    "0-0",
 		Count:    r.cfg.StreamBatchSize,
 	}).Result()

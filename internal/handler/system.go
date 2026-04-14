@@ -331,6 +331,13 @@ func (h *SystemHandler) UpdateBillingRuntimeConfig(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "projectorWorkers 必须 >= 1"})
 		return
 	}
+	if req.ProjectorClaimIdleSec < 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "projectorClaimIdleSec 必须 >= 1"})
+		return
+	}
+	if req.ProjectorClaimIdleSec == 0 {
+		req.ProjectorClaimIdleSec = 30
+	}
 
 	cfgService := service.NewSystemConfigService()
 	if err := cfgService.ApplyAndStoreBillingRuntimeConfig(req); err != nil {
