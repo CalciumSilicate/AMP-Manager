@@ -20,8 +20,8 @@ import {
   UserSubscriptionResponse,
   LimitType,
 } from '../api/subscription'
+import { AdminPageShell, AdminSurface } from '@/components/admin/AdminPageShell'
 import { Button } from '@/components/ui/button'
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Badge } from '@/components/ui/badge'
@@ -273,28 +273,32 @@ export default function UserManagement() {
   }
 
   return (
-    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-6">
-      <AnimatePresence>
-        {message && (
-          <motion.div initial={{ opacity: 0, y: -20, scale: 0.95 }} animate={{ opacity: 1, y: 0, scale: 1 }} exit={{ opacity: 0, y: -20, scale: 0.95 }} transition={{ type: 'spring', bounce: 0.3, duration: 0.5 }}>
-            <Alert variant={message.type === 'success' ? 'default' : 'destructive'}>
-              {message.type === 'success' ? (
-                <CheckCircle2 className="h-4 w-4" />
-              ) : (
-                <XCircle className="h-4 w-4" />
-              )}
-              <AlertDescription>{message.text}</AlertDescription>
-            </Alert>
-          </motion.div>
-        )}
-      </AnimatePresence>
+    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
+      <AdminPageShell title="用户列表" description="管理用户权限、余额、分组与订阅。" width="7xl">
+        <AnimatePresence>
+          {message && (
+            <motion.div initial={{ opacity: 0, y: -20, scale: 0.95 }} animate={{ opacity: 1, y: 0, scale: 1 }} exit={{ opacity: 0, y: -20, scale: 0.95 }} transition={{ type: 'spring', bounce: 0.3, duration: 0.5 }}>
+              <Alert variant={message.type === 'success' ? 'default' : 'destructive'}>
+                {message.type === 'success' ? (
+                  <CheckCircle2 className="h-4 w-4" />
+                ) : (
+                  <XCircle className="h-4 w-4" />
+                )}
+                <AlertDescription>{message.text}</AlertDescription>
+              </Alert>
+            </motion.div>
+          )}
+        </AnimatePresence>
 
-      <motion.div initial={{ opacity: 0, y: 30 }} animate={{ opacity: 1, y: 0 }} transition={{ type: 'spring', bounce: 0.2, duration: 0.6, delay: 0.1 }}>
-      <Card>
-        <CardHeader>
-          <CardTitle>用户列表</CardTitle>
-        </CardHeader>
-        <CardContent className={fetching ? 'opacity-60 transition-opacity' : 'transition-opacity'}>
+        <motion.div initial={{ opacity: 0, y: 30 }} animate={{ opacity: 1, y: 0 }} transition={{ type: 'spring', bounce: 0.2, duration: 0.6, delay: 0.1 }}>
+        <AdminSurface>
+          <div className="admin-surface-header">
+            <div className="space-y-1">
+              <p className="text-sm font-medium text-foreground">{total} 位用户</p>
+              <p className="admin-inline-note">支持分组、订阅、充值与权限控制。</p>
+            </div>
+          </div>
+          <div className={fetching ? 'admin-surface-body opacity-60 transition-opacity' : 'admin-surface-body transition-opacity'}>
           <Table>
             <TableHeader>
               <TableRow>
@@ -319,26 +323,10 @@ export default function UserManagement() {
                   <TableCell>
                     <Popover>
                       <PopoverTrigger asChild>
-                        <Button variant="outline" size="sm" className="h-auto min-h-[32px] py-1 px-2">
-                          {user.groupNames && user.groupNames.length > 0 ? (
-                            <div className="flex flex-wrap gap-1">
-                              <AnimatePresence mode="popLayout">
-                                {user.groupNames.map((name) => (
-                                  <motion.span
-                                    key={name}
-                                    initial={{ opacity: 0, scale: 0.8 }}
-                                    animate={{ opacity: 1, scale: 1 }}
-                                    exit={{ opacity: 0, scale: 0.8 }}
-                                    transition={{ type: 'spring', bounce: 0.3, duration: 0.3 }}
-                                  >
-                                    <Badge variant="secondary" className="text-xs">{name}</Badge>
-                                  </motion.span>
-                                ))}
-                              </AnimatePresence>
-                            </div>
-                          ) : (
-                            <span className="text-muted-foreground text-xs">未分组</span>
-                          )}
+                        <Button variant="outline" size="sm" className="h-8 max-w-[180px] justify-start rounded-md px-2.5 text-left">
+                          <span className="truncate text-xs">
+                            {user.groupNames && user.groupNames.length > 0 ? user.groupNames.join(' / ') : '未分组'}
+                          </span>
                         </Button>
                       </PopoverTrigger>
                       <PopoverContent className="w-[200px] p-2" align="start">
@@ -390,9 +378,9 @@ export default function UserManagement() {
                     {formatDateTime(user.createdAt)}
                   </TableCell>
                   <TableCell>
-                    <div className="flex flex-wrap gap-2">
+                    <div className="flex flex-wrap gap-1.5">
                       <Button
-                        variant="outline"
+                        variant="ghost"
                         size="sm"
                         onClick={() => handleOpenAssignSub(user.id, user.username)}
                       >
@@ -400,7 +388,7 @@ export default function UserManagement() {
                         分配订阅
                       </Button>
                       <Button
-                        variant="outline"
+                        variant="ghost"
                         size="sm"
                         onClick={() => handleViewSub(user.id, user.username)}
                       >
@@ -408,7 +396,7 @@ export default function UserManagement() {
                         查看订阅
                       </Button>
                       <Button
-                        variant="outline"
+                        variant="ghost"
                         size="sm"
                         onClick={() => handleOpenExtend(user.id, user.username)}
                       >
@@ -416,7 +404,7 @@ export default function UserManagement() {
                         延期
                       </Button>
                       <Button
-                        variant="outline"
+                        variant="ghost"
                         size="sm"
                         className="text-destructive hover:text-destructive"
                         onClick={() => setCancelSubConfirm({ userId: user.id, username: user.username })}
@@ -425,7 +413,7 @@ export default function UserManagement() {
                         取消订阅
                       </Button>
                       <Button
-                        variant="outline"
+                        variant="ghost"
                         size="sm"
                         onClick={() => setTopUpModal({ userId: user.id, username: user.username })}
                       >
@@ -433,7 +421,7 @@ export default function UserManagement() {
                         充值
                       </Button>
                       <Button
-                        variant="outline"
+                        variant="ghost"
                         size="sm"
                         onClick={() => setResetPasswordModal({ userId: user.id, username: user.username })}
                       >
@@ -441,8 +429,9 @@ export default function UserManagement() {
                         重置密码
                       </Button>
                       <Button
-                        variant="destructive"
+                        variant="ghost"
                         size="sm"
+                        className="text-destructive hover:text-destructive"
                         onClick={() => setDeleteConfirmModal(user)}
                       >
                         <Trash2 className="mr-1 h-4 w-4" />
@@ -454,9 +443,9 @@ export default function UserManagement() {
               ))}
             </motion.tbody>
           </Table>
-          <div className="mt-4 flex items-center justify-between">
-            <div className="flex items-center gap-4">
-              <p className="text-sm text-muted-foreground">
+            <div className="mt-4 flex items-center justify-between">
+              <div className="flex items-center gap-4">
+                <p className="text-sm text-muted-foreground">
                 第 {page} 页，共 {totalPages} 页（{total} 条）
               </p>
               <PageSizeSlider value={pageSize} onChange={handlePageSizeChange} />
@@ -468,11 +457,11 @@ export default function UserManagement() {
               <Button variant="outline" size="sm" disabled={page >= totalPages} onClick={() => setPage((current) => current + 1)}>
                 下一页
               </Button>
+              </div>
             </div>
           </div>
-        </CardContent>
-      </Card>
-      </motion.div>
+        </AdminSurface>
+        </motion.div>
 
       <Dialog open={!!resetPasswordModal} onOpenChange={(open) => !open && setResetPasswordModal(null)}>
         <DialogContent>
@@ -724,6 +713,7 @@ export default function UserManagement() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+      </AdminPageShell>
     </motion.div>
   )
 }

@@ -90,6 +90,40 @@ html[data-noto-sc-full="1"] {
   }
 }
 
+@layer components {
+  .admin-page-shell {
+    @apply mx-auto space-y-5;
+  }
+
+  .admin-page-header {
+    @apply flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between;
+  }
+
+  .admin-surface {
+    @apply rounded-lg border border-border/80 bg-card/95 shadow-sm;
+  }
+
+  .admin-surface-header {
+    @apply flex flex-col gap-3 border-b border-border/70 px-5 py-4 sm:flex-row sm:items-center sm:justify-between;
+  }
+
+  .admin-surface-body {
+    @apply px-5 py-4;
+  }
+
+  .admin-toolbar-row {
+    @apply flex flex-col gap-3 border-b border-border/70 px-5 py-4 sm:flex-row sm:items-center sm:justify-between;
+  }
+
+  .admin-inline-note {
+    @apply text-xs text-muted-foreground;
+  }
+
+  .admin-list-divider > * + * {
+    @apply border-t border-border/70;
+  }
+}
+
 /* Animated gradient background for login/register */
 .auth-bg {
   position: relative;

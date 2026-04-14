@@ -17,6 +17,7 @@ import { Switch } from '@/components/ui/switch'
 import { Label } from '@/components/ui/label'
 import {
   Table,
+  TableBody,
   TableCell,
   TableHead,
   TableHeader,
@@ -27,7 +28,7 @@ import { Num } from '@/components/Num'
 import { StatusBadge } from '@/components/StatusBadge'
 import { LogDetailModal } from '@/components/LogDetailModal'
 import { LogFilterBar, FilterValues, localToISO } from '@/components/LogFilterBar'
-import { motion, tableStaggerContainer, tableRowVariants } from '@/lib/motion'
+import { motion } from '@/lib/motion'
 import { PageSizeSlider } from '@/components/PageSizeSlider'
 
 interface Props {
@@ -234,6 +235,16 @@ export default function RequestLogs({ isAdmin }: Props) {
   }
 
   const totalPages = Math.max(1, Math.ceil(total / pageSize))
+  const tableBodyKey = [
+    page,
+    pageSize,
+    filters.userId,
+    filters.apiKeyId,
+    filters.model,
+    filters.status,
+    filters.from,
+    filters.to,
+  ].join(':')
 
   const getUserDisplay = (log: RequestLog) => {
     return log.username || userIdToUsername.get(log.userId) || `${log.userId.slice(0, 8)}...`
@@ -312,9 +323,9 @@ export default function RequestLogs({ isAdmin }: Props) {
                       <TableHead>流式</TableHead>
                     </TableRow>
                   </TableHeader>
-                  <motion.tbody variants={tableStaggerContainer} initial="hidden" animate="visible" key={`${page}-${pageSize}`}>
+                  <TableBody key={tableBodyKey}>
                     {logs.map((log) => (
-                      <motion.tr key={log.id} variants={tableRowVariants} className="border-b transition-colors hover:bg-muted/50 data-[state=selected]:bg-muted">
+                      <TableRow key={log.id}>
                         <TableCell className="text-xs text-muted-foreground whitespace-nowrap">
                           {formatDate(log.createdAt)}
                         </TableCell>
@@ -400,9 +411,9 @@ export default function RequestLogs({ isAdmin }: Props) {
                             <Badge variant="secondary">流式</Badge>
                           ) : null}
                         </TableCell>
-                      </motion.tr>
+                      </TableRow>
                     ))}
-                  </motion.tbody>
+                  </TableBody>
                 </Table>
                 </div>
 

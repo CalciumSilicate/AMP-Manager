@@ -320,7 +320,7 @@ export default function Overview() {
           transition={{ type: 'spring', bounce: 0.25, duration: 0.7, delay: 0.15 }}
         >
           <Card className="h-full">
-            <CardHeader>
+            <CardHeader className="pb-3">
               <div className="flex items-center justify-between gap-3">
                 <div className="min-w-0">
                   <CardTitle className="text-base flex items-center gap-2">
@@ -330,81 +330,87 @@ export default function Overview() {
                   <CardDescription>订阅与余额使用情况</CardDescription>
                 </div>
                 {billingLoading ? (
-                  <div className="h-6 w-20 rounded-full loading-shimmer" />
+                  <div className="h-9 w-40 rounded-md loading-shimmer" />
                 ) : billingState ? (
-                  <Popover open={priorityPopoverOpen} onOpenChange={setPriorityPopoverOpen}>
-                    <PopoverTrigger asChild>
-                      <Badge
-                        variant="outline"
-                        className="text-xs cursor-pointer hover:bg-accent transition-colors"
-                      >
-                        <ArrowRightLeft className="h-3 w-3 mr-1" />
-                        {billingState.primarySource === 'subscription' ? '订阅优先' : '余额优先'}
-                      </Badge>
-                    </PopoverTrigger>
-                    <PopoverContent align="end" className="w-64 p-2">
-                      <div className="space-y-1">
-                        <p className="text-xs font-medium text-muted-foreground px-2 py-1">切换扣费规则</p>
-                        {([
-                          { value: 'subscription' as const, label: '订阅优先', desc: '先用订阅额度，不足再扣余额' },
-                          { value: 'balance' as const, label: '余额优先', desc: '先扣余额，不足再用订阅额度' },
-                        ]).map((option) => {
-                          const isActive = billingState.primarySource === option.value
-                          return (
-                            <motion.button
-                              key={option.value}
-                              onClick={() => handlePriorityChange(option.value)}
-                              disabled={prioritySaving}
-                              className={`w-full flex items-center gap-3 rounded-md px-2 py-2.5 text-left text-sm transition-colors ${
-                                isActive
-                                  ? 'bg-primary/10 text-primary'
-                                  : 'hover:bg-accent text-foreground'
-                              }`}
-                              whileHover={{ x: 2 }}
-                              whileTap={{ scale: 0.98 }}
-                              transition={{ type: 'spring', bounce: 0.3, duration: 0.3 }}
-                            >
-                              <div className="flex-1 min-w-0">
-                                <div className="font-medium">{option.label}</div>
-                                <div className="text-[11px] text-muted-foreground">{option.desc}</div>
-                              </div>
-                              <AnimatePresence mode="wait">
-                                {prioritySaving && billingState.primarySource !== option.value ? (
-                                  <motion.div
-                                    key="loader"
-                                    initial={{ opacity: 0, scale: 0.5 }}
-                                    animate={{ opacity: 1, scale: 1 }}
-                                    exit={{ opacity: 0, scale: 0.5 }}
-                                  >
-                                    <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
-                                  </motion.div>
-                                ) : isActive ? (
-                                  <motion.div
-                                    key="check"
-                                    initial={{ opacity: 0, scale: 0.5 }}
-                                    animate={{ opacity: 1, scale: 1 }}
-                                    exit={{ opacity: 0, scale: 0.5 }}
-                                    transition={{ type: 'spring', bounce: 0.5, duration: 0.4 }}
-                                  >
-                                    <Check className="h-4 w-4 text-primary" />
-                                  </motion.div>
-                                ) : null}
-                              </AnimatePresence>
-                            </motion.button>
-                          )
-                        })}
-                      </div>
-                    </PopoverContent>
-                  </Popover>
+                  <div className="flex flex-wrap items-center justify-end gap-2">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="h-9 rounded-md px-3"
+                      onClick={() => navigateDashboard('purchase-center')}
+                    >
+                      <CreditCard className="mr-2 h-4 w-4" />
+                      购买订阅
+                    </Button>
+                    <Popover open={priorityPopoverOpen} onOpenChange={setPriorityPopoverOpen}>
+                      <PopoverTrigger asChild>
+                        <Button variant="outline" size="sm" className="h-9 rounded-md px-3">
+                          <ArrowRightLeft className="mr-2 h-4 w-4" />
+                          {billingState.primarySource === 'subscription' ? '订阅优先' : '余额优先'}
+                        </Button>
+                      </PopoverTrigger>
+                      <PopoverContent align="end" className="w-64 p-2">
+                        <div className="space-y-1">
+                          <p className="px-2 py-1 text-xs font-medium text-muted-foreground">切换扣费规则</p>
+                          {([
+                            { value: 'subscription' as const, label: '订阅优先', desc: '先用订阅额度，不足再扣余额' },
+                            { value: 'balance' as const, label: '余额优先', desc: '先扣余额，不足再用订阅额度' },
+                          ]).map((option) => {
+                            const isActive = billingState.primarySource === option.value
+                            return (
+                              <motion.button
+                                key={option.value}
+                                onClick={() => handlePriorityChange(option.value)}
+                                disabled={prioritySaving}
+                                className={`flex w-full items-center gap-3 rounded-md px-2 py-2.5 text-left text-sm transition-colors ${
+                                  isActive ? 'bg-primary/10 text-primary' : 'text-foreground hover:bg-accent'
+                                }`}
+                                whileHover={{ x: 2 }}
+                                whileTap={{ scale: 0.98 }}
+                                transition={{ type: 'spring', bounce: 0.3, duration: 0.3 }}
+                              >
+                                <div className="min-w-0 flex-1">
+                                  <div className="font-medium">{option.label}</div>
+                                  <div className="text-[11px] text-muted-foreground">{option.desc}</div>
+                                </div>
+                                <AnimatePresence mode="wait">
+                                  {prioritySaving && billingState.primarySource !== option.value ? (
+                                    <motion.div
+                                      key="loader"
+                                      initial={{ opacity: 0, scale: 0.5 }}
+                                      animate={{ opacity: 1, scale: 1 }}
+                                      exit={{ opacity: 0, scale: 0.5 }}
+                                    >
+                                      <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+                                    </motion.div>
+                                  ) : isActive ? (
+                                    <motion.div
+                                      key="check"
+                                      initial={{ opacity: 0, scale: 0.5 }}
+                                      animate={{ opacity: 1, scale: 1 }}
+                                      exit={{ opacity: 0, scale: 0.5 }}
+                                      transition={{ type: 'spring', bounce: 0.5, duration: 0.4 }}
+                                    >
+                                      <Check className="h-4 w-4 text-primary" />
+                                    </motion.div>
+                                  ) : null}
+                                </AnimatePresence>
+                              </motion.button>
+                            )
+                          })}
+                        </div>
+                      </PopoverContent>
+                    </Popover>
+                  </div>
                 ) : (
                   <Badge variant="outline">暂不可用</Badge>
                 )}
               </div>
             </CardHeader>
-            <CardContent className="space-y-4">
+            <CardContent className="space-y-3">
               {billingLoading ? (
-                <div className="space-y-4">
-                  <div className="grid gap-5 border-b pb-4 sm:grid-cols-[minmax(0,1fr)_200px]">
+                <div className="space-y-3">
+                  <div className="grid gap-4 border-b pb-3 sm:grid-cols-[minmax(0,1fr)_200px]">
                     <div className="space-y-2">
                       <div className="h-3 w-16 rounded loading-shimmer" />
                       <div className="h-6 w-40 rounded loading-shimmer" />
@@ -417,7 +423,7 @@ export default function Overview() {
                     </div>
                   </div>
                   {[0, 1].map((item) => (
-                    <div key={item} className="flex items-center justify-between gap-4 py-1">
+                    <div key={item} className="flex items-center justify-between gap-4 py-0.5">
                       <div className="min-w-0 flex-1 space-y-2">
                         <div className="h-4 w-24 rounded loading-shimmer" />
                         <div className="h-3 w-36 rounded loading-shimmer" />
@@ -428,12 +434,12 @@ export default function Overview() {
                   ))}
                 </div>
               ) : billingState ? (
-                <div className="space-y-4">
-                  <div className="grid gap-5 border-b pb-4 sm:grid-cols-[minmax(0,1fr)_200px]">
+                <div className="space-y-3">
+                  <div className="grid gap-4 border-b pb-3 sm:grid-cols-[minmax(0,1fr)_200px]">
                     <div className="space-y-2">
-                      <div className="space-y-1">
-                        <p className="text-xs uppercase tracking-[0.18em] text-muted-foreground">订阅状态</p>
+                      <div className="space-y-1.5">
                         <div className="flex flex-wrap items-center gap-2">
+                          <p className="text-xs uppercase tracking-[0.18em] text-muted-foreground">订阅状态</p>
                           {billingState.subscription ? (
                             <Badge variant={billingState.subscription.status === 'active' ? 'default' : 'secondary'}>
                               {billingState.subscription.status === 'active' ? '生效中' : billingState.subscription.status}
@@ -441,12 +447,12 @@ export default function Overview() {
                           ) : (
                             <Badge variant="outline">未订阅</Badge>
                           )}
-                          <div className="flex items-center gap-2">
-                            <Shield className="h-4 w-4 text-purple-500" />
-                            <span className="text-lg font-semibold">
-                              {billingState.subscription ? billingState.subscription.planName : '未订阅'}
-                            </span>
-                          </div>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <Shield className="h-4 w-4 text-purple-500" />
+                          <span className="text-lg font-semibold">
+                            {billingState.subscription ? billingState.subscription.planName : '未订阅'}
+                          </span>
                         </div>
                         <p className="text-sm text-muted-foreground">
                           {billingState.subscription?.expiresAt
@@ -455,15 +461,6 @@ export default function Overview() {
                               ? '永不过期'
                               : '联系管理员分配订阅'}
                         </p>
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          className="mt-1"
-                          onClick={() => navigateDashboard('purchase-center')}
-                        >
-                          <CreditCard className="mr-2 h-4 w-4" />
-                          {billingState.subscription ? '购买续费' : '购买订阅'}
-                        </Button>
                       </div>
                     </div>
                     <div className="space-y-2 sm:justify-self-end sm:text-right">
@@ -479,19 +476,16 @@ export default function Overview() {
                         <p className="text-sm font-medium">
                           {billingState.primarySource === 'subscription' ? '订阅 → 余额' : '余额 → 订阅'}
                         </p>
-                        <p className="text-xs text-muted-foreground">
-                          {billingState.primarySource === 'subscription' ? '当前优先消耗订阅额度。' : '当前优先消耗余额。'}
-                        </p>
                       </div>
                     </div>
                   </div>
 
                   {billingState.subscription && billingState.windows && billingState.windows.length > 0 ? (
-                    <div className="space-y-3">
+                    <div className="space-y-2">
                       {billingState.windows.map((w, i) => {
                         const usedPct = w.limitMicros > 0 ? (w.usedMicros / w.limitMicros) * 100 : 0
                         return (
-                          <div key={i} className="flex items-center justify-between gap-4 py-1">
+                          <div key={i} className="flex items-center justify-between gap-4 py-0.5">
                             <div className="min-w-0 space-y-1">
                               <div className="flex items-center gap-2">
                                 <p className="text-sm font-medium">
@@ -537,8 +531,8 @@ export default function Overview() {
           animate={{ opacity: 1, y: 0, scale: 1 }}
           transition={{ type: 'spring', bounce: 0.25, duration: 0.7, delay: 0.22 }}
         >
-          <Card>
-            <CardHeader>
+          <Card className="h-full">
+            <CardHeader className="pb-3">
               <CardTitle className="text-base flex items-center gap-2">
                 <DollarSign className="h-4 w-4 text-emerald-500" />
                 每日成本趋势
@@ -549,7 +543,7 @@ export default function Overview() {
               {trendData.length === 0 ? (
                 <p className="text-center text-muted-foreground py-12">暂无数据</p>
               ) : (
-                <ChartContainer config={trendChartConfig} className="h-[240px] w-full">
+                <ChartContainer config={trendChartConfig} className="h-[216px] w-full">
                   <AreaChart accessibilityLayer data={trendData} margin={{ top: 8, right: 12, left: -4, bottom: 0 }}>
                     <defs>
                       <linearGradient id="fillCost" x1="0" y1="0" x2="0" y2="1">
@@ -605,7 +599,7 @@ export default function Overview() {
           transition={{ type: 'spring', bounce: 0.25, duration: 0.7, delay: 0.3 }}
         >
           <Card className="h-full">
-            <CardHeader>
+            <CardHeader className="pb-3">
               <CardTitle className="text-base">热门模型排行（30天）</CardTitle>
               <CardDescription>按请求次数和成本排名</CardDescription>
             </CardHeader>
@@ -613,7 +607,7 @@ export default function Overview() {
               {modelBarData.length === 0 ? (
                 <p className="text-center text-muted-foreground py-12">暂无数据</p>
               ) : (
-                <ChartContainer config={modelChartConfig} className="h-[260px] w-full">
+                <ChartContainer config={modelChartConfig} className="h-[216px] w-full">
                   <BarChart
                     accessibilityLayer
                     data={modelBarData}
@@ -669,8 +663,8 @@ export default function Overview() {
           animate={{ opacity: 1, y: 0, scale: 1 }}
           transition={{ type: 'spring', bounce: 0.25, duration: 0.7, delay: 0.38 }}
         >
-          <Card>
-            <CardHeader>
+          <Card className="h-full">
+            <CardHeader className="pb-3">
               <CardTitle className="text-base flex items-center gap-2">
                 <Activity className="h-4 w-4 text-blue-500" />
                 每日请求量
@@ -681,7 +675,7 @@ export default function Overview() {
               {trendData.length === 0 ? (
                 <p className="text-center text-muted-foreground py-12">暂无数据</p>
               ) : (
-                <ChartContainer config={trendChartConfig} className="h-[240px] w-full">
+                <ChartContainer config={trendChartConfig} className="h-[216px] w-full">
                   <BarChart accessibilityLayer data={trendData} margin={{ top: 8, right: 12, left: -4, bottom: 0 }}>
                     <defs>
                       <linearGradient id="fillRequests" x1="0" y1="0" x2="0" y2="1">

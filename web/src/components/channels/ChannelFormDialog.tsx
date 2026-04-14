@@ -1,3 +1,5 @@
+import type { Dispatch, SetStateAction } from 'react'
+
 import {
   Dialog,
   DialogContent,
@@ -36,10 +38,30 @@ interface ChannelFormDialogProps {
   onOpenChange: (open: boolean) => void
   editingChannel: Channel | null
   formData: ChannelRequest
-  setFormData: React.Dispatch<React.SetStateAction<ChannelRequest>>
+  setFormData: Dispatch<SetStateAction<ChannelRequest>>
   onSubmit: () => void
   saving: boolean
   groups?: Group[]
+}
+
+interface SwitchRowProps {
+  label: string
+  hint: string
+  checked: boolean
+  onCheckedChange: (checked: boolean) => void
+  disabled?: boolean
+}
+
+function SwitchRow({ label, hint, checked, onCheckedChange, disabled }: SwitchRowProps) {
+  return (
+    <div className={`col-span-2 flex items-center justify-between gap-4 border-t border-border/70 py-3 ${disabled ? 'opacity-60' : ''}`}>
+      <div className="space-y-0.5">
+        <Label>{label}</Label>
+        <p className="text-xs text-muted-foreground">{hint}</p>
+      </div>
+      <Switch checked={checked} disabled={disabled} onCheckedChange={onCheckedChange} />
+    </div>
+  )
 }
 
 export function ChannelFormDialog({
@@ -244,100 +266,64 @@ export function ChannelFormDialog({
           </div>
 
           {/* 启用开关 */}
-          <div className="col-span-2 flex items-center justify-between rounded-lg border p-4">
-            <div className="space-y-0.5">
-              <Label>启用渠道</Label>
-              <p className="text-sm text-muted-foreground">
-                启用后此渠道将参与负载均衡
-              </p>
-            </div>
-            <Switch
-              checked={formData.enabled}
-              onCheckedChange={(checked) => setFormData(prev => ({ ...prev, enabled: checked }))}
-            />
-          </div>
+          <SwitchRow
+            label="启用渠道"
+            hint="启用后此渠道参与路由。"
+            checked={formData.enabled}
+            onCheckedChange={(checked) => setFormData(prev => ({ ...prev, enabled: checked }))}
+          />
 
           {/* 模拟 UA - 仅 Claude 类型显示 */}
           {formData.type === 'claude' && (
-            <div className="col-span-2 flex items-center justify-between rounded-lg border p-4">
-              <div className="space-y-0.5">
-                <Label>模拟 UA</Label>
-                <p className="text-sm text-muted-foreground">
-                  启用后将伪装 User-Agent 为 claude-cli 并注入 X-Stainless SDK 指纹，需同时开启「模拟请求体」
-                </p>
-              </div>
-              <Switch
-                checked={formData.simulateUa || false}
-                disabled={formData.copilotApi || false}
-                onCheckedChange={(checked) => setFormData(prev => ({ ...prev, simulateUa: checked }))}
-              />
-            </div>
+            <SwitchRow
+              label="模拟 UA"
+              hint="伪装为 claude-cli 的请求头。"
+              checked={formData.simulateUa || false}
+              disabled={formData.copilotApi || false}
+              onCheckedChange={(checked) => setFormData(prev => ({ ...prev, simulateUa: checked }))}
+            />
           )}
 
           {/* 模拟请求体 - 仅 Claude 类型显示 */}
           {formData.type === 'claude' && (
-            <div className="col-span-2 flex items-center justify-between rounded-lg border p-4">
-              <div className="space-y-0.5">
-                <Label>模拟请求体</Label>
-                <p className="text-sm text-muted-foreground">
-                  启用后将过滤请求头（白名单模式）并重构请求体以匹配官方 Claude Code CLI 格式（system 注入、cache_control、thinking 等）
-                </p>
-              </div>
-              <Switch
-                checked={formData.simulateCli || false}
-                disabled={formData.copilotApi || false}
-                onCheckedChange={(checked) => setFormData(prev => ({ ...prev, simulateCli: checked }))}
-              />
-            </div>
+            <SwitchRow
+              label="模拟请求体"
+              hint="重构为 Claude CLI 兼容请求体。"
+              checked={formData.simulateCli || false}
+              disabled={formData.copilotApi || false}
+              onCheckedChange={(checked) => setFormData(prev => ({ ...prev, simulateCli: checked }))}
+            />
           )}
 
           {/* 模拟系统提示词 - 仅 Claude 类型显示 */}
           {formData.type === 'claude' && (
-            <div className="col-span-2 flex items-center justify-between rounded-lg border p-4">
-              <div className="space-y-0.5">
-                <Label>模拟系统提示词</Label>
-                <p className="text-sm text-muted-foreground">
-                  启用后将原始系统提示词移入消息中，替换为官方 Claude Code 系统提示词
-                </p>
-              </div>
-              <Switch
-                checked={formData.simulateSystemPrompt || false}
-                onCheckedChange={(checked) => setFormData(prev => ({ ...prev, simulateSystemPrompt: checked }))}
-              />
-            </div>
+            <SwitchRow
+              label="模拟系统提示词"
+              hint="替换为 Claude Code 系统提示词。"
+              checked={formData.simulateSystemPrompt || false}
+              onCheckedChange={(checked) => setFormData(prev => ({ ...prev, simulateSystemPrompt: checked }))}
+            />
           )}
 
           {/* 繁体化 - 仅 Claude 类型显示 */}
           {formData.type === 'claude' && (
-            <div className="col-span-2 flex items-center justify-between rounded-lg border p-4">
-              <div className="space-y-0.5">
-                <Label>繁体化</Label>
-                <p className="text-sm text-muted-foreground">
-                  启用后将用户输入的简体中文转换为繁体中文发送，并将响应的繁体中文转换为简体中文返回
-                </p>
-              </div>
-              <Switch
-                checked={formData.traditionalChinese || false}
-                onCheckedChange={(checked) => setFormData(prev => ({ ...prev, traditionalChinese: checked }))}
-              />
-            </div>
+            <SwitchRow
+              label="繁体化"
+              hint="请求转繁体，响应转回简体。"
+              checked={formData.traditionalChinese || false}
+              onCheckedChange={(checked) => setFormData(prev => ({ ...prev, traditionalChinese: checked }))}
+            />
           )}
 
           {/* Copilot API 支持 - 仅 Claude 类型显示，与模拟 CLI 互斥 */}
           {formData.type === 'claude' && (
-            <div className="col-span-2 flex items-center justify-between rounded-lg border p-4">
-              <div className="space-y-0.5">
-                <Label>Copilot API 模式</Label>
-                <p className="text-sm text-muted-foreground">
-                  启用后将通过 x-session-id 传递会话追踪信息，用于 copilot-api 代理。与模拟 CLI 互斥
-                </p>
-              </div>
-              <Switch
-                checked={formData.copilotApi || false}
-                disabled={formData.simulateCli || formData.simulateUa || false}
-                onCheckedChange={(checked) => setFormData(prev => ({ ...prev, copilotApi: checked }))}
-              />
-            </div>
+            <SwitchRow
+              label="Copilot API 模式"
+              hint="通过 x-session-id 传递会话信息。"
+              checked={formData.copilotApi || false}
+              disabled={formData.simulateCli || formData.simulateUa || false}
+              onCheckedChange={(checked) => setFormData(prev => ({ ...prev, copilotApi: checked }))}
+            />
           )}
 
           {/* 模型规则编辑器 */}

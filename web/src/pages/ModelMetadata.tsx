@@ -1,4 +1,5 @@
-import { useState, useEffect } from 'react'
+import { useEffect, useState } from 'react'
+
 import { motion, tableStaggerContainer, tableRowVariants } from '@/lib/motion'
 import {
   listModelMetadata,
@@ -8,12 +9,12 @@ import {
   ModelMetadata,
   ModelMetadataRequest,
 } from '../api/modelMetadata'
+import { AdminPageShell, AdminSurface } from '@/components/admin/AdminPageShell'
+import { Alert, AlertDescription } from '@/components/ui/alert'
+import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
-import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { Badge } from '@/components/ui/badge'
-import { Alert, AlertDescription } from '@/components/ui/alert'
 import {
   Table,
   TableCell,
@@ -24,23 +25,18 @@ import {
 import {
   Dialog,
   DialogContent,
-  DialogHeader,
-  DialogTitle,
   DialogDescription,
   DialogFooter,
+  DialogHeader,
+  DialogTitle,
 } from '@/components/ui/dialog'
 import { formatDate } from '@/lib/formatters'
-
 
 const PROVIDERS = ['anthropic', 'openai', 'google', 'deepseek', 'alibaba', 'other']
 
 function formatTokenCount(count: number): string {
-  if (count >= 1000000) {
-    return `${(count / 1000000).toFixed(count % 1000000 === 0 ? 0 : 1)}M`
-  }
-  if (count >= 1000) {
-    return `${(count / 1000).toFixed(count % 1000 === 0 ? 0 : 1)}k`
-  }
+  if (count >= 1000000) return `${(count / 1000000).toFixed(count % 1000000 === 0 ? 0 : 1)}M`
+  if (count >= 1000) return `${(count / 1000).toFixed(count % 1000 === 0 ? 0 : 1)}k`
   return count.toString()
 }
 
@@ -59,7 +55,6 @@ export default function ModelMetadataPage() {
   const [error, setError] = useState('')
   const [showForm, setShowForm] = useState(false)
   const [editingItem, setEditingItem] = useState<ModelMetadata | null>(null)
-
   const [formData, setFormData] = useState<ModelMetadataRequest>({
     modelPattern: '',
     displayName: '',
@@ -152,187 +147,161 @@ export default function ModelMetadataPage() {
   }
 
   return (
-    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="mx-auto max-w-6xl space-y-6">
-      {error && (
-        <Alert variant="destructive">
-          <AlertDescription>{error}</AlertDescription>
-        </Alert>
-      )}
+    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
+      <AdminPageShell
+        title="模型元数据管理"
+        description="维护模型显示名、上下文长度和最大输出限制。"
+        actions={<Button onClick={handleCreate}>添加模型元数据</Button>}
+      >
+        <motion.div initial={{ opacity: 0, y: 24 }} animate={{ opacity: 1, y: 0 }} transition={{ type: 'spring', bounce: 0.2, duration: 0.55 }}>
+          <AdminSurface>
+            {error && (
+              <div className="admin-surface-body pb-0">
+                <Alert variant="destructive">
+                  <AlertDescription>{error}</AlertDescription>
+                </Alert>
+              </div>
+            )}
+            {metadata.length === 0 ? (
+              <div className="admin-surface-body">
+                <div className="rounded-md border border-dashed px-4 py-8 text-center text-sm text-muted-foreground">
+                  暂无模型元数据
+                </div>
+              </div>
+            ) : (
+              <>
+                <div className="admin-surface-header">
+                  <div className="space-y-1">
+                    <p className="text-sm font-medium text-foreground">{metadata.length} 条规则</p>
+                    <p className="admin-inline-note">使用前缀匹配覆盖模型默认参数。</p>
+                  </div>
+                </div>
+                <div className="overflow-x-auto">
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>模型模式</TableHead>
+                        <TableHead>显示名称</TableHead>
+                        <TableHead>上下文</TableHead>
+                        <TableHead>最大输出</TableHead>
+                        <TableHead>提供商</TableHead>
+                        <TableHead>更新时间</TableHead>
+                        <TableHead className="text-right">操作</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <motion.tbody variants={tableStaggerContainer} initial="hidden" animate="visible" key={metadata.length}>
+                      {metadata.map((item) => (
+                        <motion.tr key={item.id} variants={tableRowVariants}>
+                          <TableCell className="font-mono text-sm">{item.modelPattern}</TableCell>
+                          <TableCell>{item.displayName}</TableCell>
+                          <TableCell>{formatTokenCount(item.contextLength)}</TableCell>
+                          <TableCell>{formatTokenCount(item.maxCompletionTokens)}</TableCell>
+                          <TableCell>
+                            <Badge variant={providerVariants[item.provider] || 'outline'}>{item.provider}</Badge>
+                          </TableCell>
+                          <TableCell className="text-muted-foreground">{formatDate(item.updatedAt)}</TableCell>
+                          <TableCell className="text-right">
+                            <div className="flex justify-end gap-2">
+                              <Button variant="ghost" size="sm" onClick={() => handleEdit(item)}>
+                                编辑
+                              </Button>
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                className="text-destructive hover:text-destructive"
+                                onClick={() => handleDelete(item.id, item.modelPattern)}
+                              >
+                                删除
+                              </Button>
+                            </div>
+                          </TableCell>
+                        </motion.tr>
+                      ))}
+                    </motion.tbody>
+                  </Table>
+                </div>
+              </>
+            )}
+          </AdminSurface>
+        </motion.div>
 
-      <motion.div initial={{ opacity: 0, y: 30 }} animate={{ opacity: 1, y: 0 }} transition={{ type: 'spring', bounce: 0.2, duration: 0.6, delay: 0.1 }}>
-      <Card>
-        <CardHeader className="flex flex-row items-center justify-between">
-          <div>
-            <CardTitle>模型元数据管理</CardTitle>
-            <CardDescription>配置模型的上下文长度、输出限制等参数</CardDescription>
-          </div>
-          <Button onClick={handleCreate}>添加模型元数据</Button>
-        </CardHeader>
-        <CardContent>
-          {metadata.length === 0 ? (
-            <div className="rounded-md border border-dashed p-8 text-center text-muted-foreground">
-              暂无模型元数据，点击上方按钮添加
-            </div>
-          ) : (
-            <div className="overflow-x-auto">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>模型模式</TableHead>
-                    <TableHead>显示名称</TableHead>
-                    <TableHead>上下文</TableHead>
-                    <TableHead>最大输出</TableHead>
-                    <TableHead>提供商</TableHead>
-                    <TableHead>更新时间</TableHead>
-                    <TableHead className="text-right">操作</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <motion.tbody variants={tableStaggerContainer} initial="hidden" animate="visible" key={metadata.length}>
-                  {metadata.map((item) => (
-                    <motion.tr key={item.id} variants={tableRowVariants} className="border-b transition-colors hover:bg-muted/50 data-[state=selected]:bg-muted">
-                      <TableCell className="font-mono">{item.modelPattern}</TableCell>
-                      <TableCell>{item.displayName}</TableCell>
-                      <TableCell>{formatTokenCount(item.contextLength)}</TableCell>
-                      <TableCell>{formatTokenCount(item.maxCompletionTokens)}</TableCell>
-                      <TableCell>
-                        <Badge variant={providerVariants[item.provider] || 'outline'}>
-                          {item.provider}
-                        </Badge>
-                      </TableCell>
-                      <TableCell className="text-muted-foreground">
-                        {formatDate(item.updatedAt)}
-                      </TableCell>
-                      <TableCell className="text-right space-x-2">
-                        <Button variant="ghost" size="sm" onClick={() => handleEdit(item)}>
-                          编辑
-                        </Button>
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          className="text-destructive hover:text-destructive"
-                          onClick={() => handleDelete(item.id, item.modelPattern)}
-                        >
-                          删除
-                        </Button>
-                      </TableCell>
-                    </motion.tr>
+        <Dialog open={showForm} onOpenChange={setShowForm}>
+          <DialogContent className="sm:max-w-[600px]">
+            <DialogHeader>
+              <DialogTitle>{editingItem ? '编辑模型元数据' : '添加模型元数据'}</DialogTitle>
+              <DialogDescription>配置模型匹配规则和关键参数。</DialogDescription>
+            </DialogHeader>
+            <div className="grid grid-cols-2 gap-4 py-4">
+              <div className="space-y-2">
+                <Label htmlFor="modelPattern">模型模式</Label>
+                <Input
+                  id="modelPattern"
+                  value={formData.modelPattern}
+                  onChange={(e) => setFormData((prev) => ({ ...prev, modelPattern: e.target.value }))}
+                  placeholder="例如 claude-sonnet"
+                />
+                <p className="text-xs text-muted-foreground">前缀匹配。</p>
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="displayName">显示名称</Label>
+                <Input
+                  id="displayName"
+                  value={formData.displayName}
+                  onChange={(e) => setFormData((prev) => ({ ...prev, displayName: e.target.value }))}
+                  placeholder="例如 Claude Sonnet 4"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="contextLength">上下文长度</Label>
+                <Input
+                  id="contextLength"
+                  type="number"
+                  min="1"
+                  value={formData.contextLength}
+                  onChange={(e) => setFormData((prev) => ({ ...prev, contextLength: parseInt(e.target.value) || 0 }))}
+                />
+                <p className="text-xs text-muted-foreground">当前 {formatTokenCount(formData.contextLength)}。</p>
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="maxCompletionTokens">最大输出</Label>
+                <Input
+                  id="maxCompletionTokens"
+                  type="number"
+                  min="1"
+                  value={formData.maxCompletionTokens}
+                  onChange={(e) =>
+                    setFormData((prev) => ({ ...prev, maxCompletionTokens: parseInt(e.target.value) || 0 }))
+                  }
+                />
+                <p className="text-xs text-muted-foreground">当前 {formatTokenCount(formData.maxCompletionTokens)}。</p>
+              </div>
+              <div className="col-span-2 space-y-2">
+                <Label htmlFor="provider">提供商</Label>
+                <select
+                  id="provider"
+                  value={formData.provider}
+                  onChange={(e) => setFormData((prev) => ({ ...prev, provider: e.target.value }))}
+                  className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                >
+                  {PROVIDERS.map((provider) => (
+                    <option key={provider} value={provider}>
+                      {provider}
+                    </option>
                   ))}
-                </motion.tbody>
-              </Table>
+                </select>
+              </div>
             </div>
-          )}
-        </CardContent>
-      </Card>
-      </motion.div>
-
-      <Dialog open={showForm} onOpenChange={setShowForm}>
-        <DialogContent className="sm:max-w-[600px]">
-          <DialogHeader>
-            <DialogTitle>{editingItem ? '编辑模型元数据' : '添加模型元数据'}</DialogTitle>
-            <DialogDescription>
-              配置模型的匹配模式和相关参数
-            </DialogDescription>
-          </DialogHeader>
-          <div className="grid grid-cols-2 gap-4 py-4">
-            <div className="space-y-2">
-              <Label htmlFor="modelPattern">模型模式 *</Label>
-              <Input
-                id="modelPattern"
-                value={formData.modelPattern}
-                onChange={(e) => setFormData((prev) => ({ ...prev, modelPattern: e.target.value }))}
-                placeholder="例如：claude-sonnet 或精确模型名"
-              />
-              <p className="text-xs text-muted-foreground">
-                前缀匹配，如 claude-sonnet 匹配 claude-sonnet-4-5-xxx
-              </p>
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="displayName">显示名称 *</Label>
-              <Input
-                id="displayName"
-                value={formData.displayName}
-                onChange={(e) => setFormData((prev) => ({ ...prev, displayName: e.target.value }))}
-                placeholder="例如：Claude Sonnet 4"
-              />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="contextLength">上下文长度 (tokens)</Label>
-              <Input
-                id="contextLength"
-                type="number"
-                min="1"
-                value={formData.contextLength}
-                onChange={(e) =>
-                  setFormData((prev) => ({ ...prev, contextLength: parseInt(e.target.value) || 0 }))
-                }
-              />
-              <p className="text-xs text-muted-foreground">
-                当前: {formatTokenCount(formData.contextLength)}
-              </p>
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="maxCompletionTokens">最大输出 (tokens)</Label>
-              <Input
-                id="maxCompletionTokens"
-                type="number"
-                min="1"
-                value={formData.maxCompletionTokens}
-                onChange={(e) =>
-                  setFormData((prev) => ({
-                    ...prev,
-                    maxCompletionTokens: parseInt(e.target.value) || 0,
-                  }))
-                }
-              />
-              <p className="text-xs text-muted-foreground">
-                当前: {formatTokenCount(formData.maxCompletionTokens)}
-              </p>
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="provider">提供商</Label>
-              <select
-                id="provider"
-                value={formData.provider}
-                onChange={(e) => setFormData((prev) => ({ ...prev, provider: e.target.value }))}
-                className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
-              >
-                {PROVIDERS.map((p) => (
-                  <option key={p} value={p}>
-                    {p}
-                  </option>
-                ))}
-              </select>
-            </div>
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setShowForm(false)}>
-              取消
-            </Button>
-            <Button onClick={handleSubmit} disabled={saving}>
-              {saving ? '保存中...' : '保存'}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      <motion.div initial={{ opacity: 0, y: 30 }} animate={{ opacity: 1, y: 0 }} transition={{ type: 'spring', bounce: 0.2, duration: 0.6, delay: 0.2 }}>
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-lg">模型元数据说明</CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-2 text-sm text-muted-foreground">
-          <p>
-            • <strong>模型模式</strong>：使用前缀匹配，例如 claude-sonnet 可匹配所有
-            claude-sonnet-4-5-xxx 系列模型
-          </p>
-          <p>
-            • <strong>上下文长度</strong>：模型支持的最大上下文窗口大小，用于 bootstrap 响应重写
-          </p>
-          <p>• <strong>最大输出</strong>：单次请求允许的最大输出 token 数</p>
-          <p>• 如果没有配置匹配的模型，将使用代码内置的默认值 (200k)</p>
-        </CardContent>
-      </Card>
-      </motion.div>
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setShowForm(false)}>
+                取消
+              </Button>
+              <Button onClick={handleSubmit} disabled={saving}>
+                {saving ? '保存中...' : '保存'}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+      </AdminPageShell>
     </motion.div>
   )
 }
