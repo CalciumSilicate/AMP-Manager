@@ -159,7 +159,7 @@ export default function Dashboard({
         <button
           onClick={() => setCurrentPage(item.key)}
           className={`
-            grid w-full items-center rounded-lg px-3 py-2.5 text-left text-sm font-medium transition-all duration-200
+            grid w-full items-center justify-items-start rounded-lg px-3 py-2.5 text-left text-sm font-medium transition-all duration-200
             ${isActive
               ? 'bg-primary text-primary-foreground shadow-md shadow-primary/20'
               : 'text-muted-foreground hover:bg-muted hover:text-foreground'
@@ -176,7 +176,7 @@ export default function Dashboard({
           >
             {item.label}
           </div>
-          <div className={`overflow-hidden transition-opacity duration-200 ${collapsed ? 'opacity-0' : 'opacity-100'}`}>
+          <div className={`justify-self-end overflow-hidden transition-opacity duration-200 ${collapsed ? 'opacity-0' : 'opacity-100'}`}>
             {item.adminOnly ? (
               <Badge variant={isActive ? 'secondary' : 'outline'} className="text-[10px] px-1.5 py-0">
                 管理
