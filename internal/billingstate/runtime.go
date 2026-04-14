@@ -31,9 +31,11 @@ var (
 )
 
 const (
-	defaultProjectorGroup = "billing-projectors"
-	defaultExpiryPoll     = 2 * time.Second
-	defaultReconcileBatch = 100
+	defaultProjectorGroup     = "billing-projectors"
+	defaultExpiryPoll         = 2 * time.Second
+	defaultReconcileBatch     = 100
+	defaultProjectorClaimIdle = 30 * time.Second
+	defaultCloseTimeout       = 5 * time.Second
 )
 
 type Config struct {
@@ -271,8 +273,15 @@ func buildProjectorConsumerNames(host string, pid int, instanceID string, worker
 }
 
 func (r *Runtime) Close() {
-	close(r.stopCh)
+	select {
+	case <-r.stopCh:
+	default:
+		close(r.stopCh)
+	}
 	r.wg.Wait()
+	ctx, cancel := context.WithTimeout(context.Background(), defaultCloseTimeout)
+	defer cancel()
+	r.cleanupProjectorConsumers(ctx)
 	_ = r.client.Close()
 }
 
@@ -467,6 +476,16 @@ func (r *Runtime) projectorLoop(consumerName string) {
 		default:
 		}
 
+		reclaimed, err := r.reclaimPendingEntries(ctx, consumerName)
+		if err != nil {
+			log.Warnf("billing state: projector reclaim failed for %s: %v", consumerName, err)
+			time.Sleep(time.Second)
+			continue
+		}
+		if reclaimed > 0 {
+			continue
+		}
+
 		streams, err := r.client.XReadGroup(ctx, &redis.XReadGroupArgs{
 			Group:    defaultProjectorGroup,
 			Consumer: consumerName,
@@ -493,6 +512,80 @@ func (r *Runtime) projectorLoop(consumerName string) {
 			}
 		}
 	}
+}
+
+func (r *Runtime) reclaimPendingEntries(ctx context.Context, consumerName string) (int, error) {
+	messages, _, err := r.client.XAutoClaim(ctx, &redis.XAutoClaimArgs{
+		Stream:   r.streamKey(),
+		Group:    defaultProjectorGroup,
+		Consumer: consumerName,
+		MinIdle:  defaultProjectorClaimIdle,
+		Start:    "0-0",
+		Count:    r.cfg.StreamBatchSize,
+	}).Result()
+	if err != nil {
+		if err == redis.Nil || isProjectorGroupUnavailable(err) {
+			return 0, nil
+		}
+		return 0, err
+	}
+	if len(messages) == 0 {
+		return 0, nil
+	}
+
+	ackedIDs := r.projectMessages(ctx, messages)
+	if len(ackedIDs) > 0 {
+		if _, err := r.client.XAck(ctx, r.streamKey(), defaultProjectorGroup, ackedIDs...).Result(); err != nil && !isProjectorGroupUnavailable(err) {
+			log.Warnf("billing state: projector ack failed for %d reclaimed messages: %v", len(ackedIDs), err)
+		}
+	}
+	return len(messages), nil
+}
+
+func (r *Runtime) cleanupProjectorConsumers(ctx context.Context) {
+	for _, consumerName := range r.projectorConsumers {
+		if err := r.cleanupProjectorConsumer(ctx, consumerName); err != nil {
+			log.Warnf("billing state: projector consumer cleanup failed for %s: %v", consumerName, err)
+		}
+	}
+}
+
+func (r *Runtime) cleanupProjectorConsumer(ctx context.Context, consumerName string) error {
+	pending, err := r.client.XPendingExt(ctx, &redis.XPendingExtArgs{
+		Stream:   r.streamKey(),
+		Group:    defaultProjectorGroup,
+		Start:    "-",
+		End:      "+",
+		Count:    1,
+		Consumer: consumerName,
+	}).Result()
+	if err != nil {
+		if err == redis.Nil || isProjectorGroupUnavailable(err) {
+			return nil
+		}
+		return err
+	}
+	if len(pending) > 0 {
+		return nil
+	}
+
+	if _, err := r.client.XGroupDelConsumer(ctx, r.streamKey(), defaultProjectorGroup, consumerName).Result(); err != nil {
+		if err == redis.Nil || isProjectorGroupUnavailable(err) {
+			return nil
+		}
+		return err
+	}
+	return nil
+}
+
+func isProjectorGroupUnavailable(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := err.Error()
+	return strings.Contains(msg, "NOGROUP") ||
+		strings.Contains(msg, "no such key") ||
+		strings.Contains(msg, "requires the key to exist")
 }
 
 func (r *Runtime) reconcileLoop() {
