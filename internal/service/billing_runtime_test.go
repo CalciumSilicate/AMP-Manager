@@ -1,0 +1,287 @@
+package service
+
+import (
+	"database/sql"
+	"errors"
+	"path/filepath"
+	"testing"
+
+	"ampmanager/internal/billingstate"
+	"ampmanager/internal/config"
+	"ampmanager/internal/database"
+	"ampmanager/internal/model"
+)
+
+func TestApplyAndStoreBillingRuntimeConfigRollsBackOnPersistError(t *testing.T) {
+	setupBillingRuntimeServiceTestDB(t)
+
+	svc := NewSystemConfigService()
+	oldRuntime := &billingstate.Runtime{}
+	newRuntime := &billingstate.Runtime{}
+	currentRuntime := oldRuntime
+	var closed []*billingstate.Runtime
+
+	restore := stubBillingRuntimeServiceHooks(
+		t,
+		func(cfg billingstate.Config) (*billingstate.Runtime, error) {
+			if cfg.RedisURL != "redis://next" {
+				t.Fatalf("build got redis URL %q", cfg.RedisURL)
+			}
+			return newRuntime, nil
+		},
+		func(rt *billingstate.Runtime) *billingstate.Runtime {
+			previous := currentRuntime
+			currentRuntime = rt
+			return previous
+		},
+		func(rt *billingstate.Runtime) {
+			if rt != nil {
+				closed = append(closed, rt)
+			}
+		},
+		func(_ *SystemConfigService, _ model.BillingRuntimeConfigRequest) error {
+			return errors.New("write failed")
+		},
+	)
+	defer restore()
+
+	err := svc.ApplyAndStoreBillingRuntimeConfig(model.BillingRuntimeConfigRequest{
+		RedisURL: "redis://next",
+	})
+	if !IsBillingRuntimePersistError(err) {
+		t.Fatalf("expected persist error, got %v", err)
+	}
+	if currentRuntime != oldRuntime {
+		t.Fatalf("current runtime = %p, want rollback to %p", currentRuntime, oldRuntime)
+	}
+	if len(closed) != 1 || closed[0] != newRuntime {
+		t.Fatalf("closed runtimes = %v, want [%p]", closed, newRuntime)
+	}
+}
+
+func TestApplyAndStoreBillingRuntimeConfigCommitsNewRuntime(t *testing.T) {
+	setupBillingRuntimeServiceTestDB(t)
+
+	svc := NewSystemConfigService()
+	oldRuntime := &billingstate.Runtime{}
+	newRuntime := &billingstate.Runtime{}
+	currentRuntime := oldRuntime
+	var closed []*billingstate.Runtime
+
+	restore := stubBillingRuntimeServiceHooks(
+		t,
+		func(cfg billingstate.Config) (*billingstate.Runtime, error) {
+			if cfg.Prefix != "team-a" {
+				t.Fatalf("build got prefix %q", cfg.Prefix)
+			}
+			return newRuntime, nil
+		},
+		func(rt *billingstate.Runtime) *billingstate.Runtime {
+			previous := currentRuntime
+			currentRuntime = rt
+			return previous
+		},
+		func(rt *billingstate.Runtime) {
+			if rt != nil {
+				closed = append(closed, rt)
+			}
+		},
+		nil,
+	)
+	defer restore()
+
+	err := svc.ApplyAndStoreBillingRuntimeConfig(model.BillingRuntimeConfigRequest{
+		RedisURL:             "redis://apply",
+		RedisPrefix:          "team-a",
+		ReservationTTLSec:    120,
+		ReconcileIntervalSec: 30,
+		StreamBatchSize:      8,
+	})
+	if err != nil {
+		t.Fatalf("ApplyAndStoreBillingRuntimeConfig returned error: %v", err)
+	}
+	if currentRuntime != newRuntime {
+		t.Fatalf("current runtime = %p, want %p", currentRuntime, newRuntime)
+	}
+	if len(closed) != 1 || closed[0] != oldRuntime {
+		t.Fatalf("closed runtimes = %v, want [%p]", closed, oldRuntime)
+	}
+}
+
+func TestApplyAndStoreBillingRuntimeConfigDisablesRuntime(t *testing.T) {
+	setupBillingRuntimeServiceTestDB(t)
+
+	svc := NewSystemConfigService()
+	oldRuntime := &billingstate.Runtime{}
+	currentRuntime := oldRuntime
+	var closed []*billingstate.Runtime
+
+	restore := stubBillingRuntimeServiceHooks(
+		t,
+		func(cfg billingstate.Config) (*billingstate.Runtime, error) {
+			if cfg.RedisURL != "" {
+				t.Fatalf("build got redis URL %q, want disable", cfg.RedisURL)
+			}
+			return nil, nil
+		},
+		func(rt *billingstate.Runtime) *billingstate.Runtime {
+			previous := currentRuntime
+			currentRuntime = rt
+			return previous
+		},
+		func(rt *billingstate.Runtime) {
+			if rt != nil {
+				closed = append(closed, rt)
+			}
+		},
+		nil,
+	)
+	defer restore()
+
+	err := svc.ApplyAndStoreBillingRuntimeConfig(model.BillingRuntimeConfigRequest{
+		RedisURL:             "",
+		RedisPrefix:          "",
+		ReservationTTLSec:    120,
+		ReconcileIntervalSec: 30,
+		StreamBatchSize:      8,
+	})
+	if err != nil {
+		t.Fatalf("ApplyAndStoreBillingRuntimeConfig returned error: %v", err)
+	}
+	if currentRuntime != nil {
+		t.Fatalf("current runtime = %p, want nil", currentRuntime)
+	}
+	if len(closed) != 1 || closed[0] != oldRuntime {
+		t.Fatalf("closed runtimes = %v, want [%p]", closed, oldRuntime)
+	}
+
+	stored, err := svc.GetBillingRuntimeConfigRequest()
+	if err != nil {
+		t.Fatalf("GetBillingRuntimeConfigRequest returned error: %v", err)
+	}
+	if stored.RedisURL != "" {
+		t.Fatalf("stored redis URL = %q, want empty", stored.RedisURL)
+	}
+	if stored.RedisPrefix != "ampmanager" {
+		t.Fatalf("stored redis prefix = %q, want ampmanager", stored.RedisPrefix)
+	}
+}
+
+func TestReloadBillingRuntimeFromSystemConfigBestEffortFallsBackToLegacyOnBuildError(t *testing.T) {
+	setupBillingRuntimeServiceTestDB(t)
+
+	svc := NewSystemConfigService()
+	if err := svc.SetBillingRuntimeConfig(model.BillingRuntimeConfigRequest{
+		RedisURL:             "redis://broken",
+		RedisPrefix:          "team-a",
+		ReservationTTLSec:    120,
+		ReconcileIntervalSec: 30,
+		StreamBatchSize:      8,
+	}); err != nil {
+		t.Fatalf("SetBillingRuntimeConfig returned error: %v", err)
+	}
+
+	oldRuntime := &billingstate.Runtime{}
+	currentRuntime := oldRuntime
+	replaceCalled := false
+	var closed []*billingstate.Runtime
+
+	restore := stubBillingRuntimeServiceHooks(
+		t,
+		func(cfg billingstate.Config) (*billingstate.Runtime, error) {
+			if cfg.RedisURL != "redis://broken" {
+				t.Fatalf("build got redis URL %q", cfg.RedisURL)
+			}
+			return nil, errors.New("dial failed")
+		},
+		func(rt *billingstate.Runtime) *billingstate.Runtime {
+			replaceCalled = true
+			if rt != nil {
+				t.Fatalf("replace got runtime %p, want nil legacy fallback", rt)
+			}
+			previous := currentRuntime
+			currentRuntime = rt
+			return previous
+		},
+		func(rt *billingstate.Runtime) {
+			if rt != nil {
+				closed = append(closed, rt)
+			}
+		},
+		nil,
+	)
+	defer restore()
+
+	svc.ReloadBillingRuntimeFromSystemConfigBestEffort("test reload")
+
+	if !replaceCalled {
+		t.Fatal("expected replace to be called for legacy fallback")
+	}
+	if len(closed) != 1 || closed[0] != oldRuntime {
+		t.Fatalf("closed runtimes = %v, want [%p]", closed, oldRuntime)
+	}
+	if currentRuntime != nil {
+		t.Fatalf("current runtime = %p, want nil", currentRuntime)
+	}
+}
+
+func stubBillingRuntimeServiceHooks(
+	t *testing.T,
+	build func(cfg billingstate.Config) (*billingstate.Runtime, error),
+	replace func(rt *billingstate.Runtime) *billingstate.Runtime,
+	closeFn func(rt *billingstate.Runtime),
+	persist func(s *SystemConfigService, req model.BillingRuntimeConfigRequest) error,
+) func() {
+	t.Helper()
+
+	previousBuild := buildBillingRuntime
+	previousReplace := replaceBillingRuntime
+	previousClose := closeBillingRuntime
+	previousPersist := persistBillingRuntimeConfig
+
+	if build != nil {
+		buildBillingRuntime = build
+	}
+	if replace != nil {
+		replaceBillingRuntime = replace
+	}
+	if closeFn != nil {
+		closeBillingRuntime = closeFn
+	}
+	if persist != nil {
+		persistBillingRuntimeConfig = persist
+	}
+
+	return func() {
+		buildBillingRuntime = previousBuild
+		replaceBillingRuntime = previousReplace
+		closeBillingRuntime = previousClose
+		persistBillingRuntimeConfig = previousPersist
+	}
+}
+
+func setupBillingRuntimeServiceTestDB(t *testing.T) {
+	t.Helper()
+
+	t.Setenv("REDIS_URL", "")
+	t.Setenv("REDIS_PREFIX", "ampmanager")
+	t.Setenv("BILLING_RESERVATION_TTL_SEC", "600")
+	t.Setenv("BILLING_RECONCILE_INTERVAL_SEC", "60")
+	t.Setenv("BILLING_STREAM_BATCH_SIZE", "100")
+	config.Load()
+
+	dbPath := filepath.Join(t.TempDir(), "billing-runtime-test.sqlite")
+	if err := database.InitWithOptions(database.Options{
+		Type:       database.DBTypeSQLite,
+		SQLitePath: dbPath,
+	}); err != nil {
+		t.Fatalf("database.InitWithOptions returned error: %v", err)
+	}
+
+	t.Cleanup(func() {
+		billingstate.Close()
+		if err := database.CloseAndRelease(); err != nil && !errors.Is(err, sql.ErrConnDone) {
+			t.Fatalf("database.CloseAndRelease returned error: %v", err)
+		}
+	})
+}

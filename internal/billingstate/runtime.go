@@ -150,17 +150,85 @@ type reservationRow struct {
 }
 
 func Init(cfg Config) error {
+	rt, err := Build(cfg)
+	if err != nil {
+		return err
+	}
+
+	previous := Replace(rt)
+	if previous != nil {
+		previous.Close()
+	}
+
+	if rt == nil {
+		log.Info("billing state: redis runtime disabled")
+		return nil
+	}
+
+	log.Infof("billing state: redis runtime initialized with prefix %s", rt.cfg.Prefix)
+	return nil
+}
+
+func Get() *Runtime {
+	return globalRuntime.Load()
+}
+
+func Close() {
+	if rt := Replace(nil); rt != nil {
+		rt.Close()
+	}
+}
+
+func Build(cfg Config) (*Runtime, error) {
+	cfg = normalizeConfig(cfg)
+	if strings.TrimSpace(cfg.RedisURL) == "" {
+		return nil, nil
+	}
+
+	opts, err := redis.ParseURL(cfg.RedisURL)
+	if err != nil {
+		return nil, err
+	}
+
+	client := redis.NewClient(opts)
+	if err := client.Ping(context.Background()).Err(); err != nil {
+		_ = client.Close()
+		return nil, err
+	}
+
+	host, _ := os.Hostname()
+	rt := &Runtime{
+		client:       client,
+		cfg:          cfg,
+		consumerName: fmt.Sprintf("%s-%d-%d", host, os.Getpid(), time.Now().UnixNano()),
+		stopCh:       make(chan struct{}),
+	}
+
+	if err := rt.ensureConsumerGroup(context.Background()); err != nil {
+		_ = client.Close()
+		return nil, err
+	}
+
+	rt.wg.Add(3)
+	go rt.projectorLoop()
+	go rt.expiryLoop()
+	go rt.reconcileLoop()
+
+	return rt, nil
+}
+
+func Replace(rt *Runtime) *Runtime {
 	globalRuntimeMu.Lock()
 	defer globalRuntimeMu.Unlock()
 
-	if existing := globalRuntime.Load(); existing != nil {
-		existing.Close()
-		globalRuntime.Store(nil)
-	}
+	previous := globalRuntime.Load()
+	globalRuntime.Store(rt)
+	return previous
+}
 
-	if strings.TrimSpace(cfg.RedisURL) == "" {
-		return nil
-	}
+func normalizeConfig(cfg Config) Config {
+	cfg.RedisURL = strings.TrimSpace(cfg.RedisURL)
+	cfg.Prefix = strings.TrimSpace(cfg.Prefix)
 	if cfg.Prefix == "" {
 		cfg.Prefix = "ampmanager"
 	}
@@ -173,52 +241,7 @@ func Init(cfg Config) error {
 	if cfg.StreamBatchSize <= 0 {
 		cfg.StreamBatchSize = 100
 	}
-
-	opts, err := redis.ParseURL(cfg.RedisURL)
-	if err != nil {
-		return err
-	}
-
-	client := redis.NewClient(opts)
-	if err := client.Ping(context.Background()).Err(); err != nil {
-		return err
-	}
-
-	host, _ := os.Hostname()
-	rt := &Runtime{
-		client:       client,
-		cfg:          cfg,
-		consumerName: fmt.Sprintf("%s-%d-%d", host, os.Getpid(), time.Now().UnixNano()),
-		stopCh:       make(chan struct{}),
-	}
-
-	if err := rt.ensureConsumerGroup(context.Background()); err != nil {
-		client.Close()
-		return err
-	}
-
-	rt.wg.Add(3)
-	go rt.projectorLoop()
-	go rt.expiryLoop()
-	go rt.reconcileLoop()
-
-	globalRuntime.Store(rt)
-	log.Infof("billing state: redis runtime initialized with prefix %s", cfg.Prefix)
-	return nil
-}
-
-func Get() *Runtime {
-	return globalRuntime.Load()
-}
-
-func Close() {
-	globalRuntimeMu.Lock()
-	defer globalRuntimeMu.Unlock()
-
-	if rt := globalRuntime.Load(); rt != nil {
-		rt.Close()
-		globalRuntime.Store(nil)
-	}
+	return cfg
 }
 
 func (r *Runtime) Close() {

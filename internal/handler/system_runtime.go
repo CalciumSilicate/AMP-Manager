@@ -1,32 +1,24 @@
 package handler
 
 import (
-	"time"
-
 	"ampmanager/internal/amp"
-	"ampmanager/internal/billingstate"
 	"ampmanager/internal/database"
 	"ampmanager/internal/service"
 )
 
-func reloadBillingRuntimeFromSystemConfig() error {
-	cfg, err := service.NewSystemConfigService().GetBillingRuntimeConfig()
-	if err != nil {
-		return err
+var (
+	reinitLogWriter                = amp.ReinitLogWriter
+	reinitRequestDetailStore       = amp.ReinitRequestDetailStore
+	reinitPendingCleaner           = amp.ReinitPendingCleaner
+	reloadBillingRuntimeBestEffort = func(reason string) {
+		service.NewSystemConfigService().ReloadBillingRuntimeFromSystemConfigBestEffort(reason)
 	}
-
-	return billingstate.Init(billingstate.Config{
-		RedisURL:          cfg.RedisURL,
-		Prefix:            cfg.RedisPrefix,
-		ReservationTTL:    time.Duration(cfg.ReservationTTLSec) * time.Second,
-		ReconcileInterval: time.Duration(cfg.ReconcileIntervalSec) * time.Second,
-		StreamBatchSize:   int64(cfg.StreamBatchSize),
-	})
-}
+)
 
 func reinitDatabaseBackedRuntimeServices() error {
-	amp.ReinitLogWriter(database.GetDB())
-	amp.ReinitRequestDetailStore(database.GetDB())
-	amp.ReinitPendingCleaner(database.GetDB())
-	return reloadBillingRuntimeFromSystemConfig()
+	reinitLogWriter(database.GetDB())
+	reinitRequestDetailStore(database.GetDB())
+	reinitPendingCleaner(database.GetDB())
+	reloadBillingRuntimeBestEffort("database-backed runtime reinitialization")
+	return nil
 }

@@ -192,49 +192,105 @@ func parsePositiveInt64(value string) (int64, error) {
 	return strconv.ParseInt(value, 10, 64)
 }
 
-func (s *SystemConfigService) GetBillingRuntimeConfig() (model.BillingRuntimeConfigResponse, error) {
-	cfg := config.Get()
-	resp := model.BillingRuntimeConfigResponse{
-		RedisURL:             cfg.RedisURL,
-		RedisURLMasked:       maskRedisURL(cfg.RedisURL),
-		RedisPrefix:          cfg.RedisPrefix,
-		ReservationTTLSec:    cfg.BillingReservationTTLSec,
-		ReconcileIntervalSec: cfg.BillingReconcileIntervalSec,
-		StreamBatchSize:      cfg.BillingStreamBatchSize,
-		RuntimeEnabled:       strings.TrimSpace(cfg.RedisURL) != "",
-		RuntimeHealthy:       billingstate.Get() != nil,
+func defaultBillingRuntimeConfigRequest() model.BillingRuntimeConfigRequest {
+	resp := model.BillingRuntimeConfigRequest{
+		RedisPrefix:          "ampmanager",
+		ReservationTTLSec:    600,
+		ReconcileIntervalSec: 60,
+		StreamBatchSize:      100,
 	}
+
+	if cfg := config.Get(); cfg != nil {
+		resp.RedisURL = strings.TrimSpace(cfg.RedisURL)
+		if strings.TrimSpace(cfg.RedisPrefix) != "" {
+			resp.RedisPrefix = strings.TrimSpace(cfg.RedisPrefix)
+		}
+		if cfg.BillingReservationTTLSec > 0 {
+			resp.ReservationTTLSec = cfg.BillingReservationTTLSec
+		}
+		if cfg.BillingReconcileIntervalSec > 0 {
+			resp.ReconcileIntervalSec = cfg.BillingReconcileIntervalSec
+		}
+		if cfg.BillingStreamBatchSize > 0 {
+			resp.StreamBatchSize = cfg.BillingStreamBatchSize
+		}
+	}
+
+	return normalizeBillingRuntimeConfigRequest(resp)
+}
+
+func normalizeBillingRuntimeConfigRequest(req model.BillingRuntimeConfigRequest) model.BillingRuntimeConfigRequest {
+	req.RedisURL = strings.TrimSpace(req.RedisURL)
+	req.RedisPrefix = strings.TrimSpace(req.RedisPrefix)
+	if req.RedisPrefix == "" {
+		req.RedisPrefix = "ampmanager"
+	}
+	if req.ReservationTTLSec <= 0 {
+		req.ReservationTTLSec = 600
+	}
+	if req.ReconcileIntervalSec <= 0 {
+		req.ReconcileIntervalSec = 60
+	}
+	if req.StreamBatchSize <= 0 {
+		req.StreamBatchSize = 100
+	}
+	return req
+}
+
+func (s *SystemConfigService) GetBillingRuntimeConfigRequest() (model.BillingRuntimeConfigRequest, error) {
+	resp := defaultBillingRuntimeConfigRequest()
 
 	value, err := s.repo.Get(billingRuntimeConfigKey)
 	if err != nil {
 		return resp, err
 	}
-	if value != "" {
-		var stored model.BillingRuntimeConfigRequest
-		if err := json.Unmarshal([]byte(value), &stored); err == nil {
-			resp.RedisURL = strings.TrimSpace(stored.RedisURL)
-			resp.RedisURLMasked = maskRedisURL(resp.RedisURL)
-			if strings.TrimSpace(stored.RedisPrefix) != "" {
-				resp.RedisPrefix = strings.TrimSpace(stored.RedisPrefix)
-			}
-			if stored.ReservationTTLSec > 0 {
-				resp.ReservationTTLSec = stored.ReservationTTLSec
-			}
-			if stored.ReconcileIntervalSec > 0 {
-				resp.ReconcileIntervalSec = stored.ReconcileIntervalSec
-			}
-			if stored.StreamBatchSize > 0 {
-				resp.StreamBatchSize = stored.StreamBatchSize
-			}
-			resp.RuntimeEnabled = strings.TrimSpace(resp.RedisURL) != ""
-		}
+	if value == "" {
+		return resp, nil
 	}
 
+	var stored model.BillingRuntimeConfigRequest
+	if err := json.Unmarshal([]byte(value), &stored); err != nil {
+		return resp, nil
+	}
+
+	resp.RedisURL = strings.TrimSpace(stored.RedisURL)
+	if strings.TrimSpace(stored.RedisPrefix) != "" {
+		resp.RedisPrefix = strings.TrimSpace(stored.RedisPrefix)
+	}
+	if stored.ReservationTTLSec > 0 {
+		resp.ReservationTTLSec = stored.ReservationTTLSec
+	}
+	if stored.ReconcileIntervalSec > 0 {
+		resp.ReconcileIntervalSec = stored.ReconcileIntervalSec
+	}
+	if stored.StreamBatchSize > 0 {
+		resp.StreamBatchSize = stored.StreamBatchSize
+	}
+
+	return normalizeBillingRuntimeConfigRequest(resp), nil
+}
+
+func (s *SystemConfigService) GetBillingRuntimeConfig() (model.BillingRuntimeConfigResponse, error) {
+	req, err := s.GetBillingRuntimeConfigRequest()
+	if err != nil {
+		return model.BillingRuntimeConfigResponse{}, err
+	}
+
+	resp := model.BillingRuntimeConfigResponse{
+		RedisURL:             req.RedisURL,
+		RedisURLMasked:       maskRedisURL(req.RedisURL),
+		RedisPrefix:          req.RedisPrefix,
+		ReservationTTLSec:    req.ReservationTTLSec,
+		ReconcileIntervalSec: req.ReconcileIntervalSec,
+		StreamBatchSize:      req.StreamBatchSize,
+		RuntimeEnabled:       strings.TrimSpace(req.RedisURL) != "",
+	}
 	resp.RuntimeHealthy = resp.RuntimeEnabled && billingstate.Get() != nil
 	return resp, nil
 }
 
 func (s *SystemConfigService) SetBillingRuntimeConfig(req model.BillingRuntimeConfigRequest) error {
+	req = normalizeBillingRuntimeConfigRequest(req)
 	data, err := json.Marshal(req)
 	if err != nil {
 		return err

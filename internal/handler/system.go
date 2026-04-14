@@ -311,17 +311,17 @@ func (h *SystemHandler) UpdateBillingRuntimeConfig(c *gin.Context) {
 		return
 	}
 
-	if err := service.NewSystemConfigService().SetBillingRuntimeConfig(req); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "保存配置失败"})
+	cfgService := service.NewSystemConfigService()
+	if err := cfgService.ApplyAndStoreBillingRuntimeConfig(req); err != nil {
+		if service.IsBillingRuntimePersistError(err) {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "保存配置失败，仍使用旧运行时: " + err.Error()})
+			return
+		}
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Redis 配置应用失败，配置未保存且仍使用旧运行时: " + err.Error()})
 		return
 	}
 
-	if err := reloadBillingRuntimeFromSystemConfig(); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Redis 配置应用失败: " + err.Error()})
-		return
-	}
-
-	resp, err := service.NewSystemConfigService().GetBillingRuntimeConfig()
+	resp, err := cfgService.GetBillingRuntimeConfig()
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "获取配置失败"})
 		return
