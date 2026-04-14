@@ -230,7 +230,7 @@ export default function Channels() {
 
             <div className="admin-surface-body space-y-4">
               {channels.length === 0 ? (
-                <div className="rounded-md border border-dashed px-4 py-8 text-center text-sm text-muted-foreground">
+                <div className="rounded-xl border border-dashed px-4 py-8 text-center text-sm text-muted-foreground">
                   暂无渠道
                 </div>
               ) : (

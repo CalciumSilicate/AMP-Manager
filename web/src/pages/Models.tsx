@@ -140,7 +140,7 @@ export default function Models({ isAdmin }: Props) {
 
             {models.length === 0 ? (
               <div className="admin-surface-body">
-                <div className="rounded-md border border-dashed px-4 py-8 text-center text-sm text-muted-foreground">
+                <div className="rounded-xl border border-dashed px-4 py-8 text-center text-sm text-muted-foreground">
                   {isAdmin ? '暂无模型数据，请先添加渠道后刷新。' : '暂无可用模型。'}
                 </div>
               </div>
@@ -160,7 +160,7 @@ export default function Models({ isAdmin }: Props) {
                         <span className="text-sm text-muted-foreground">{typeModels.length} 个模型</span>
                       </div>
                     </div>
-                    <div className="overflow-hidden rounded-md border border-border/70">
+                    <div className="overflow-hidden rounded-xl border border-border/70">
                       {typeModels.map((model, index) => (
                         <div
                           key={`${model.channelName}-${model.modelId}`}

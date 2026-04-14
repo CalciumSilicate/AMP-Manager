@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { motion, AnimatePresence, sidebarContainerVariants, sidebarItemVariants } from '@/lib/motion'
+import { motion, AnimatePresence } from '@/lib/motion'
 import Overview from './Overview'
 import AdminOverview from './AdminOverview'
 import AmpSettings from './AmpSettings'
@@ -17,11 +17,11 @@ import UserManagement from './UserManagement'
 import AccountSettings from './AccountSettings'
 import PurchaseCenter from './PurchaseCenter'
 import PaidSubscriptions from './PaidSubscriptions'
+import RedeemManagement from './RedeemManagement'
 import { Button } from '@/components/ui/button'
 // Card components available if needed by child pages
 import { Badge } from '@/components/ui/badge'
 import { Separator } from '@/components/ui/separator'
-import { ScrollArea } from '@/components/ui/scroll-area'
 import { DASHBOARD_NAVIGATE_EVENT } from '@/lib/dashboard-navigation'
 import {
   Tooltip,
@@ -55,6 +55,7 @@ import {
   LayoutDashboard,
   CreditCard,
   ShoppingCart,
+  TicketPercent,
 } from 'lucide-react'
 
 interface Props {
@@ -67,7 +68,7 @@ interface Props {
   onLogout: () => void
 }
 
-type Page = 'overview' | 'amp-settings' | 'api-keys' | 'request-logs' | 'usage-stats' | 'channels' | 'models' | 'model-metadata' | 'prices' | 'system-settings' | 'user-management' | 'account-settings' | 'groups' | 'subscription-plans' | 'admin-overview' | 'purchase-center' | 'paid-subscriptions'
+type Page = 'overview' | 'amp-settings' | 'api-keys' | 'request-logs' | 'usage-stats' | 'channels' | 'models' | 'model-metadata' | 'prices' | 'system-settings' | 'user-management' | 'account-settings' | 'groups' | 'subscription-plans' | 'admin-overview' | 'purchase-center' | 'paid-subscriptions' | 'redeem-management'
 
 const navIcons: Record<Page, React.ElementType> = {
   'overview': LayoutDashboard,
@@ -87,6 +88,7 @@ const navIcons: Record<Page, React.ElementType> = {
   'subscription-plans': CreditCard,
   'purchase-center': ShoppingCart,
   'paid-subscriptions': CreditCard,
+  'redeem-management': TicketPercent,
 }
 
 export default function Dashboard({
@@ -115,6 +117,7 @@ export default function Dashboard({
     { key: 'groups', label: '分组管理', adminOnly: true },
     { key: 'subscription-plans', label: '订阅套餐', adminOnly: true },
     { key: 'paid-subscriptions', label: '付费订阅', adminOnly: true },
+    { key: 'redeem-management', label: '兑换码管理', adminOnly: true },
     { key: 'channels', label: '渠道管理', adminOnly: true },
     { key: 'model-metadata', label: '模型元数据', adminOnly: true },
     { key: 'prices', label: '模型价格', adminOnly: true },
@@ -152,36 +155,36 @@ export default function Dashboard({
     const isActive = currentPage === item.key
 
     const button = (
-      <motion.div
-        key={item.key}
-        variants={sidebarItemVariants}
-        whileHover={{ x: collapsed ? 0 : 4 }}
-        whileTap={{ scale: 0.97 }}
-      >
+      <div key={item.key}>
         <button
           onClick={() => setCurrentPage(item.key)}
           className={`
-            w-full flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-all duration-200
+            grid w-full items-center rounded-lg px-3 py-2.5 text-left text-sm font-medium transition-all duration-200
             ${isActive
               ? 'bg-primary text-primary-foreground shadow-md shadow-primary/20'
               : 'text-muted-foreground hover:bg-muted hover:text-foreground'
             }
-            ${collapsed ? 'justify-center px-2.5' : ''}
+            ${collapsed ? 'grid-cols-[20px_0px_0px] px-2.5' : 'grid-cols-[20px_minmax(0,1fr)_auto]'}
           `}
         >
           <Icon className={`shrink-0 ${collapsed ? 'h-5 w-5' : 'h-4 w-4'}`} />
-          {!collapsed && (
-            <>
-              <span className="truncate">{item.label}</span>
-              {item.adminOnly && (
-                <Badge variant={isActive ? 'secondary' : 'outline'} className="ml-auto text-[10px] px-1.5 py-0">
-                  管理
-                </Badge>
-              )}
-            </>
-          )}
+          <div
+            className={`
+              min-w-0 overflow-hidden whitespace-nowrap transition-[margin,opacity] duration-200
+              ${collapsed ? 'ml-0 opacity-0' : 'ml-3 opacity-100'}
+            `}
+          >
+            {item.label}
+          </div>
+          <div className={`overflow-hidden transition-opacity duration-200 ${collapsed ? 'opacity-0' : 'opacity-100'}`}>
+            {item.adminOnly ? (
+              <Badge variant={isActive ? 'secondary' : 'outline'} className="text-[10px] px-1.5 py-0">
+                管理
+              </Badge>
+            ) : null}
+          </div>
         </button>
-      </motion.div>
+      </div>
     )
 
     if (collapsed) {
@@ -212,7 +215,7 @@ export default function Dashboard({
           {/* Logo */}
           <div className="flex h-16 items-center border-b px-4">
             <motion.div
-              className="flex items-center gap-3 overflow-hidden"
+              className={`grid items-center gap-3 overflow-hidden ${collapsed ? 'grid-cols-[36px_0px]' : 'grid-cols-[36px_minmax(0,1fr)]'}`}
               initial={{ opacity: 0, x: -20 }}
               animate={{ opacity: 1, x: 0 }}
               transition={{ type: 'spring', bounce: 0.3, duration: 0.6 }}
@@ -220,27 +223,21 @@ export default function Dashboard({
               <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-primary text-primary-foreground shadow-md shadow-primary/25">
                 <Zap className="h-5 w-5" />
               </div>
-              {!collapsed && (
-                <motion.span
-                  className="text-lg font-bold tracking-tight whitespace-nowrap"
-                  initial={{ opacity: 0, width: 0 }}
-                  animate={{ opacity: 1, width: 'auto' }}
-                  exit={{ opacity: 0, width: 0 }}
-                >
-                  {siteName}
-                </motion.span>
-              )}
+              <div
+                className={`
+                  min-w-0 overflow-hidden whitespace-nowrap text-lg font-bold tracking-tight
+                  transition-opacity duration-200
+                  ${collapsed ? 'opacity-0' : 'opacity-100'}
+                `}
+              >
+                {siteName}
+              </div>
             </motion.div>
           </div>
 
           {/* Nav */}
-          <ScrollArea className="flex-1 px-3 py-4">
-            <motion.nav
-              variants={sidebarContainerVariants}
-              initial="hidden"
-              animate="visible"
-              className="flex flex-col gap-1"
-            >
+          <div className="flex-1 overflow-y-auto px-3 py-4">
+            <nav className="flex flex-col gap-1">
               {userNavItems.map(renderNavItem)}
 
               {adminNavItems.length > 0 && (
@@ -257,8 +254,8 @@ export default function Dashboard({
                   {adminNavItems.map(renderNavItem)}
                 </>
               )}
-            </motion.nav>
-          </ScrollArea>
+            </nav>
+          </div>
 
           {/* Collapse toggle */}
           <div className="border-t p-3">
@@ -347,6 +344,7 @@ export default function Dashboard({
                   {currentPage === 'groups' && isAdmin && <Groups />}
                   {currentPage === 'subscription-plans' && isAdmin && <SubscriptionPlans />}
                   {currentPage === 'paid-subscriptions' && isAdmin && <PaidSubscriptions />}
+                  {currentPage === 'redeem-management' && isAdmin && <RedeemManagement />}
                   {currentPage === 'model-metadata' && isAdmin && <ModelMetadata />}
                   {currentPage === 'prices' && isAdmin && <Prices />}
                   {currentPage === 'user-management' && isAdmin && <UserManagement />}

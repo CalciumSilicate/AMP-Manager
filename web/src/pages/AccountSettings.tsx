@@ -1,27 +1,31 @@
-import { useState, useEffect } from 'react'
-import { motion, AnimatePresence } from '@/lib/motion'
-import { changePassword, changeUsername, getMyBalance, BalanceInfo } from '../api/users'
-import { getBillingState, updateBillingPriority, BillingStateResponse } from '@/api/billing'
-import { Button } from '@/components/ui/button'
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
-import { CircularProgress } from '@/components/CircularProgress'
-import { Input } from '@/components/ui/input'
-import { Label } from '@/components/ui/label'
+import { useEffect, useState } from 'react'
+
+import { changePassword, changeUsername, getMyBalance, type BalanceInfo } from '../api/users'
+import { getBillingState, updateBillingPriority, type BillingStateResponse } from '@/api/billing'
+import { navigateDashboard } from '@/lib/dashboard-navigation'
+import { formatDateTime, formatDecimal } from '@/lib/formatters'
+import { RedeemQuickEntry, RedeemRecordTable } from '@/components/redeem/RedeemPanels'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
+import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group'
-import { formatDateTime, formatDecimal } from '@/lib/formatters'
-import { navigateDashboard } from '@/lib/dashboard-navigation'
-import { cn } from '@/lib/utils'
-import { CheckCircle2, XCircle, Wallet, RefreshCw, CreditCard, ArrowRightLeft, Shield } from 'lucide-react'
+import { motion } from '@/lib/motion'
+import { ArrowRightLeft, CheckCircle2, CreditCard, RefreshCw, Shield, XCircle } from 'lucide-react'
 
-type AccountTab = 'security' | 'balance' | 'billing'
+type AccountTab = 'balance' | 'billing' | 'security'
 
 const tabs: { key: AccountTab; label: string }[] = [
   { key: 'balance', label: '余额' },
-  { key: 'billing', label: '计费设置' },
-  { key: 'security', label: '账户安全' },
+  { key: 'billing', label: '计费' },
+  { key: 'security', label: '安全' },
 ]
+
+interface Props {
+  username: string
+  onUsernameChange: (newUsername: string) => void
+}
 
 const LIMIT_TYPE_LABELS: Record<string, string> = {
   daily: '日限制',
@@ -36,14 +40,14 @@ const WINDOW_MODE_LABELS: Record<string, string> = {
   sliding: '滑动窗口',
 }
 
-interface Props {
-  username: string
-  onUsernameChange: (newUsername: string) => void
+function formatBalance(micros: number): string {
+  return `$${formatDecimal(micros / 1e6, 6)}`
 }
 
 export default function AccountSettings({ username, onUsernameChange }: Props) {
   const [activeTab, setActiveTab] = useState<AccountTab>('balance')
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
+  const [redeemRefreshKey, setRedeemRefreshKey] = useState(0)
 
   const [oldPassword, setOldPassword] = useState('')
   const [newPassword, setNewPassword] = useState('')
@@ -61,17 +65,22 @@ export default function AccountSettings({ username, onUsernameChange }: Props) {
   const [prioritySaving, setPrioritySaving] = useState(false)
 
   useEffect(() => {
-    fetchBalance()
-    fetchBillingState()
+    void fetchBalance()
+    void fetchBillingState()
   }, [])
+
+  const showMessage = (type: 'success' | 'error', text: string) => {
+    setMessage({ type, text })
+    window.setTimeout(() => setMessage(null), 3000)
+  }
 
   const fetchBalance = async () => {
     setBalanceLoading(true)
     try {
       const data = await getMyBalance()
       setBalance(data)
-    } catch (err) {
-      console.error('获取余额失败:', err)
+    } catch {
+      setBalance(null)
     } finally {
       setBalanceLoading(false)
     }
@@ -82,416 +91,305 @@ export default function AccountSettings({ username, onUsernameChange }: Props) {
     try {
       const data = await getBillingState()
       setBillingState(data)
-    } catch (err) {
-      console.error('获取计费状态失败:', err)
+    } catch {
+      setBillingState(null)
     } finally {
       setBillingLoading(false)
     }
   }
 
-  const showMessage = (type: 'success' | 'error', text: string) => {
-    setMessage({ type, text })
-    setTimeout(() => setMessage(null), 3000)
-  }
-
-  const handleChangePassword = async (e: React.FormEvent) => {
-    e.preventDefault()
-
+  const handleChangePassword = async (event: React.FormEvent) => {
+    event.preventDefault()
     if (newPassword !== confirmPassword) {
       showMessage('error', '两次输入的密码不一致')
       return
     }
-
     if (newPassword.length < 6) {
-      showMessage('error', '新密码至少需要6个字符')
+      showMessage('error', '新密码至少需要 6 个字符')
       return
     }
 
     setChangingPassword(true)
     try {
       await changePassword(oldPassword, newPassword)
-      showMessage('success', '密码修改成功')
       setOldPassword('')
       setNewPassword('')
       setConfirmPassword('')
-    } catch (err) {
-      showMessage('error', err instanceof Error ? err.message : '修改失败')
+      showMessage('success', '密码修改成功')
+    } catch (error) {
+      showMessage('error', error instanceof Error ? error.message : '修改失败')
     } finally {
       setChangingPassword(false)
     }
   }
 
-  const handleChangeUsername = async (e: React.FormEvent) => {
-    e.preventDefault()
-
-    if (newUsername.length < 3) {
-      showMessage('error', '用户名至少需要3个字符')
+  const handleChangeUsername = async (event: React.FormEvent) => {
+    event.preventDefault()
+    if (newUsername.trim().length < 3) {
+      showMessage('error', '用户名至少需要 3 个字符')
       return
     }
 
     setChangingUsername(true)
     try {
-      await changeUsername(newUsername)
-      showMessage('success', '用户名修改成功，请重新登录')
-      onUsernameChange(newUsername)
-      localStorage.setItem('username', newUsername)
+      await changeUsername(newUsername.trim())
+      localStorage.setItem('username', newUsername.trim())
+      onUsernameChange(newUsername.trim())
       setNewUsername('')
-    } catch (err) {
-      showMessage('error', err instanceof Error ? err.message : '修改失败')
+      showMessage('success', '用户名修改成功')
+    } catch (error) {
+      showMessage('error', error instanceof Error ? error.message : '修改失败')
     } finally {
       setChangingUsername(false)
     }
   }
 
-  const formatBalance = (micros: number) => {
-    return `$${formatDecimal(micros / 1e6, 6)}`
-  }
-
   const handlePriorityChange = async (value: string) => {
-    if (value === billingState?.primarySource) {
-      return
-    }
     setPrioritySaving(true)
     try {
       await updateBillingPriority(value as 'subscription' | 'balance')
-      showMessage('success', '计费优先级已更新')
-      fetchBillingState()
-    } catch (err) {
-      showMessage('error', err instanceof Error ? err.message : '更新失败')
+      showMessage('success', '扣费顺序已更新')
+      await fetchBillingState()
+    } catch (error) {
+      showMessage('error', error instanceof Error ? error.message : '更新失败')
     } finally {
       setPrioritySaving(false)
     }
   }
 
-  const getWindowMeta = (windowMode: string, limitType: string, windowStart: string, windowEnd: string) => {
-    if (limitType === 'total') {
-      return '总额度'
-    }
-    if (windowMode === 'fixed') {
-      return `下次重置 ${formatDateTime(windowEnd)}`
-    }
-    return `统计窗口 ${formatDateTime(windowStart)} ~ 现在`
-  }
-
   return (
     <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-6">
-      <motion.div
-        initial={{ opacity: 0, y: -20 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ type: 'spring', bounce: 0.2, duration: 0.6 }}
-      >
-        <h2 className="text-2xl font-bold tracking-tight">账户设置</h2>
-        <p className="text-muted-foreground">管理您的账户安全和余额信息</p>
-      </motion.div>
+      <div className="space-y-1 border-b border-border/70 pb-5">
+        <h2 className="text-2xl font-semibold tracking-tight">账户设置</h2>
+        <p className="text-sm text-muted-foreground">余额、扣费顺序、订阅与安全。</p>
+      </div>
 
-      <motion.div
-        initial={{ opacity: 0, y: 10 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ type: 'spring', bounce: 0.2, duration: 0.5, delay: 0.05 }}
-        className="flex items-center gap-1 border-b pb-0"
-      >
+      {message && (
+        <Alert variant={message.type === 'error' ? 'destructive' : 'default'}>
+          {message.type === 'success' ? <CheckCircle2 className="h-4 w-4" /> : <XCircle className="h-4 w-4" />}
+          <AlertDescription>{message.text}</AlertDescription>
+        </Alert>
+      )}
+
+      <div className="flex items-center gap-2 border-b border-border/70 pb-2">
         {tabs.map((tab) => (
           <button
             key={tab.key}
             onClick={() => setActiveTab(tab.key)}
-            className={`relative px-4 py-2 text-sm font-medium transition-colors rounded-t-md ${
+            className={`rounded-full px-3 py-1.5 text-sm transition-colors ${
               activeTab === tab.key
-                ? 'text-foreground'
-                : 'text-muted-foreground hover:text-foreground/80'
+                ? 'bg-primary text-primary-foreground'
+                : 'text-muted-foreground hover:bg-muted hover:text-foreground'
             }`}
           >
             {tab.label}
-            {activeTab === tab.key && (
-              <motion.div
-                layoutId="account-tab-indicator"
-                className="absolute inset-x-0 -bottom-px h-0.5 bg-primary"
-                transition={{ type: 'spring', bounce: 0.2, duration: 0.4 }}
-              />
-            )}
           </button>
         ))}
-      </motion.div>
+      </div>
 
-      <AnimatePresence>
-        {message && (
-          <motion.div initial={{ opacity: 0, y: -20, scale: 0.95 }} animate={{ opacity: 1, y: 0, scale: 1 }} exit={{ opacity: 0, y: -20, scale: 0.95 }} transition={{ type: 'spring', bounce: 0.3, duration: 0.5 }}>
-            <Alert variant={message.type === 'success' ? 'default' : 'destructive'}>
-              {message.type === 'success' ? (
-                <CheckCircle2 className="h-4 w-4" />
-              ) : (
-                <XCircle className="h-4 w-4" />
-              )}
-              <AlertDescription>{message.text}</AlertDescription>
-            </Alert>
-          </motion.div>
-        )}
-      </AnimatePresence>
+      {activeTab === 'balance' && (
+        <section className="rounded-xl border border-border/80 bg-card/95 shadow-sm">
+          <div className="flex flex-col gap-3 border-b border-border/70 px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <h3 className="text-base font-semibold">账户余额</h3>
+              <p className="text-sm text-muted-foreground">余额由管理员充值，按请求自动扣费。</p>
+            </div>
+            <Button variant="outline" size="sm" onClick={() => void fetchBalance()} disabled={balanceLoading}>
+              <RefreshCw className={`mr-2 h-4 w-4 ${balanceLoading ? 'animate-spin' : ''}`} />
+              刷新
+            </Button>
+          </div>
+          <div className="grid gap-4 px-5 py-5 lg:grid-cols-[1fr_0.8fr]">
+            <div className="rounded-xl border border-border/70 bg-background/70 px-5 py-5">
+              <p className="text-[11px] uppercase tracking-[0.18em] text-muted-foreground">当前余额</p>
+              <p className="mt-3 text-4xl font-semibold tracking-tight">
+                {balance ? formatBalance(balance.balanceMicros) : '-'}
+              </p>
+            </div>
+            <div className="rounded-xl border border-border/70 bg-background/70 px-5 py-5">
+              <p className="text-[11px] uppercase tracking-[0.18em] text-muted-foreground">快捷入口</p>
+              <div className="mt-3 flex flex-wrap gap-2">
+                <Button variant="outline" size="sm" onClick={() => navigateDashboard('purchase-center')}>
+                  <CreditCard className="mr-2 h-4 w-4" />
+                  购买订阅
+                </Button>
+              </div>
+            </div>
+          </div>
+        </section>
+      )}
 
-      <AnimatePresence mode="wait">
-        <motion.div
-          key={activeTab}
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          exit={{ opacity: 0, y: -10 }}
-          transition={{ type: 'spring', bounce: 0.2, duration: 0.4 }}
-          className="space-y-6"
-        >
-          {activeTab === 'security' && (
-            <>
-              <Card>
-                <CardHeader>
-                  <CardTitle>修改密码</CardTitle>
-                  <CardDescription>更新您的账户密码</CardDescription>
-                </CardHeader>
-                <CardContent>
-                  <form onSubmit={handleChangePassword} className="space-y-4">
-                    <div className="space-y-2">
-                      <Label htmlFor="oldPassword">当前密码</Label>
-                      <Input
-                        id="oldPassword"
-                        type="password"
-                        value={oldPassword}
-                        onChange={(e) => setOldPassword(e.target.value)}
-                        required
-                      />
-                    </div>
-                    <div className="space-y-2">
-                      <Label htmlFor="newPassword">新密码</Label>
-                      <Input
-                        id="newPassword"
-                        type="password"
-                        value={newPassword}
-                        onChange={(e) => setNewPassword(e.target.value)}
-                        required
-                        minLength={6}
-                      />
-                    </div>
-                    <div className="space-y-2">
-                      <Label htmlFor="confirmPassword">确认新密码</Label>
-                      <Input
-                        id="confirmPassword"
-                        type="password"
-                        value={confirmPassword}
-                        onChange={(e) => setConfirmPassword(e.target.value)}
-                        required
-                      />
-                    </div>
-                    <Button type="submit" disabled={changingPassword}>
-                      {changingPassword ? '修改中...' : '修改密码'}
-                    </Button>
-                  </form>
-                </CardContent>
-              </Card>
-
-              <Card>
-                <CardHeader>
-                  <CardTitle>修改用户名</CardTitle>
-                  <CardDescription>当前用户名: {username}</CardDescription>
-                </CardHeader>
-                <CardContent>
-                  <form onSubmit={handleChangeUsername} className="space-y-4">
-                    <div className="space-y-2">
-                      <Label htmlFor="newUsername">新用户名</Label>
-                      <Input
-                        id="newUsername"
-                        type="text"
-                        value={newUsername}
-                        onChange={(e) => setNewUsername(e.target.value)}
-                        required
-                        minLength={3}
-                        maxLength={32}
-                      />
-                    </div>
-                    <Button type="submit" disabled={changingUsername}>
-                      {changingUsername ? '修改中...' : '修改用户名'}
-                    </Button>
-                  </form>
-                </CardContent>
-              </Card>
-            </>
-          )}
-
-          {activeTab === 'balance' && (
-            <Card>
-              <CardHeader>
-                <div className="flex items-center justify-between">
-                  <div>
-                    <CardTitle className="flex items-center gap-2">
-                      <Wallet className="h-5 w-5" />
-                      账户余额
-                    </CardTitle>
-                    <CardDescription>查看当前账户余额信息</CardDescription>
-                  </div>
-                  <Button variant="outline" size="sm" onClick={fetchBalance} disabled={balanceLoading}>
-                    <RefreshCw className={`h-4 w-4 mr-1 ${balanceLoading ? 'animate-spin' : ''}`} />
-                    刷新
-                  </Button>
-                </div>
-              </CardHeader>
-              <CardContent>
-                {balance ? (
-                  <div className="space-y-6">
-                    <div className="rounded-lg border bg-card p-6">
-                      <div className="text-sm text-muted-foreground mb-1">当前余额</div>
-                      <div className="text-3xl font-bold tracking-tight">
-                        {formatBalance(balance.balanceMicros)}
-                      </div>
-
-                    </div>
-                    <p className="text-sm text-muted-foreground">
-                      余额由管理员充值，每次 API 请求将根据模型定价和分组倍率自动扣费。
-                    </p>
-                  </div>
-                ) : (
-                  <div className="text-center text-muted-foreground py-8">
-                    {balanceLoading ? '加载中...' : '无法获取余额信息'}
-                  </div>
-                )}
-              </CardContent>
-            </Card>
-          )}
-
-          {activeTab === 'billing' && (
-            <div className="space-y-6">
-              <Card>
-                <CardHeader>
-                  <div className="flex items-center justify-between">
+      {activeTab === 'billing' && (
+        <div className="space-y-5">
+          <section className="rounded-xl border border-border/80 bg-card/95 shadow-sm">
+            <div className="flex flex-col gap-3 border-b border-border/70 px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
+              <div>
+                <h3 className="text-base font-semibold">扣费顺序</h3>
+                <p className="text-sm text-muted-foreground">设置请求优先扣订阅还是余额。</p>
+              </div>
+              <Button variant="outline" size="sm" onClick={() => void fetchBillingState()} disabled={billingLoading}>
+                <RefreshCw className={`mr-2 h-4 w-4 ${billingLoading ? 'animate-spin' : ''}`} />
+                刷新
+              </Button>
+            </div>
+            <div className="px-5 py-5">
+              <RadioGroup
+                value={billingState?.primarySource || 'subscription'}
+                onValueChange={(value) => void handlePriorityChange(value)}
+                className={`grid gap-3 md:grid-cols-2 ${prioritySaving ? 'pointer-events-none opacity-60' : ''}`}
+              >
+                {[
+                  { value: 'subscription', title: '订阅优先', desc: '先用订阅额度，不足再扣余额' },
+                  { value: 'balance', title: '余额优先', desc: '先扣余额，不足再用订阅额度' },
+                ].map((option) => (
+                  <label
+                    key={option.value}
+                    className={`flex items-start gap-3 rounded-xl border px-4 py-4 transition-colors ${
+                      (billingState?.primarySource || 'subscription') === option.value
+                        ? 'border-primary bg-primary/5'
+                        : 'border-border/70 hover:bg-accent/40'
+                    }`}
+                  >
+                    <RadioGroupItem value={option.value} className="mt-0.5" />
                     <div>
-                      <CardTitle className="flex items-center gap-2">
-                        <ArrowRightLeft className="h-5 w-5" />
-                        扣费优先级
-                      </CardTitle>
-                      <CardDescription>设置 API 请求的扣费来源优先顺序</CardDescription>
+                      <div className="font-medium">{option.title}</div>
+                      <div className="text-xs text-muted-foreground">{option.desc}</div>
                     </div>
-                    <Button variant="outline" size="sm" onClick={fetchBillingState} disabled={billingLoading}>
-                      <RefreshCw className={`h-4 w-4 mr-1 ${billingLoading ? 'animate-spin' : ''}`} />
-                      刷新
-                    </Button>
-                </div>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <RadioGroup
-                  value={billingState?.primarySource || 'subscription'}
-                  onValueChange={handlePriorityChange}
-                  className={cn('gap-3', prioritySaving && 'pointer-events-none opacity-60')}
-                >
-                  {[
-                    { value: 'subscription', title: '订阅优先', desc: '先用订阅额度，不足再扣余额' },
-                    { value: 'balance', title: '余额优先', desc: '先扣余额，不足再用订阅额度' },
-                  ].map((option) => {
-                    const isActive = (billingState?.primarySource || 'subscription') === option.value
-                    return (
-                      <label
-                        key={option.value}
-                        className={cn(
-                          'flex w-full cursor-pointer items-start gap-3 rounded-md border px-4 py-3 transition-colors',
-                          isActive ? 'border-primary bg-primary/5' : 'border-border hover:bg-accent/40',
-                        )}
-                      >
-                        <RadioGroupItem value={option.value} className="mt-0.5 h-5 w-5 shrink-0" />
-                        <div className="min-w-0">
-                          <div className="font-medium">{option.title}</div>
-                          <div className="text-xs text-muted-foreground">{option.desc}</div>
-                        </div>
-                      </label>
-                    )
-                  })}
-                </RadioGroup>
-              </CardContent>
-            </Card>
+                  </label>
+                ))}
+              </RadioGroup>
+            </div>
+          </section>
 
-            {billingState?.subscription && (
-              <Card>
-                  <CardHeader>
-                    <div className="flex items-start justify-between gap-3">
-                      <div>
-                        <CardTitle className="flex items-center gap-2">
-                          <Shield className="h-5 w-5" />
-                          订阅状态
-                        </CardTitle>
-                        <CardDescription>订阅套餐信息</CardDescription>
-                      </div>
-                      <Button variant="outline" size="sm" onClick={() => navigateDashboard('purchase-center')}>
-                        <CreditCard className="mr-2 h-4 w-4" />
-                        购买续费
-                      </Button>
+          <section className="rounded-xl border border-border/80 bg-card/95 shadow-sm">
+            <div className="flex flex-col gap-3 border-b border-border/70 px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
+              <div>
+                <h3 className="text-base font-semibold">当前订阅</h3>
+                <p className="text-sm text-muted-foreground">查看套餐状态和额度窗口。</p>
+              </div>
+              <Button variant="outline" size="sm" onClick={() => navigateDashboard('purchase-center')}>
+                <CreditCard className="mr-2 h-4 w-4" />
+                购买续费
+              </Button>
+            </div>
+            <div className="px-5 py-5">
+              {billingState?.subscription ? (
+                <div className="space-y-4">
+                  <div className="flex flex-wrap items-start justify-between gap-3 rounded-xl border border-border/70 bg-background/70 px-4 py-4">
+                    <div className="space-y-1">
+                      <p className="text-[11px] uppercase tracking-[0.18em] text-muted-foreground">套餐</p>
+                      <p className="text-lg font-semibold">{billingState.subscription.planName}</p>
+                      <p className="text-sm text-muted-foreground">
+                        {billingState.subscription.expiresAt
+                          ? `到期 ${formatDateTime(billingState.subscription.expiresAt)}`
+                          : '永久有效'}
+                      </p>
                     </div>
-                  </CardHeader>
-                  <CardContent className="space-y-4">
-                    <div className="flex flex-wrap items-start justify-between gap-3 border-b pb-4">
-                      <div className="space-y-1">
-                        <p className="text-xs uppercase tracking-[0.18em] text-muted-foreground">当前套餐</p>
-                        <p className="text-lg font-semibold">{billingState.subscription.planName}</p>
-                        <p className="text-sm text-muted-foreground">
-                          {billingState.subscription.expiresAt
-                            ? `到期时间 ${formatDateTime(billingState.subscription.expiresAt)}`
-                            : '永不过期'}
-                        </p>
-                      </div>
-                      <Badge variant={billingState.subscription.status === 'active' ? 'default' : 'secondary'}>
-                        {billingState.subscription.status === 'active' ? '生效中' : billingState.subscription.status}
-                      </Badge>
-                    </div>
-
-                    {billingState.windows && billingState.windows.length > 0 && (
-                      <div className="space-y-3">
-                        {billingState.windows.map((w, i) => {
-                          const usedPct = w.limitMicros > 0 ? (w.usedMicros / w.limitMicros) * 100 : 0
-                          return (
-                            <div key={i} className="flex items-center justify-between gap-4 py-1">
-                              <div className="min-w-0 space-y-1">
-                                <div className="flex items-center gap-2">
-                                  <p className="text-sm font-medium">
-                                    {LIMIT_TYPE_LABELS[w.limitType] || w.limitType}
-                                  </p>
-                                  <span className="text-[11px] text-muted-foreground">
-                                    {WINDOW_MODE_LABELS[w.windowMode] || w.windowMode}
-                                  </span>
-                                </div>
-                                <p className="font-mono text-xs text-muted-foreground">
-                                  已用 ${formatDecimal(w.usedMicros / 1e6, 2)} / 剩余 ${formatDecimal(w.leftMicros / 1e6, 2)} / 限额 ${formatDecimal(w.limitMicros / 1e6, 2)}
-                                </p>
-                                <div className="text-[11px] text-muted-foreground">
-                                  {getWindowMeta(w.windowMode, w.limitType, w.windowStart, w.windowEnd)}
-                                </div>
-                              </div>
-                              <CircularProgress
-                                value={usedPct}
-                                size={42}
-                                strokeWidth={4}
-                                label={`${Math.round(Math.min(usedPct, 100))}%`}
-                                className="shrink-0"
-                                indicatorClassName="stroke-purple-500"
-                                trackClassName="stroke-border"
-                              />
+                    <Badge variant={billingState.subscription.status === 'active' ? 'default' : 'secondary'}>
+                      {billingState.subscription.status === 'active' ? '生效中' : billingState.subscription.status}
+                    </Badge>
+                  </div>
+                  {billingState.windows?.length ? (
+                    <div className="overflow-hidden rounded-xl border border-border/70">
+                      <div className="divide-y divide-border/70">
+                        {billingState.windows.map((item) => (
+                          <div key={`${item.limitType}-${item.windowMode}`} className="grid gap-2 px-4 py-3 md:grid-cols-[0.8fr_1.4fr_0.8fr] md:items-center">
+                            <div>
+                              <p className="font-medium">{LIMIT_TYPE_LABELS[item.limitType] || item.limitType}</p>
+                              <p className="text-xs text-muted-foreground">{WINDOW_MODE_LABELS[item.windowMode] || item.windowMode}</p>
                             </div>
-                          )
-                        })}
+                            <p className="font-mono text-xs text-muted-foreground">
+                              已用 ${formatDecimal(item.usedMicros / 1e6, 2)} / 剩余 ${formatDecimal(item.leftMicros / 1e6, 2)} / 限额 ${formatDecimal(item.limitMicros / 1e6, 2)}
+                            </p>
+                            <p className="text-xs text-muted-foreground md:text-right">
+                              {formatDateTime(item.windowStart)} - {formatDateTime(item.windowEnd)}
+                            </p>
+                          </div>
+                        ))}
                       </div>
-                    )}
-                  </CardContent>
-                </Card>
-              )}
-
-              {!billingState?.subscription && !billingLoading && (
-                <Card>
-                  <CardContent className="py-8">
-                    <div className="text-center text-muted-foreground">
-                      <CreditCard className="h-8 w-8 mx-auto mb-2 opacity-50" />
-                      <p>暂未订阅任何套餐</p>
-                      <p className="text-xs mt-1">可直接前往购买订阅。</p>
-                      <Button variant="outline" size="sm" className="mt-4" onClick={() => navigateDashboard('purchase-center')}>
-                        <CreditCard className="mr-2 h-4 w-4" />
-                        购买订阅
-                      </Button>
                     </div>
-                  </CardContent>
-                </Card>
+                  ) : null}
+                </div>
+              ) : (
+                <div className="rounded-xl border border-dashed border-border/70 px-5 py-8 text-center text-sm text-muted-foreground">
+                  暂无生效中的订阅。
+                </div>
               )}
             </div>
-          )}
-        </motion.div>
-      </AnimatePresence>
+          </section>
+
+          <section className="rounded-xl border border-border/80 bg-card/95 shadow-sm">
+            <div className="border-b border-border/70 px-5 py-4">
+              <h3 className="text-base font-semibold">兑换码</h3>
+              <p className="mt-1 text-sm text-muted-foreground">可直接兑换订阅或余额。</p>
+            </div>
+            <div className="px-5 py-5">
+              <RedeemQuickEntry
+                onSuccess={async () => {
+                  setRedeemRefreshKey((current) => current + 1)
+                  await Promise.all([fetchBalance(), fetchBillingState()])
+                }}
+              />
+            </div>
+          </section>
+
+          <section className="rounded-xl border border-border/80 bg-card/95 shadow-sm">
+            <div className="border-b border-border/70 px-5 py-4">
+              <h3 className="text-base font-semibold">最近兑换记录</h3>
+              <p className="mt-1 text-sm text-muted-foreground">保留当前账号最近记录。</p>
+            </div>
+            <div className="overflow-hidden rounded-b-xl px-5 py-5">
+              <RedeemRecordTable compact refreshKey={redeemRefreshKey} />
+            </div>
+          </section>
+        </div>
+      )}
+
+      {activeTab === 'security' && (
+        <div className="grid gap-5 xl:grid-cols-2">
+          <section className="rounded-xl border border-border/80 bg-card/95 shadow-sm">
+            <div className="border-b border-border/70 px-5 py-4">
+              <h3 className="text-base font-semibold">修改密码</h3>
+              <p className="mt-1 text-sm text-muted-foreground">更新当前账户密码。</p>
+            </div>
+            <form onSubmit={(event) => void handleChangePassword(event)} className="space-y-4 px-5 py-5">
+              <div className="space-y-2">
+                <Label htmlFor="oldPassword">当前密码</Label>
+                <Input id="oldPassword" type="password" value={oldPassword} onChange={(event) => setOldPassword(event.target.value)} required />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="newPassword">新密码</Label>
+                <Input id="newPassword" type="password" value={newPassword} onChange={(event) => setNewPassword(event.target.value)} required minLength={6} />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="confirmPassword">确认新密码</Label>
+                <Input id="confirmPassword" type="password" value={confirmPassword} onChange={(event) => setConfirmPassword(event.target.value)} required />
+              </div>
+              <Button type="submit" disabled={changingPassword}>
+                {changingPassword ? <RefreshCw className="mr-2 h-4 w-4 animate-spin" /> : <Shield className="mr-2 h-4 w-4" />}
+                修改密码
+              </Button>
+            </form>
+          </section>
+
+          <section className="rounded-xl border border-border/80 bg-card/95 shadow-sm">
+            <div className="border-b border-border/70 px-5 py-4">
+              <h3 className="text-base font-semibold">修改用户名</h3>
+              <p className="mt-1 text-sm text-muted-foreground">当前用户名：{username}</p>
+            </div>
+            <form onSubmit={(event) => void handleChangeUsername(event)} className="space-y-4 px-5 py-5">
+              <div className="space-y-2">
+                <Label htmlFor="newUsername">新用户名</Label>
+                <Input id="newUsername" value={newUsername} onChange={(event) => setNewUsername(event.target.value)} required minLength={3} maxLength={32} />
+              </div>
+              <Button type="submit" disabled={changingUsername}>
+                {changingUsername ? <RefreshCw className="mr-2 h-4 w-4 animate-spin" /> : <ArrowRightLeft className="mr-2 h-4 w-4" />}
+                更新用户名
+              </Button>
+            </form>
+          </section>
+        </div>
+      )}
     </motion.div>
   )
 }

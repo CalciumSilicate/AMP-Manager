@@ -368,7 +368,7 @@ export default function PaidSubscriptions() {
               note: `${orders.length} 条最近订单`,
             },
           ].map((item) => (
-            <div key={item.label} className="border border-border/70 bg-background px-4 py-4">
+            <div key={item.label} className="rounded-xl border border-border/70 bg-background px-4 py-4 shadow-sm">
               <p className="text-[11px] uppercase tracking-[0.18em] text-muted-foreground">{item.label}</p>
               <p className="mt-3 text-xl font-semibold tracking-tight">{item.value}</p>
               <p className="mt-1 text-xs text-muted-foreground">{item.note}</p>
@@ -399,7 +399,7 @@ export default function PaidSubscriptions() {
           <p className="text-xs text-muted-foreground">单支付宝扫码，私钥不回显。</p>
         </div>
 
-        <div className="border border-border/70 bg-background px-5 py-5">
+        <div className="rounded-xl border border-border/70 bg-background px-5 py-5 shadow-sm">
           <div className="grid gap-5 lg:grid-cols-2">
             <div className="space-y-4">
               <div className="flex items-center justify-between border-b border-border/70 pb-3">
@@ -476,14 +476,14 @@ export default function PaidSubscriptions() {
                   value={settingsDraft.alipayPublicKey}
                   onChange={(event) => setSettingsDraft((current) => ({ ...current, alipayPublicKey: event.target.value }))}
                   placeholder="-----BEGIN PUBLIC KEY-----"
-                  className="min-h-[148px] rounded-none"
+                  className="min-h-[148px] rounded-xl"
                 />
               </div>
               <div className="space-y-2">
                 <div className="flex items-center justify-between">
                   <Label htmlFor="alipayPrivateKey">应用私钥</Label>
                   {settings?.privateKeySet && (
-                    <Badge variant="outline" className="rounded-none border-sky-200 bg-sky-50 text-sky-700">
+                    <Badge variant="outline" className="border-sky-200 bg-sky-50 text-sky-700">
                       已设置
                     </Badge>
                   )}
@@ -493,7 +493,7 @@ export default function PaidSubscriptions() {
                   value={alipayPrivateKeyInput}
                   onChange={(event) => setAlipayPrivateKeyInput(event.target.value)}
                   placeholder={settings?.privateKeySet ? '留空表示保持现有私钥' : '-----BEGIN PRIVATE KEY-----'}
-                  className="min-h-[148px] rounded-none"
+                  className="min-h-[148px] rounded-xl"
                 />
               </div>
             </div>
@@ -501,7 +501,7 @@ export default function PaidSubscriptions() {
 
           <div className="mt-5 flex items-center justify-between border-t border-border/70 pt-4">
             <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-              <Badge variant="outline" className={`rounded-none ${settings?.paymentConfigured ? 'border-emerald-200 bg-emerald-50 text-emerald-700' : 'border-slate-200 bg-slate-100 text-slate-600'}`}>
+              <Badge variant="outline" className={`${settings?.paymentConfigured ? 'border-emerald-200 bg-emerald-50 text-emerald-700' : 'border-slate-200 bg-slate-100 text-slate-600'}`}>
                 {settings?.paymentConfigured ? '支付配置完整' : '支付配置待补齐'}
               </Badge>
               <span>真实支付和 DEBUG 共用同一套订单与发放逻辑。</span>
@@ -531,7 +531,7 @@ export default function PaidSubscriptions() {
           </Button>
         </div>
 
-        <div className="border border-border/70 bg-background">
+        <div className="overflow-hidden rounded-xl border border-border/70 bg-background shadow-sm">
           {products.length === 0 ? (
             <div className="px-5 py-10 text-sm text-muted-foreground">暂无商品。</div>
           ) : (
@@ -562,11 +562,11 @@ export default function PaidSubscriptions() {
                     <TableCell>{product.sortOrder}</TableCell>
                     <TableCell>
                       <div className="flex flex-wrap gap-2">
-                        <Badge variant="outline" className={`rounded-none ${product.enabled ? 'border-emerald-200 bg-emerald-50 text-emerald-700' : 'border-slate-200 bg-slate-100 text-slate-600'}`}>
+                        <Badge variant="outline" className={`${product.enabled ? 'border-emerald-200 bg-emerald-50 text-emerald-700' : 'border-slate-200 bg-slate-100 text-slate-600'}`}>
                           {product.enabled ? '上架' : '下架'}
                         </Badge>
                         {product.isRecommended && (
-                          <Badge variant="outline" className="rounded-none border-sky-200 bg-sky-50 text-sky-700">
+                          <Badge variant="outline" className="border-sky-200 bg-sky-50 text-sky-700">
                             推荐
                           </Badge>
                         )}
@@ -654,7 +654,7 @@ export default function PaidSubscriptions() {
           </div>
         </div>
 
-        <div className="border border-border/70 bg-background">
+        <div className="overflow-hidden rounded-xl border border-border/70 bg-background shadow-sm">
           {orders.length === 0 ? (
             <div className="px-5 py-10 text-sm text-muted-foreground">暂无订单。</div>
           ) : (
@@ -689,12 +689,12 @@ export default function PaidSubscriptions() {
                     </TableCell>
                     <TableCell>{formatCNY(order.amountCnyCent)}</TableCell>
                     <TableCell>
-                      <Badge variant="outline" className={`rounded-none ${paymentTone(order.paymentStatus)}`}>
+                      <Badge variant="outline" className={paymentTone(order.paymentStatus)}>
                         {paymentLabel(order.paymentStatus)}
                       </Badge>
                     </TableCell>
                     <TableCell>
-                      <Badge variant="outline" className={`rounded-none ${fulfillmentTone(order.fulfillmentStatus)}`}>
+                      <Badge variant="outline" className={fulfillmentTone(order.fulfillmentStatus)}>
                         {fulfillmentLabel(order.fulfillmentStatus)}
                       </Badge>
                     </TableCell>
@@ -726,7 +726,7 @@ export default function PaidSubscriptions() {
       </motion.section>
 
       <Dialog open={productDialogOpen} onOpenChange={setProductDialogOpen}>
-        <DialogContent className="max-w-2xl rounded-none border-border/80">
+        <DialogContent className="max-w-2xl border-border/80">
           <DialogHeader>
             <DialogTitle className="text-xl">{editingProduct ? '编辑商品' : '新建商品'}</DialogTitle>
             <DialogDescription>商品只负责售价和时长，额度仍由套餐定义。</DialogDescription>
@@ -796,7 +796,7 @@ export default function PaidSubscriptions() {
                 onChange={(event) => setProductForm((current) => ({ ...current, sortOrder: Number(event.target.value || 0) }))}
               />
             </div>
-            <div className="flex items-center justify-between border border-border/70 px-4 py-3">
+            <div className="flex items-center justify-between rounded-xl border border-border/70 px-4 py-3">
               <div>
                 <p className="text-sm font-medium">推荐</p>
                 <p className="text-xs text-muted-foreground">前排展示</p>
@@ -806,7 +806,7 @@ export default function PaidSubscriptions() {
                 onCheckedChange={(checked) => setProductForm((current) => ({ ...current, isRecommended: checked }))}
               />
             </div>
-            <div className="flex items-center justify-between border border-border/70 px-4 py-3">
+            <div className="flex items-center justify-between rounded-xl border border-border/70 px-4 py-3">
               <div>
                 <p className="text-sm font-medium">上架</p>
                 <p className="text-xs text-muted-foreground">用户可见</p>

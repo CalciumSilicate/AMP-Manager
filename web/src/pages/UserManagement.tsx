@@ -717,7 +717,7 @@ export default function UserManagement() {
                 <p className="text-center text-muted-foreground">加载中...</p>
               ) : (
                 <>
-                  <div className="space-y-3 rounded-md border border-border/60 px-4 py-3">
+                  <div className="space-y-3 rounded-xl border border-border/60 px-4 py-3">
                     <div className="flex items-center justify-between gap-4">
                       <span className="text-sm text-muted-foreground">当前订阅</span>
                       <span className="text-sm font-medium">
