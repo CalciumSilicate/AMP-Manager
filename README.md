@@ -414,7 +414,7 @@ docker compose -f docker-compose.dev.yml up -d postgres
 
 ### 构建
 
-使用项目提供的构建脚本（自动完成前端构建 → 复制到嵌入目录 → Go 编译）：
+使用项目提供的构建脚本（自动完成前端构建 → 复制到嵌入目录 → 使用 `embed_frontend` 构建后端）：
 
 ```bash
 # Windows
@@ -431,14 +431,18 @@ docker compose -f docker-compose.dev.yml up -d postgres
 # 1. 构建前端
 cd web && pnpm install && pnpm run build && cd ..
 
-# 2. 复制到嵌入目录
+# 2. 复制到嵌入目录（仅发布 / 嵌入构建需要）
 # Windows:
 xcopy /E /I /Y "web\dist" "internal\web\dist"
 # Linux/macOS:
 cp -r web/dist internal/web/dist
 
-# 3. 构建后端（前端文件通过 go:embed 嵌入二进制）
+# 3. 构建后端
+# 开发 / 测试：默认从磁盘 web/dist 读取；如果缺失会返回一个明确提示页
 go build -ldflags="-s -w" -o ampmanager ./cmd/server
+
+# 发布 / 单文件二进制：使用显式嵌入模式
+go build -tags embed_frontend -ldflags="-s -w" -o ampmanager ./cmd/server
 ```
 
 </details>
@@ -473,7 +477,7 @@ AMPManager/
 │   ├── service/             # 业务逻辑：用户、渠道、分组、计费、订阅
 │   ├── translator/          # 请求过滤器框架：Claude Code 模拟、缓存 TTL
 │   ├── util/                # 工具函数：JSON 思维预算、模型能力检测
-│   └── web/                 # 嵌入的前端静态文件 (go:embed)
+│   └── web/                 # 前端静态文件加载（默认读 web/dist，发布时可 embed）
 ├── web/                     # 前端源码
 │   └── src/
 │       ├── api/             #   API 客户端 (auth, admin, me, channels, etc.)
