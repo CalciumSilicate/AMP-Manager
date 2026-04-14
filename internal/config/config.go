@@ -29,15 +29,16 @@ type Config struct {
 	// 数据加密密钥 (32 bytes for AES-256)
 	DataEncryptionKey string
 
-	RedisURL                    string
-	RedisPrefix                 string
-	BillingReservationTTLSec    int
-	BillingReconcileIntervalSec int
-	BillingStreamBatchSize      int
-	BillingReconcileBatchSize   int
-	BillingExpiryBatchSize      int
-	BillingProjectorWorkers     int
-	BillingEnvExplicit          BillingEnvExplicit
+	RedisURL                     string
+	RedisPrefix                  string
+	BillingReservationTTLSec     int
+	BillingReconcileIntervalSec  int
+	BillingStreamBatchSize       int
+	BillingReconcileBatchSize    int
+	BillingExpiryBatchSize       int
+	BillingProjectorWorkers      int
+	BillingProjectorClaimIdleSec int
+	BillingEnvExplicit           BillingEnvExplicit
 }
 
 type BillingEnvExplicit struct {
@@ -68,27 +69,28 @@ func Load() *Config {
 	}
 
 	cfg = &Config{
-		AdminUsername:               getEnv("ADMIN_USERNAME", "admin"),
-		AdminPassword:               getEnv("ADMIN_PASSWORD", "admin123"),
-		ServerPort:                  getEnv("SERVER_PORT", "16823"),
-		JWTSecret:                   getEnv("JWT_SECRET", "amp-manager-default-secret-change-in-production"),
-		JWTIssuer:                   getEnv("JWT_ISSUER", "ampmanager"),
-		JWTAudience:                 getEnv("JWT_AUDIENCE", "ampmanager-users"),
-		DBType:                      getEnv("DB_TYPE", defaultDBType),
-		DatabaseURL:                 getEnv("DATABASE_URL", defaultDatabaseURL),
-		SQLitePath:                  getEnv("SQLITE_PATH", defaultSQLitePath),
-		CORSAllowedOrigins:          getEnv("CORS_ALLOWED_ORIGINS", "*"),
-		RateLimitAuthRPS:            getEnvFloat("RATE_LIMIT_AUTH_RPS", 5),
-		RateLimitProxyRPS:           getEnvFloat("RATE_LIMIT_PROXY_RPS", 100),
-		DataEncryptionKey:           getEnv("DATA_ENCRYPTION_KEY", ""),
-		RedisURL:                    getEnv("REDIS_URL", ""),
-		RedisPrefix:                 getEnv("REDIS_PREFIX", "ampmanager"),
-		BillingReservationTTLSec:    getEnvInt("BILLING_RESERVATION_TTL_SEC", 600),
-		BillingReconcileIntervalSec: getEnvInt("BILLING_RECONCILE_INTERVAL_SEC", 60),
-		BillingStreamBatchSize:      getEnvInt("BILLING_STREAM_BATCH_SIZE", 100),
-		BillingReconcileBatchSize:   getEnvInt("BILLING_RECONCILE_BATCH_SIZE", getEnvInt("BILLING_STREAM_BATCH_SIZE", 100)),
-		BillingExpiryBatchSize:      getEnvInt("BILLING_EXPIRY_BATCH_SIZE", getEnvInt("BILLING_STREAM_BATCH_SIZE", 100)),
-		BillingProjectorWorkers:     getEnvInt("BILLING_PROJECTOR_WORKERS", 1),
+		AdminUsername:                getEnv("ADMIN_USERNAME", "admin"),
+		AdminPassword:                getEnv("ADMIN_PASSWORD", "admin123"),
+		ServerPort:                   getEnv("SERVER_PORT", "16823"),
+		JWTSecret:                    getEnv("JWT_SECRET", "amp-manager-default-secret-change-in-production"),
+		JWTIssuer:                    getEnv("JWT_ISSUER", "ampmanager"),
+		JWTAudience:                  getEnv("JWT_AUDIENCE", "ampmanager-users"),
+		DBType:                       getEnv("DB_TYPE", defaultDBType),
+		DatabaseURL:                  getEnv("DATABASE_URL", defaultDatabaseURL),
+		SQLitePath:                   getEnv("SQLITE_PATH", defaultSQLitePath),
+		CORSAllowedOrigins:           getEnv("CORS_ALLOWED_ORIGINS", "*"),
+		RateLimitAuthRPS:             getEnvFloat("RATE_LIMIT_AUTH_RPS", 5),
+		RateLimitProxyRPS:            getEnvFloat("RATE_LIMIT_PROXY_RPS", 100),
+		DataEncryptionKey:            getEnv("DATA_ENCRYPTION_KEY", ""),
+		RedisURL:                     getEnv("REDIS_URL", ""),
+		RedisPrefix:                  getEnv("REDIS_PREFIX", "ampmanager"),
+		BillingReservationTTLSec:     getEnvInt("BILLING_RESERVATION_TTL_SEC", 600),
+		BillingReconcileIntervalSec:  getEnvInt("BILLING_RECONCILE_INTERVAL_SEC", 60),
+		BillingStreamBatchSize:       getEnvInt("BILLING_STREAM_BATCH_SIZE", 100),
+		BillingReconcileBatchSize:    getEnvInt("BILLING_RECONCILE_BATCH_SIZE", getEnvInt("BILLING_STREAM_BATCH_SIZE", 100)),
+		BillingExpiryBatchSize:       getEnvInt("BILLING_EXPIRY_BATCH_SIZE", getEnvInt("BILLING_STREAM_BATCH_SIZE", 100)),
+		BillingProjectorWorkers:      getEnvInt("BILLING_PROJECTOR_WORKERS", 1),
+		BillingProjectorClaimIdleSec: getEnvInt("BILLING_PROJECTOR_CLAIM_IDLE_SEC", 30),
 		BillingEnvExplicit: BillingEnvExplicit{
 			ReconcileBatchSize: hasEnv("BILLING_RECONCILE_BATCH_SIZE"),
 			ExpiryBatchSize:    hasEnv("BILLING_EXPIRY_BATCH_SIZE"),

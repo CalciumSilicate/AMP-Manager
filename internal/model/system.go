@@ -92,26 +92,28 @@ type SiteConfigRequest struct {
 }
 
 type BillingRuntimeConfigResponse struct {
-	RedisURL             string `json:"redisUrl"`
-	RedisURLMasked       string `json:"redisUrlMasked"`
-	RedisPrefix          string `json:"redisPrefix"`
-	ReservationTTLSec    int    `json:"reservationTtlSec"`
-	ReconcileIntervalSec int    `json:"reconcileIntervalSec"`
-	StreamBatchSize      int    `json:"streamBatchSize"`
-	ReconcileBatchSize   int    `json:"reconcileBatchSize"`
-	ExpiryBatchSize      int    `json:"expiryBatchSize"`
-	ProjectorWorkers     int    `json:"projectorWorkers"`
-	RuntimeEnabled       bool   `json:"runtimeEnabled"`
-	RuntimeHealthy       bool   `json:"runtimeHealthy"`
+	RedisURL              string `json:"redisUrl"`
+	RedisURLMasked        string `json:"redisUrlMasked"`
+	RedisPrefix           string `json:"redisPrefix"`
+	ReservationTTLSec     int    `json:"reservationTtlSec"`
+	ReconcileIntervalSec  int    `json:"reconcileIntervalSec"`
+	StreamBatchSize       int    `json:"streamBatchSize"`
+	ReconcileBatchSize    int    `json:"reconcileBatchSize"`
+	ExpiryBatchSize       int    `json:"expiryBatchSize"`
+	ProjectorWorkers      int    `json:"projectorWorkers"`
+	ProjectorClaimIdleSec int    `json:"projectorClaimIdleSec"`
+	RuntimeEnabled        bool   `json:"runtimeEnabled"`
+	RuntimeHealthy        bool   `json:"runtimeHealthy"`
 }
 
 type BillingRuntimeConfigRequest struct {
-	RedisURL             string `json:"redisUrl"`
-	RedisPrefix          string `json:"redisPrefix"`
-	ReservationTTLSec    int    `json:"reservationTtlSec"`
-	ReconcileIntervalSec int    `json:"reconcileIntervalSec"`
-	StreamBatchSize      int    `json:"streamBatchSize"`
-	ReconcileBatchSize   int    `json:"reconcileBatchSize"`
-	ExpiryBatchSize      int    `json:"expiryBatchSize"`
-	ProjectorWorkers     int    `json:"projectorWorkers"`
+	RedisURL              string `json:"redisUrl"`
+	RedisPrefix           string `json:"redisPrefix"`
+	ReservationTTLSec     int    `json:"reservationTtlSec"`
+	ReconcileIntervalSec  int    `json:"reconcileIntervalSec"`
+	StreamBatchSize       int    `json:"streamBatchSize"`
+	ReconcileBatchSize    int    `json:"reconcileBatchSize"`
+	ExpiryBatchSize       int    `json:"expiryBatchSize"`
+	ProjectorWorkers      int    `json:"projectorWorkers"`
+	ProjectorClaimIdleSec int    `json:"projectorClaimIdleSec"`
 }
