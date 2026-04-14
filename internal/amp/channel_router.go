@@ -753,7 +753,7 @@ func ChannelProxyHandler() gin.HandlerFunc {
 				// Streaming response handling (existing logic)
 				if trace != nil {
 					resp.Body = WrapResponseBodyForTokenExtraction(resp.Body, isStreaming, trace, providerInfo)
-					if IsRequestDetailEnabled() {
+					if IsRequestDetailCaptureEnabled(resp.Request.Context()) {
 						resp.Body = NewResponseCaptureWrapper(resp.Body, trace.RequestID, resp.Header)
 					}
 					resp.Body = NewLoggingBodyWrapper(resp.Body, trace, resp.StatusCode, resp.Request.Context())
@@ -1166,7 +1166,7 @@ func handleNonStreamingResponse(resp *http.Response, trace *RequestTrace, transI
 	body = TransformResponseJSON(resp.Request.Context(), body, originalModel, mappedModel)
 
 	// Capture response for logging
-	if trace != nil {
+	if trace != nil && IsRequestDetailCaptureEnabled(resp.Request.Context()) {
 		StoreResponseDetail(trace.RequestID, sanitizeHeaders(resp.Header), body)
 	}
 

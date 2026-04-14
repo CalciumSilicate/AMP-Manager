@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/gin-gonic/gin"
+	"github.com/google/uuid"
 	log "github.com/sirupsen/logrus"
 )
 
@@ -68,9 +69,14 @@ func RequestCaptureMiddleware() gin.HandlerFunc {
 			return
 		}
 
-		requestID := GetRequestID(c.Request.Context())
+		ctx := c.Request.Context()
+		requestID := GetRequestID(ctx)
+		if requestID == "" {
+			requestID = uuid.New().String()
+			ctx = WithRequestID(ctx, requestID)
+		}
 		captureEnabled := ShouldCaptureRequestDetail(requestID)
-		ctx := WithRequestDetailCaptureEnabled(c.Request.Context(), captureEnabled)
+		ctx = WithRequestDetailCaptureEnabled(ctx, captureEnabled)
 		c.Request = c.Request.WithContext(ctx)
 		if !captureEnabled {
 			c.Next()
