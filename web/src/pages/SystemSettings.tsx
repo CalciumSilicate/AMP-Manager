@@ -361,6 +361,7 @@ export default function SystemSettings({ siteName, onSiteNameChange }: Props) {
       : '已配置 Redis，但当前运行时不可用，系统已回退到 legacy billing。'
 
   const formatLatency = (ms: number) => (ms > 0 ? `${ms} ms` : '-')
+  const formatIdleMs = (ms: number) => (ms > 0 ? `${Math.round(ms / 1000)} s` : '-')
 
   const billingMetricItems = billingRuntimeStats
     ? [
@@ -1322,6 +1323,29 @@ export default function SystemSettings({ siteName, onSiteNameChange }: Props) {
                             <div className="rounded-md bg-muted/40 p-3">
                               <div className="text-xs text-muted-foreground">Runtime healthy</div>
                               <div className="mt-1 text-2xl font-semibold">{billingRuntimeStats.runtimeHealthy ? 'Yes' : 'No'}</div>
+                            </div>
+                          </div>
+
+                          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-5">
+                            <div className="rounded-md bg-muted/40 p-3">
+                              <div className="text-xs text-muted-foreground">Projector consumers</div>
+                              <div className="mt-1 text-2xl font-semibold">{billingRuntimeStats.consumerCount}</div>
+                            </div>
+                            <div className="rounded-md bg-muted/40 p-3">
+                              <div className="text-xs text-muted-foreground">Active consumers</div>
+                              <div className="mt-1 text-2xl font-semibold">{billingRuntimeStats.activeProjectorConsumers}</div>
+                            </div>
+                            <div className="rounded-md bg-muted/40 p-3">
+                              <div className="text-xs text-muted-foreground">Stale consumers</div>
+                              <div className="mt-1 text-2xl font-semibold">{billingRuntimeStats.staleProjectorConsumers}</div>
+                            </div>
+                            <div className="rounded-md bg-muted/40 p-3">
+                              <div className="text-xs text-muted-foreground">Pending entries</div>
+                              <div className="mt-1 text-2xl font-semibold">{billingRuntimeStats.pendingEntries}</div>
+                            </div>
+                            <div className="rounded-md bg-muted/40 p-3">
+                              <div className="text-xs text-muted-foreground">Oldest pending idle</div>
+                              <div className="mt-1 text-2xl font-semibold">{formatIdleMs(billingRuntimeStats.oldestPendingIdleMs)}</div>
                             </div>
                           </div>
 
