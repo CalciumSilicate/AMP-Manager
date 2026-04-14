@@ -210,8 +210,20 @@ chmod +x manage.sh
 | `BILLING_RESERVATION_TTL_SEC` | 计费预留 TTL（秒） | `600` |
 | `BILLING_RECONCILE_INTERVAL_SEC` | Redis 与 PostgreSQL 对账间隔（秒） | `60` |
 | `BILLING_STREAM_BATCH_SIZE` | Redis Stream projector 批大小 | `100` |
+| `BILLING_RECONCILE_BATCH_SIZE` | Reconcile 单轮分页批大小 | 跟随 `BILLING_STREAM_BATCH_SIZE` |
+| `BILLING_EXPIRY_BATCH_SIZE` | Expiry 单轮分页批大小 | 跟随 `BILLING_STREAM_BATCH_SIZE` |
+| `BILLING_PROJECTOR_WORKERS` | Projector worker 数 | `1` |
+| `BILLING_PROJECTOR_CLAIM_IDLE_SEC` | Projector reclaim idle 阈值（秒） | `30` |
 
 > ⚠️ 生产环境**必须**修改 `ADMIN_PASSWORD` 和 `JWT_SECRET`，否则服务将拒绝启动。
+
+## Shared-Billing Benchmark
+
+仓库内置了 `cmd/loadtest-responses`，可直接做基于 PostgreSQL + Redis 的 shared-billing benchmark。
+
+- 操作说明见 [docs/shared-billing-benchmark.md](docs/shared-billing-benchmark.md)
+- Linux/macOS 可直接运行 `scripts/run-shared-billing-benchmark.sh`
+- benchmark 支持 matrix 模式，可直接比较 `projectorWorkers`、batch size、claim idle 等 knobs
 
 ## 数据库迁移
 
