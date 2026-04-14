@@ -302,12 +302,13 @@ func main() {
 	fmt.Printf("compare_fields=profile,label,mode,stage_rpm,e2e_p95,e2e_p99,throughput_rps,error_rate,admission_p95,settle_p95,project_p95\n")
 	fmt.Printf("stage_plan=%s\n", joinRPMs(options.stageRPMs))
 	fmt.Printf(
-		"runtime_knobs=stream_batch_size:%d reconcile_batch_size:%d expiry_batch_size:%d projector_workers_requested:%s projector_workers_applied:%t\n",
+		"runtime_knobs=stream_batch_size:%d reconcile_batch_size:%d expiry_batch_size:%d projector_workers_requested:%s projector_workers_applied:%t projector_workers_applied_count:%d\n",
 		options.runtimeKnobs.streamBatchSize,
 		options.runtimeKnobs.reconcileBatchSize,
 		options.runtimeKnobs.expiryBatchSize,
 		displayOptionalInt(options.projectorRequested),
 		options.projectorRequested > 0,
+		options.runtimeKnobs.projectorWorkers,
 	)
 	printStageTableHeader()
 
