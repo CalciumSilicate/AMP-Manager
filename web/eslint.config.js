@@ -9,6 +9,15 @@ export default tseslint.config(
     ignores: ['dist', 'node_modules'],
   },
   {
+    files: ['eslint.config.js', '*.config.js'],
+    extends: [js.configs.recommended],
+    languageOptions: {
+      ecmaVersion: 2022,
+      sourceType: 'module',
+      globals: globals.node,
+    },
+  },
+  {
     files: ['src/**/*.{ts,tsx}', 'vite.config.ts'],
     extends: [js.configs.recommended, ...tseslint.configs.recommended],
     languageOptions: {
