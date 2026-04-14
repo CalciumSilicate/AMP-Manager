@@ -50,6 +50,9 @@ type LogEntry struct {
 	ErrorType                *string
 	RequestID                *string
 	ThinkingLevel            *string
+	DownstreamTransport      *string
+	UpstreamTransport        *string
+	TransportFallbackReason  *string
 	// 成本相关
 	CostMicros     *int64
 	CostUsd        *string
@@ -132,8 +135,8 @@ func (w *LogWriter) WritePendingFromTrace(trace *RequestTrace) bool {
 	_, err := w.db.Exec(`
 		INSERT INTO request_logs (
 			id, created_at, status, user_id, api_key_id, original_model, mapped_model,
-			provider, channel_id, endpoint, method, path, status_code, latency_ms, ttfb_ms, is_streaming
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+			provider, channel_id, endpoint, method, path, status_code, latency_ms, ttfb_ms, is_streaming, downstream_transport, upstream_transport
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 	`,
 		snapshot.RequestID, // 使用 RequestID 作为数据库 ID
 		snapshot.StartTime.UTC(),
@@ -151,6 +154,8 @@ func (w *LogWriter) WritePendingFromTrace(trace *RequestTrace) bool {
 		0, // pending 时 latency_ms 为 0
 		nil,
 		0, // pending 时 is_streaming 为 0
+		stringPtrIfNonEmpty(snapshot.DownstreamTransport),
+		stringPtrIfNonEmpty(snapshot.UpstreamTransport),
 	)
 
 	if err != nil {
@@ -223,6 +228,16 @@ func (w *LogWriter) UpdateFromTrace(trace *RequestTrace) bool {
 	if snapshot.ThinkingLevel != "" {
 		thinkingLevel = &snapshot.ThinkingLevel
 	}
+	var downstreamTransport, upstreamTransport, transportFallbackReason *string
+	if snapshot.DownstreamTransport != "" {
+		downstreamTransport = &snapshot.DownstreamTransport
+	}
+	if snapshot.UpstreamTransport != "" {
+		upstreamTransport = &snapshot.UpstreamTransport
+	}
+	if snapshot.TransportFallbackReason != "" {
+		transportFallbackReason = &snapshot.TransportFallbackReason
+	}
 
 	var rateMultiplier *float64
 	if snapshot.RateMultiplier != 0 {
@@ -256,6 +271,9 @@ func (w *LogWriter) UpdateFromTrace(trace *RequestTrace) bool {
 			charged_balance_micros = COALESCE(?, charged_balance_micros),
 			billing_status = COALESCE(?, billing_status),
 			thinking_level = COALESCE(?, thinking_level),
+			downstream_transport = COALESCE(?, downstream_transport),
+			upstream_transport = COALESCE(?, upstream_transport),
+			transport_fallback_reason = COALESCE(?, transport_fallback_reason),
 			rate_multiplier = COALESCE(?, rate_multiplier),
 			response_text = COALESCE(?, response_text)
 		WHERE id = ?
@@ -283,6 +301,9 @@ func (w *LogWriter) UpdateFromTrace(trace *RequestTrace) bool {
 		chargedBalanceMicros,
 		billingStatus,
 		thinkingLevel,
+		downstreamTransport,
+		upstreamTransport,
+		transportFallbackReason,
 		rateMultiplier,
 		stringPtrIfNonEmpty(snapshot.ResponseText),
 		snapshot.RequestID,
@@ -359,6 +380,16 @@ func (w *LogWriter) insertComplete(trace *RequestTrace) bool {
 	if snapshot.ThinkingLevel != "" {
 		thinkingLevel = &snapshot.ThinkingLevel
 	}
+	var downstreamTransport, upstreamTransport, transportFallbackReason *string
+	if snapshot.DownstreamTransport != "" {
+		downstreamTransport = &snapshot.DownstreamTransport
+	}
+	if snapshot.UpstreamTransport != "" {
+		upstreamTransport = &snapshot.UpstreamTransport
+	}
+	if snapshot.TransportFallbackReason != "" {
+		transportFallbackReason = &snapshot.TransportFallbackReason
+	}
 	var rateMultiplier *float64
 	if snapshot.RateMultiplier != 0 {
 		rm := snapshot.RateMultiplier
@@ -372,7 +403,8 @@ func (w *LogWriter) insertComplete(trace *RequestTrace) bool {
 			is_streaming, input_tokens, output_tokens, cache_read_input_tokens,
 			cache_creation_input_tokens, error_type, cost_micros, cost_usd, pricing_model,
 			charged_subscription_micros, charged_balance_micros, billing_status, thinking_level, rate_multiplier
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+			downstream_transport, upstream_transport, transport_fallback_reason, rate_multiplier
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 	`,
 		snapshot.RequestID,
 		snapshot.StartTime.UTC(),
@@ -403,6 +435,9 @@ func (w *LogWriter) insertComplete(trace *RequestTrace) bool {
 		chargedBalanceMicros,
 		billingStatus,
 		thinkingLevel,
+		downstreamTransport,
+		upstreamTransport,
+		transportFallbackReason,
 		rateMultiplier,
 	)
 
