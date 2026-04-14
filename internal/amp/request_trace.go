@@ -4,6 +4,8 @@ import (
 	"context"
 	"sync"
 	"time"
+
+	"ampmanager/internal/service"
 )
 
 type requestTraceKey struct{}
@@ -43,6 +45,11 @@ type RequestTrace struct {
 	CostMicros   *int64
 	CostUsd      *string
 	PricingModel *string
+
+	// 计费结算结果
+	BillingStatus             *string
+	ChargedSubscriptionMicros *int64
+	ChargedBalanceMicros      *int64
 
 	// 倍率信息
 	RateMultiplier float64
@@ -190,37 +197,57 @@ func (t *RequestTrace) SetCost(costMicros int64, costUsd, pricingModel string) {
 	t.PricingModel = &pricingModel
 }
 
+// SetBillingResult 设置计费结算结果，供最终 request_logs 单次落库使用。
+func (t *RequestTrace) SetBillingResult(result *service.RequestBillingResult) {
+	if result == nil {
+		return
+	}
+
+	t.mu.Lock()
+	defer t.mu.Unlock()
+
+	status := result.Status
+	chargedSub := result.ChargedSubscriptionMicros
+	chargedBal := result.ChargedBalanceMicros
+	t.BillingStatus = &status
+	t.ChargedSubscriptionMicros = &chargedSub
+	t.ChargedBalanceMicros = &chargedBal
+}
+
 // Clone 获取当前状态的快照
 func (t *RequestTrace) Clone() RequestTrace {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	return RequestTrace{
-		RequestID:                t.RequestID,
-		StartTime:                t.StartTime,
-		UserID:                   t.UserID,
-		APIKeyID:                 t.APIKeyID,
-		Method:                   t.Method,
-		Path:                     t.Path,
-		OriginalModel:            t.OriginalModel,
-		MappedModel:              t.MappedModel,
-		Provider:                 t.Provider,
-		ChannelID:                t.ChannelID,
-		Endpoint:                 t.Endpoint,
-		IsStreaming:              t.IsStreaming,
-		ThinkingLevel:            t.ThinkingLevel,
-		StatusCode:               t.StatusCode,
-		LatencyMs:                t.LatencyMs,
-		TTFBMs:                   copyInt64Ptr(t.TTFBMs),
-		InputTokens:              copyIntPtr(t.InputTokens),
-		OutputTokens:             copyIntPtr(t.OutputTokens),
-		CacheReadInputTokens:     copyIntPtr(t.CacheReadInputTokens),
-		CacheCreationInputTokens: copyIntPtr(t.CacheCreationInputTokens),
-		CostMicros:               copyInt64Ptr(t.CostMicros),
-		CostUsd:                  copyStringPtr(t.CostUsd),
-		PricingModel:             copyStringPtr(t.PricingModel),
-		RateMultiplier:           t.RateMultiplier,
-		ErrorType:                t.ErrorType,
-		ResponseText:             t.ResponseText,
+		RequestID:                 t.RequestID,
+		StartTime:                 t.StartTime,
+		UserID:                    t.UserID,
+		APIKeyID:                  t.APIKeyID,
+		Method:                    t.Method,
+		Path:                      t.Path,
+		OriginalModel:             t.OriginalModel,
+		MappedModel:               t.MappedModel,
+		Provider:                  t.Provider,
+		ChannelID:                 t.ChannelID,
+		Endpoint:                  t.Endpoint,
+		IsStreaming:               t.IsStreaming,
+		ThinkingLevel:             t.ThinkingLevel,
+		StatusCode:                t.StatusCode,
+		LatencyMs:                 t.LatencyMs,
+		TTFBMs:                    copyInt64Ptr(t.TTFBMs),
+		InputTokens:               copyIntPtr(t.InputTokens),
+		OutputTokens:              copyIntPtr(t.OutputTokens),
+		CacheReadInputTokens:      copyIntPtr(t.CacheReadInputTokens),
+		CacheCreationInputTokens:  copyIntPtr(t.CacheCreationInputTokens),
+		CostMicros:                copyInt64Ptr(t.CostMicros),
+		CostUsd:                   copyStringPtr(t.CostUsd),
+		PricingModel:              copyStringPtr(t.PricingModel),
+		BillingStatus:             copyStringPtr(t.BillingStatus),
+		ChargedSubscriptionMicros: copyInt64Ptr(t.ChargedSubscriptionMicros),
+		ChargedBalanceMicros:      copyInt64Ptr(t.ChargedBalanceMicros),
+		RateMultiplier:            t.RateMultiplier,
+		ErrorType:                 t.ErrorType,
+		ResponseText:              t.ResponseText,
 	}
 }
 

@@ -130,8 +130,8 @@ func TestApplySettleEventPersistsChargesBeyondReservedAmounts(t *testing.T) {
 	if err := db.QueryRow(`SELECT charged_subscription_micros, charged_balance_micros, billing_status FROM request_logs WHERE id = ?`, "req-1").Scan(&chargedSub, &chargedBal, &status); err != nil {
 		t.Fatalf("query request_logs returned error: %v", err)
 	}
-	if chargedSub != 105 || chargedBal != 20 || status != "settled" {
-		t.Fatalf("request log billing = sub:%d bal:%d status:%s", chargedSub, chargedBal, status)
+	if chargedSub != 0 || chargedBal != 0 || status != "none" {
+		t.Fatalf("request log billing should remain untouched until trace flush, got sub:%d bal:%d status:%s", chargedSub, chargedBal, status)
 	}
 }
 
