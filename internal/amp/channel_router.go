@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"ampmanager/internal/billing"
+	"ampmanager/internal/billingstate"
 	"ampmanager/internal/model"
 	"ampmanager/internal/opencc"
 	"ampmanager/internal/service"
@@ -1211,11 +1212,17 @@ func handleNonStreamingResponse(resp *http.Response, trace *RequestTrace, transI
 
 						if proxyCfg != nil && adjustedCostMicros > 0 {
 							billingSvc := service.NewBillingService()
-							result, err := billingSvc.SettleRequestCostResult(trace.RequestID, proxyCfg.UserID, adjustedCostMicros)
-							if err != nil {
-								log.Warnf("channel router: failed to settle cost for user %s: %v", proxyCfg.UserID, err)
+							if billingstate.Get() != nil {
+								result, err := billingSvc.SettleRequestCostResult(trace.RequestID, proxyCfg.UserID, adjustedCostMicros)
+								if err != nil {
+									log.Warnf("channel router: failed to settle cost for user %s: %v", proxyCfg.UserID, err)
+								} else {
+									trace.SetBillingResult(result)
+								}
 							} else {
-								trace.SetBillingResult(result)
+								if err := billingSvc.SettleRequestCost(trace.RequestID, proxyCfg.UserID, adjustedCostMicros); err != nil {
+									log.Warnf("channel router: failed to settle cost for user %s: %v", proxyCfg.UserID, err)
+								}
 							}
 						}
 					}

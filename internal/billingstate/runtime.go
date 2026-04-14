@@ -1818,10 +1818,6 @@ func applySettleEvent(tx *sql.Tx, values map[string]any) error {
 		}
 	}
 
-	if err := updateRequestLogBillingTx(tx, requestID, status, chargedSub, chargedBal); err != nil {
-		return err
-	}
-
 	refs, err := decodeWindowRefs(stringField(values["window_refs_json"]))
 	if err != nil {
 		return err

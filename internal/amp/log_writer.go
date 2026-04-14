@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"ampmanager/internal/billing"
+	"ampmanager/internal/billingstate"
 	"ampmanager/internal/realtime"
 	"ampmanager/internal/service"
 
@@ -625,11 +626,17 @@ func (w *LoggingBodyWrapper) Close() error {
 
 							if proxyCfg != nil && adjustedCostMicros > 0 {
 								billingSvc := service.NewBillingService()
-								result, err := billingSvc.SettleRequestCostResult(w.trace.RequestID, proxyCfg.UserID, adjustedCostMicros)
-								if err != nil {
-									log.Warnf("log writer: failed to settle cost for user %s: %v", proxyCfg.UserID, err)
+								if billingstate.Get() != nil {
+									result, err := billingSvc.SettleRequestCostResult(w.trace.RequestID, proxyCfg.UserID, adjustedCostMicros)
+									if err != nil {
+										log.Warnf("log writer: failed to settle cost for user %s: %v", proxyCfg.UserID, err)
+									} else {
+										w.trace.SetBillingResult(result)
+									}
 								} else {
-									w.trace.SetBillingResult(result)
+									if err := billingSvc.SettleRequestCost(w.trace.RequestID, proxyCfg.UserID, adjustedCostMicros); err != nil {
+										log.Warnf("log writer: failed to settle cost for user %s: %v", proxyCfg.UserID, err)
+									}
 								}
 							}
 						}
