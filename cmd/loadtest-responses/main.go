@@ -327,12 +327,9 @@ func main() {
 		options.projectorRequested > 0,
 		options.runtimeKnobs.projectorWorkers,
 		displayOptionalInt(options.claimIdleRequested),
-		projectorClaimIdleSupported(),
-		displayAppliedOptionalInt(options.runtimeKnobs.projectorClaimIdle, projectorClaimIdleSupported()),
+		options.claimIdleRequested > 0,
+		displayAppliedOptionalInt(options.runtimeKnobs.projectorClaimIdle, options.claimIdleRequested > 0),
 	)
-	if options.claimIdleRequested > 0 && !projectorClaimIdleSupported() {
-		fmt.Printf("runtime_note=projector_claim_idle_sec_requested_but_not_applied current billingstate.Config lacks this field in this branch\n")
-	}
 	printStageTableHeader()
 
 	overallOK := true
@@ -543,6 +540,7 @@ func setupBenchmarkEnv(mode string, timeout time.Duration, seed int64, databaseU
 			ReconcileBatchSize: int64(knobs.reconcileBatchSize),
 			ExpiryBatchSize:    int64(knobs.expiryBatchSize),
 			ProjectorWorkers:   knobs.projectorWorkers,
+			ProjectorClaimIdle: time.Duration(knobs.projectorClaimIdle) * time.Second,
 		}); err != nil {
 			database.Close()
 			mock.Close()
@@ -916,7 +914,7 @@ func buildBenchmarkReport(profile benchmarkProfile, options runOptions, env *ben
 			ProjectorWorkersRequested:      options.projectorRequested,
 			ProjectorWorkersApplied:        options.projectorRequested > 0,
 			ProjectorClaimIdleSecRequested: options.claimIdleRequested,
-			ProjectorClaimIdleSecApplied:   projectorClaimIdleSupported(),
+			ProjectorClaimIdleSecApplied:   options.claimIdleRequested > 0,
 			CompareFields:                  []string{"profile", "label", "mode", "stage_rpm", "e2e_p95", "e2e_p99", "throughput_rps", "error_rate", "admission_p95", "settle_p95", "project_p95"},
 		},
 		Summary: reportSummary{
@@ -1022,10 +1020,6 @@ func displayAppliedOptionalInt(value int, applied bool) string {
 		return "-"
 	}
 	return displayOptionalInt(value)
-}
-
-func projectorClaimIdleSupported() bool {
-	return false
 }
 
 func roundDuration(value time.Duration) string {
