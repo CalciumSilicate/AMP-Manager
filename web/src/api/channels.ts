@@ -37,6 +37,7 @@ export interface Channel {
   simulateSystemPrompt: boolean
   traditionalChinese: boolean
   copilotApi: boolean
+  codexWebsocketEnabled: boolean
   headers: Record<string, string>
   createdAt: string
   updatedAt: string
@@ -59,6 +60,7 @@ export interface ChannelRequest {
   simulateSystemPrompt?: boolean
   traditionalChinese?: boolean
   copilotApi?: boolean
+  codexWebsocketEnabled?: boolean
   headers?: Record<string, string>
 }
 

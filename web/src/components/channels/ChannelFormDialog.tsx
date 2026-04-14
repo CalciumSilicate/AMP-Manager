@@ -52,6 +52,8 @@ export function ChannelFormDialog({
   saving,
   groups = [],
 }: ChannelFormDialogProps) {
+  const showCodexWebsocketToggle = formData.type === 'openai' && formData.endpoint === 'responses'
+
   const handleTypeChange = (type: ChannelType) => {
     const channelType = CHANNEL_TYPES.find(t => t.value === type)
     if (channelType) {
@@ -60,6 +62,9 @@ export function ChannelFormDialog({
         type,
         baseUrl: prev.baseUrl || channelType.defaultUrl,
         endpoint: channelType.defaultEndpoint,
+        codexWebsocketEnabled: type === 'openai' && channelType.defaultEndpoint === 'responses'
+          ? prev.codexWebsocketEnabled
+          : false,
       }))
     }
   }
@@ -146,7 +151,14 @@ export function ChannelFormDialog({
               <Label>Endpoint</Label>
               <select
                 value={formData.endpoint}
-                onChange={(e) => setFormData(prev => ({ ...prev, endpoint: e.target.value as ChannelEndpoint }))}
+                onChange={(e) => {
+                  const endpoint = e.target.value as ChannelEndpoint
+                  setFormData(prev => ({
+                    ...prev,
+                    endpoint,
+                    codexWebsocketEnabled: endpoint === 'responses' ? prev.codexWebsocketEnabled : false,
+                  }))
+                }}
                 className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
               >
                 {OPENAI_ENDPOINTS.map(e => (
@@ -256,6 +268,19 @@ export function ChannelFormDialog({
               onCheckedChange={(checked) => setFormData(prev => ({ ...prev, enabled: checked }))}
             />
           </div>
+
+          {showCodexWebsocketToggle && (
+            <div className="col-span-2 flex items-center justify-between border-y py-3">
+              <div className="space-y-0.5">
+                <Label>Codex WebSocket</Label>
+                <p className="text-sm text-muted-foreground">优先使用 /v1/responses WebSocket</p>
+              </div>
+              <Switch
+                checked={formData.codexWebsocketEnabled || false}
+                onCheckedChange={(checked) => setFormData(prev => ({ ...prev, codexWebsocketEnabled: checked }))}
+              />
+            </div>
+          )}
 
           {/* 模拟 UA - 仅 Claude 类型显示 */}
           {formData.type === 'claude' && (

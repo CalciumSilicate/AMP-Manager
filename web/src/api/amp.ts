@@ -180,6 +180,9 @@ export interface RequestLog {
   costUsd?: string
   pricingModel?: string
   thinkingLevel?: string
+  downstreamTransport?: string
+  upstreamTransport?: string
+  transportFallbackReason?: string
 }
 
 export interface RequestLogListResponse {

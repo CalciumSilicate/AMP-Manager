@@ -66,7 +66,16 @@ export function ChannelTable({
         <motion.tbody variants={tableStaggerContainer} initial="hidden" animate="visible" key={channels.length}>
           {channels.map((channel) => (
             <motion.tr key={channel.id} variants={tableRowVariants} className="border-b transition-colors hover:bg-muted/50 data-[state=selected]:bg-muted">
-              <TableCell className="font-medium">{channel.name}</TableCell>
+              <TableCell>
+                <div className="flex items-center gap-2">
+                  <span className="font-medium">{channel.name}</span>
+                  {channel.type === 'openai' && channel.endpoint === 'responses' && channel.codexWebsocketEnabled && (
+                    <Badge variant="outline" className="text-[10px] uppercase tracking-[0.12em] text-muted-foreground">
+                      WS
+                    </Badge>
+                  )}
+                </div>
+              </TableCell>
               <TableCell>
                 <Badge variant={getTypeBadgeVariant(channel.type)}>
                   {channel.type.toUpperCase()}

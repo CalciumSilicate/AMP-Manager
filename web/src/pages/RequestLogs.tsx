@@ -244,6 +244,13 @@ export default function RequestLogs({ isAdmin }: Props) {
     return log.apiKeyPrefix || log.apiKeyId || '-'
   }
 
+  const formatTransportLabel = (transport?: string) => {
+    if (!transport) return null
+    if (transport.toLowerCase() === 'websocket') return 'WS'
+    if (transport.toLowerCase() === 'http') return 'HTTP'
+    return transport
+  }
+
   return (
     <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-6">
       <motion.div initial={{ opacity: 0, y: -20 }} animate={{ opacity: 1, y: 0 }} transition={{ type: 'spring', bounce: 0.2, duration: 0.6 }}>
@@ -351,7 +358,31 @@ export default function RequestLogs({ isAdmin }: Props) {
                         </TableCell>
                         <TableCell>
                           {(log.channelName || log.provider) ? (
-                            <Badge variant="outline" className="text-xs">{log.channelName || log.provider}</Badge>
+                            <div className="flex flex-wrap items-center gap-1.5">
+                              <Badge variant="outline" className="text-xs">{log.channelName || log.provider}</Badge>
+                              {formatTransportLabel(log.downstreamTransport) && (
+                                <Badge variant="outline" className="text-[10px] uppercase tracking-[0.12em] text-muted-foreground">
+                                  D {formatTransportLabel(log.downstreamTransport)}
+                                </Badge>
+                              )}
+                              {formatTransportLabel(log.upstreamTransport) && (
+                                <Badge variant="outline" className="text-[10px] uppercase tracking-[0.12em] text-muted-foreground">
+                                  U {formatTransportLabel(log.upstreamTransport)}
+                                </Badge>
+                              )}
+                              {log.transportFallbackReason && (
+                                <Tooltip>
+                                  <TooltipTrigger asChild>
+                                    <Badge variant="secondary" className="cursor-help text-[10px] uppercase tracking-[0.12em]">
+                                      Fallback
+                                    </Badge>
+                                  </TooltipTrigger>
+                                  <TooltipContent side="bottom" className="max-w-72 text-xs">
+                                    {log.transportFallbackReason}
+                                  </TooltipContent>
+                                </Tooltip>
+                              )}
+                            </div>
                           ) : (
                             <span className="text-muted-foreground">-</span>
                           )}

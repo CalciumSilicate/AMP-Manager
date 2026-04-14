@@ -47,6 +47,7 @@ export default function Channels() {
     simulateUa: false,
     simulateSystemPrompt: false,
     traditionalChinese: false,
+    codexWebsocketEnabled: false,
     headers: {},
   })
   const [saving, setSaving] = useState(false)
@@ -93,6 +94,7 @@ export default function Channels() {
       simulateSystemPrompt: false,
       traditionalChinese: false,
       copilotApi: false,
+      codexWebsocketEnabled: false,
       headers: {},
     })
     setShowForm(true)
@@ -117,6 +119,7 @@ export default function Channels() {
       simulateSystemPrompt: channel.simulateSystemPrompt || false,
       traditionalChinese: channel.traditionalChinese || false,
       copilotApi: channel.copilotApi || false,
+      codexWebsocketEnabled: channel.codexWebsocketEnabled || false,
       headers: channel.headers,
     })
     setShowForm(true)
