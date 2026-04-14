@@ -84,3 +84,22 @@ type SiteConfigResponse struct {
 type SiteConfigRequest struct {
 	SiteName string `json:"siteName"`
 }
+
+type BillingRuntimeConfigResponse struct {
+	RedisURL             string `json:"redisUrl"`
+	RedisURLMasked       string `json:"redisUrlMasked"`
+	RedisPrefix          string `json:"redisPrefix"`
+	ReservationTTLSec    int    `json:"reservationTtlSec"`
+	ReconcileIntervalSec int    `json:"reconcileIntervalSec"`
+	StreamBatchSize      int    `json:"streamBatchSize"`
+	RuntimeEnabled       bool   `json:"runtimeEnabled"`
+	RuntimeHealthy       bool   `json:"runtimeHealthy"`
+}
+
+type BillingRuntimeConfigRequest struct {
+	RedisURL             string `json:"redisUrl"`
+	RedisPrefix          string `json:"redisPrefix"`
+	ReservationTTLSec    int    `json:"reservationTtlSec"`
+	ReconcileIntervalSec int    `json:"reconcileIntervalSec"`
+	StreamBatchSize      int    `json:"streamBatchSize"`
+}

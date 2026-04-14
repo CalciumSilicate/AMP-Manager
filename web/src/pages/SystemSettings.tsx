@@ -24,6 +24,9 @@ import {
   getCacheTTLConfig,
   updateCacheTTLConfig,
   updateSiteConfig,
+  getBillingRuntimeConfig,
+  updateBillingRuntimeConfig,
+  BillingRuntimeConfig,
 } from '../api/system'
 import { Button } from '@/components/ui/button'
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/card'
@@ -44,7 +47,7 @@ import { Textarea } from '@/components/ui/textarea'
 import { Progress } from '@/components/ui/progress'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 
-type SettingsTab = 'site' | 'database' | 'retry' | 'monitoring' | 'cache' | 'timeout'
+type SettingsTab = 'site' | 'database' | 'retry' | 'monitoring' | 'cache' | 'timeout' | 'billing'
 
 const tabs: { key: SettingsTab; label: string }[] = [
   { key: 'site', label: '网站配置' },
@@ -53,6 +56,7 @@ const tabs: { key: SettingsTab; label: string }[] = [
   { key: 'monitoring', label: '请求监控' },
   { key: 'cache', label: '缓存配置' },
   { key: 'timeout', label: '超时配置' },
+  { key: 'billing', label: 'Redis计费' },
 ]
 
 interface Props {
@@ -86,6 +90,8 @@ export default function SystemSettings({ siteName, onSiteNameChange }: Props) {
   const [cacheTTLLoading, setCacheTTLLoading] = useState(false)
   const [siteNameInput, setSiteNameInput] = useState(siteName)
   const [siteConfigSaving, setSiteConfigSaving] = useState(false)
+  const [billingRuntimeConfig, setBillingRuntimeConfig] = useState<BillingRuntimeConfig | null>(null)
+  const [billingRuntimeLoading, setBillingRuntimeLoading] = useState(false)
 
   useEffect(() => {
     fetchDatabaseInfo()
@@ -93,6 +99,7 @@ export default function SystemSettings({ siteName, onSiteNameChange }: Props) {
     fetchRequestDetailEnabled()
     fetchTimeoutConfig()
     fetchCacheTTLConfig()
+    fetchBillingRuntimeConfig()
   }, [])
 
   useEffect(() => {
@@ -166,6 +173,15 @@ export default function SystemSettings({ siteName, onSiteNameChange }: Props) {
     }
   }
 
+  const fetchBillingRuntimeConfig = async () => {
+    try {
+      const data = await getBillingRuntimeConfig()
+      setBillingRuntimeConfig(data)
+    } catch (err) {
+      console.error('获取 Redis 计费配置失败:', err)
+    }
+  }
+
   const handleCacheTTLChange = async (value: string) => {
     setCacheTTLLoading(true)
     try {
@@ -190,6 +206,32 @@ export default function SystemSettings({ siteName, onSiteNameChange }: Props) {
       showMessage('error', err instanceof Error ? err.message : '保存失败')
     } finally {
       setSiteConfigSaving(false)
+    }
+  }
+
+  const handleBillingRuntimeConfigChange = (key: keyof BillingRuntimeConfig, value: string | number | boolean) => {
+    if (!billingRuntimeConfig) return
+    setBillingRuntimeConfig({ ...billingRuntimeConfig, [key]: value } as BillingRuntimeConfig)
+  }
+
+  const handleSaveBillingRuntimeConfig = async () => {
+    if (!billingRuntimeConfig) return
+
+    setBillingRuntimeLoading(true)
+    try {
+      const result = await updateBillingRuntimeConfig({
+        redisUrl: billingRuntimeConfig.redisUrl,
+        redisPrefix: billingRuntimeConfig.redisPrefix,
+        reservationTtlSec: billingRuntimeConfig.reservationTtlSec,
+        reconcileIntervalSec: billingRuntimeConfig.reconcileIntervalSec,
+        streamBatchSize: billingRuntimeConfig.streamBatchSize,
+      })
+      setBillingRuntimeConfig(result.config)
+      showMessage('success', 'Redis 计费配置已保存并已热更新')
+    } catch (err) {
+      showMessage('error', err instanceof Error ? err.message : '保存失败')
+    } finally {
+      setBillingRuntimeLoading(false)
     }
   }
 
@@ -963,6 +1005,110 @@ export default function SystemSettings({ siteName, onSiteNameChange }: Props) {
                     <Button onClick={handleSaveTimeoutConfig} disabled={timeoutLoading}>
                       {timeoutLoading ? '保存中...' : '保存配置'}
                     </Button>
+                  </>
+                ) : (
+                  <div className="text-center text-muted-foreground py-4">加载中...</div>
+                )}
+              </CardContent>
+            </Card>
+          )}
+
+          {activeTab === 'billing' && (
+            <Card>
+              <CardHeader>
+                <CardTitle>Redis 计费运行时</CardTitle>
+                <CardDescription>配置多实例共享的 Redis 计费热路径，并在保存后立即重连应用运行时。</CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-6">
+                {billingRuntimeConfig ? (
+                  <>
+                    <div className="grid gap-4 md:grid-cols-2">
+                      <div className="rounded-lg border p-4 space-y-2">
+                        <div className="flex items-center justify-between">
+                          <span className="text-sm text-muted-foreground">运行时状态</span>
+                          <Badge variant={billingRuntimeConfig.runtimeHealthy ? 'default' : 'destructive'}>
+                            {billingRuntimeConfig.runtimeHealthy ? 'Healthy' : 'Unavailable'}
+                          </Badge>
+                        </div>
+                        <p className="text-sm text-muted-foreground">
+                          {billingRuntimeConfig.runtimeEnabled
+                            ? billingRuntimeConfig.redisUrlMasked || '已启用'
+                            : '当前未配置 Redis，系统会退回旧的 SQL 计费路径'}
+                        </p>
+                      </div>
+                      <div className="rounded-lg border p-4 space-y-2">
+                        <div className="flex items-center justify-between">
+                          <span className="text-sm text-muted-foreground">Redis 前缀</span>
+                          <Badge variant="outline">{billingRuntimeConfig.redisPrefix || 'ampmanager'}</Badge>
+                        </div>
+                        <p className="text-sm text-muted-foreground">
+                          多实例部署时请确保所有实例共享同一 Redis 和同一前缀。
+                        </p>
+                      </div>
+                    </div>
+
+                    <div className="grid gap-4 md:grid-cols-2">
+                      <div className="space-y-2 md:col-span-2">
+                        <Label htmlFor="redisUrl">Redis URL</Label>
+                        <Input
+                          id="redisUrl"
+                          value={billingRuntimeConfig.redisUrl}
+                          onChange={(e) => handleBillingRuntimeConfigChange('redisUrl', e.target.value)}
+                          placeholder="redis://localhost:6379/0"
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <Label htmlFor="redisPrefix">Redis Prefix</Label>
+                        <Input
+                          id="redisPrefix"
+                          value={billingRuntimeConfig.redisPrefix}
+                          onChange={(e) => handleBillingRuntimeConfigChange('redisPrefix', e.target.value)}
+                          placeholder="ampmanager"
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <Label htmlFor="streamBatchSize">Projector 批大小</Label>
+                        <Input
+                          id="streamBatchSize"
+                          type="number"
+                          min={1}
+                          value={billingRuntimeConfig.streamBatchSize}
+                          onChange={(e) => handleBillingRuntimeConfigChange('streamBatchSize', parseInt(e.target.value) || 1)}
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <Label htmlFor="reservationTtlSec">Reservation TTL (秒)</Label>
+                        <Input
+                          id="reservationTtlSec"
+                          type="number"
+                          min={60}
+                          value={billingRuntimeConfig.reservationTtlSec}
+                          onChange={(e) => handleBillingRuntimeConfigChange('reservationTtlSec', parseInt(e.target.value) || 60)}
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <Label htmlFor="reconcileIntervalSec">Reconcile 间隔 (秒)</Label>
+                        <Input
+                          id="reconcileIntervalSec"
+                          type="number"
+                          min={10}
+                          value={billingRuntimeConfig.reconcileIntervalSec}
+                          onChange={(e) => handleBillingRuntimeConfigChange('reconcileIntervalSec', parseInt(e.target.value) || 10)}
+                        />
+                      </div>
+                    </div>
+
+                    <Alert>
+                      <AlertDescription>
+                        保存后会立即重载后端 Redis 计费运行时。要完成真实压测，请让所有应用实例共享同一 PostgreSQL 和同一 Redis。
+                      </AlertDescription>
+                    </Alert>
+
+                    <div className="flex justify-end">
+                      <Button onClick={handleSaveBillingRuntimeConfig} disabled={billingRuntimeLoading}>
+                        {billingRuntimeLoading ? '保存中...' : '保存并热更新'}
+                      </Button>
+                    </div>
                   </>
                 ) : (
                   <div className="text-center text-muted-foreground py-4">加载中...</div>

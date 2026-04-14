@@ -1,8 +1,12 @@
 package service
 
 import (
+	"ampmanager/internal/billingstate"
+	"ampmanager/internal/config"
 	"ampmanager/internal/model"
 	"ampmanager/internal/repository"
+	"encoding/json"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -19,6 +23,7 @@ const (
 	timeoutConfigKey               = "timeout_config"
 	cacheTTLOverrideKey            = "cache_ttl_override"
 	siteNameKey                    = "site_name"
+	billingRuntimeConfigKey        = "billing_runtime_config"
 	defaultSiteName                = "AMP Manager"
 )
 
@@ -185,4 +190,63 @@ func parsePositiveInt(value string) (int, error) {
 
 func parsePositiveInt64(value string) (int64, error) {
 	return strconv.ParseInt(value, 10, 64)
+}
+
+func (s *SystemConfigService) GetBillingRuntimeConfig() (model.BillingRuntimeConfigResponse, error) {
+	cfg := config.Get()
+	resp := model.BillingRuntimeConfigResponse{
+		RedisURL:             cfg.RedisURL,
+		RedisURLMasked:       maskRedisURL(cfg.RedisURL),
+		RedisPrefix:          cfg.RedisPrefix,
+		ReservationTTLSec:    cfg.BillingReservationTTLSec,
+		ReconcileIntervalSec: cfg.BillingReconcileIntervalSec,
+		StreamBatchSize:      cfg.BillingStreamBatchSize,
+		RuntimeEnabled:       strings.TrimSpace(cfg.RedisURL) != "",
+		RuntimeHealthy:       billingstate.Get() != nil,
+	}
+
+	value, err := s.repo.Get(billingRuntimeConfigKey)
+	if err != nil {
+		return resp, err
+	}
+	if value != "" {
+		var stored model.BillingRuntimeConfigRequest
+		if err := json.Unmarshal([]byte(value), &stored); err == nil {
+			resp.RedisURL = strings.TrimSpace(stored.RedisURL)
+			resp.RedisURLMasked = maskRedisURL(resp.RedisURL)
+			if strings.TrimSpace(stored.RedisPrefix) != "" {
+				resp.RedisPrefix = strings.TrimSpace(stored.RedisPrefix)
+			}
+			if stored.ReservationTTLSec > 0 {
+				resp.ReservationTTLSec = stored.ReservationTTLSec
+			}
+			if stored.ReconcileIntervalSec > 0 {
+				resp.ReconcileIntervalSec = stored.ReconcileIntervalSec
+			}
+			if stored.StreamBatchSize > 0 {
+				resp.StreamBatchSize = stored.StreamBatchSize
+			}
+			resp.RuntimeEnabled = strings.TrimSpace(resp.RedisURL) != ""
+		}
+	}
+
+	resp.RuntimeHealthy = resp.RuntimeEnabled && billingstate.Get() != nil
+	return resp, nil
+}
+
+func (s *SystemConfigService) SetBillingRuntimeConfig(req model.BillingRuntimeConfigRequest) error {
+	data, err := json.Marshal(req)
+	if err != nil {
+		return err
+	}
+	return s.repo.Set(billingRuntimeConfigKey, string(data))
+}
+
+func maskRedisURL(raw string) string {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return ""
+	}
+	re := regexp.MustCompile(`://([^:/?#]+):([^@/?#]+)@`)
+	return re.ReplaceAllString(raw, `://$1:******@`)
 }

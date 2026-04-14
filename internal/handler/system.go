@@ -277,6 +277,58 @@ func (h *SystemHandler) UpdateRetryConfig(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"message": "配置已更新", "config": resp})
 }
 
+func (h *SystemHandler) GetBillingRuntimeConfig(c *gin.Context) {
+	resp, err := service.NewSystemConfigService().GetBillingRuntimeConfig()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "获取配置失败"})
+		return
+	}
+	c.JSON(http.StatusOK, resp)
+}
+
+func (h *SystemHandler) UpdateBillingRuntimeConfig(c *gin.Context) {
+	var req model.BillingRuntimeConfigRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "参数错误"})
+		return
+	}
+
+	req.RedisURL = strings.TrimSpace(req.RedisURL)
+	req.RedisPrefix = strings.TrimSpace(req.RedisPrefix)
+	if req.RedisPrefix == "" {
+		req.RedisPrefix = "ampmanager"
+	}
+	if req.ReservationTTLSec < 60 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "reservationTtlSec 必须 >= 60"})
+		return
+	}
+	if req.ReconcileIntervalSec < 10 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "reconcileIntervalSec 必须 >= 10"})
+		return
+	}
+	if req.StreamBatchSize < 1 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "streamBatchSize 必须 >= 1"})
+		return
+	}
+
+	if err := service.NewSystemConfigService().SetBillingRuntimeConfig(req); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "保存配置失败"})
+		return
+	}
+
+	if err := reloadBillingRuntimeFromSystemConfig(); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Redis 配置应用失败: " + err.Error()})
+		return
+	}
+
+	resp, err := service.NewSystemConfigService().GetBillingRuntimeConfig()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "获取配置失败"})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"message": "配置已更新", "config": resp})
+}
+
 func (h *SystemHandler) UploadDatabase(c *gin.Context) {
 	if database.IsPostgres() {
 		h.uploadPostgresDump(c)
@@ -366,10 +418,11 @@ func (h *SystemHandler) UploadDatabase(c *gin.Context) {
 		return
 	}
 
-	// 重新初始化日志写入器等依赖数据库的组件
-	amp.ReinitLogWriter(database.GetDB())
-	amp.ReinitRequestDetailStore(database.GetDB())
-	amp.ReinitPendingCleaner(database.GetDB())
+	// 重新初始化依赖数据库和系统配置的运行时组件
+	if err := reinitDatabaseBackedRuntimeServices(); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "运行时服务重载失败: " + err.Error()})
+		return
+	}
 
 	c.JSON(http.StatusOK, gin.H{
 		"message":    "数据库上传并切换成功",
@@ -410,9 +463,7 @@ func (h *SystemHandler) uploadPostgresDump(c *gin.Context) {
 
 	reopenOnError := func() {
 		_ = database.InitWithOptions(currentOptions)
-		amp.ReinitLogWriter(database.GetDB())
-		amp.ReinitRequestDetailStore(database.GetDB())
-		amp.ReinitPendingCleaner(database.GetDB())
+		_ = reinitDatabaseBackedRuntimeServices()
 	}
 
 	if err := database.RestorePostgresDatabase(context.Background(), currentOptions, bytes.ToValidUTF8(dumpContent, []byte(""))); err != nil {
@@ -425,9 +476,10 @@ func (h *SystemHandler) uploadPostgresDump(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "重新连接 PostgreSQL 失败: " + err.Error()})
 		return
 	}
-	amp.ReinitLogWriter(database.GetDB())
-	amp.ReinitRequestDetailStore(database.GetDB())
-	amp.ReinitPendingCleaner(database.GetDB())
+	if err := reinitDatabaseBackedRuntimeServices(); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "运行时服务重载失败: " + err.Error()})
+		return
+	}
 
 	c.JSON(http.StatusOK, gin.H{"message": "PostgreSQL dump 导入成功"})
 }
@@ -598,10 +650,11 @@ func (h *SystemHandler) RestoreBackup(c *gin.Context) {
 		return
 	}
 
-	// 重新初始化依赖数据库的组件
-	amp.ReinitLogWriter(database.GetDB())
-	amp.ReinitRequestDetailStore(database.GetDB())
-	amp.ReinitPendingCleaner(database.GetDB())
+	// 重新初始化依赖数据库和系统配置的运行时组件
+	if err := reinitDatabaseBackedRuntimeServices(); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "运行时服务重载失败: " + err.Error()})
+		return
+	}
 
 	c.JSON(http.StatusOK, gin.H{"message": "数据库恢复并切换成功"})
 }

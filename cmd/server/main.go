@@ -7,6 +7,7 @@ import (
 
 	"ampmanager/internal/amp"
 	"ampmanager/internal/billing"
+	"ampmanager/internal/billingstate"
 	"ampmanager/internal/config"
 	"ampmanager/internal/database"
 	"ampmanager/internal/realtime"
@@ -40,6 +41,23 @@ func main() {
 	}
 	defer database.Close()
 
+	sysConfigService := service.NewSystemConfigService()
+	billingRuntimeCfg, err := sysConfigService.GetBillingRuntimeConfig()
+	if err != nil {
+		log.Fatalf("计费配置加载失败: %v", err)
+	}
+
+	if err := billingstate.Init(billingstate.Config{
+		RedisURL:          billingRuntimeCfg.RedisURL,
+		Prefix:            billingRuntimeCfg.RedisPrefix,
+		ReservationTTL:    time.Duration(billingRuntimeCfg.ReservationTTLSec) * time.Second,
+		ReconcileInterval: time.Duration(billingRuntimeCfg.ReconcileIntervalSec) * time.Second,
+		StreamBatchSize:   int64(billingRuntimeCfg.StreamBatchSize),
+	}); err != nil {
+		log.Fatalf("计费状态初始化失败: %v", err)
+	}
+	defer billingstate.Close()
+
 	// 初始化日志写入器
 	amp.InitLogWriter(database.GetDB())
 	defer amp.StopLogWriter()
@@ -71,7 +89,6 @@ func main() {
 	r := router.Setup()
 
 	// 加载重试配置
-	sysConfigService := service.NewSystemConfigService()
 	if configJSON, err := sysConfigService.GetRetryConfigJSON(); err == nil && configJSON != "" {
 		amp.InitRetryTransportConfig(configJSON)
 	}

@@ -319,3 +319,49 @@ export async function updateSiteConfig(siteName: string): Promise<{ message: str
 
   return res.json()
 }
+
+export interface BillingRuntimeConfig {
+  redisUrl: string
+  redisUrlMasked: string
+  redisPrefix: string
+  reservationTtlSec: number
+  reconcileIntervalSec: number
+  streamBatchSize: number
+  runtimeEnabled: boolean
+  runtimeHealthy: boolean
+}
+
+export interface BillingRuntimeConfigRequest {
+  redisUrl: string
+  redisPrefix: string
+  reservationTtlSec: number
+  reconcileIntervalSec: number
+  streamBatchSize: number
+}
+
+export async function getBillingRuntimeConfig(): Promise<BillingRuntimeConfig> {
+  const res = await authFetch(`${API_BASE}/admin/system/billing-runtime-config`)
+
+  if (!res.ok) {
+    const data = await res.json()
+    throw new Error(data.error || '获取 Redis 计费配置失败')
+  }
+
+  return res.json()
+}
+
+export async function updateBillingRuntimeConfig(
+  config: BillingRuntimeConfigRequest
+): Promise<{ message: string; config: BillingRuntimeConfig }> {
+  const res = await authFetch(`${API_BASE}/admin/system/billing-runtime-config`, {
+    method: 'PUT',
+    body: JSON.stringify(config),
+  })
+
+  if (!res.ok) {
+    const data = await res.json()
+    throw new Error(data.error || '更新 Redis 计费配置失败')
+  }
+
+  return res.json()
+}
