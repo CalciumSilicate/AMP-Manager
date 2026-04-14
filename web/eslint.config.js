@@ -40,4 +40,11 @@ export default tseslint.config(
       'react-refresh/only-export-components': ['warn', { allowConstantExport: true }],
     },
   },
+  {
+    files: ['src/components/LogFilterBar.tsx', 'src/lib/motion.tsx'],
+    rules: {
+      // These modules intentionally mix component exports with shared helpers.
+      'react-refresh/only-export-components': 'off',
+    },
+  },
 )
