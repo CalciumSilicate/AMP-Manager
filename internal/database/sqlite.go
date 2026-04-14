@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -100,8 +101,8 @@ func openSQLiteDB(path string) (*sql.DB, string, error) {
 		return nil, "", err
 	}
 
-	newDB.SetMaxOpenConns(10)
-	newDB.SetMaxIdleConns(5)
+	newDB.SetMaxOpenConns(getEnvInt("DB_MAX_OPEN_CONNS", 32))
+	newDB.SetMaxIdleConns(getEnvInt("DB_MAX_IDLE_CONNS", 16))
 	newDB.SetConnMaxLifetime(time.Hour)
 
 	return newDB, path, nil
@@ -119,8 +120,8 @@ func openPostgresDB(dsn string) (*sql.DB, string, error) {
 		return nil, "", err
 	}
 
-	newDB.SetMaxOpenConns(15)
-	newDB.SetMaxIdleConns(5)
+	newDB.SetMaxOpenConns(getEnvInt("DB_MAX_OPEN_CONNS", 64))
+	newDB.SetMaxIdleConns(getEnvInt("DB_MAX_IDLE_CONNS", 16))
 	newDB.SetConnMaxLifetime(time.Hour)
 
 	return newDB, "", nil
@@ -189,6 +190,15 @@ func PlaceholderList(count int) string {
 		}
 	}
 	return strings.Join(placeholders, ",")
+}
+
+func getEnvInt(key string, defaultValue int) int {
+	if value := strings.TrimSpace(os.Getenv(key)); value != "" {
+		if parsed, err := strconv.Atoi(value); err == nil && parsed > 0 {
+			return parsed
+		}
+	}
+	return defaultValue
 }
 
 // CloseAndRelease 关闭数据库连接并释放所有文件句柄，以便替换数据库文件
@@ -458,6 +468,73 @@ func createTables() error {
 		CHECK (primary_source != secondary_source),
 		FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
 	);
+
+	CREATE TABLE IF NOT EXISTS billing_account_state (
+		user_id TEXT PRIMARY KEY,
+		primary_source TEXT NOT NULL DEFAULT 'subscription' CHECK (primary_source IN ('subscription', 'balance')),
+		secondary_source TEXT NOT NULL DEFAULT 'balance' CHECK (secondary_source IN ('subscription', 'balance')),
+		balance_micros BIGINT NOT NULL DEFAULT 0,
+		active_subscription_id TEXT,
+		active_plan_id TEXT,
+		subscription_starts_at DATETIME,
+		subscription_expires_at DATETIME,
+		revision BIGINT NOT NULL DEFAULT 0,
+		created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+		updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+		FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+	);
+
+	CREATE TABLE IF NOT EXISTS subscription_window_state (
+		id TEXT PRIMARY KEY,
+		user_subscription_id TEXT NOT NULL,
+		plan_id TEXT NOT NULL,
+		limit_type TEXT NOT NULL,
+		window_mode TEXT NOT NULL,
+		window_start DATETIME NOT NULL,
+		window_end DATETIME NOT NULL,
+		limit_micros BIGINT NOT NULL,
+		used_micros BIGINT NOT NULL DEFAULT 0,
+		reserved_micros BIGINT NOT NULL DEFAULT 0,
+		remaining_micros BIGINT NOT NULL,
+		revision BIGINT NOT NULL DEFAULT 0,
+		created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+		updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+		UNIQUE(user_subscription_id, limit_type, window_start),
+		FOREIGN KEY (user_subscription_id) REFERENCES user_subscriptions(id) ON DELETE CASCADE,
+		FOREIGN KEY (plan_id) REFERENCES subscription_plans(id) ON DELETE CASCADE
+	);
+	CREATE INDEX IF NOT EXISTS idx_subscription_window_state_sub_window ON subscription_window_state(user_subscription_id, window_start DESC);
+	CREATE INDEX IF NOT EXISTS idx_subscription_window_state_plan_limit ON subscription_window_state(plan_id, limit_type, window_start DESC);
+
+		CREATE TABLE IF NOT EXISTS billing_reservations (
+			request_id TEXT PRIMARY KEY,
+			user_id TEXT NOT NULL,
+			user_subscription_id TEXT,
+			pricing_model TEXT,
+		estimated_cost_micros BIGINT NOT NULL DEFAULT 0,
+		actual_cost_micros BIGINT NOT NULL DEFAULT 0,
+		reserved_subscription_micros BIGINT NOT NULL DEFAULT 0,
+		reserved_balance_micros BIGINT NOT NULL DEFAULT 0,
+			charged_subscription_micros BIGINT NOT NULL DEFAULT 0,
+			charged_balance_micros BIGINT NOT NULL DEFAULT 0,
+			status TEXT NOT NULL,
+			window_refs_json TEXT,
+			expires_at DATETIME NOT NULL,
+			created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+			updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+		FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+		FOREIGN KEY (user_subscription_id) REFERENCES user_subscriptions(id) ON DELETE SET NULL
+	);
+	CREATE INDEX IF NOT EXISTS idx_billing_reservations_user_status ON billing_reservations(user_id, status, created_at DESC);
+	CREATE INDEX IF NOT EXISTS idx_billing_reservations_expires ON billing_reservations(status, expires_at);
+
+	CREATE TABLE IF NOT EXISTS billing_projection_events (
+		stream_id TEXT PRIMARY KEY,
+		request_id TEXT,
+		event_type TEXT NOT NULL,
+		created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+	);
+	CREATE INDEX IF NOT EXISTS idx_billing_projection_events_request ON billing_projection_events(request_id, created_at DESC);
 
 	CREATE TABLE IF NOT EXISTS billing_events (
 		id TEXT PRIMARY KEY,
@@ -732,6 +809,94 @@ func runMigrations() error {
 		{
 			name: "add_billing_events_request_created_index",
 			sql:  `CREATE INDEX IF NOT EXISTS idx_billing_events_request_created ON billing_events(request_log_id, created_at DESC)`,
+		},
+		{
+			name: "create_billing_account_state_table",
+			sql: `CREATE TABLE IF NOT EXISTS billing_account_state (
+				user_id TEXT PRIMARY KEY,
+				primary_source TEXT NOT NULL DEFAULT 'subscription',
+				secondary_source TEXT NOT NULL DEFAULT 'balance',
+				balance_micros BIGINT NOT NULL DEFAULT 0,
+				active_subscription_id TEXT,
+				active_plan_id TEXT,
+				subscription_starts_at DATETIME,
+				subscription_expires_at DATETIME,
+				revision BIGINT NOT NULL DEFAULT 0,
+				created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+				updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+				FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+			)`,
+		},
+		{
+			name: "create_subscription_window_state_table",
+			sql: `CREATE TABLE IF NOT EXISTS subscription_window_state (
+				id TEXT PRIMARY KEY,
+				user_subscription_id TEXT NOT NULL,
+				plan_id TEXT NOT NULL,
+				limit_type TEXT NOT NULL,
+				window_mode TEXT NOT NULL,
+				window_start DATETIME NOT NULL,
+				window_end DATETIME NOT NULL,
+				limit_micros BIGINT NOT NULL,
+				used_micros BIGINT NOT NULL DEFAULT 0,
+				reserved_micros BIGINT NOT NULL DEFAULT 0,
+				remaining_micros BIGINT NOT NULL,
+				revision BIGINT NOT NULL DEFAULT 0,
+				created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+				updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+				UNIQUE(user_subscription_id, limit_type, window_start),
+				FOREIGN KEY (user_subscription_id) REFERENCES user_subscriptions(id) ON DELETE CASCADE,
+				FOREIGN KEY (plan_id) REFERENCES subscription_plans(id) ON DELETE CASCADE
+			)`,
+		},
+		{
+			name: "create_subscription_window_state_indexes",
+			sql: `CREATE INDEX IF NOT EXISTS idx_subscription_window_state_sub_window ON subscription_window_state(user_subscription_id, window_start DESC);
+				  CREATE INDEX IF NOT EXISTS idx_subscription_window_state_plan_limit ON subscription_window_state(plan_id, limit_type, window_start DESC)`,
+		},
+		{
+			name: "create_billing_reservations_table",
+			sql: `CREATE TABLE IF NOT EXISTS billing_reservations (
+				request_id TEXT PRIMARY KEY,
+				user_id TEXT NOT NULL,
+				user_subscription_id TEXT,
+				pricing_model TEXT,
+				estimated_cost_micros BIGINT NOT NULL DEFAULT 0,
+				actual_cost_micros BIGINT NOT NULL DEFAULT 0,
+				reserved_subscription_micros BIGINT NOT NULL DEFAULT 0,
+				reserved_balance_micros BIGINT NOT NULL DEFAULT 0,
+				charged_subscription_micros BIGINT NOT NULL DEFAULT 0,
+				charged_balance_micros BIGINT NOT NULL DEFAULT 0,
+				status TEXT NOT NULL,
+				window_refs_json TEXT,
+				expires_at DATETIME NOT NULL,
+				created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+				updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+				FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+				FOREIGN KEY (user_subscription_id) REFERENCES user_subscriptions(id) ON DELETE SET NULL
+			)`,
+		},
+		{
+			name: "add_billing_reservations_window_refs_json",
+			sql:  `ALTER TABLE billing_reservations ADD COLUMN window_refs_json TEXT`,
+		},
+		{
+			name: "create_billing_reservations_indexes",
+			sql: `CREATE INDEX IF NOT EXISTS idx_billing_reservations_user_status ON billing_reservations(user_id, status, created_at DESC);
+				  CREATE INDEX IF NOT EXISTS idx_billing_reservations_expires ON billing_reservations(status, expires_at)`,
+		},
+		{
+			name: "create_billing_projection_events_table",
+			sql: `CREATE TABLE IF NOT EXISTS billing_projection_events (
+				stream_id TEXT PRIMARY KEY,
+				request_id TEXT,
+				event_type TEXT NOT NULL,
+				created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+			)`,
+		},
+		{
+			name: "create_billing_projection_events_request_index",
+			sql:  `CREATE INDEX IF NOT EXISTS idx_billing_projection_events_request ON billing_projection_events(request_id, created_at DESC)`,
 		},
 		{
 			name: "postgres_widen_users_balance_micros",

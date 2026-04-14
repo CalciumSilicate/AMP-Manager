@@ -28,6 +28,12 @@ type Config struct {
 
 	// 数据加密密钥 (32 bytes for AES-256)
 	DataEncryptionKey string
+
+	RedisURL                    string
+	RedisPrefix                 string
+	BillingReservationTTLSec    int
+	BillingReconcileIntervalSec int
+	BillingStreamBatchSize      int
 }
 
 var cfg *Config
@@ -53,19 +59,24 @@ func Load() *Config {
 	}
 
 	cfg = &Config{
-		AdminUsername:      getEnv("ADMIN_USERNAME", "admin"),
-		AdminPassword:      getEnv("ADMIN_PASSWORD", "admin123"),
-		ServerPort:         getEnv("SERVER_PORT", "16823"),
-		JWTSecret:          getEnv("JWT_SECRET", "amp-manager-default-secret-change-in-production"),
-		JWTIssuer:          getEnv("JWT_ISSUER", "ampmanager"),
-		JWTAudience:        getEnv("JWT_AUDIENCE", "ampmanager-users"),
-		DBType:             getEnv("DB_TYPE", defaultDBType),
-		DatabaseURL:        getEnv("DATABASE_URL", defaultDatabaseURL),
-		SQLitePath:         getEnv("SQLITE_PATH", defaultSQLitePath),
-		CORSAllowedOrigins: getEnv("CORS_ALLOWED_ORIGINS", "*"),
-		RateLimitAuthRPS:   getEnvFloat("RATE_LIMIT_AUTH_RPS", 5),
-		RateLimitProxyRPS:  getEnvFloat("RATE_LIMIT_PROXY_RPS", 100),
-		DataEncryptionKey:  getEnv("DATA_ENCRYPTION_KEY", ""),
+		AdminUsername:               getEnv("ADMIN_USERNAME", "admin"),
+		AdminPassword:               getEnv("ADMIN_PASSWORD", "admin123"),
+		ServerPort:                  getEnv("SERVER_PORT", "16823"),
+		JWTSecret:                   getEnv("JWT_SECRET", "amp-manager-default-secret-change-in-production"),
+		JWTIssuer:                   getEnv("JWT_ISSUER", "ampmanager"),
+		JWTAudience:                 getEnv("JWT_AUDIENCE", "ampmanager-users"),
+		DBType:                      getEnv("DB_TYPE", defaultDBType),
+		DatabaseURL:                 getEnv("DATABASE_URL", defaultDatabaseURL),
+		SQLitePath:                  getEnv("SQLITE_PATH", defaultSQLitePath),
+		CORSAllowedOrigins:          getEnv("CORS_ALLOWED_ORIGINS", "*"),
+		RateLimitAuthRPS:            getEnvFloat("RATE_LIMIT_AUTH_RPS", 5),
+		RateLimitProxyRPS:           getEnvFloat("RATE_LIMIT_PROXY_RPS", 100),
+		DataEncryptionKey:           getEnv("DATA_ENCRYPTION_KEY", ""),
+		RedisURL:                    getEnv("REDIS_URL", ""),
+		RedisPrefix:                 getEnv("REDIS_PREFIX", "ampmanager"),
+		BillingReservationTTLSec:    getEnvInt("BILLING_RESERVATION_TTL_SEC", 600),
+		BillingReconcileIntervalSec: getEnvInt("BILLING_RECONCILE_INTERVAL_SEC", 60),
+		BillingStreamBatchSize:      getEnvInt("BILLING_STREAM_BATCH_SIZE", 100),
 	}
 	return cfg
 }
@@ -130,6 +141,15 @@ func getEnvFloat(key string, defaultValue float64) float64 {
 	if value := os.Getenv(key); value != "" {
 		if f, err := strconv.ParseFloat(value, 64); err == nil {
 			return f
+		}
+	}
+	return defaultValue
+}
+
+func getEnvInt(key string, defaultValue int) int {
+	if value := os.Getenv(key); value != "" {
+		if parsed, err := strconv.Atoi(value); err == nil {
+			return parsed
 		}
 	}
 	return defaultValue

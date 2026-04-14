@@ -126,30 +126,19 @@ func ApplyModelMappingMiddleware() gin.HandlerFunc {
 		// Read body for non-Gemini requests or if path extraction failed
 		var bodyBytes []byte
 		var payload map[string]interface{}
-
-		if c.Request.Body != nil && c.Request.ContentLength != 0 {
-			var err error
-			bodyBytes, err = io.ReadAll(c.Request.Body)
-			if err == nil {
-				contentType := c.GetHeader("Content-Type")
-				if strings.Contains(contentType, "application/json") {
-					if err := json.Unmarshal(bodyBytes, &payload); err == nil {
-						if modelName == "" {
-							if bodyModel, ok := payload["model"].(string); ok && bodyModel != "" {
-								modelName = bodyModel
-								modelSource = "body"
-							}
-						}
-					}
+		if requestPayload, err := EnsureRequestPayload(c); err == nil {
+			bodyBytes = requestPayload.Body
+			payload = requestPayload.JSON
+			if modelName == "" && payload != nil {
+				if bodyModel, ok := payload["model"].(string); ok && bodyModel != "" {
+					modelName = bodyModel
+					modelSource = "body"
 				}
 			}
 		}
 
 		// No model found, restore body and continue
 		if modelName == "" {
-			if bodyBytes != nil {
-				c.Request.Body = io.NopCloser(bytes.NewBuffer(bodyBytes))
-			}
 			c.Next()
 			return
 		}
@@ -158,9 +147,6 @@ func ApplyModelMappingMiddleware() gin.HandlerFunc {
 		result := applyMappingWithHeaders(modelName, mappings, c.GetHeader)
 
 		if !result.Applied {
-			if bodyBytes != nil {
-				c.Request.Body = io.NopCloser(bytes.NewBuffer(bodyBytes))
-			}
 			c.Next()
 			return
 		}
@@ -170,9 +156,6 @@ func ApplyModelMappingMiddleware() gin.HandlerFunc {
 			channel, err := mappingChannelService.SelectSpecificChannelForModelWithGroups(result.PreferredChannelID, result.MappedModel, cfg.GroupIDs)
 			if err != nil || channel == nil {
 				log.Warnf("model mapping: preferred channel '%s' cannot serve model '%s', skipping mapping", result.PreferredChannelID, result.MappedModel)
-				if bodyBytes != nil {
-					c.Request.Body = io.NopCloser(bytes.NewBuffer(bodyBytes))
-				}
 				c.Next()
 				return
 			}
@@ -180,9 +163,6 @@ func ApplyModelMappingMiddleware() gin.HandlerFunc {
 			channel, err := mappingChannelService.SelectChannelForModel(result.MappedModel)
 			if err != nil || channel == nil {
 				log.Warnf("model mapping: target model '%s' has no available channel, skipping mapping", result.MappedModel)
-				if bodyBytes != nil {
-					c.Request.Body = io.NopCloser(bytes.NewBuffer(bodyBytes))
-				}
 				c.Next()
 				return
 			}

@@ -1,11 +1,13 @@
 package service
 
 import (
+	"context"
 	"database/sql"
 	"errors"
 	"fmt"
 	"time"
 
+	"ampmanager/internal/billingstate"
 	"ampmanager/internal/database"
 	"ampmanager/internal/model"
 	"ampmanager/internal/repository"
@@ -14,8 +16,8 @@ import (
 )
 
 var (
-	ErrPlanDisabled          = errors.New("该套餐已禁用")
-	ErrNoActiveSubscription  = errors.New("用户没有活跃订阅")
+	ErrPlanDisabled         = errors.New("该套餐已禁用")
+	ErrNoActiveSubscription = errors.New("用户没有活跃订阅")
 )
 
 type UserSubscriptionService struct {
@@ -96,6 +98,12 @@ func (s *UserSubscriptionService) Assign(userID string, req *model.AssignSubscri
 		return nil, fmt.Errorf("assign subscription: commit: %w", err)
 	}
 
+	if runtime := billingstate.Get(); runtime != nil {
+		if err := runtime.RefreshUserState(context.Background(), userID); err != nil {
+			return nil, err
+		}
+	}
+
 	return &model.UserSubscriptionResponse{
 		ID:        sub.ID,
 		UserID:    sub.UserID,
@@ -151,7 +159,13 @@ func (s *UserSubscriptionService) Cancel(userID string) error {
 	if sub == nil {
 		return ErrNoActiveSubscription
 	}
-	return s.subRepo.UpdateStatus(sub.ID, model.SubscriptionStatusCancelled)
+	if err := s.subRepo.UpdateStatus(sub.ID, model.SubscriptionStatusCancelled); err != nil {
+		return err
+	}
+	if runtime := billingstate.Get(); runtime != nil {
+		return runtime.RefreshUserState(context.Background(), userID)
+	}
+	return nil
 }
 
 func (s *UserSubscriptionService) UpdateExpiry(userID string, expiresAt time.Time) error {
@@ -162,7 +176,13 @@ func (s *UserSubscriptionService) UpdateExpiry(userID string, expiresAt time.Tim
 	if sub == nil {
 		return ErrNoActiveSubscription
 	}
-	return s.subRepo.UpdateExpiry(sub.ID, expiresAt)
+	if err := s.subRepo.UpdateExpiry(sub.ID, expiresAt); err != nil {
+		return err
+	}
+	if runtime := billingstate.Get(); runtime != nil {
+		return runtime.RefreshUserState(context.Background(), userID)
+	}
+	return nil
 }
 
 func (s *UserSubscriptionService) ListByUserID(userID string) ([]*model.UserSubscriptionResponse, error) {

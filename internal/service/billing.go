@@ -1,12 +1,14 @@
 package service
 
 import (
+	"context"
 	"database/sql"
 	"errors"
 	"fmt"
 	"math"
 	"time"
 
+	"ampmanager/internal/billingstate"
 	"ampmanager/internal/database"
 	"ampmanager/internal/model"
 	"ampmanager/internal/repository"
@@ -27,6 +29,13 @@ type BillingService struct {
 	userRepo    repository.UserRepositoryInterface
 	quotaSvc    *QuotaService
 	subSvc      *UserSubscriptionService
+}
+
+type AdmissionRequest struct {
+	RequestID           string
+	UserID              string
+	PricingModel        string
+	EstimatedCostMicros int64
 }
 
 func NewBillingService() *BillingService {
@@ -60,6 +69,10 @@ func NewBillingServiceWithRepo(
 }
 
 func (s *BillingService) CanStartRequest(userID string) (bool, error) {
+	return s.canStartRequestLegacy(userID)
+}
+
+func (s *BillingService) canStartRequestLegacy(userID string) (bool, error) {
 	setting, err := s.settingRepo.GetByUserID(userID)
 	if err != nil {
 		return false, err
@@ -107,6 +120,19 @@ func (s *BillingService) CanStartRequest(userID string) (bool, error) {
 	return false, nil
 }
 
+func (s *BillingService) ReserveRequest(req AdmissionRequest) (bool, error) {
+	if runtime := billingstate.Get(); runtime != nil {
+		if err := runtime.ReserveRequest(context.Background(), req.RequestID, req.UserID, req.EstimatedCostMicros); err != nil {
+			if errors.Is(err, billingstate.ErrInsufficientBudget) {
+				return false, nil
+			}
+			return false, err
+		}
+		return true, nil
+	}
+	return s.canStartRequestLegacy(req.UserID)
+}
+
 func (s *BillingService) calcSubscriptionRemaining(sub *model.UserSubscription, limits []model.SubscriptionPlanLimit) int64 {
 	now := time.Now().UTC()
 	minRemaining := int64(math.MaxInt64)
@@ -136,6 +162,34 @@ func (s *BillingService) calcSubscriptionRemaining(sub *model.UserSubscription, 
 }
 
 func (s *BillingService) SettleRequestCost(requestLogID, userID string, costMicros int64) error {
+	if runtime := billingstate.Get(); runtime != nil {
+		result, err := runtime.SettleRequest(context.Background(), requestLogID, userID, costMicros)
+		if err != nil {
+			if errors.Is(err, billingstate.ErrReservationNotFound) {
+				return s.settleRequestCostLegacy(requestLogID, userID, costMicros)
+			}
+			return err
+		}
+
+		status := "free"
+		if result != nil {
+			status = result.Status
+			if status == "" {
+				status = "settled"
+			}
+		}
+		chargedSub := int64(0)
+		chargedBal := int64(0)
+		if result != nil {
+			chargedSub = result.ChargedSubscriptionMicros
+			chargedBal = result.ChargedBalanceMicros
+		}
+		return s.markBillingStatus(requestLogID, status, chargedSub, chargedBal)
+	}
+	return s.settleRequestCostLegacy(requestLogID, userID, costMicros)
+}
+
+func (s *BillingService) settleRequestCostLegacy(requestLogID, userID string, costMicros int64) error {
 	if costMicros < 0 {
 		return fmt.Errorf("billing: invalid negative cost %d", costMicros)
 	}

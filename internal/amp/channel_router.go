@@ -289,31 +289,14 @@ func extractModelName(c *gin.Context) string {
 		}
 	}
 
-	if c.Request.Body == nil || c.Request.ContentLength == 0 {
+	payload, err := EnsureRequestPayload(c)
+	if err != nil || payload == nil || payload.JSON == nil {
 		return ""
 	}
-
-	contentType := c.GetHeader("Content-Type")
-	if !strings.Contains(contentType, "application/json") {
-		return ""
+	if modelName, ok := payload.JSON["model"].(string); ok {
+		return modelName
 	}
-
-	bodyBytes, err := io.ReadAll(io.LimitReader(c.Request.Body, 10*1024*1024))
-	if err != nil {
-		return ""
-	}
-	c.Request.Body = io.NopCloser(bytes.NewBuffer(bodyBytes))
-	c.Request.ContentLength = int64(len(bodyBytes))
-	c.Request.TransferEncoding = nil
-
-	var payload struct {
-		Model string `json:"model"`
-	}
-	if err := json.Unmarshal(bodyBytes, &payload); err != nil {
-		return ""
-	}
-
-	return payload.Model
+	return ""
 }
 
 // ChannelProxyHandler creates a handler using httputil.ReverseProxy for robust proxying
@@ -372,23 +355,22 @@ func ChannelProxyHandler() gin.HandlerFunc {
 		// Some clients send JSON bodies with chunked transfer encoding (Content-Length = -1).
 		// We still need to buffer the body so /v1/responses SSE retry can replay it.
 		if c.Request.Body != nil {
-			bodyBytes, err := io.ReadAll(io.LimitReader(c.Request.Body, 10*1024*1024))
-			c.Request.Body.Close()
+			requestPayload, err := EnsureRequestPayload(c)
 			if err != nil {
 				log.Errorf("channel proxy: failed to read request body: %v", err)
 				c.JSON(http.StatusInternalServerError, NewStandardError(http.StatusInternalServerError, "failed to read request body"))
 				return
 			}
+			bodyBytes := requestPayload.Body
 			originalRequestBody = bodyBytes
 			convertedBody = bodyBytes
 
 			// Check if streaming
-			var payload struct {
-				Stream bool `json:"stream"`
-			}
-			if err := json.Unmarshal(bodyBytes, &payload); err == nil {
-				clientWantsStream = payload.Stream
-				isStreaming = payload.Stream
+			if requestPayload.JSON != nil {
+				if stream, ok := requestPayload.JSON["stream"].(bool); ok {
+					clientWantsStream = stream
+					isStreaming = stream
+				}
 			}
 
 			// Apply outgoing format filters (e.g., Claude system string to array)
@@ -498,8 +480,12 @@ func ChannelProxyHandler() gin.HandlerFunc {
 		var trace *RequestTrace
 		if IsModelInvocation(c.Request.Method, c.Request.URL.Path) {
 			if cfg := GetProxyConfig(c.Request.Context()); cfg != nil {
+				requestID := GetRequestID(c.Request.Context())
+				if requestID == "" {
+					requestID = uuid.New().String()
+				}
 				trace = NewRequestTrace(
-					uuid.New().String(),
+					requestID,
 					cfg.UserID,
 					cfg.APIKeyID,
 					c.Request.Method,
