@@ -80,6 +80,24 @@ type runtimeKnobs struct {
 	projectorClaimIdle int
 }
 
+type runtimeKnobsJSON struct {
+	StreamBatchSize    int `json:"streamBatchSize"`
+	ReconcileBatchSize int `json:"reconcileBatchSize"`
+	ExpiryBatchSize    int `json:"expiryBatchSize"`
+	ProjectorWorkers   int `json:"projectorWorkers"`
+	ProjectorClaimIdle int `json:"projectorClaimIdleSec"`
+}
+
+func (k runtimeKnobs) MarshalJSON() ([]byte, error) {
+	return json.Marshal(runtimeKnobsJSON{
+		StreamBatchSize:    k.streamBatchSize,
+		ReconcileBatchSize: k.reconcileBatchSize,
+		ExpiryBatchSize:    k.expiryBatchSize,
+		ProjectorWorkers:   k.projectorWorkers,
+		ProjectorClaimIdle: k.projectorClaimIdle,
+	})
+}
+
 type scenario struct {
 	name             string
 	clientStream     bool
