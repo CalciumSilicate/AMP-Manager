@@ -147,14 +147,17 @@ docker-compose up -d
 ```bash
 DB_TYPE=postgres
 DATABASE_URL=postgres://postgres:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}?sslmode=disable
+REDIS_URL=redis://redis:6379/0
 docker-compose up -d
 ```
 
 说明：
 
 1. `postgres` 是 compose 内部服务名。
-2. 容器内连接 PostgreSQL 时应使用 `postgres:5432`，不要写 `localhost:5432`。
-3. 当前 `docker-compose.yml` 已为 `ampmanager` 配置 `depends_on + healthcheck`，会等待 PostgreSQL 就绪后再启动应用。
+2. `redis` 是 compose 内部 Redis 服务名。
+3. 容器内连接 PostgreSQL 时应使用 `postgres:5432`，不要写 `localhost:5432`。
+4. 容器内连接 Redis 时应使用 `redis:6379`，不要写 `localhost:6379`。
+5. 当前 `docker-compose.yml` 已为 `ampmanager` 配置 `depends_on + healthcheck`，会等待 PostgreSQL 和 Redis 就绪后再启动应用。
 
 ### 二进制部署
 
@@ -191,6 +194,8 @@ chmod +x manage.sh
 | `DB_TYPE` | 数据库类型，支持 `sqlite` / `postgres` | `sqlite` |
 | `SQLITE_PATH` | SQLite 数据库文件路径 | `./data/data.db` |
 | `DATABASE_URL` | PostgreSQL 连接串（`DB_TYPE=postgres` 时必填） | 空 |
+| `REDIS_URL` | Redis 连接串，多实例共享计费热路径时必填 | 空 |
+| `REDIS_PREFIX` | Redis Key 前缀 | `ampmanager` |
 | `ADMIN_USERNAME` | 管理员用户名 | `admin` |
 | `ADMIN_PASSWORD` | 管理员密码（**生产必须修改**） | `admin123` |
 | `SERVER_PORT` | 服务端口 | `16823` |
@@ -202,6 +207,9 @@ chmod +x manage.sh
 | `RATE_LIMIT_AUTH_RPS` | 认证端点每秒请求限制 | `5` |
 | `RATE_LIMIT_PROXY_RPS` | 代理端点每秒请求限制 | `100` |
 | `ALLOW_INSECURE_DEFAULTS` | 跳过安全校验（仅开发用） | `false` |
+| `BILLING_RESERVATION_TTL_SEC` | 计费预留 TTL（秒） | `600` |
+| `BILLING_RECONCILE_INTERVAL_SEC` | Redis 与 PostgreSQL 对账间隔（秒） | `60` |
+| `BILLING_STREAM_BATCH_SIZE` | Redis Stream projector 批大小 | `100` |
 
 > ⚠️ 生产环境**必须**修改 `ADMIN_PASSWORD` 和 `JWT_SECRET`，否则服务将拒绝启动。
 

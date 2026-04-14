@@ -17,6 +17,21 @@ services:
       timeout: 5s
       retries: 20
 
+  redis:
+    image: redis:7-alpine
+    container_name: ampmanager-local-redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - ampmanager_local_redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
   ampmanager:
     build:
       context: .
@@ -25,6 +40,8 @@ services:
     restart: unless-stopped
     depends_on:
       postgres:
+        condition: service_healthy
+      redis:
         condition: service_healthy
     ports:
       - "16823:16823"
@@ -44,7 +61,10 @@ services:
       RATE_LIMIT_PROXY_RPS: "1000"
       DB_TYPE: postgres
       DATABASE_URL: postgres://postgres:mysecretpassword@postgres:5432/ampmanager?sslmode=disable
+      REDIS_URL: redis://redis:6379/0
+      REDIS_PREFIX: ampmanager-local
       SQLITE_PATH: /app/data/data.db
 
 volumes:
   ampmanager_local_postgres_data:
+  ampmanager_local_redis_data:

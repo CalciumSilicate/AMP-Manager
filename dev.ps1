@@ -79,9 +79,10 @@ Ensure-Command -Name docker -InstallHint "请先安装 Docker Desktop 并确保 
 
 $airExecutable = Get-AirExecutable
 
-Write-Host "[1/4] 启动 PostgreSQL 容器..." -ForegroundColor Green
-& docker compose -f $composeFile up -d postgres | Out-Host
+Write-Host "[1/4] 启动 PostgreSQL 与 Redis 容器..." -ForegroundColor Green
+& docker compose -f $composeFile up -d postgres redis | Out-Host
 Wait-ForPort -HostName "127.0.0.1" -Port 5432
+Wait-ForPort -HostName "127.0.0.1" -Port 6379
 
 Write-Host ""
 Write-Host "[2/4] 安装前端依赖..." -ForegroundColor Green
@@ -99,6 +100,8 @@ $backendCommand = @"
 `$env:AMP_DEV_RUNTIME_DB_CONFIG='true'
 `$env:CORS_ALLOWED_ORIGINS='http://localhost:5274'
 `$env:SERVER_PORT='16823'
+`$env:REDIS_URL='redis://localhost:6379/0'
+`$env:REDIS_PREFIX='ampmanager-dev'
 Set-Location '$repoRoot'
 & '$airExecutable'
 "@
@@ -116,6 +119,7 @@ Write-Host "==============================" -ForegroundColor Cyan
 Write-Host "   前端: http://localhost:5274" -ForegroundColor Yellow
 Write-Host "   后端: http://localhost:16823" -ForegroundColor Yellow
 Write-Host "   PostgreSQL 容器: localhost:5432" -ForegroundColor Yellow
+Write-Host "   Redis 容器: localhost:6379" -ForegroundColor Yellow
 Write-Host "   默认数据库模式: 读取 ./data/config.json；首次缺省为 PostgreSQL" -ForegroundColor Yellow
 Write-Host "==============================" -ForegroundColor Cyan
 Write-Host ""
