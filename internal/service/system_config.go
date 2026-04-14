@@ -6,7 +6,6 @@ import (
 	"ampmanager/internal/model"
 	"ampmanager/internal/repository"
 	"encoding/json"
-	"os"
 	"regexp"
 	"strconv"
 	"strings"
@@ -345,28 +344,19 @@ func (s *SystemConfigService) GetBillingRuntimeConfigRequest() (model.BillingRun
 	if stored.StreamBatchSize > 0 {
 		resp.StreamBatchSize = stored.StreamBatchSize
 	}
+	cfg := config.Get()
 	if stored.ReconcileBatchSize > 0 {
 		resp.ReconcileBatchSize = stored.ReconcileBatchSize
-	} else if !envHasExplicitBillingReconcileBatchSize() {
+	} else if cfg == nil || !cfg.BillingEnvExplicit.ReconcileBatchSize {
 		resp.ReconcileBatchSize = resp.StreamBatchSize
 	}
 	if stored.ExpiryBatchSize > 0 {
 		resp.ExpiryBatchSize = stored.ExpiryBatchSize
-	} else if !envHasExplicitBillingExpiryBatchSize() {
+	} else if cfg == nil || !cfg.BillingEnvExplicit.ExpiryBatchSize {
 		resp.ExpiryBatchSize = resp.StreamBatchSize
 	}
 
 	return normalizeBillingRuntimeConfigRequest(resp), nil
-}
-
-func envHasExplicitBillingReconcileBatchSize() bool {
-	_, ok := os.LookupEnv("BILLING_RECONCILE_BATCH_SIZE")
-	return ok
-}
-
-func envHasExplicitBillingExpiryBatchSize() bool {
-	_, ok := os.LookupEnv("BILLING_EXPIRY_BATCH_SIZE")
-	return ok
 }
 
 func (s *SystemConfigService) GetBillingRuntimeConfig() (model.BillingRuntimeConfigResponse, error) {

@@ -36,6 +36,12 @@ type Config struct {
 	BillingStreamBatchSize      int
 	BillingReconcileBatchSize   int
 	BillingExpiryBatchSize      int
+	BillingEnvExplicit          BillingEnvExplicit
+}
+
+type BillingEnvExplicit struct {
+	ReconcileBatchSize bool
+	ExpiryBatchSize    bool
 }
 
 var cfg *Config
@@ -81,6 +87,10 @@ func Load() *Config {
 		BillingStreamBatchSize:      getEnvInt("BILLING_STREAM_BATCH_SIZE", 100),
 		BillingReconcileBatchSize:   getEnvInt("BILLING_RECONCILE_BATCH_SIZE", getEnvInt("BILLING_STREAM_BATCH_SIZE", 100)),
 		BillingExpiryBatchSize:      getEnvInt("BILLING_EXPIRY_BATCH_SIZE", getEnvInt("BILLING_STREAM_BATCH_SIZE", 100)),
+		BillingEnvExplicit: BillingEnvExplicit{
+			ReconcileBatchSize: hasEnv("BILLING_RECONCILE_BATCH_SIZE"),
+			ExpiryBatchSize:    hasEnv("BILLING_EXPIRY_BATCH_SIZE"),
+		},
 	}
 	return cfg
 }
@@ -157,4 +167,9 @@ func getEnvInt(key string, defaultValue int) int {
 		}
 	}
 	return defaultValue
+}
+
+func hasEnv(key string) bool {
+	_, ok := os.LookupEnv(key)
+	return ok
 }
