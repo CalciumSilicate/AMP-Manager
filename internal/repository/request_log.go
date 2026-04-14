@@ -46,7 +46,19 @@ func normalizeRequestLogDisplay(log *model.RequestLog) {
 	if log == nil {
 		return
 	}
+	log.BillingStatus = normalizeBillingStatus(log.BillingStatus)
 	log.InputTokens = displayInputTokens(log.InputTokens, log.CacheReadInputTokens)
+}
+
+func normalizeBillingStatus(status string) string {
+	switch status {
+	case "":
+		return "none"
+	case "under_reserved":
+		return "overuse"
+	default:
+		return status
+	}
 }
 
 func enrichRequestLogMetrics(log *model.RequestLog) {
@@ -55,9 +67,6 @@ func enrichRequestLogMetrics(log *model.RequestLog) {
 	}
 
 	normalizeRequestLogDisplay(log)
-	if log.BillingStatus == "" {
-		log.BillingStatus = "none"
-	}
 	if log.CostMicros != nil {
 		gap := *log.CostMicros - log.ChargedSubscriptionMicros - log.ChargedBalanceMicros
 		if gap < 0 {
