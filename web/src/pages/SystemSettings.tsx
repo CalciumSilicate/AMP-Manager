@@ -85,6 +85,7 @@ export default function SystemSettings({ siteName, onSiteNameChange }: Props) {
   const [retryLoading, setRetryLoading] = useState(false)
   const [requestDetailConfig, setRequestDetailConfig] = useState<RequestDetailConfig | null>(null)
   const [requestDetailLoading, setRequestDetailLoading] = useState(false)
+  const [requestDetailLoadError, setRequestDetailLoadError] = useState<string | null>(null)
   const [timeoutConfig, setTimeoutConfig] = useState<TimeoutConfig | null>(null)
   const [timeoutLoading, setTimeoutLoading] = useState(false)
   const [cacheTTL, setCacheTTL] = useState<string>('1h')
@@ -149,11 +150,13 @@ export default function SystemSettings({ siteName, onSiteNameChange }: Props) {
 
   const fetchRequestDetailConfig = async () => {
     setRequestDetailLoading(true)
+    setRequestDetailLoadError(null)
     try {
       const data = await getRequestDetailConfig()
       setRequestDetailConfig(data)
     } catch (err) {
       console.error('获取请求详情监控配置失败:', err)
+      setRequestDetailLoadError(err instanceof Error ? err.message : '获取请求详情监控配置失败')
     } finally {
       setRequestDetailLoading(false)
     }
@@ -892,8 +895,19 @@ export default function SystemSettings({ siteName, onSiteNameChange }: Props) {
                       {retryLoading ? '保存中...' : '保存配置'}
                     </Button>
                   </>
-                ) : (
+                ) : requestDetailLoading ? (
                   <div className="text-center text-muted-foreground py-4">加载中...</div>
+                ) : (
+                  <div className="space-y-4">
+                    <Alert variant="destructive">
+                      <AlertDescription>
+                        {requestDetailLoadError || '请求详情监控配置加载失败，请重试。'}
+                      </AlertDescription>
+                    </Alert>
+                    <Button variant="outline" onClick={fetchRequestDetailConfig} disabled={requestDetailLoading}>
+                      重新加载
+                    </Button>
+                  </div>
                 )}
               </CardContent>
             </Card>
