@@ -191,6 +191,47 @@ export async function updateRetryConfig(config: RetryConfig): Promise<{ message:
   return res.json()
 }
 
+export type RequestDetailHighRPMMode = 'full' | 'off' | 'sample'
+
+export interface RequestDetailConfig {
+  enabled: boolean
+  ttlSec: number
+  maxEntries: number
+  maxMemoryMB: number
+  bodyCapKB: number
+  persistEnabled: boolean
+  highRpmMode: RequestDetailHighRPMMode
+  highRpmThreshold: number
+  highRpmSamplePercent: number
+}
+
+export async function getRequestDetailConfig(): Promise<RequestDetailConfig> {
+  const res = await authFetch(`${API_BASE}/admin/system/request-detail-config`)
+
+  if (!res.ok) {
+    const data = await res.json()
+    throw new Error(data.error || '获取配置失败')
+  }
+
+  return res.json()
+}
+
+export async function updateRequestDetailConfig(
+  config: RequestDetailConfig
+): Promise<{ message: string; config: RequestDetailConfig }> {
+  const res = await authFetch(`${API_BASE}/admin/system/request-detail-config`, {
+    method: 'PUT',
+    body: JSON.stringify(config),
+  })
+
+  if (!res.ok) {
+    const data = await res.json()
+    throw new Error(data.error || '更新配置失败')
+  }
+
+  return res.json()
+}
+
 // 获取请求详情监控状态
 export async function getRequestDetailEnabled(): Promise<{ enabled: boolean }> {
   const res = await authFetch(`${API_BASE}/admin/system/request-detail-enabled`)
