@@ -6,6 +6,7 @@ import (
 	"ampmanager/internal/model"
 	"ampmanager/internal/repository"
 	"encoding/json"
+	"os"
 	"regexp"
 	"strconv"
 	"strings"
@@ -280,6 +281,12 @@ func defaultBillingRuntimeConfigRequest() model.BillingRuntimeConfigRequest {
 		if cfg.BillingStreamBatchSize > 0 {
 			resp.StreamBatchSize = cfg.BillingStreamBatchSize
 		}
+		if cfg.BillingReconcileBatchSize > 0 {
+			resp.ReconcileBatchSize = cfg.BillingReconcileBatchSize
+		}
+		if cfg.BillingExpiryBatchSize > 0 {
+			resp.ExpiryBatchSize = cfg.BillingExpiryBatchSize
+		}
 	}
 
 	return normalizeBillingRuntimeConfigRequest(resp)
@@ -299,6 +306,12 @@ func normalizeBillingRuntimeConfigRequest(req model.BillingRuntimeConfigRequest)
 	}
 	if req.StreamBatchSize <= 0 {
 		req.StreamBatchSize = 100
+	}
+	if req.ReconcileBatchSize <= 0 {
+		req.ReconcileBatchSize = req.StreamBatchSize
+	}
+	if req.ExpiryBatchSize <= 0 {
+		req.ExpiryBatchSize = req.StreamBatchSize
 	}
 	return req
 }
@@ -332,8 +345,28 @@ func (s *SystemConfigService) GetBillingRuntimeConfigRequest() (model.BillingRun
 	if stored.StreamBatchSize > 0 {
 		resp.StreamBatchSize = stored.StreamBatchSize
 	}
+	if stored.ReconcileBatchSize > 0 {
+		resp.ReconcileBatchSize = stored.ReconcileBatchSize
+	} else if !envHasExplicitBillingReconcileBatchSize() {
+		resp.ReconcileBatchSize = resp.StreamBatchSize
+	}
+	if stored.ExpiryBatchSize > 0 {
+		resp.ExpiryBatchSize = stored.ExpiryBatchSize
+	} else if !envHasExplicitBillingExpiryBatchSize() {
+		resp.ExpiryBatchSize = resp.StreamBatchSize
+	}
 
 	return normalizeBillingRuntimeConfigRequest(resp), nil
+}
+
+func envHasExplicitBillingReconcileBatchSize() bool {
+	_, ok := os.LookupEnv("BILLING_RECONCILE_BATCH_SIZE")
+	return ok
+}
+
+func envHasExplicitBillingExpiryBatchSize() bool {
+	_, ok := os.LookupEnv("BILLING_EXPIRY_BATCH_SIZE")
+	return ok
 }
 
 func (s *SystemConfigService) GetBillingRuntimeConfig() (model.BillingRuntimeConfigResponse, error) {
@@ -349,6 +382,8 @@ func (s *SystemConfigService) GetBillingRuntimeConfig() (model.BillingRuntimeCon
 		ReservationTTLSec:    req.ReservationTTLSec,
 		ReconcileIntervalSec: req.ReconcileIntervalSec,
 		StreamBatchSize:      req.StreamBatchSize,
+		ReconcileBatchSize:   req.ReconcileBatchSize,
+		ExpiryBatchSize:      req.ExpiryBatchSize,
 		RuntimeEnabled:       strings.TrimSpace(req.RedisURL) != "",
 	}
 	resp.RuntimeHealthy = resp.RuntimeEnabled && billingstate.Get() != nil

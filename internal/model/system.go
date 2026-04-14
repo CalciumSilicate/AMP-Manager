@@ -98,6 +98,8 @@ type BillingRuntimeConfigResponse struct {
 	ReservationTTLSec    int    `json:"reservationTtlSec"`
 	ReconcileIntervalSec int    `json:"reconcileIntervalSec"`
 	StreamBatchSize      int    `json:"streamBatchSize"`
+	ReconcileBatchSize   int    `json:"reconcileBatchSize"`
+	ExpiryBatchSize      int    `json:"expiryBatchSize"`
 	RuntimeEnabled       bool   `json:"runtimeEnabled"`
 	RuntimeHealthy       bool   `json:"runtimeHealthy"`
 }
@@ -108,4 +110,6 @@ type BillingRuntimeConfigRequest struct {
 	ReservationTTLSec    int    `json:"reservationTtlSec"`
 	ReconcileIntervalSec int    `json:"reconcileIntervalSec"`
 	StreamBatchSize      int    `json:"streamBatchSize"`
+	ReconcileBatchSize   int    `json:"reconcileBatchSize"`
+	ExpiryBatchSize      int    `json:"expiryBatchSize"`
 }
