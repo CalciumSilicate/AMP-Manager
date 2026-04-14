@@ -73,6 +73,31 @@ func TestSettleRequestCostFallbackStillMarksRequestLog(t *testing.T) {
 	}
 }
 
+func TestApplyBillingResultMarksRequestLog(t *testing.T) {
+	db := setupBillingServiceTestDB(t)
+	now := time.Now().UTC()
+
+	mustExecBillingService(t, db, `INSERT INTO request_logs (id, created_at, user_id, api_key_id, method, path, status_code, latency_ms, cost_micros, cost_usd, billing_status) VALUES (?, ?, ?, 'key-1', 'POST', '/v1/responses', 200, 123, 5, '0.000005', 'none')`, "req-1", now, "user-1")
+
+	svc := NewBillingService()
+	if err := svc.ApplyBillingResult("req-1", &RequestBillingResult{
+		Status:                    "settled",
+		ChargedSubscriptionMicros: 0,
+		ChargedBalanceMicros:      5,
+	}); err != nil {
+		t.Fatalf("ApplyBillingResult returned error: %v", err)
+	}
+
+	var chargedSub, chargedBal int64
+	var status string
+	if err := db.QueryRow(`SELECT charged_subscription_micros, charged_balance_micros, billing_status FROM request_logs WHERE id = ?`, "req-1").Scan(&chargedSub, &chargedBal, &status); err != nil {
+		t.Fatalf("query request_logs returned error: %v", err)
+	}
+	if chargedSub != 0 || chargedBal != 5 || status != "settled" {
+		t.Fatalf("request log billing = sub:%d bal:%d status:%s", chargedSub, chargedBal, status)
+	}
+}
+
 func setupBillingServiceTestDB(t *testing.T) *sql.DB {
 	t.Helper()
 

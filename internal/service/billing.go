@@ -175,6 +175,13 @@ func (s *BillingService) SettleRequestCost(requestLogID, userID string, costMicr
 	if result == nil {
 		return nil
 	}
+	return s.ApplyBillingResult(requestLogID, result)
+}
+
+func (s *BillingService) ApplyBillingResult(requestLogID string, result *RequestBillingResult) error {
+	if result == nil {
+		return nil
+	}
 	return s.markBillingStatus(requestLogID, result.Status, result.ChargedSubscriptionMicros, result.ChargedBalanceMicros)
 }
 

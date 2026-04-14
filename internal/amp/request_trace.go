@@ -214,6 +214,27 @@ func (t *RequestTrace) SetBillingResult(result *service.RequestBillingResult) {
 	t.ChargedBalanceMicros = &chargedBal
 }
 
+func (t *RequestTrace) BillingResult() *service.RequestBillingResult {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+
+	if t.BillingStatus == nil && t.ChargedSubscriptionMicros == nil && t.ChargedBalanceMicros == nil {
+		return nil
+	}
+
+	result := &service.RequestBillingResult{}
+	if t.BillingStatus != nil {
+		result.Status = *t.BillingStatus
+	}
+	if t.ChargedSubscriptionMicros != nil {
+		result.ChargedSubscriptionMicros = *t.ChargedSubscriptionMicros
+	}
+	if t.ChargedBalanceMicros != nil {
+		result.ChargedBalanceMicros = *t.ChargedBalanceMicros
+	}
+	return result
+}
+
 // Clone 获取当前状态的快照
 func (t *RequestTrace) Clone() RequestTrace {
 	t.mu.Lock()
