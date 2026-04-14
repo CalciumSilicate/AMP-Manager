@@ -69,6 +69,7 @@ type runOptions struct {
 	outputFormat       string
 	runtimeKnobs       runtimeKnobs
 	projectorRequested int
+	claimIdleRequested int
 }
 
 type runtimeKnobs struct {
@@ -76,6 +77,7 @@ type runtimeKnobs struct {
 	reconcileBatchSize int
 	expiryBatchSize    int
 	projectorWorkers   int
+	projectorClaimIdle int
 }
 
 type scenario struct {
@@ -126,24 +128,26 @@ type stageMetrics struct {
 }
 
 type reportMetadata struct {
-	Profile                   string       `json:"profile"`
-	Label                     string       `json:"label,omitempty"`
-	Mode                      string       `json:"mode"`
-	Description               string       `json:"description"`
-	Model                     string       `json:"model"`
-	StageSeconds              int          `json:"stage_seconds"`
-	StageRPMs                 []int        `json:"stage_rpms"`
-	Timeout                   string       `json:"timeout"`
-	Seed                      int64        `json:"seed"`
-	TargetURL                 string       `json:"target_url"`
-	MockURL                   string       `json:"mock_url"`
-	StartedAt                 string       `json:"started_at"`
-	CompletedAt               string       `json:"completed_at"`
-	OutputFormat              string       `json:"output_format,omitempty"`
-	RuntimeKnobs              runtimeKnobs `json:"runtime_knobs"`
-	ProjectorWorkersRequested int          `json:"projector_workers_requested,omitempty"`
-	ProjectorWorkersApplied   bool         `json:"projector_workers_applied"`
-	CompareFields             []string     `json:"compare_fields,omitempty"`
+	Profile                        string       `json:"profile"`
+	Label                          string       `json:"label,omitempty"`
+	Mode                           string       `json:"mode"`
+	Description                    string       `json:"description"`
+	Model                          string       `json:"model"`
+	StageSeconds                   int          `json:"stage_seconds"`
+	StageRPMs                      []int        `json:"stage_rpms"`
+	Timeout                        string       `json:"timeout"`
+	Seed                           int64        `json:"seed"`
+	TargetURL                      string       `json:"target_url"`
+	MockURL                        string       `json:"mock_url"`
+	StartedAt                      string       `json:"started_at"`
+	CompletedAt                    string       `json:"completed_at"`
+	OutputFormat                   string       `json:"output_format,omitempty"`
+	RuntimeKnobs                   runtimeKnobs `json:"runtime_knobs"`
+	ProjectorWorkersRequested      int          `json:"projector_workers_requested,omitempty"`
+	ProjectorWorkersApplied        bool         `json:"projector_workers_applied"`
+	ProjectorClaimIdleSecRequested int          `json:"projector_claim_idle_sec_requested,omitempty"`
+	ProjectorClaimIdleSecApplied   bool         `json:"projector_claim_idle_sec_applied"`
+	CompareFields                  []string     `json:"compare_fields,omitempty"`
 }
 
 type reportSummary struct {
@@ -248,6 +252,7 @@ func main() {
 		reconcileBatchSize int
 		expiryBatchSize    int
 		projectorWorkers   int
+		projectorClaimIdle int
 	)
 
 	flag.IntVar(&stageSeconds, "stage-seconds", 8, "duration of each RPM stage in seconds")
@@ -265,6 +270,7 @@ func main() {
 	flag.IntVar(&reconcileBatchSize, "reconcile-batch-size", 0, "billing runtime reconcile batch size for shared billing mode; defaults to stream batch size when <= 0")
 	flag.IntVar(&expiryBatchSize, "expiry-batch-size", 0, "billing runtime expiry batch size for shared billing mode; defaults to stream batch size when <= 0")
 	flag.IntVar(&projectorWorkers, "projector-workers", 0, "billing runtime projector worker count for shared billing mode; defaults to runtime default when <= 0")
+	flag.IntVar(&projectorClaimIdle, "projector-claim-idle-sec", 0, "billing runtime projector reclaim idle seconds for shared billing mode; defaults to runtime default when <= 0")
 	flag.BoolVar(&legacyLocal, "legacy-local", false, "use self-contained sqlite smoke mode instead of real shared billing")
 	flag.Parse()
 
@@ -279,7 +285,8 @@ func main() {
 		reconcileBatchSize: reconcileBatchSize,
 		expiryBatchSize:    expiryBatchSize,
 		projectorWorkers:   projectorWorkers,
-	}, projectorWorkers)
+		projectorClaimIdle: projectorClaimIdle,
+	}, projectorWorkers, projectorClaimIdle)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "invalid options: %v\n", err)
 		os.Exit(1)
@@ -312,14 +319,20 @@ func main() {
 	fmt.Printf("compare_fields=profile,label,mode,stage_rpm,e2e_p95,e2e_p99,throughput_rps,error_rate,admission_p95,settle_p95,project_p95\n")
 	fmt.Printf("stage_plan=%s\n", joinRPMs(options.stageRPMs))
 	fmt.Printf(
-		"runtime_knobs=stream_batch_size:%d reconcile_batch_size:%d expiry_batch_size:%d projector_workers_requested:%s projector_workers_applied:%t projector_workers_applied_count:%d\n",
+		"runtime_knobs=stream_batch_size:%d reconcile_batch_size:%d expiry_batch_size:%d projector_workers_requested:%s projector_workers_applied:%t projector_workers_applied_count:%d projector_claim_idle_sec_requested:%s projector_claim_idle_sec_applied:%t projector_claim_idle_sec_applied_value:%s\n",
 		options.runtimeKnobs.streamBatchSize,
 		options.runtimeKnobs.reconcileBatchSize,
 		options.runtimeKnobs.expiryBatchSize,
 		displayOptionalInt(options.projectorRequested),
 		options.projectorRequested > 0,
 		options.runtimeKnobs.projectorWorkers,
+		displayOptionalInt(options.claimIdleRequested),
+		projectorClaimIdleSupported(),
+		displayAppliedOptionalInt(options.runtimeKnobs.projectorClaimIdle, projectorClaimIdleSupported()),
 	)
+	if options.claimIdleRequested > 0 && !projectorClaimIdleSupported() {
+		fmt.Printf("runtime_note=projector_claim_idle_sec_requested_but_not_applied current billingstate.Config lacks this field in this branch\n")
+	}
 	printStageTableHeader()
 
 	overallOK := true
@@ -358,7 +371,7 @@ func main() {
 	os.Exit(1)
 }
 
-func buildRunOptions(profileName string, stageSeconds int, stageList string, timeout time.Duration, seed int64, databaseURL, redisURL, redisPrefix, label, outputPath, outputFormat string, legacyLocal bool, knobs runtimeKnobs, projectorWorkers int) (runOptions, benchmarkProfile, error) {
+func buildRunOptions(profileName string, stageSeconds int, stageList string, timeout time.Duration, seed int64, databaseURL, redisURL, redisPrefix, label, outputPath, outputFormat string, legacyLocal bool, knobs runtimeKnobs, projectorWorkers, projectorClaimIdle int) (runOptions, benchmarkProfile, error) {
 	profile, err := resolveProfile(profileName, legacyLocal)
 	if err != nil {
 		return runOptions{}, benchmarkProfile{}, err
@@ -378,6 +391,9 @@ func buildRunOptions(profileName string, stageSeconds int, stageList string, tim
 	if projectorWorkers < 0 {
 		return runOptions{}, benchmarkProfile{}, fmt.Errorf("projector workers must be >= 0")
 	}
+	if projectorClaimIdle < 0 {
+		return runOptions{}, benchmarkProfile{}, fmt.Errorf("projector claim idle sec must be >= 0")
+	}
 	return runOptions{
 		profileName:        profile.Name,
 		label:              strings.TrimSpace(label),
@@ -392,6 +408,7 @@ func buildRunOptions(profileName string, stageSeconds int, stageList string, tim
 		outputFormat:       outputFormat,
 		runtimeKnobs:       knobs,
 		projectorRequested: projectorWorkers,
+		claimIdleRequested: projectorClaimIdle,
 	}, profile, nil
 }
 
@@ -881,24 +898,26 @@ func buildBenchmarkReport(profile benchmarkProfile, options runOptions, env *ben
 
 	return benchmarkReport{
 		Metadata: reportMetadata{
-			Profile:                   profile.Name,
-			Label:                     options.label,
-			Mode:                      env.mode,
-			Description:               profile.Description,
-			Model:                     env.model,
-			StageSeconds:              options.stageSeconds,
-			StageRPMs:                 append([]int(nil), options.stageRPMs...),
-			Timeout:                   options.timeout.String(),
-			Seed:                      options.seed,
-			TargetURL:                 env.appURL,
-			MockURL:                   env.mockURL,
-			StartedAt:                 startedAt.Format(time.RFC3339),
-			CompletedAt:               completedAt.Format(time.RFC3339),
-			OutputFormat:              options.outputFormat,
-			RuntimeKnobs:              options.runtimeKnobs,
-			ProjectorWorkersRequested: options.projectorRequested,
-			ProjectorWorkersApplied:   options.projectorRequested > 0,
-			CompareFields:             []string{"profile", "label", "mode", "stage_rpm", "e2e_p95", "e2e_p99", "throughput_rps", "error_rate", "admission_p95", "settle_p95", "project_p95"},
+			Profile:                        profile.Name,
+			Label:                          options.label,
+			Mode:                           env.mode,
+			Description:                    profile.Description,
+			Model:                          env.model,
+			StageSeconds:                   options.stageSeconds,
+			StageRPMs:                      append([]int(nil), options.stageRPMs...),
+			Timeout:                        options.timeout.String(),
+			Seed:                           options.seed,
+			TargetURL:                      env.appURL,
+			MockURL:                        env.mockURL,
+			StartedAt:                      startedAt.Format(time.RFC3339),
+			CompletedAt:                    completedAt.Format(time.RFC3339),
+			OutputFormat:                   options.outputFormat,
+			RuntimeKnobs:                   options.runtimeKnobs,
+			ProjectorWorkersRequested:      options.projectorRequested,
+			ProjectorWorkersApplied:        options.projectorRequested > 0,
+			ProjectorClaimIdleSecRequested: options.claimIdleRequested,
+			ProjectorClaimIdleSecApplied:   projectorClaimIdleSupported(),
+			CompareFields:                  []string{"profile", "label", "mode", "stage_rpm", "e2e_p95", "e2e_p99", "throughput_rps", "error_rate", "admission_p95", "settle_p95", "project_p95"},
 		},
 		Summary: reportSummary{
 			Stages:         len(stages),
@@ -996,6 +1015,17 @@ func displayOptionalInt(value int) string {
 		return "-"
 	}
 	return fmt.Sprintf("%d", value)
+}
+
+func displayAppliedOptionalInt(value int, applied bool) string {
+	if !applied {
+		return "-"
+	}
+	return displayOptionalInt(value)
+}
+
+func projectorClaimIdleSupported() bool {
+	return false
 }
 
 func roundDuration(value time.Duration) string {
