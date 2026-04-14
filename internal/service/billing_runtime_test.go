@@ -300,6 +300,37 @@ func TestGetBillingRuntimeConfigRequestKeepsExplicitEnvBatchSizesForLegacyStored
 	}
 }
 
+func TestGetBillingRuntimeConfigRequestUsesConfigSnapshotForExplicitEnvFlags(t *testing.T) {
+	setupBillingRuntimeServiceTestDB(t)
+
+	t.Setenv("BILLING_STREAM_BATCH_SIZE", "7")
+	t.Setenv("BILLING_RECONCILE_BATCH_SIZE", "11")
+	t.Setenv("BILLING_EXPIRY_BATCH_SIZE", "13")
+	config.Load()
+
+	t.Setenv("BILLING_RECONCILE_BATCH_SIZE", "")
+	t.Setenv("BILLING_EXPIRY_BATCH_SIZE", "")
+
+	svc := NewSystemConfigService()
+	if err := svc.repo.Set(billingRuntimeConfigKey, `{"redisUrl":"redis://legacy","redisPrefix":"team-a","reservationTtlSec":120,"reconcileIntervalSec":30,"streamBatchSize":7}`); err != nil {
+		t.Fatalf("repo.Set returned error: %v", err)
+	}
+
+	req, err := svc.GetBillingRuntimeConfigRequest()
+	if err != nil {
+		t.Fatalf("GetBillingRuntimeConfigRequest returned error: %v", err)
+	}
+	if req.StreamBatchSize != 7 {
+		t.Fatalf("stream batch size = %d, want 7", req.StreamBatchSize)
+	}
+	if req.ReconcileBatchSize != 11 {
+		t.Fatalf("reconcile batch size = %d, want 11", req.ReconcileBatchSize)
+	}
+	if req.ExpiryBatchSize != 13 {
+		t.Fatalf("expiry batch size = %d, want 13", req.ExpiryBatchSize)
+	}
+}
+
 func TestDefaultBillingRuntimeConfigRequestFallsBackEnvBatchSizesToStreamBatchSize(t *testing.T) {
 	t.Setenv("REDIS_URL", "")
 	t.Setenv("REDIS_PREFIX", "ampmanager")
