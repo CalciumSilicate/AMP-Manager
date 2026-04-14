@@ -14,8 +14,9 @@ import {
   WindowMode,
 } from '../api/subscription'
 import { AdminPageShell, AdminSurface } from '@/components/admin/AdminPageShell'
+import { Num } from '@/components/Num'
+import { OverflowCopyText } from '@/components/OverflowCopyText'
 import { Alert, AlertDescription } from '@/components/ui/alert'
-import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -64,6 +65,15 @@ const ALL_WINDOW_MODES: WindowMode[] = ['fixed', 'sliding']
 
 function microsToUsd(micros: number): string {
   return (micros / 1_000_000).toFixed(2)
+}
+
+function formatUsdLabel(micros: number): string {
+  return new Intl.NumberFormat('en-US', {
+    style: 'currency',
+    currency: 'USD',
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  }).format(micros / 1_000_000)
 }
 
 function usdToMicros(usd: string): number {
@@ -275,10 +285,7 @@ export default function SubscriptionPlans() {
             ) : (
               <>
                 <div className="admin-surface-header">
-                  <div className="space-y-1">
-                    <p className="text-sm font-medium text-foreground">{plans.length} 个套餐</p>
-                    <p className="admin-inline-note">支持开关、编辑和删除。</p>
-                  </div>
+                  <p className="admin-inline-note">支持开关、编辑和删除。</p>
                 </div>
                 <Table>
                   <TableHeader>
@@ -295,23 +302,34 @@ export default function SubscriptionPlans() {
                   <motion.tbody variants={tableStaggerContainer} initial="hidden" animate="visible" key={plans.length}>
                     {plans.map((plan) => (
                       <motion.tr key={plan.id} variants={tableRowVariants}>
-                        <TableCell className="font-medium">{plan.name}</TableCell>
-                        <TableCell className="max-w-[200px] text-muted-foreground">{plan.description || '-'}</TableCell>
+                        <TableCell className="max-w-[220px] font-medium">
+                          <OverflowCopyText text={plan.name} className="max-w-[220px]" />
+                        </TableCell>
+                        <TableCell className="max-w-[260px] text-muted-foreground">
+                          <OverflowCopyText
+                            text={plan.description || '-'}
+                            copyValue={plan.description || '-'}
+                            tooltipText={plan.description || '暂无描述'}
+                            className="max-w-[260px] text-muted-foreground"
+                          />
+                        </TableCell>
                         <TableCell>
-                          <div className="flex items-center gap-2">
-                            <Switch checked={plan.enabled} onCheckedChange={() => handleToggleEnabled(plan)} />
-                            <Badge variant={plan.enabled ? 'default' : 'secondary'}>
-                              {plan.enabled ? '启用' : '禁用'}
-                            </Badge>
-                          </div>
+                          <Switch checked={plan.enabled} onCheckedChange={() => handleToggleEnabled(plan)} />
                         </TableCell>
                         <TableCell>{(plan.limits || []).length}</TableCell>
                         <TableCell>
-                          <div className="flex flex-wrap gap-1">
+                          <div className="space-y-1.5">
                             {(plan.limits || []).map((limit) => (
-                              <Badge key={limit.id} variant="outline" className="text-xs">
-                                {LIMIT_TYPE_LABELS[limit.limitType]} ${microsToUsd(limit.limitMicros)}
-                              </Badge>
+                              <div key={limit.id} className="flex items-center gap-2 text-sm">
+                                <span className="text-muted-foreground">{LIMIT_TYPE_LABELS[limit.limitType]}</span>
+                                <Num
+                                  value={limit.limitMicros / 1_000_000}
+                                  fullTextOverride={formatUsdLabel(limit.limitMicros)}
+                                  interactive
+                                  copyable
+                                  className="font-medium"
+                                />
+                              </div>
                             ))}
                           </div>
                         </TableCell>
