@@ -109,12 +109,17 @@ type stageMetrics struct {
 	projectP50        time.Duration
 	projectP95        time.Duration
 	projectP99        time.Duration
+	reclaimP50        time.Duration
+	reclaimP95        time.Duration
+	reclaimP99        time.Duration
 	throughputRPS     float64
 	errorRate         float64
 	validationFail    int64
 	admissionFailures int64
 	settleFailures    int64
 	projectFailures   int64
+	reclaimFailures   int64
+	reclaimClaimed    int64
 	reconcileFailures int64
 	reconcileRepairs  int64
 	errorSamples      []string
@@ -174,10 +179,15 @@ type reportStage struct {
 	ProjectP50        string   `json:"project_p50"`
 	ProjectP95        string   `json:"project_p95"`
 	ProjectP99        string   `json:"project_p99"`
+	ReclaimP50        string   `json:"reclaim_p50,omitempty"`
+	ReclaimP95        string   `json:"reclaim_p95,omitempty"`
+	ReclaimP99        string   `json:"reclaim_p99,omitempty"`
 	ValidationFail    int64    `json:"validation_failures"`
 	AdmissionFailures int64    `json:"admission_failures"`
 	SettleFailures    int64    `json:"settle_failures"`
 	ProjectFailures   int64    `json:"project_failures"`
+	ReclaimFailures   int64    `json:"reclaim_failures,omitempty"`
+	ReclaimClaimed    int64    `json:"reclaim_claimed,omitempty"`
 	ReconcileFailures int64    `json:"reconcile_failures"`
 	ReconcileRepairs  int64    `json:"reconcile_repairs"`
 	ErrorSamples      []string `json:"error_samples,omitempty"`
@@ -786,12 +796,17 @@ func runStage(env *benchmarkEnv, rpm int, duration time.Duration) stageMetrics {
 		projectP50:        percentile(runtimeMetricsAfter.ProjectDurations, 0.50),
 		projectP95:        percentile(runtimeMetricsAfter.ProjectDurations, 0.95),
 		projectP99:        percentile(runtimeMetricsAfter.ProjectDurations, 0.99),
+		reclaimP50:        percentile(runtimeMetricsAfter.ReclaimDurations, 0.50),
+		reclaimP95:        percentile(runtimeMetricsAfter.ReclaimDurations, 0.95),
+		reclaimP99:        percentile(runtimeMetricsAfter.ReclaimDurations, 0.99),
 		throughputRPS:     float64(success.Load()) / elapsed.Seconds(),
 		errorRate:         float64(failures.Load()) / float64(totalRequests),
 		validationFail:    validationFailures.Load(),
 		admissionFailures: runtimeMetricsAfter.ReserveFailures,
 		settleFailures:    runtimeMetricsAfter.SettleFailures,
 		projectFailures:   runtimeMetricsAfter.ProjectFailures,
+		reclaimFailures:   runtimeMetricsAfter.ReclaimFailures,
+		reclaimClaimed:    runtimeMetricsAfter.ReclaimClaimed,
 		reconcileFailures: runtimeMetricsAfter.ReconcileFailures,
 		reconcileRepairs:  runtimeMetricsAfter.ReconcileRepairs,
 		errorSamples:      append([]string(nil), errorSamples...),
@@ -839,10 +854,15 @@ func buildBenchmarkReport(profile benchmarkProfile, options runOptions, env *ben
 			ProjectP50:        roundDuration(stage.projectP50),
 			ProjectP95:        roundDuration(stage.projectP95),
 			ProjectP99:        roundDuration(stage.projectP99),
+			ReclaimP50:        roundDuration(stage.reclaimP50),
+			ReclaimP95:        roundDuration(stage.reclaimP95),
+			ReclaimP99:        roundDuration(stage.reclaimP99),
 			ValidationFail:    stage.validationFail,
 			AdmissionFailures: stage.admissionFailures,
 			SettleFailures:    stage.settleFailures,
 			ProjectFailures:   stage.projectFailures,
+			ReclaimFailures:   stage.reclaimFailures,
+			ReclaimClaimed:    stage.reclaimClaimed,
 			ReconcileFailures: stage.reconcileFailures,
 			ReconcileRepairs:  stage.reconcileRepairs,
 			ErrorSamples:      append([]string(nil), stage.errorSamples...),
@@ -911,12 +931,12 @@ func writeReport(path, format string, report benchmarkReport) error {
 }
 
 func printStageTableHeader() {
-	fmt.Printf("%-26s %-16s %3s %6s %6s %6s %7s %9s %9s %9s %9s %9s %9s %6s %6s %6s %6s %6s %6s\n",
-		"profile", "label", "#", "rpm", "ok", "err", "err%", "rps", "e2e_p95", "e2e_p99", "adm_p95", "set_p95", "prj_p95", "val", "resv", "stl", "prj", "recon", "fix")
+	fmt.Printf("%-26s %-16s %3s %6s %6s %6s %7s %9s %9s %9s %9s %9s %9s %9s %6s %6s %6s %6s %6s %6s %6s %6s\n",
+		"profile", "label", "#", "rpm", "ok", "err", "err%", "rps", "e2e_p95", "e2e_p99", "adm_p95", "set_p95", "prj_p95", "rcl_p95", "val", "resv", "stl", "prj", "rclf", "rclm", "recon", "fix")
 }
 
 func printStageTableRow(profileName, label string, metrics stageMetrics) {
-	fmt.Printf("%-26s %-16s %3d %6d %6d %6d %6.2f %9.1f %9s %9s %9s %9s %9s %6d %6d %6d %6d %6d %6d\n",
+	fmt.Printf("%-26s %-16s %3d %6d %6d %6d %6.2f %9.1f %9s %9s %9s %9s %9s %9s %6d %6d %6d %6d %6d %6d %6d %6d\n",
 		profileName,
 		displayValue(label, "-"),
 		metrics.stageIndex,
@@ -930,10 +950,13 @@ func printStageTableRow(profileName, label string, metrics stageMetrics) {
 		roundDuration(metrics.admissionP95),
 		roundDuration(metrics.settleP95),
 		roundDuration(metrics.projectP95),
+		roundDuration(metrics.reclaimP95),
 		metrics.validationFail,
 		metrics.admissionFailures,
 		metrics.settleFailures,
 		metrics.projectFailures,
+		metrics.reclaimFailures,
+		metrics.reclaimClaimed,
 		metrics.reconcileFailures,
 		metrics.reconcileRepairs,
 	)

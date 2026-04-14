@@ -64,10 +64,13 @@ type RuntimeMetricsSnapshot struct {
 	ReserveDurations   []time.Duration
 	SettleDurations    []time.Duration
 	ProjectDurations   []time.Duration
+	ReclaimDurations   []time.Duration
 	ReconcileDurations []time.Duration
 	ReserveFailures    int64
 	SettleFailures     int64
 	ProjectFailures    int64
+	ReclaimFailures    int64
+	ReclaimClaimed     int64
 	ReconcileFailures  int64
 	ReconcileRepairs   int64
 }
@@ -77,10 +80,13 @@ type runtimeMetrics struct {
 	reserveDurations   []time.Duration
 	settleDurations    []time.Duration
 	projectDurations   []time.Duration
+	reclaimDurations   []time.Duration
 	reconcileDurations []time.Duration
 	reserveFailures    int64
 	settleFailures     int64
 	projectFailures    int64
+	reclaimFailures    int64
+	reclaimClaimed     int64
 	reconcileFailures  int64
 	reconcileRepairs   int64
 }
@@ -515,6 +521,7 @@ func (r *Runtime) projectorLoop(consumerName string) {
 }
 
 func (r *Runtime) reclaimPendingEntries(ctx context.Context, consumerName string) (int, error) {
+	start := time.Now()
 	messages, _, err := r.client.XAutoClaim(ctx, &redis.XAutoClaimArgs{
 		Stream:   r.streamKey(),
 		Group:    defaultProjectorGroup,
@@ -527,6 +534,7 @@ func (r *Runtime) reclaimPendingEntries(ctx context.Context, consumerName string
 		if err == redis.Nil || isProjectorGroupUnavailable(err) {
 			return 0, nil
 		}
+		r.metrics.addReclaimFailure()
 		return 0, err
 	}
 	if len(messages) == 0 {
@@ -536,9 +544,11 @@ func (r *Runtime) reclaimPendingEntries(ctx context.Context, consumerName string
 	ackedIDs := r.projectMessages(ctx, messages)
 	if len(ackedIDs) > 0 {
 		if _, err := r.client.XAck(ctx, r.streamKey(), defaultProjectorGroup, ackedIDs...).Result(); err != nil && !isProjectorGroupUnavailable(err) {
+			r.metrics.addReclaimFailure()
 			log.Warnf("billing state: projector ack failed for %d reclaimed messages: %v", len(ackedIDs), err)
 		}
 	}
+	r.metrics.recordReclaim(time.Since(start), int64(len(messages)))
 	return len(messages), nil
 }
 
@@ -2066,6 +2076,13 @@ func (m *runtimeMetrics) recordProject(d time.Duration) {
 	m.projectDurations = appendSampleDuration(m.projectDurations, d)
 }
 
+func (m *runtimeMetrics) recordReclaim(d time.Duration, claimed int64) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.reclaimDurations = appendSampleDuration(m.reclaimDurations, d)
+	atomic.AddInt64(&m.reclaimClaimed, claimed)
+}
+
 func (m *runtimeMetrics) recordReconcile(d time.Duration, repairs int64) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -2086,6 +2103,7 @@ func appendSampleDuration(dst []time.Duration, d time.Duration) []time.Duration 
 func (m *runtimeMetrics) addReserveFailure() { atomic.AddInt64(&m.reserveFailures, 1) }
 func (m *runtimeMetrics) addSettleFailure()  { atomic.AddInt64(&m.settleFailures, 1) }
 func (m *runtimeMetrics) addProjectFailure() { atomic.AddInt64(&m.projectFailures, 1) }
+func (m *runtimeMetrics) addReclaimFailure() { atomic.AddInt64(&m.reclaimFailures, 1) }
 func (m *runtimeMetrics) addReconcileFailure() {
 	atomic.AddInt64(&m.reconcileFailures, 1)
 }
@@ -2098,10 +2116,13 @@ func (m *runtimeMetrics) snapshot(reset bool) RuntimeMetricsSnapshot {
 		ReserveDurations:   append([]time.Duration(nil), m.reserveDurations...),
 		SettleDurations:    append([]time.Duration(nil), m.settleDurations...),
 		ProjectDurations:   append([]time.Duration(nil), m.projectDurations...),
+		ReclaimDurations:   append([]time.Duration(nil), m.reclaimDurations...),
 		ReconcileDurations: append([]time.Duration(nil), m.reconcileDurations...),
 		ReserveFailures:    atomic.LoadInt64(&m.reserveFailures),
 		SettleFailures:     atomic.LoadInt64(&m.settleFailures),
 		ProjectFailures:    atomic.LoadInt64(&m.projectFailures),
+		ReclaimFailures:    atomic.LoadInt64(&m.reclaimFailures),
+		ReclaimClaimed:     atomic.LoadInt64(&m.reclaimClaimed),
 		ReconcileFailures:  atomic.LoadInt64(&m.reconcileFailures),
 		ReconcileRepairs:   atomic.LoadInt64(&m.reconcileRepairs),
 	}
@@ -2110,10 +2131,13 @@ func (m *runtimeMetrics) snapshot(reset bool) RuntimeMetricsSnapshot {
 		m.reserveDurations = nil
 		m.settleDurations = nil
 		m.projectDurations = nil
+		m.reclaimDurations = nil
 		m.reconcileDurations = nil
 		atomic.StoreInt64(&m.reserveFailures, 0)
 		atomic.StoreInt64(&m.settleFailures, 0)
 		atomic.StoreInt64(&m.projectFailures, 0)
+		atomic.StoreInt64(&m.reclaimFailures, 0)
+		atomic.StoreInt64(&m.reclaimClaimed, 0)
 		atomic.StoreInt64(&m.reconcileFailures, 0)
 		atomic.StoreInt64(&m.reconcileRepairs, 0)
 	}
