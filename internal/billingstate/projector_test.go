@@ -135,3 +135,163 @@ func TestProjectMessagesFallsBackToPerMessageAck(t *testing.T) {
 		t.Fatalf("balance_micros = %d, want 15", balance)
 	}
 }
+
+func TestReclaimPendingEntriesProjectsAndAcksClaimedMessages(t *testing.T) {
+	setupBillingStateTestDB(t)
+
+	now := time.Now().UTC()
+	db := database.GetDB()
+	mustExecBillingState(t, db, `INSERT INTO users (id, username, password_hash, is_admin, balance_micros) VALUES (?, 'alice', 'x', 0, 20)`, "user-1")
+	mustExecBillingState(t, db, `INSERT INTO billing_account_state (user_id, primary_source, secondary_source, balance_micros, revision, created_at, updated_at) VALUES (?, 'subscription', 'balance', 20, 0, ?, ?)`, "user-1", now, now)
+
+	mr := miniredis.RunT(t)
+	mr.SetTime(now)
+	client := redis.NewClient(&redis.Options{Addr: mr.Addr()})
+	t.Cleanup(func() { _ = client.Close() })
+
+	rt := &Runtime{
+		client: client,
+		cfg: Config{
+			Prefix:          "amp",
+			StreamBatchSize: 4,
+		},
+	}
+	if err := rt.ensureConsumerGroup(context.Background()); err != nil {
+		t.Fatalf("ensureConsumerGroup returned error: %v", err)
+	}
+
+	msgID, err := client.XAdd(context.Background(), &redis.XAddArgs{
+		Stream: rt.streamKey(),
+		Values: map[string]any{
+			"event_type":                   "reserve",
+			"request_id":                   "req-claim",
+			"user_id":                      "user-1",
+			"user_subscription_id":         "",
+			"status":                       "reserved",
+			"estimated_cost_micros":        "5",
+			"reserved_subscription_micros": "0",
+			"reserved_balance_micros":      "5",
+			"window_refs_json":             "[]",
+			"expires_at_unix":              now.Add(5 * time.Minute).Unix(),
+		},
+	}).Result()
+	if err != nil {
+		t.Fatalf("XAdd returned error: %v", err)
+	}
+
+	streams, err := client.XReadGroup(context.Background(), &redis.XReadGroupArgs{
+		Group:    defaultProjectorGroup,
+		Consumer: "stale-consumer",
+		Streams:  []string{rt.streamKey(), ">"},
+		Count:    1,
+	}).Result()
+	if err != nil {
+		t.Fatalf("XReadGroup returned error: %v", err)
+	}
+	if len(streams) != 1 || len(streams[0].Messages) != 1 || streams[0].Messages[0].ID != msgID {
+		t.Fatalf("unexpected initial read result: %+v", streams)
+	}
+
+	mr.SetTime(now.Add(defaultProjectorClaimIdle + time.Second))
+
+	count, err := rt.reclaimPendingEntries(context.Background(), "worker-1")
+	if err != nil {
+		t.Fatalf("reclaimPendingEntries returned error: %v", err)
+	}
+	if count != 1 {
+		t.Fatalf("reclaimed count = %d, want 1", count)
+	}
+
+	var reservationCount int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM billing_reservations WHERE request_id = ?`, "req-claim").Scan(&reservationCount); err != nil {
+		t.Fatalf("query reservation returned error: %v", err)
+	}
+	if reservationCount != 1 {
+		t.Fatalf("reservation count = %d, want 1", reservationCount)
+	}
+
+	pending, err := client.XPending(context.Background(), rt.streamKey(), defaultProjectorGroup).Result()
+	if err != nil {
+		t.Fatalf("XPending returned error: %v", err)
+	}
+	if pending.Count != 0 {
+		t.Fatalf("pending count = %d, want 0", pending.Count)
+	}
+}
+
+func TestRuntimeCloseDeletesIdleProjectorConsumer(t *testing.T) {
+	mr := miniredis.RunT(t)
+	runtimeClient := redis.NewClient(&redis.Options{Addr: mr.Addr()})
+	inspectClient := redis.NewClient(&redis.Options{Addr: mr.Addr()})
+	t.Cleanup(func() { _ = inspectClient.Close() })
+
+	rt := &Runtime{
+		client:             runtimeClient,
+		cfg:                Config{Prefix: "amp"},
+		projectorConsumers: []string{"worker-1"},
+		stopCh:             make(chan struct{}),
+	}
+	if err := rt.ensureConsumerGroup(context.Background()); err != nil {
+		t.Fatalf("ensureConsumerGroup returned error: %v", err)
+	}
+	if _, err := runtimeClient.XGroupCreateConsumer(context.Background(), rt.streamKey(), defaultProjectorGroup, "worker-1").Result(); err != nil {
+		t.Fatalf("XGroupCreateConsumer returned error: %v", err)
+	}
+
+	rt.Close()
+
+	consumers, err := inspectClient.XInfoConsumers(context.Background(), rt.streamKey(), defaultProjectorGroup).Result()
+	if err != nil {
+		t.Fatalf("XInfoConsumers returned error: %v", err)
+	}
+	if len(consumers) != 0 {
+		t.Fatalf("consumer count after Close = %d, want 0", len(consumers))
+	}
+}
+
+func TestRuntimeCloseSkipsProjectorConsumerCleanupWithPending(t *testing.T) {
+	mr := miniredis.RunT(t)
+	runtimeClient := redis.NewClient(&redis.Options{Addr: mr.Addr()})
+	inspectClient := redis.NewClient(&redis.Options{Addr: mr.Addr()})
+	t.Cleanup(func() { _ = inspectClient.Close() })
+
+	rt := &Runtime{
+		client:             runtimeClient,
+		cfg:                Config{Prefix: "amp"},
+		projectorConsumers: []string{"worker-1"},
+		stopCh:             make(chan struct{}),
+	}
+	if err := rt.ensureConsumerGroup(context.Background()); err != nil {
+		t.Fatalf("ensureConsumerGroup returned error: %v", err)
+	}
+	if _, err := runtimeClient.XAdd(context.Background(), &redis.XAddArgs{
+		Stream: rt.streamKey(),
+		Values: map[string]any{"event_type": "reserve", "request_id": "req-1"},
+	}).Result(); err != nil {
+		t.Fatalf("XAdd returned error: %v", err)
+	}
+	if _, err := runtimeClient.XReadGroup(context.Background(), &redis.XReadGroupArgs{
+		Group:    defaultProjectorGroup,
+		Consumer: "worker-1",
+		Streams:  []string{rt.streamKey(), ">"},
+		Count:    1,
+	}).Result(); err != nil {
+		t.Fatalf("XReadGroup returned error: %v", err)
+	}
+
+	rt.Close()
+
+	consumers, err := inspectClient.XInfoConsumers(context.Background(), rt.streamKey(), defaultProjectorGroup).Result()
+	if err != nil {
+		t.Fatalf("XInfoConsumers returned error: %v", err)
+	}
+	if len(consumers) != 1 {
+		t.Fatalf("consumer count after Close = %d, want 1", len(consumers))
+	}
+	if consumers[0].Name != "worker-1" {
+		t.Fatalf("consumer name = %q, want worker-1", consumers[0].Name)
+	}
+	if consumers[0].Pending != 1 {
+		t.Fatalf("pending count = %d, want 1", consumers[0].Pending)
+	}
+}
