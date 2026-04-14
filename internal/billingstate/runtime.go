@@ -33,6 +33,7 @@ var (
 const (
 	defaultProjectorGroup = "billing-projectors"
 	defaultExpiryPoll     = 2 * time.Second
+	defaultReconcileBatch = 100
 )
 
 type Config struct {
@@ -50,6 +51,8 @@ type Runtime struct {
 	stopCh       chan struct{}
 	wg           sync.WaitGroup
 	metrics      runtimeMetrics
+
+	reconcileCursor string
 }
 
 type RuntimeMetricsSnapshot struct {
@@ -355,32 +358,24 @@ func (r *Runtime) SettleRequest(ctx context.Context, requestID, userID string, a
 		return nil, ErrReservationNotFound
 	}
 
-	if err := r.ensureHotReservation(ctx, requestID, userID); err != nil && !errors.Is(err, ErrReservationNotFound) {
-		r.metrics.addSettleFailure()
-		return nil, err
-	}
-
 	now := time.Now().UTC()
-	result, err := settleScript.Run(
-		ctx,
-		r.client,
-		[]string{
-			r.accountKey(userID),
-			r.reservationKey(requestID),
-			r.reservationExpiryKey(),
-			r.streamKey(),
-		},
-		actualCostMicros,
-		now.Unix(),
-	).Result()
+	values, err := r.runSettleScript(ctx, requestID, userID, actualCostMicros, now.Unix())
 	if err != nil {
 		r.metrics.addSettleFailure()
 		return nil, err
 	}
 
-	values := stringifyRedisResult(result)
-	if len(values) == 0 {
-		return nil, ErrRedisStateUnhealthy
+	if len(values) > 0 && values[0] == "NOT_FOUND" {
+		if err := r.ensureHotReservation(ctx, requestID, userID); err != nil {
+			r.metrics.addSettleFailure()
+			return nil, err
+		}
+
+		values, err = r.runSettleScript(ctx, requestID, userID, actualCostMicros, now.Unix())
+		if err != nil {
+			r.metrics.addSettleFailure()
+			return nil, err
+		}
 	}
 
 	switch values[0] {
@@ -466,15 +461,12 @@ func (r *Runtime) projectorLoop() {
 		}
 
 		for _, stream := range streams {
-			for _, msg := range stream.Messages {
-				start := time.Now()
-				if err := r.projectEvent(ctx, msg); err != nil {
-					r.metrics.addProjectFailure()
-					log.Warnf("billing state: projector apply failed for %s: %v", msg.ID, err)
-					continue
-				}
-				r.metrics.recordProject(time.Since(start))
-				_, _ = r.client.XAck(ctx, r.streamKey(), defaultProjectorGroup, msg.ID).Result()
+			ackedIDs := r.projectMessages(ctx, stream.Messages)
+			if len(ackedIDs) == 0 {
+				continue
+			}
+			if _, err := r.client.XAck(ctx, r.streamKey(), defaultProjectorGroup, ackedIDs...).Result(); err != nil {
+				log.Warnf("billing state: projector ack failed for %d messages: %v", len(ackedIDs), err)
 			}
 		}
 	}
@@ -493,7 +485,7 @@ func (r *Runtime) reconcileLoop() {
 			return
 		case <-ticker.C:
 			start := time.Now()
-			repairs, err := r.reconcileAll(ctx)
+			repairs, err := r.reconcileNextPage(ctx)
 			r.metrics.recordReconcile(time.Since(start), repairs)
 			if err != nil {
 				r.metrics.addReconcileFailure()
@@ -563,6 +555,30 @@ func (r *Runtime) releaseExpiredReservation(ctx context.Context, requestID strin
 	return ErrRedisStateUnhealthy
 }
 
+func (r *Runtime) runSettleScript(ctx context.Context, requestID, userID string, actualCostMicros, nowUnix int64) ([]string, error) {
+	result, err := settleScript.Run(
+		ctx,
+		r.client,
+		[]string{
+			r.accountKey(userID),
+			r.reservationKey(requestID),
+			r.reservationExpiryKey(),
+			r.streamKey(),
+		},
+		actualCostMicros,
+		nowUnix,
+	).Result()
+	if err != nil {
+		return nil, err
+	}
+
+	values := stringifyRedisResult(result)
+	if len(values) == 0 {
+		return nil, ErrRedisStateUnhealthy
+	}
+	return values, nil
+}
+
 func (r *Runtime) ensureHotReservation(ctx context.Context, requestID, userID string) error {
 	if requestID == "" || userID == "" {
 		return ErrReservationNotFound
@@ -630,6 +646,34 @@ func (r *Runtime) reconcileAll(ctx context.Context) (int64, error) {
 			return repairs, err
 		}
 		repairs += fixed
+	}
+	return repairs, nil
+}
+
+func (r *Runtime) reconcileNextPage(ctx context.Context) (int64, error) {
+	batchSize := r.reconcileBatchSize()
+	userIDs, err := r.listAccountStateUserIDsPage(r.reconcileCursor, batchSize)
+	if err != nil {
+		return 0, err
+	}
+	if len(userIDs) == 0 {
+		r.reconcileCursor = ""
+		return 0, nil
+	}
+
+	var repairs int64
+	for _, userID := range userIDs {
+		fixed, err := r.reconcileUserState(ctx, userID)
+		if err != nil {
+			return repairs, err
+		}
+		repairs += fixed
+	}
+
+	if int64(len(userIDs)) < batchSize {
+		r.reconcileCursor = ""
+	} else {
+		r.reconcileCursor = userIDs[len(userIDs)-1]
 	}
 	return repairs, nil
 }
@@ -1305,6 +1349,36 @@ func (r *Runtime) listAccountStateUserIDs() ([]string, error) {
 	return userIDs, rows.Err()
 }
 
+func (r *Runtime) listAccountStateUserIDsPage(afterUserID string, limit int64) ([]string, error) {
+	if limit <= 0 {
+		limit = defaultReconcileBatch
+	}
+
+	var (
+		rows *sql.Rows
+		err  error
+	)
+	if afterUserID == "" {
+		rows, err = database.GetDB().Query(`SELECT user_id FROM billing_account_state ORDER BY user_id LIMIT ?`, limit)
+	} else {
+		rows, err = database.GetDB().Query(`SELECT user_id FROM billing_account_state WHERE user_id > ? ORDER BY user_id LIMIT ?`, afterUserID, limit)
+	}
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var userIDs []string
+	for rows.Next() {
+		var userID string
+		if err := rows.Scan(&userID); err != nil {
+			return nil, err
+		}
+		userIDs = append(userIDs, userID)
+	}
+	return userIDs, rows.Err()
+}
+
 func (r *Runtime) accountKey(userID string) string {
 	return r.cfg.Prefix + ":billing:acct:" + userID
 }
@@ -1327,6 +1401,81 @@ func (r *Runtime) windowKey(stateID string) string {
 
 func windowStateID(subscriptionID string, limitType model.LimitType, windowStart time.Time) string {
 	return fmt.Sprintf("%s:%s:%d", subscriptionID, limitType, windowStart.UTC().Unix())
+}
+
+func (r *Runtime) reconcileBatchSize() int64 {
+	if r.cfg.StreamBatchSize > 0 {
+		return r.cfg.StreamBatchSize
+	}
+	return defaultReconcileBatch
+}
+
+func (r *Runtime) projectMessages(ctx context.Context, messages []redis.XMessage) []string {
+	if len(messages) == 0 {
+		return nil
+	}
+
+	start := time.Now()
+	if err := r.projectEventsBatch(ctx, messages); err == nil {
+		perMessage := time.Since(start) / time.Duration(len(messages))
+		ackedIDs := make([]string, 0, len(messages))
+		for _, msg := range messages {
+			r.metrics.recordProject(perMessage)
+			ackedIDs = append(ackedIDs, msg.ID)
+		}
+		return ackedIDs
+	}
+	log.Warnf("billing state: projector batch apply failed for %d messages, retrying individually", len(messages))
+
+	ackedIDs := make([]string, 0, len(messages))
+	for _, msg := range messages {
+		start := time.Now()
+		if err := r.projectEvent(ctx, msg); err != nil {
+			r.metrics.addProjectFailure()
+			log.Warnf("billing state: projector apply failed for %s: %v", msg.ID, err)
+			continue
+		}
+		r.metrics.recordProject(time.Since(start))
+		ackedIDs = append(ackedIDs, msg.ID)
+	}
+	return ackedIDs
+}
+
+func (r *Runtime) projectEventsBatch(ctx context.Context, messages []redis.XMessage) error {
+	if len(messages) == 0 {
+		return nil
+	}
+
+	db := database.GetDB()
+	tx, err := db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	for _, msg := range messages {
+		applied, err := ensureProjectionEvent(tx, msg.ID, stringField(msg.Values["event_type"]), stringField(msg.Values["request_id"]))
+		if err != nil {
+			return err
+		}
+		if !applied {
+			continue
+		}
+
+		switch stringField(msg.Values["event_type"]) {
+		case "reserve":
+			err = applyReserveEvent(tx, msg.Values)
+		case "settle":
+			err = applySettleEvent(tx, msg.Values)
+		case "expire":
+			err = applyExpireEvent(tx, msg.Values)
+		}
+		if err != nil {
+			return err
+		}
+	}
+
+	return tx.Commit()
 }
 
 func ensureProjectionEvent(tx *sql.Tx, streamID, eventType, requestID string) (bool, error) {
