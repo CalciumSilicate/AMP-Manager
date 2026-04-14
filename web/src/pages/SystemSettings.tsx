@@ -16,8 +16,9 @@ import {
   getRetryConfig,
   updateRetryConfig,
   RetryConfig,
-  getRequestDetailEnabled,
-  updateRequestDetailEnabled,
+  getRequestDetailConfig,
+  updateRequestDetailConfig,
+  RequestDetailConfig,
   getTimeoutConfig,
   updateTimeoutConfig,
   TimeoutConfig,
@@ -82,8 +83,9 @@ export default function SystemSettings({ siteName, onSiteNameChange }: Props) {
   const fileInputRef = useRef<HTMLInputElement>(null)
   const [retryConfig, setRetryConfig] = useState<RetryConfig | null>(null)
   const [retryLoading, setRetryLoading] = useState(false)
-  const [requestDetailEnabled, setRequestDetailEnabled] = useState(true)
+  const [requestDetailConfig, setRequestDetailConfig] = useState<RequestDetailConfig | null>(null)
   const [requestDetailLoading, setRequestDetailLoading] = useState(false)
+  const [requestDetailLoadError, setRequestDetailLoadError] = useState<string | null>(null)
   const [timeoutConfig, setTimeoutConfig] = useState<TimeoutConfig | null>(null)
   const [timeoutLoading, setTimeoutLoading] = useState(false)
   const [cacheTTL, setCacheTTL] = useState<string>('1h')
@@ -96,7 +98,7 @@ export default function SystemSettings({ siteName, onSiteNameChange }: Props) {
   useEffect(() => {
     fetchDatabaseInfo()
     fetchRetryConfig()
-    fetchRequestDetailEnabled()
+    fetchRequestDetailConfig()
     fetchTimeoutConfig()
     fetchCacheTTLConfig()
     fetchBillingRuntimeConfig()
@@ -146,12 +148,17 @@ export default function SystemSettings({ siteName, onSiteNameChange }: Props) {
     }
   }
 
-  const fetchRequestDetailEnabled = async () => {
+  const fetchRequestDetailConfig = async () => {
+    setRequestDetailLoading(true)
+    setRequestDetailLoadError(null)
     try {
-      const data = await getRequestDetailEnabled()
-      setRequestDetailEnabled(data.enabled)
+      const data = await getRequestDetailConfig()
+      setRequestDetailConfig(data)
     } catch (err) {
       console.error('获取请求详情监控配置失败:', err)
+      setRequestDetailLoadError(err instanceof Error ? err.message : '获取请求详情监控配置失败')
+    } finally {
+      setRequestDetailLoading(false)
     }
   }
 
@@ -255,14 +262,24 @@ export default function SystemSettings({ siteName, onSiteNameChange }: Props) {
     }
   }
 
-  const handleRequestDetailToggle = async (enabled: boolean) => {
+  const handleRequestDetailConfigChange = (
+    key: keyof RequestDetailConfig,
+    value: RequestDetailConfig[keyof RequestDetailConfig]
+  ) => {
+    if (!requestDetailConfig) return
+    setRequestDetailConfig({ ...requestDetailConfig, [key]: value })
+  }
+
+  const handleSaveRequestDetailConfig = async () => {
+    if (!requestDetailConfig) return
+
     setRequestDetailLoading(true)
     try {
-      await updateRequestDetailEnabled(enabled)
-      setRequestDetailEnabled(enabled)
-      showMessage('success', enabled ? '请求详情监控已启用' : '请求详情监控已停止')
+      const result = await updateRequestDetailConfig(requestDetailConfig)
+      setRequestDetailConfig(result.config)
+      showMessage('success', '请求详情监控配置已保存')
     } catch (err) {
-      showMessage('error', err instanceof Error ? err.message : '操作失败')
+      showMessage('error', err instanceof Error ? err.message : '保存失败')
     } finally {
       setRequestDetailLoading(false)
     }
@@ -878,8 +895,19 @@ export default function SystemSettings({ siteName, onSiteNameChange }: Props) {
                       {retryLoading ? '保存中...' : '保存配置'}
                     </Button>
                   </>
-                ) : (
+                ) : requestDetailLoading ? (
                   <div className="text-center text-muted-foreground py-4">加载中...</div>
+                ) : (
+                  <div className="space-y-4">
+                    <Alert variant="destructive">
+                      <AlertDescription>
+                        {requestDetailLoadError || '请求详情监控配置加载失败，请重试。'}
+                      </AlertDescription>
+                    </Alert>
+                    <Button variant="outline" onClick={fetchRequestDetailConfig} disabled={requestDetailLoading}>
+                      重新加载
+                    </Button>
+                  </div>
                 )}
               </CardContent>
             </Card>
@@ -889,22 +917,175 @@ export default function SystemSettings({ siteName, onSiteNameChange }: Props) {
             <Card>
               <CardHeader>
                 <CardTitle>请求详情监控</CardTitle>
-                <CardDescription>控制是否记录请求和响应的详细信息（头部和正文）</CardDescription>
+                <CardDescription>控制请求详情记录策略，包括高 RPM 降级模式、阈值和采样率</CardDescription>
               </CardHeader>
-              <CardContent className="space-y-4">
-                <div className="flex items-center justify-between">
-                  <div className="space-y-0.5">
-                    <Label>启用详情监控</Label>
-                    <p className="text-sm text-muted-foreground">
-                      启用后可在日志页面点击状态列查看请求/响应详情。关闭可减少内存使用。
-                    </p>
-                  </div>
-                  <Switch
-                    checked={requestDetailEnabled}
-                    onCheckedChange={handleRequestDetailToggle}
-                    disabled={requestDetailLoading}
-                  />
-                </div>
+              <CardContent className="space-y-6">
+                {requestDetailConfig ? (
+                  <>
+                    <div className="grid gap-4 md:grid-cols-2">
+                      <div className="rounded-lg border p-4 space-y-2">
+                        <div className="flex items-center justify-between">
+                          <span className="text-sm text-muted-foreground">当前状态</span>
+                          <Badge variant={requestDetailConfig.enabled ? 'default' : 'secondary'}>
+                            {requestDetailConfig.enabled ? '已启用' : '已关闭'}
+                          </Badge>
+                        </div>
+                        <p className="text-sm text-muted-foreground">
+                          启用后可在日志页面点击状态列查看请求/响应详情；关闭后将停止新的详情采集。
+                        </p>
+                      </div>
+                      <div className="rounded-lg border p-4 space-y-2">
+                        <div className="flex items-center justify-between">
+                          <span className="text-sm text-muted-foreground">高 RPM 策略</span>
+                          <Badge variant="outline">
+                            {requestDetailConfig.highRpmMode === 'full'
+                              ? '全量保留'
+                              : requestDetailConfig.highRpmMode === 'sample'
+                                ? `采样 ${requestDetailConfig.highRpmSamplePercent}%`
+                                : '停止采集'}
+                          </Badge>
+                        </div>
+                        <p className="text-sm text-muted-foreground">
+                          当分钟请求量达到 {requestDetailConfig.highRpmThreshold} RPM 时，自动切换到该降级策略。
+                        </p>
+                      </div>
+                    </div>
+
+                    <div className="space-y-4">
+                      <div className="flex items-center justify-between">
+                        <div className="space-y-0.5">
+                          <Label>启用详情监控</Label>
+                          <p className="text-sm text-muted-foreground">
+                            控制是否记录请求与响应的头部和正文详情。
+                          </p>
+                        </div>
+                        <Switch
+                          checked={requestDetailConfig.enabled}
+                          onCheckedChange={(checked) => handleRequestDetailConfigChange('enabled', checked)}
+                          disabled={requestDetailLoading}
+                        />
+                      </div>
+                      <div className="flex items-center justify-between">
+                        <div className="space-y-0.5">
+                          <Label>启用持久化</Label>
+                          <p className="text-sm text-muted-foreground">
+                            开启后，详情会落库归档，便于跨重启排查问题。
+                          </p>
+                        </div>
+                        <Switch
+                          checked={requestDetailConfig.persistEnabled}
+                          onCheckedChange={(checked) => handleRequestDetailConfigChange('persistEnabled', checked)}
+                          disabled={requestDetailLoading}
+                        />
+                      </div>
+                    </div>
+
+                    <div className="grid gap-4 md:grid-cols-2">
+                      <div className="space-y-2">
+                        <Label>内存保留时间 (秒)</Label>
+                        <Input
+                          type="number"
+                          min={30}
+                          value={requestDetailConfig.ttlSec}
+                          onChange={(e) => handleRequestDetailConfigChange('ttlSec', parseInt(e.target.value) || 30)}
+                        />
+                        <p className="text-xs text-muted-foreground">内存中的请求详情保留时长，最小 30 秒。</p>
+                      </div>
+                      <div className="space-y-2">
+                        <Label>最大记录条数</Label>
+                        <Input
+                          type="number"
+                          min={50}
+                          value={requestDetailConfig.maxEntries}
+                          onChange={(e) => handleRequestDetailConfigChange('maxEntries', parseInt(e.target.value) || 50)}
+                        />
+                        <p className="text-xs text-muted-foreground">超过上限后会优先淘汰旧记录，最小 50 条。</p>
+                      </div>
+                      <div className="space-y-2">
+                        <Label>最大内存预算 (MB)</Label>
+                        <Input
+                          type="number"
+                          min={16}
+                          value={requestDetailConfig.maxMemoryMB}
+                          onChange={(e) => handleRequestDetailConfigChange('maxMemoryMB', parseInt(e.target.value) || 16)}
+                        />
+                        <p className="text-xs text-muted-foreground">请求详情总内存预算，最小 16 MB。</p>
+                      </div>
+                      <div className="space-y-2">
+                        <Label>单次正文截断上限 (KB)</Label>
+                        <Input
+                          type="number"
+                          min={4}
+                          value={requestDetailConfig.bodyCapKB}
+                          onChange={(e) => handleRequestDetailConfigChange('bodyCapKB', parseInt(e.target.value) || 4)}
+                        />
+                        <p className="text-xs text-muted-foreground">单次请求或响应正文最多记录大小，最小 4 KB。</p>
+                      </div>
+                    </div>
+
+                    <div className="grid gap-4 md:grid-cols-2">
+                      <div className="space-y-2">
+                        <Label>高 RPM 模式</Label>
+                        <Select
+                          value={requestDetailConfig.highRpmMode}
+                          onValueChange={(value: RequestDetailConfig['highRpmMode']) =>
+                            handleRequestDetailConfigChange('highRpmMode', value)
+                          }
+                        >
+                          <SelectTrigger>
+                            <SelectValue placeholder="选择高 RPM 策略" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="full">继续全量记录</SelectItem>
+                            <SelectItem value="sample">按采样率记录</SelectItem>
+                            <SelectItem value="off">停止记录详情</SelectItem>
+                          </SelectContent>
+                        </Select>
+                        <p className="text-xs text-muted-foreground">高流量时的降级方式。</p>
+                      </div>
+                      <div className="space-y-2">
+                        <Label>高 RPM 阈值</Label>
+                        <Input
+                          type="number"
+                          min={100}
+                          value={requestDetailConfig.highRpmThreshold}
+                          onChange={(e) =>
+                            handleRequestDetailConfigChange('highRpmThreshold', parseInt(e.target.value) || 100)
+                          }
+                        />
+                        <p className="text-xs text-muted-foreground">当分钟请求量达到该值后启用高 RPM 模式，最小 100。</p>
+                      </div>
+                      <div className="space-y-2 md:col-span-2">
+                        <Label>高 RPM 采样率 (%)</Label>
+                        <Input
+                          type="number"
+                          min={1}
+                          max={100}
+                          value={requestDetailConfig.highRpmSamplePercent}
+                          onChange={(e) =>
+                            handleRequestDetailConfigChange('highRpmSamplePercent', parseInt(e.target.value) || 1)
+                          }
+                          disabled={requestDetailConfig.highRpmMode !== 'sample'}
+                        />
+                        <p className="text-xs text-muted-foreground">
+                          仅在“按采样率记录”模式下生效，取值 1-100。
+                        </p>
+                      </div>
+                    </div>
+
+                    <Alert>
+                      <AlertDescription>
+                        建议在高并发环境下结合阈值与采样率使用，避免请求详情占用过多内存和存储资源。
+                      </AlertDescription>
+                    </Alert>
+
+                    <Button onClick={handleSaveRequestDetailConfig} disabled={requestDetailLoading}>
+                      {requestDetailLoading ? '保存中...' : '保存配置'}
+                    </Button>
+                  </>
+                ) : (
+                  <div className="text-center text-muted-foreground py-4">加载中...</div>
+                )}
               </CardContent>
             </Card>
           )}
