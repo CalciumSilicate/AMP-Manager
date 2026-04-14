@@ -405,6 +405,11 @@ export interface BillingRuntimeStats {
   reconcile: BillingRuntimeMetricSummary
   reclaimClaimed: number
   reconcileRepairs: number
+  consumerCount: number
+  activeProjectorConsumers: number
+  staleProjectorConsumers: number
+  pendingEntries: number
+  oldestPendingIdleMs: number
 }
 
 export async function getBillingRuntimeConfig(): Promise<BillingRuntimeConfig> {

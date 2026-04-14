@@ -23,6 +23,7 @@ import (
 	"ampmanager/internal/translator/filters"
 
 	"github.com/gin-gonic/gin"
+	"github.com/redis/go-redis/v9"
 )
 
 // backupFilenamePattern 备份文件名正则：data.db.backup.YYYYMMDDHHmmss (14位时间戳)
@@ -31,6 +32,15 @@ var backupFilenamePattern = regexp.MustCompile(`^data\.db\.backup\.\d{14}$`)
 const retryConfigKey = "retry_config"
 const timeoutConfigKey = "timeout_config"
 const cacheTTLConfigKey = "cache_ttl_override"
+const billingProjectorGroup = "billing-projectors"
+
+type billingRuntimeProjectorSummary struct {
+	ConsumerCount   int
+	ActiveConsumers int
+	StaleConsumers  int
+	PendingEntries  int64
+	OldestPendingMs int64
+}
 
 type SystemHandler struct {
 	configRepo *repository.SystemConfigRepository
@@ -290,7 +300,9 @@ func (h *SystemHandler) GetBillingRuntimeConfig(c *gin.Context) {
 }
 
 func (h *SystemHandler) GetBillingRuntimeStats(c *gin.Context) {
-	cfg, err := service.NewSystemConfigService().GetBillingRuntimeConfig()
+	systemConfigService := service.NewSystemConfigService()
+
+	cfg, err := systemConfigService.GetBillingRuntimeConfig()
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "获取运行时状态失败"})
 		return
@@ -316,7 +328,143 @@ func (h *SystemHandler) GetBillingRuntimeStats(c *gin.Context) {
 	resp.ReclaimClaimed = snapshot.ReclaimClaimed
 	resp.ReconcileRepairs = snapshot.ReconcileRepairs
 
+	configReq, err := systemConfigService.GetBillingRuntimeConfigRequest()
+	if err == nil {
+		summary, err := loadBillingRuntimeProjectorSummary(c.Request.Context(), configReq)
+		if err == nil {
+			resp.ConsumerCount = summary.ConsumerCount
+			resp.ActiveConsumers = summary.ActiveConsumers
+			resp.StaleConsumers = summary.StaleConsumers
+			resp.PendingEntries = summary.PendingEntries
+			resp.OldestPendingMs = summary.OldestPendingMs
+		}
+	}
+
 	c.JSON(http.StatusOK, resp)
+}
+
+func loadBillingRuntimeProjectorSummary(ctx context.Context, cfg model.BillingRuntimeConfigRequest) (billingRuntimeProjectorSummary, error) {
+	summary := billingRuntimeProjectorSummary{}
+	if strings.TrimSpace(cfg.RedisURL) == "" {
+		return summary, nil
+	}
+
+	options, err := redis.ParseURL(cfg.RedisURL)
+	if err != nil {
+		return summary, err
+	}
+
+	client := redis.NewClient(options)
+	defer client.Close()
+
+	queryCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
+	defer cancel()
+
+	streamKey := billingRuntimeStreamKey(cfg.RedisPrefix)
+	consumers, err := client.XInfoConsumers(queryCtx, streamKey, billingProjectorGroup).Result()
+	if err != nil {
+		if err == redis.Nil || isBillingProjectorGroupUnavailable(err) {
+			return summary, nil
+		}
+		return summary, err
+	}
+
+	summary.ConsumerCount = len(consumers)
+	claimIdle := time.Duration(cfg.ProjectorClaimIdleSec) * time.Second
+	if claimIdle <= 0 {
+		claimIdle = 30 * time.Second
+	}
+	summary.ActiveConsumers, summary.StaleConsumers = summarizeBillingRuntimeProjectorConsumers(consumers, claimIdle)
+
+	pending, err := client.XPending(queryCtx, streamKey, billingProjectorGroup).Result()
+	if err != nil {
+		if err == redis.Nil || isBillingProjectorGroupUnavailable(err) {
+			return billingRuntimeProjectorSummary{}, nil
+		}
+		return summary, err
+	}
+	summary.PendingEntries = pending.Count
+	if pending.Count == 0 {
+		return summary, nil
+	}
+
+	oldestPendingMs, err := loadOldestPendingIdleMs(queryCtx, client, streamKey, billingProjectorGroup)
+	if err != nil {
+		if err == redis.Nil || isBillingProjectorGroupUnavailable(err) {
+			return billingRuntimeProjectorSummary{}, nil
+		}
+		return summary, err
+	}
+	summary.OldestPendingMs = oldestPendingMs
+	return summary, nil
+}
+
+func loadOldestPendingIdleMs(ctx context.Context, client *redis.Client, streamKey string, group string) (int64, error) {
+	var maxIdle time.Duration
+	start := "-"
+
+	for {
+		pending, err := client.XPendingExt(ctx, &redis.XPendingExtArgs{
+			Stream: streamKey,
+			Group:  group,
+			Start:  start,
+			End:    "+",
+			Count:  100,
+		}).Result()
+		if err != nil {
+			return 0, err
+		}
+		if len(pending) == 0 {
+			break
+		}
+
+		for _, entry := range pending {
+			if entry.Idle > maxIdle {
+				maxIdle = entry.Idle
+			}
+		}
+
+		if len(pending) < 100 {
+			break
+		}
+
+		lastID := pending[len(pending)-1].ID
+		if lastID == "" {
+			break
+		}
+		start = "(" + lastID
+	}
+
+	return maxIdle.Milliseconds(), nil
+}
+
+func summarizeBillingRuntimeProjectorConsumers(consumers []redis.XInfoConsumer, claimIdle time.Duration) (active int, stale int) {
+	for _, consumer := range consumers {
+		if consumer.Pending == 0 && consumer.Idle > claimIdle {
+			stale++
+			continue
+		}
+		active++
+	}
+	return active, stale
+}
+
+func billingRuntimeStreamKey(prefix string) string {
+	prefix = strings.TrimSpace(prefix)
+	if prefix == "" {
+		prefix = "ampmanager"
+	}
+	return prefix + ":billing:events"
+}
+
+func isBillingProjectorGroupUnavailable(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := err.Error()
+	return strings.Contains(msg, "NOGROUP") ||
+		strings.Contains(msg, "no such key") ||
+		strings.Contains(msg, "requires the key to exist")
 }
 
 func (h *SystemHandler) UpdateBillingRuntimeConfig(c *gin.Context) {

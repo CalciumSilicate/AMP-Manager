@@ -533,34 +533,55 @@ func (r *Runtime) projectorLoop(consumerName string) {
 
 func (r *Runtime) reclaimPendingEntries(ctx context.Context, consumerName string) (int, error) {
 	start := time.Now()
-	messages, _, err := r.client.XAutoClaim(ctx, &redis.XAutoClaimArgs{
-		Stream:   r.streamKey(),
-		Group:    defaultProjectorGroup,
-		Consumer: consumerName,
-		MinIdle:  r.cfg.ProjectorClaimIdle,
-		Start:    "0-0",
-		Count:    r.cfg.StreamBatchSize,
-	}).Result()
-	if err != nil {
-		if err == redis.Nil || isProjectorGroupUnavailable(err) {
-			return 0, nil
-		}
-		r.metrics.addReclaimFailure()
-		return 0, err
+	batchSize := r.cfg.StreamBatchSize
+	if batchSize <= 0 {
+		batchSize = 1
 	}
-	if len(messages) == 0 {
+
+	const maxDrainRounds = 8
+
+	totalClaimed := 0
+	cursor := "0-0"
+	for round := 0; round < maxDrainRounds; round++ {
+		messages, nextCursor, err := r.client.XAutoClaim(ctx, &redis.XAutoClaimArgs{
+			Stream:   r.streamKey(),
+			Group:    defaultProjectorGroup,
+			Consumer: consumerName,
+			MinIdle:  r.cfg.ProjectorClaimIdle,
+			Start:    cursor,
+			Count:    batchSize,
+		}).Result()
+		if err != nil {
+			if err == redis.Nil || isProjectorGroupUnavailable(err) {
+				break
+			}
+			r.metrics.addReclaimFailure()
+			return totalClaimed, err
+		}
+		if len(messages) == 0 {
+			break
+		}
+
+		ackedIDs := r.projectMessages(ctx, messages)
+		if len(ackedIDs) > 0 {
+			if _, err := r.client.XAck(ctx, r.streamKey(), defaultProjectorGroup, ackedIDs...).Result(); err != nil && !isProjectorGroupUnavailable(err) {
+				r.metrics.addReclaimFailure()
+				log.Warnf("billing state: projector ack failed for %d reclaimed messages: %v", len(ackedIDs), err)
+			}
+		}
+
+		totalClaimed += len(messages)
+		if nextCursor == "0-0" || nextCursor == cursor {
+			break
+		}
+		cursor = nextCursor
+	}
+	if totalClaimed == 0 {
 		return 0, nil
 	}
 
-	ackedIDs := r.projectMessages(ctx, messages)
-	if len(ackedIDs) > 0 {
-		if _, err := r.client.XAck(ctx, r.streamKey(), defaultProjectorGroup, ackedIDs...).Result(); err != nil && !isProjectorGroupUnavailable(err) {
-			r.metrics.addReclaimFailure()
-			log.Warnf("billing state: projector ack failed for %d reclaimed messages: %v", len(ackedIDs), err)
-		}
-	}
-	r.metrics.recordReclaim(time.Since(start), int64(len(messages)))
-	return len(messages), nil
+	r.metrics.recordReclaim(time.Since(start), int64(totalClaimed))
+	return totalClaimed, nil
 }
 
 func (r *Runtime) projectorStaleConsumerSweepInterval() time.Duration {
