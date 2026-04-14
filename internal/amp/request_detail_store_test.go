@@ -6,6 +6,62 @@ import (
 	"time"
 )
 
+func resetRequestDetailRPMCounterForTest() {
+	requestDetailRPMState = newRequestDetailRPMCounter()
+}
+
+func TestShouldCaptureRequestDetailHighRPMOffMode(t *testing.T) {
+	prevCfg := GetRequestDetailConfig()
+	prevRPMState := requestDetailRPMState
+	t.Cleanup(func() {
+		requestDetailRPMState = prevRPMState
+		UpdateRequestDetailConfig(prevCfg)
+	})
+
+	resetRequestDetailRPMCounterForTest()
+	UpdateRequestDetailConfig(RequestDetailConfig{
+		Enabled:              true,
+		TTL:                  10 * time.Minute,
+		MaxEntries:           10,
+		MaxMemoryBytes:       64 * 1024 * 1024,
+		BodyCapBytes:         64,
+		PersistEnabled:       false,
+		HighRPMMode:          RequestDetailModeOff,
+		HighRPMThreshold:     1,
+		HighRPMSamplePercent: 100,
+	})
+
+	if ShouldCaptureRequestDetail("req-off") {
+		t.Fatalf("expected capture to be disabled once RPM threshold is reached in off mode")
+	}
+}
+
+func TestShouldCaptureRequestDetailHighRPMSampleMode(t *testing.T) {
+	prevCfg := GetRequestDetailConfig()
+	prevRPMState := requestDetailRPMState
+	t.Cleanup(func() {
+		requestDetailRPMState = prevRPMState
+		UpdateRequestDetailConfig(prevCfg)
+	})
+
+	resetRequestDetailRPMCounterForTest()
+	UpdateRequestDetailConfig(RequestDetailConfig{
+		Enabled:              true,
+		TTL:                  10 * time.Minute,
+		MaxEntries:           10,
+		MaxMemoryBytes:       64 * 1024 * 1024,
+		BodyCapBytes:         64,
+		PersistEnabled:       false,
+		HighRPMMode:          RequestDetailModeSample,
+		HighRPMThreshold:     1,
+		HighRPMSamplePercent: 100,
+	})
+
+	if !ShouldCaptureRequestDetail("req-sample") {
+		t.Fatalf("expected sample mode to retain request detail when sample percent is 100")
+	}
+}
+
 func TestRequestDetailStoreEnforcesMaxEntries(t *testing.T) {
 	prevCfg := GetRequestDetailConfig()
 	t.Cleanup(func() {
@@ -114,5 +170,38 @@ func TestRequestDetailStoreApplyConfigDisabledClearsMemory(t *testing.T) {
 	}
 	if store.currentBytes != 0 {
 		t.Fatalf("expected currentBytes to reset, got %d", store.currentBytes)
+	}
+}
+
+func TestRequestDetailStoreResponseUpdateDoesNotCreateMissingDetail(t *testing.T) {
+	prevCfg := GetRequestDetailConfig()
+	t.Cleanup(func() {
+		UpdateRequestDetailConfig(prevCfg)
+	})
+
+	UpdateRequestDetailConfig(RequestDetailConfig{
+		Enabled:              true,
+		TTL:                  10 * time.Minute,
+		MaxEntries:           10,
+		MaxMemoryBytes:       64 * 1024 * 1024,
+		BodyCapBytes:         64,
+		PersistEnabled:       false,
+		HighRPMMode:          RequestDetailModeFull,
+		HighRPMThreshold:     DefaultHighRPMThreshold,
+		HighRPMSamplePercent: DefaultHighRPMSamplePercent,
+	})
+
+	store := NewRequestDetailStore(nil, 0)
+	t.Cleanup(store.Stop)
+
+	store.UpdateResponseData("req-missing", http.Header{"X-Test": []string{"1"}}, []byte("body"))
+	store.UpdateTranslatedRequestBody("req-missing", []byte("translated"))
+	store.UpdateTranslatedRequestHeaders("req-missing", http.Header{"X-Trace": []string{"1"}})
+
+	store.mu.RLock()
+	defer store.mu.RUnlock()
+
+	if len(store.details) != 0 {
+		t.Fatalf("expected response-only updates to skip creating missing request detail entries")
 	}
 }

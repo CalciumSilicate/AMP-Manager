@@ -13,18 +13,28 @@ import (
 )
 
 const (
-	retryConfigKey                 = "retry_config"
-	requestDetailEnabledKey        = "request_detail_enabled"
-	requestDetailTTLSecKey         = "request_detail_ttl_sec"
-	requestDetailMaxEntriesKey     = "request_detail_max_entries"
-	requestDetailMaxMemoryMBKey    = "request_detail_max_memory_mb"
-	requestDetailBodyCapKBKey      = "request_detail_body_cap_kb"
-	requestDetailPersistEnabledKey = "request_detail_persist_enabled"
-	timeoutConfigKey               = "timeout_config"
-	cacheTTLOverrideKey            = "cache_ttl_override"
-	siteNameKey                    = "site_name"
-	billingRuntimeConfigKey        = "billing_runtime_config"
-	defaultSiteName                = "AMP Manager"
+	retryConfigKey                       = "retry_config"
+	requestDetailEnabledKey              = "request_detail_enabled"
+	requestDetailTTLSecKey               = "request_detail_ttl_sec"
+	requestDetailMaxEntriesKey           = "request_detail_max_entries"
+	requestDetailMaxMemoryMBKey          = "request_detail_max_memory_mb"
+	requestDetailBodyCapKBKey            = "request_detail_body_cap_kb"
+	requestDetailPersistEnabledKey       = "request_detail_persist_enabled"
+	requestDetailHighRPMModeKey          = "request_detail_high_rpm_mode"
+	requestDetailHighRPMThresholdKey     = "request_detail_high_rpm_threshold"
+	requestDetailHighRPMSamplePctKey     = "request_detail_high_rpm_sample_percent"
+	timeoutConfigKey                     = "timeout_config"
+	cacheTTLOverrideKey                  = "cache_ttl_override"
+	siteNameKey                          = "site_name"
+	billingRuntimeConfigKey              = "billing_runtime_config"
+	defaultSiteName                      = "AMP Manager"
+	defaultRequestDetailTTLSec           = 120
+	defaultRequestDetailMaxEntries       = 500
+	defaultRequestDetailMaxMemoryMB      = 256
+	defaultRequestDetailBodyCapKB        = 128
+	defaultRequestDetailHighRPMMode      = "full"
+	defaultRequestDetailHighRPMThreshold = 3000
+	defaultRequestDetailHighRPMSamplePct = 10
 )
 
 type SystemConfigService struct {
@@ -67,14 +77,7 @@ func (s *SystemConfigService) SetRequestDetailEnabled(enabled bool) error {
 }
 
 func (s *SystemConfigService) GetRequestDetailConfig() (model.RequestDetailConfigResponse, error) {
-	resp := model.RequestDetailConfigResponse{
-		Enabled:        true,
-		TTLSec:         120,
-		MaxEntries:     500,
-		MaxMemoryMB:    256,
-		BodyCapKB:      128,
-		PersistEnabled: true,
-	}
+	resp := defaultRequestDetailConfigResponse()
 
 	if value, err := s.repo.Get(requestDetailEnabledKey); err == nil && value != "" {
 		resp.Enabled = value != "false"
@@ -102,18 +105,35 @@ func (s *SystemConfigService) GetRequestDetailConfig() (model.RequestDetailConfi
 	if value, err := s.repo.Get(requestDetailPersistEnabledKey); err == nil && value != "" {
 		resp.PersistEnabled = value != "false"
 	}
+	if value, err := s.repo.Get(requestDetailHighRPMModeKey); err == nil && value != "" {
+		resp.HighRPMMode = strings.TrimSpace(value)
+	}
+	if value, err := s.repo.Get(requestDetailHighRPMThresholdKey); err == nil && value != "" {
+		if parsed, parseErr := parsePositiveInt(value); parseErr == nil {
+			resp.HighRPMThreshold = parsed
+		}
+	}
+	if value, err := s.repo.Get(requestDetailHighRPMSamplePctKey); err == nil && value != "" {
+		if parsed, parseErr := parsePositiveInt(value); parseErr == nil {
+			resp.HighRPMSamplePercent = parsed
+		}
+	}
 
-	return resp, nil
+	return normalizeRequestDetailConfigResponse(resp), nil
 }
 
 func (s *SystemConfigService) SetRequestDetailConfig(req model.RequestDetailConfigResponse) error {
+	req = normalizeRequestDetailConfigResponse(req)
 	entries := map[string]string{
-		requestDetailEnabledKey:        boolToConfigString(req.Enabled),
-		requestDetailTTLSecKey:         formatInt64(req.TTLSec),
-		requestDetailMaxEntriesKey:     formatInt(req.MaxEntries),
-		requestDetailMaxMemoryMBKey:    formatInt64(req.MaxMemoryMB),
-		requestDetailBodyCapKBKey:      formatInt(req.BodyCapKB),
-		requestDetailPersistEnabledKey: boolToConfigString(req.PersistEnabled),
+		requestDetailEnabledKey:          boolToConfigString(req.Enabled),
+		requestDetailTTLSecKey:           formatInt64(req.TTLSec),
+		requestDetailMaxEntriesKey:       formatInt(req.MaxEntries),
+		requestDetailMaxMemoryMBKey:      formatInt64(req.MaxMemoryMB),
+		requestDetailBodyCapKBKey:        formatInt(req.BodyCapKB),
+		requestDetailPersistEnabledKey:   boolToConfigString(req.PersistEnabled),
+		requestDetailHighRPMModeKey:      req.HighRPMMode,
+		requestDetailHighRPMThresholdKey: formatInt(req.HighRPMThreshold),
+		requestDetailHighRPMSamplePctKey: formatInt(req.HighRPMSamplePercent),
 	}
 
 	for key, value := range entries {
@@ -123,6 +143,52 @@ func (s *SystemConfigService) SetRequestDetailConfig(req model.RequestDetailConf
 	}
 
 	return nil
+}
+
+func defaultRequestDetailConfigResponse() model.RequestDetailConfigResponse {
+	return model.RequestDetailConfigResponse{
+		Enabled:              true,
+		TTLSec:               defaultRequestDetailTTLSec,
+		MaxEntries:           defaultRequestDetailMaxEntries,
+		MaxMemoryMB:          defaultRequestDetailMaxMemoryMB,
+		BodyCapKB:            defaultRequestDetailBodyCapKB,
+		PersistEnabled:       true,
+		HighRPMMode:          defaultRequestDetailHighRPMMode,
+		HighRPMThreshold:     defaultRequestDetailHighRPMThreshold,
+		HighRPMSamplePercent: defaultRequestDetailHighRPMSamplePct,
+	}
+}
+
+func normalizeRequestDetailConfigResponse(req model.RequestDetailConfigResponse) model.RequestDetailConfigResponse {
+	defaults := defaultRequestDetailConfigResponse()
+	if req.TTLSec <= 0 {
+		req.TTLSec = defaults.TTLSec
+	}
+	if req.MaxEntries <= 0 {
+		req.MaxEntries = defaults.MaxEntries
+	}
+	if req.MaxMemoryMB <= 0 {
+		req.MaxMemoryMB = defaults.MaxMemoryMB
+	}
+	if req.BodyCapKB <= 0 {
+		req.BodyCapKB = defaults.BodyCapKB
+	}
+	switch strings.TrimSpace(req.HighRPMMode) {
+	case "full", "off", "sample":
+		req.HighRPMMode = strings.TrimSpace(req.HighRPMMode)
+	default:
+		req.HighRPMMode = defaults.HighRPMMode
+	}
+	if req.HighRPMThreshold <= 0 {
+		req.HighRPMThreshold = defaults.HighRPMThreshold
+	}
+	if req.HighRPMSamplePercent <= 0 {
+		req.HighRPMSamplePercent = defaults.HighRPMSamplePercent
+	}
+	if req.HighRPMSamplePercent > 100 {
+		req.HighRPMSamplePercent = 100
+	}
+	return req
 }
 
 // GetTimeoutConfigJSON 获取超时配置的 JSON 字符串
