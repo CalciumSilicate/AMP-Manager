@@ -47,7 +47,7 @@ cp -r web/dist/* internal/web/dist/
 
 echo ""
 echo -e "${GREEN}[4/4] 编译后端二进制文件...${NC}"
-go build -ldflags="-s -w" -o ampmanager ./cmd/server
+go build -tags embed_frontend -ldflags="-s -w" -o ampmanager ./cmd/server
 
 echo ""
 echo "=============================="
