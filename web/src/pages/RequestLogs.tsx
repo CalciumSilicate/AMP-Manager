@@ -255,6 +255,25 @@ export default function RequestLogs({ isAdmin }: Props) {
     return log.apiKeyPrefix || log.apiKeyId || '-'
   }
 
+  const renderDuration = (valueMs?: number) => {
+    if (typeof valueMs !== 'number') return '-'
+
+    const compact = valueMs >= 1000
+      ? `${Number((valueMs / 1000).toFixed(1)).toString()}s`
+      : `${valueMs}ms`
+
+    return (
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <span className="inline-block cursor-default">{compact}</span>
+        </TooltipTrigger>
+        <TooltipContent side="bottom">
+          <p>{valueMs}ms</p>
+        </TooltipContent>
+      </Tooltip>
+    )
+  }
+
   return (
     <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-6">
       <motion.div initial={{ opacity: 0, y: -20 }} animate={{ opacity: 1, y: 0 }} transition={{ type: 'spring', bounce: 0.2, duration: 0.6 }}>
@@ -314,7 +333,7 @@ export default function RequestLogs({ isAdmin }: Props) {
                       <TableHead>状态</TableHead>
                       <TableHead className="text-right">TTFB</TableHead>
                       <TableHead className="text-right">TPS</TableHead>
-                      <TableHead className="text-right">延迟</TableHead>
+                      <TableHead className="text-right">用时</TableHead>
                       <TableHead className="text-right">输入(去缓存)</TableHead>
                       <TableHead className="text-right">输出</TableHead>
                       <TableHead className="text-right">缓存读</TableHead>
@@ -391,13 +410,13 @@ export default function RequestLogs({ isAdmin }: Props) {
                           )}
                         </TableCell>
                         <TableCell className="text-right text-muted-foreground">
-                          {log.isStreaming && typeof log.ttfbMs === 'number' ? `${log.ttfbMs}ms` : '-'}
+                          {log.isStreaming ? renderDuration(log.ttfbMs) : '-'}
                         </TableCell>
                         <TableCell className="text-right text-muted-foreground">
                           {log.isStreaming && typeof log.tps === 'number' ? `${log.tps.toFixed(1)}/s` : '-'}
                         </TableCell>
                         <TableCell className="text-right text-muted-foreground">
-                          {log.latencyMs}ms
+                          {renderDuration(log.latencyMs)}
                         </TableCell>
                         <TableCell className="text-right"><Num value={log.inputTokens} /></TableCell>
                         <TableCell className="text-right"><Num value={log.outputTokens} /></TableCell>

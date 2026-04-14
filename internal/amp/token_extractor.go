@@ -54,6 +54,9 @@ func NewSSETokenExtractor(reader io.ReadCloser, trace *RequestTrace, info Provid
 func (e *SSETokenExtractor) Read(p []byte) (int, error) {
 	n, err := e.reader.Read(p)
 	if n > 0 {
+		if e.trace != nil {
+			e.trace.MarkFirstByte()
+		}
 		e.processChunk(p[:n])
 	}
 	return n, err
