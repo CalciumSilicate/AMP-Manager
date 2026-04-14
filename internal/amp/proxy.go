@@ -271,17 +271,17 @@ func getSocks5Transport(proxyURL string) (*http.Transport, error) {
 	cfg := GetTimeoutConfig()
 	transport := &http.Transport{
 		DialContext:           contextDialer.DialContext,
-		TLSClientConfig:      &tls.Config{MinVersion: tls.VersionTLS12},
-		TLSHandshakeTimeout:  cfg.TLSHandshakeTimeout,
-		MaxIdleConns:         100,
-		MaxIdleConnsPerHost:  10,
-		MaxConnsPerHost:      0,
-		IdleConnTimeout:      cfg.IdleConnTimeout,
+		TLSClientConfig:       &tls.Config{MinVersion: tls.VersionTLS12},
+		TLSHandshakeTimeout:   cfg.TLSHandshakeTimeout,
+		MaxIdleConns:          100,
+		MaxIdleConnsPerHost:   10,
+		MaxConnsPerHost:       0,
+		IdleConnTimeout:       cfg.IdleConnTimeout,
 		ResponseHeaderTimeout: 0,
 		ExpectContinueTimeout: 0,
-		DisableCompression:   true,
-		DisableKeepAlives:    false,
-		ForceAttemptHTTP2:    false,
+		DisableCompression:    true,
+		DisableKeepAlives:     false,
+		ForceAttemptHTTP2:     false,
 	}
 
 	socks5TransportCache.Store(proxyURL, transport)
@@ -379,6 +379,7 @@ func CreateDynamicReverseProxy() *httputil.ReverseProxy {
 					req.Method,
 					req.URL.Path,
 				)
+				trace.SetUpstreamTransport("http")
 				// Set provider info (amp upstream defaults to Anthropic)
 				trace.SetChannel("", string(ProviderAnthropic), cfg.UpstreamURL)
 				// Get model info from context if available

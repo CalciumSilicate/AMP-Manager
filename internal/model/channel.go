@@ -20,25 +20,26 @@ const (
 )
 
 type Channel struct {
-	ID             string          `json:"id"`
-	Type           ChannelType     `json:"type"`
-	Endpoint       ChannelEndpoint `json:"endpoint"`
-	Name           string          `json:"name"`
-	BaseURL        string          `json:"baseUrl"`
-	APIKey         string          `json:"-"`
-	Enabled        bool            `json:"enabled"`
-	Weight         int             `json:"weight"`
-	Priority       int             `json:"priority"`
-	ModelWhitelist bool            `json:"modelWhitelist"`
-	SimulateCLI          bool            `json:"simulateCli"`
-	SimulateUA           bool            `json:"simulateUa"`
-	SimulateSystemPrompt bool            `json:"simulateSystemPrompt"`
-	TraditionalChinese   bool            `json:"traditionalChinese"`
-	CopilotAPI           bool            `json:"copilotApi"`
-	ModelsJSON           string          `json:"-"`
-	HeadersJSON    string          `json:"-"`
-	CreatedAt      time.Time       `json:"createdAt"`
-	UpdatedAt      time.Time       `json:"updatedAt"`
+	ID                    string          `json:"id"`
+	Type                  ChannelType     `json:"type"`
+	Endpoint              ChannelEndpoint `json:"endpoint"`
+	Name                  string          `json:"name"`
+	BaseURL               string          `json:"baseUrl"`
+	APIKey                string          `json:"-"`
+	Enabled               bool            `json:"enabled"`
+	Weight                int             `json:"weight"`
+	Priority              int             `json:"priority"`
+	ModelWhitelist        bool            `json:"modelWhitelist"`
+	SimulateCLI           bool            `json:"simulateCli"`
+	SimulateUA            bool            `json:"simulateUa"`
+	SimulateSystemPrompt  bool            `json:"simulateSystemPrompt"`
+	TraditionalChinese    bool            `json:"traditionalChinese"`
+	CopilotAPI            bool            `json:"copilotApi"`
+	CodexWebsocketEnabled bool            `json:"codexWebsocketEnabled"`
+	ModelsJSON            string          `json:"-"`
+	HeadersJSON           string          `json:"-"`
+	CreatedAt             time.Time       `json:"createdAt"`
+	UpdatedAt             time.Time       `json:"updatedAt"`
 }
 
 type ChannelModel struct {
@@ -47,47 +48,49 @@ type ChannelModel struct {
 }
 
 type ChannelRequest struct {
-	Type           ChannelType       `json:"type" binding:"required,oneof=gemini claude openai"`
-	Endpoint       ChannelEndpoint   `json:"endpoint"`
-	Name           string            `json:"name" binding:"required,min=1,max=64"`
-	BaseURL        string            `json:"baseUrl" binding:"required,url"`
-	APIKey         string            `json:"apiKey,omitempty"`
-	Enabled        bool              `json:"enabled"`
-	Weight         int               `json:"weight"`
-	Priority       int               `json:"priority"`
-	ModelWhitelist bool              `json:"modelWhitelist"`
-	SimulateCLI          bool              `json:"simulateCli"`
-	SimulateUA           bool              `json:"simulateUa"`
-	SimulateSystemPrompt bool              `json:"simulateSystemPrompt"`
-	TraditionalChinese   bool              `json:"traditionalChinese"`
-	CopilotAPI           bool              `json:"copilotApi"`
-	GroupIDs             []string          `json:"groupIds"`
-	Models               []ChannelModel    `json:"models,omitempty"`
-	Headers        map[string]string `json:"headers,omitempty"`
+	Type                  ChannelType       `json:"type" binding:"required,oneof=gemini claude openai"`
+	Endpoint              ChannelEndpoint   `json:"endpoint"`
+	Name                  string            `json:"name" binding:"required,min=1,max=64"`
+	BaseURL               string            `json:"baseUrl" binding:"required,url"`
+	APIKey                string            `json:"apiKey,omitempty"`
+	Enabled               bool              `json:"enabled"`
+	Weight                int               `json:"weight"`
+	Priority              int               `json:"priority"`
+	ModelWhitelist        bool              `json:"modelWhitelist"`
+	SimulateCLI           bool              `json:"simulateCli"`
+	SimulateUA            bool              `json:"simulateUa"`
+	SimulateSystemPrompt  bool              `json:"simulateSystemPrompt"`
+	TraditionalChinese    bool              `json:"traditionalChinese"`
+	CopilotAPI            bool              `json:"copilotApi"`
+	CodexWebsocketEnabled bool              `json:"codexWebsocketEnabled"`
+	GroupIDs              []string          `json:"groupIds"`
+	Models                []ChannelModel    `json:"models,omitempty"`
+	Headers               map[string]string `json:"headers,omitempty"`
 }
 
 type ChannelResponse struct {
-	ID             string            `json:"id"`
-	Type           ChannelType       `json:"type"`
-	Endpoint       ChannelEndpoint   `json:"endpoint"`
-	Name           string            `json:"name"`
-	BaseURL        string            `json:"baseUrl"`
-	APIKeySet      bool              `json:"apiKeySet"`
-	Enabled        bool              `json:"enabled"`
-	Weight         int               `json:"weight"`
-	Priority       int               `json:"priority"`
-	ModelWhitelist bool              `json:"modelWhitelist"`
-	SimulateCLI          bool              `json:"simulateCli"`
-	SimulateUA           bool              `json:"simulateUa"`
-	SimulateSystemPrompt bool              `json:"simulateSystemPrompt"`
-	TraditionalChinese   bool              `json:"traditionalChinese"`
-	CopilotAPI           bool              `json:"copilotApi"`
-	GroupIDs             []string          `json:"groupIds"`
-	GroupNames           []string          `json:"groupNames"`
-	Models         []ChannelModel    `json:"models"`
-	Headers        map[string]string `json:"headers"`
-	CreatedAt      time.Time         `json:"createdAt"`
-	UpdatedAt      time.Time         `json:"updatedAt"`
+	ID                    string            `json:"id"`
+	Type                  ChannelType       `json:"type"`
+	Endpoint              ChannelEndpoint   `json:"endpoint"`
+	Name                  string            `json:"name"`
+	BaseURL               string            `json:"baseUrl"`
+	APIKeySet             bool              `json:"apiKeySet"`
+	Enabled               bool              `json:"enabled"`
+	Weight                int               `json:"weight"`
+	Priority              int               `json:"priority"`
+	ModelWhitelist        bool              `json:"modelWhitelist"`
+	SimulateCLI           bool              `json:"simulateCli"`
+	SimulateUA            bool              `json:"simulateUa"`
+	SimulateSystemPrompt  bool              `json:"simulateSystemPrompt"`
+	TraditionalChinese    bool              `json:"traditionalChinese"`
+	CopilotAPI            bool              `json:"copilotApi"`
+	CodexWebsocketEnabled bool              `json:"codexWebsocketEnabled"`
+	GroupIDs              []string          `json:"groupIds"`
+	GroupNames            []string          `json:"groupNames"`
+	Models                []ChannelModel    `json:"models"`
+	Headers               map[string]string `json:"headers"`
+	CreatedAt             time.Time         `json:"createdAt"`
+	UpdatedAt             time.Time         `json:"updatedAt"`
 }
 
 type TestChannelResponse struct {

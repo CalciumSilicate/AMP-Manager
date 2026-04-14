@@ -287,6 +287,7 @@ func createTables() error {
 		enabled INTEGER NOT NULL DEFAULT 1,
 		weight INTEGER NOT NULL DEFAULT 1,
 		priority INTEGER NOT NULL DEFAULT 100,
+		codex_websocket_enabled INTEGER NOT NULL DEFAULT 0,
 		models_json TEXT NOT NULL DEFAULT '[]',
 		headers_json TEXT NOT NULL DEFAULT '{}',
 		created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
@@ -365,6 +366,9 @@ func createTables() error {
 		cost_usd TEXT,
 		pricing_model TEXT,
 		thinking_level TEXT,
+		downstream_transport TEXT,
+		upstream_transport TEXT,
+		transport_fallback_reason TEXT,
 		response_text TEXT,
 		rate_multiplier REAL,
 		charged_subscription_micros INTEGER NOT NULL DEFAULT 0,
@@ -717,6 +721,10 @@ func runMigrations() error {
 			sql:  `ALTER TABLE channels ADD COLUMN simulate_cli INTEGER NOT NULL DEFAULT 0`,
 		},
 		{
+			name: "add_channels_codex_websocket_enabled",
+			sql:  `ALTER TABLE channels ADD COLUMN codex_websocket_enabled INTEGER NOT NULL DEFAULT 0`,
+		},
+		{
 			name: "add_socks5_proxy",
 			sql:  `ALTER TABLE user_amp_settings ADD COLUMN socks5_proxy TEXT NOT NULL DEFAULT ''`,
 		},
@@ -744,6 +752,18 @@ func runMigrations() error {
 		{
 			name: "add_request_logs_effective_model_index",
 			sql:  `CREATE INDEX IF NOT EXISTS idx_request_logs_effective_model ON request_logs(COALESCE(mapped_model, original_model))`,
+		},
+		{
+			name: "add_request_logs_downstream_transport",
+			sql:  `ALTER TABLE request_logs ADD COLUMN downstream_transport TEXT`,
+		},
+		{
+			name: "add_request_logs_upstream_transport",
+			sql:  `ALTER TABLE request_logs ADD COLUMN upstream_transport TEXT`,
+		},
+		{
+			name: "add_request_logs_transport_fallback_reason",
+			sql:  `ALTER TABLE request_logs ADD COLUMN transport_fallback_reason TEXT`,
 		},
 		{
 			name: "add_request_log_details_archive_translated_request_headers",

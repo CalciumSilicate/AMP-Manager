@@ -14,19 +14,22 @@ type RequestTrace struct {
 	mu sync.Mutex
 
 	// 请求基本信息
-	RequestID     string
-	StartTime     time.Time
-	UserID        string
-	APIKeyID      string
-	Method        string
-	Path          string
-	OriginalModel string
-	MappedModel   string
-	Provider      string
-	ChannelID     string
-	Endpoint      string
-	IsStreaming   bool
-	ThinkingLevel string
+	RequestID               string
+	StartTime               time.Time
+	UserID                  string
+	APIKeyID                string
+	Method                  string
+	Path                    string
+	OriginalModel           string
+	MappedModel             string
+	Provider                string
+	ChannelID               string
+	Endpoint                string
+	IsStreaming             bool
+	ThinkingLevel           string
+	DownstreamTransport     string
+	UpstreamTransport       string
+	TransportFallbackReason string
 
 	// 响应信息
 	StatusCode int
@@ -57,12 +60,13 @@ type RequestTrace struct {
 // NewRequestTrace 创建新的请求追踪
 func NewRequestTrace(requestID, userID, apiKeyID, method, path string) *RequestTrace {
 	return &RequestTrace{
-		RequestID: requestID,
-		StartTime: time.Now().UTC(),
-		UserID:    userID,
-		APIKeyID:  apiKeyID,
-		Method:    method,
-		Path:      path,
+		RequestID:           requestID,
+		StartTime:           time.Now().UTC(),
+		UserID:              userID,
+		APIKeyID:            apiKeyID,
+		Method:              method,
+		Path:                path,
+		DownstreamTransport: "http",
 	}
 }
 
@@ -165,6 +169,24 @@ func (t *RequestTrace) SetThinkingLevel(level string) {
 	t.ThinkingLevel = level
 }
 
+func (t *RequestTrace) SetDownstreamTransport(transport string) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	t.DownstreamTransport = transport
+}
+
+func (t *RequestTrace) SetUpstreamTransport(transport string) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	t.UpstreamTransport = transport
+}
+
+func (t *RequestTrace) SetTransportFallbackReason(reason string) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	t.TransportFallbackReason = reason
+}
+
 // SetResponseText 设置响应文本
 func (t *RequestTrace) SetResponseText(text string) {
 	t.mu.Lock()
@@ -208,6 +230,9 @@ func (t *RequestTrace) Clone() RequestTrace {
 		Endpoint:                 t.Endpoint,
 		IsStreaming:              t.IsStreaming,
 		ThinkingLevel:            t.ThinkingLevel,
+		DownstreamTransport:      t.DownstreamTransport,
+		UpstreamTransport:        t.UpstreamTransport,
+		TransportFallbackReason:  t.TransportFallbackReason,
 		StatusCode:               t.StatusCode,
 		LatencyMs:                t.LatencyMs,
 		TTFBMs:                   copyInt64Ptr(t.TTFBMs),
