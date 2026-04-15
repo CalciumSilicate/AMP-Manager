@@ -5,14 +5,17 @@ import (
 	"context"
 	"encoding/json"
 	"io"
+	"math"
 	"net/http"
 	"os"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strings"
 	"time"
 
 	"ampmanager/internal/amp"
+	"ampmanager/internal/billingstate"
 	"ampmanager/internal/database"
 	"ampmanager/internal/model"
 	"ampmanager/internal/repository"
@@ -20,6 +23,7 @@ import (
 	"ampmanager/internal/translator/filters"
 
 	"github.com/gin-gonic/gin"
+	"github.com/redis/go-redis/v9"
 )
 
 // backupFilenamePattern 备份文件名正则：data.db.backup.YYYYMMDDHHmmss (14位时间戳)
@@ -28,6 +32,15 @@ var backupFilenamePattern = regexp.MustCompile(`^data\.db\.backup\.\d{14}$`)
 const retryConfigKey = "retry_config"
 const timeoutConfigKey = "timeout_config"
 const cacheTTLConfigKey = "cache_ttl_override"
+const billingProjectorGroup = "billing-projectors"
+
+type billingRuntimeProjectorSummary struct {
+	ConsumerCount   int
+	ActiveConsumers int
+	StaleConsumers  int
+	PendingEntries  int64
+	OldestPendingMs int64
+}
 
 type SystemHandler struct {
 	configRepo *repository.SystemConfigRepository
@@ -283,6 +296,283 @@ func (h *SystemHandler) UpdateRetryConfig(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"message": "配置已更新", "config": resp})
 }
 
+func (h *SystemHandler) GetBillingRuntimeConfig(c *gin.Context) {
+	resp, err := service.NewSystemConfigService().GetBillingRuntimeConfig()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "获取配置失败"})
+		return
+	}
+	c.JSON(http.StatusOK, resp)
+}
+
+func (h *SystemHandler) GetBillingRuntimeStats(c *gin.Context) {
+	systemConfigService := service.NewSystemConfigService()
+
+	cfg, err := systemConfigService.GetBillingRuntimeConfig()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "获取运行时状态失败"})
+		return
+	}
+
+	resp := model.BillingRuntimeStatsResponse{
+		RuntimeEnabled: cfg.RuntimeEnabled,
+		RuntimeHealthy: cfg.RuntimeHealthy,
+	}
+
+	rt := billingstate.Get()
+	if rt == nil {
+		c.JSON(http.StatusOK, resp)
+		return
+	}
+
+	snapshot := rt.SnapshotMetrics(false)
+	resp.Reserve = summarizeBillingRuntimeMetric(snapshot.ReserveDurations, snapshot.ReserveFailures)
+	resp.Settle = summarizeBillingRuntimeMetric(snapshot.SettleDurations, snapshot.SettleFailures)
+	resp.Project = summarizeBillingRuntimeMetric(snapshot.ProjectDurations, snapshot.ProjectFailures)
+	resp.Reclaim = summarizeBillingRuntimeMetric(snapshot.ReclaimDurations, snapshot.ReclaimFailures)
+	resp.Reconcile = summarizeBillingRuntimeMetric(snapshot.ReconcileDurations, snapshot.ReconcileFailures)
+	resp.ReclaimClaimed = snapshot.ReclaimClaimed
+	resp.ReconcileRepairs = snapshot.ReconcileRepairs
+
+	configReq, err := systemConfigService.GetBillingRuntimeConfigRequest()
+	if err == nil {
+		summary, err := loadBillingRuntimeProjectorSummary(c.Request.Context(), configReq)
+		if err == nil {
+			resp.ConsumerCount = summary.ConsumerCount
+			resp.ActiveConsumers = summary.ActiveConsumers
+			resp.StaleConsumers = summary.StaleConsumers
+			resp.PendingEntries = summary.PendingEntries
+			resp.OldestPendingMs = summary.OldestPendingMs
+		}
+	}
+
+	c.JSON(http.StatusOK, resp)
+}
+
+func loadBillingRuntimeProjectorSummary(ctx context.Context, cfg model.BillingRuntimeConfigRequest) (billingRuntimeProjectorSummary, error) {
+	summary := billingRuntimeProjectorSummary{}
+	if strings.TrimSpace(cfg.RedisURL) == "" {
+		return summary, nil
+	}
+
+	options, err := redis.ParseURL(cfg.RedisURL)
+	if err != nil {
+		return summary, err
+	}
+
+	client := redis.NewClient(options)
+	defer client.Close()
+
+	queryCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
+	defer cancel()
+
+	streamKey := billingRuntimeStreamKey(cfg.RedisPrefix)
+	consumers, err := client.XInfoConsumers(queryCtx, streamKey, billingProjectorGroup).Result()
+	if err != nil {
+		if err == redis.Nil || isBillingProjectorGroupUnavailable(err) {
+			return summary, nil
+		}
+		return summary, err
+	}
+
+	summary.ConsumerCount = len(consumers)
+	claimIdle := time.Duration(cfg.ProjectorClaimIdleSec) * time.Second
+	if claimIdle <= 0 {
+		claimIdle = 30 * time.Second
+	}
+	summary.ActiveConsumers, summary.StaleConsumers = summarizeBillingRuntimeProjectorConsumers(consumers, claimIdle)
+
+	pending, err := client.XPending(queryCtx, streamKey, billingProjectorGroup).Result()
+	if err != nil {
+		if err == redis.Nil || isBillingProjectorGroupUnavailable(err) {
+			return billingRuntimeProjectorSummary{}, nil
+		}
+		return summary, err
+	}
+	summary.PendingEntries = pending.Count
+	if pending.Count == 0 {
+		return summary, nil
+	}
+
+	oldestPendingMs, err := loadOldestPendingIdleMs(queryCtx, client, streamKey, billingProjectorGroup)
+	if err != nil {
+		if err == redis.Nil || isBillingProjectorGroupUnavailable(err) {
+			return billingRuntimeProjectorSummary{}, nil
+		}
+		return summary, err
+	}
+	summary.OldestPendingMs = oldestPendingMs
+	return summary, nil
+}
+
+func loadOldestPendingIdleMs(ctx context.Context, client *redis.Client, streamKey string, group string) (int64, error) {
+	var maxIdle time.Duration
+	start := "-"
+
+	for {
+		pending, err := client.XPendingExt(ctx, &redis.XPendingExtArgs{
+			Stream: streamKey,
+			Group:  group,
+			Start:  start,
+			End:    "+",
+			Count:  100,
+		}).Result()
+		if err != nil {
+			return 0, err
+		}
+		if len(pending) == 0 {
+			break
+		}
+
+		for _, entry := range pending {
+			if entry.Idle > maxIdle {
+				maxIdle = entry.Idle
+			}
+		}
+
+		if len(pending) < 100 {
+			break
+		}
+
+		lastID := pending[len(pending)-1].ID
+		if lastID == "" {
+			break
+		}
+		start = "(" + lastID
+	}
+
+	return maxIdle.Milliseconds(), nil
+}
+
+func summarizeBillingRuntimeProjectorConsumers(consumers []redis.XInfoConsumer, claimIdle time.Duration) (active int, stale int) {
+	for _, consumer := range consumers {
+		if consumer.Pending == 0 && consumer.Idle > claimIdle {
+			stale++
+			continue
+		}
+		active++
+	}
+	return active, stale
+}
+
+func billingRuntimeStreamKey(prefix string) string {
+	prefix = strings.TrimSpace(prefix)
+	if prefix == "" {
+		prefix = "ampmanager"
+	}
+	return prefix + ":billing:events"
+}
+
+func isBillingProjectorGroupUnavailable(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := err.Error()
+	return strings.Contains(msg, "NOGROUP") ||
+		strings.Contains(msg, "no such key") ||
+		strings.Contains(msg, "requires the key to exist")
+}
+
+func (h *SystemHandler) UpdateBillingRuntimeConfig(c *gin.Context) {
+	var req model.BillingRuntimeConfigRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "参数错误"})
+		return
+	}
+
+	req.RedisURL = strings.TrimSpace(req.RedisURL)
+	req.RedisPrefix = strings.TrimSpace(req.RedisPrefix)
+	if req.RedisPrefix == "" {
+		req.RedisPrefix = "ampmanager"
+	}
+	if req.ReservationTTLSec < 60 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "reservationTtlSec 必须 >= 60"})
+		return
+	}
+	if req.ReconcileIntervalSec < 10 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "reconcileIntervalSec 必须 >= 10"})
+		return
+	}
+	if req.StreamBatchSize < 1 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "streamBatchSize 必须 >= 1"})
+		return
+	}
+	if req.ReconcileBatchSize <= 0 {
+		req.ReconcileBatchSize = req.StreamBatchSize
+	}
+	if req.ExpiryBatchSize <= 0 {
+		req.ExpiryBatchSize = req.StreamBatchSize
+	}
+	if req.ReconcileBatchSize < 1 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "reconcileBatchSize 必须 >= 1"})
+		return
+	}
+	if req.ExpiryBatchSize < 1 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "expiryBatchSize 必须 >= 1"})
+		return
+	}
+	if req.ProjectorWorkers == 0 {
+		req.ProjectorWorkers = 1
+	}
+	if req.ProjectorWorkers < 1 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "projectorWorkers 必须 >= 1"})
+		return
+	}
+	if req.ProjectorClaimIdleSec < 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "projectorClaimIdleSec 必须 >= 1"})
+		return
+	}
+	if req.ProjectorClaimIdleSec == 0 {
+		req.ProjectorClaimIdleSec = 30
+	}
+
+	cfgService := service.NewSystemConfigService()
+	if err := cfgService.ApplyAndStoreBillingRuntimeConfig(req); err != nil {
+		if service.IsBillingRuntimePersistError(err) {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "保存配置失败，仍使用旧运行时: " + err.Error()})
+			return
+		}
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Redis 配置应用失败，配置未保存且仍使用旧运行时: " + err.Error()})
+		return
+	}
+
+	resp, err := cfgService.GetBillingRuntimeConfig()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "获取配置失败"})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"message": "配置已更新", "config": resp})
+}
+
+func summarizeBillingRuntimeMetric(durations []time.Duration, failures int64) model.BillingRuntimeMetricSummary {
+	return model.BillingRuntimeMetricSummary{
+		Samples:  len(durations),
+		P95Ms:    percentileDurationMs(durations, 0.95),
+		P99Ms:    percentileDurationMs(durations, 0.99),
+		Failures: failures,
+	}
+}
+
+func percentileDurationMs(durations []time.Duration, percentile float64) int64 {
+	if len(durations) == 0 {
+		return 0
+	}
+
+	sorted := append([]time.Duration(nil), durations...)
+	sort.Slice(sorted, func(i, j int) bool {
+		return sorted[i] < sorted[j]
+	})
+
+	index := int(math.Ceil(percentile*float64(len(sorted)))) - 1
+	if index < 0 {
+		index = 0
+	}
+	if index >= len(sorted) {
+		index = len(sorted) - 1
+	}
+	return sorted[index].Milliseconds()
+}
+
 func (h *SystemHandler) UploadDatabase(c *gin.Context) {
 	if database.IsPostgres() {
 		h.uploadPostgresDump(c)
@@ -372,10 +662,11 @@ func (h *SystemHandler) UploadDatabase(c *gin.Context) {
 		return
 	}
 
-	// 重新初始化日志写入器等依赖数据库的组件
-	amp.ReinitLogWriter(database.GetDB())
-	amp.ReinitRequestDetailStore(database.GetDB())
-	amp.ReinitPendingCleaner(database.GetDB())
+	// 重新初始化依赖数据库和系统配置的运行时组件
+	if err := reinitDatabaseBackedRuntimeServices(); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "运行时服务重载失败: " + err.Error()})
+		return
+	}
 
 	c.JSON(http.StatusOK, gin.H{
 		"message":    "数据库上传并切换成功",
@@ -416,9 +707,7 @@ func (h *SystemHandler) uploadPostgresDump(c *gin.Context) {
 
 	reopenOnError := func() {
 		_ = database.InitWithOptions(currentOptions)
-		amp.ReinitLogWriter(database.GetDB())
-		amp.ReinitRequestDetailStore(database.GetDB())
-		amp.ReinitPendingCleaner(database.GetDB())
+		_ = reinitDatabaseBackedRuntimeServices()
 	}
 
 	if err := database.RestorePostgresDatabase(context.Background(), currentOptions, bytes.ToValidUTF8(dumpContent, []byte(""))); err != nil {
@@ -431,9 +720,10 @@ func (h *SystemHandler) uploadPostgresDump(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "重新连接 PostgreSQL 失败: " + err.Error()})
 		return
 	}
-	amp.ReinitLogWriter(database.GetDB())
-	amp.ReinitRequestDetailStore(database.GetDB())
-	amp.ReinitPendingCleaner(database.GetDB())
+	if err := reinitDatabaseBackedRuntimeServices(); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "运行时服务重载失败: " + err.Error()})
+		return
+	}
 
 	c.JSON(http.StatusOK, gin.H{"message": "PostgreSQL dump 导入成功"})
 }
@@ -604,10 +894,11 @@ func (h *SystemHandler) RestoreBackup(c *gin.Context) {
 		return
 	}
 
-	// 重新初始化依赖数据库的组件
-	amp.ReinitLogWriter(database.GetDB())
-	amp.ReinitRequestDetailStore(database.GetDB())
-	amp.ReinitPendingCleaner(database.GetDB())
+	// 重新初始化依赖数据库和系统配置的运行时组件
+	if err := reinitDatabaseBackedRuntimeServices(); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "运行时服务重载失败: " + err.Error()})
+		return
+	}
 
 	c.JSON(http.StatusOK, gin.H{"message": "数据库恢复并切换成功"})
 }
@@ -712,14 +1003,31 @@ func (h *SystemHandler) UpdateRequestDetailConfig(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "bodyCapKB 必须 >= 4"})
 		return
 	}
+	switch req.HighRPMMode {
+	case amp.RequestDetailModeFull, amp.RequestDetailModeOff, amp.RequestDetailModeSample:
+	default:
+		c.JSON(http.StatusBadRequest, gin.H{"error": "highRpmMode 必须是 full/off/sample"})
+		return
+	}
+	if req.HighRPMThreshold < 100 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "highRpmThreshold 必须 >= 100"})
+		return
+	}
+	if req.HighRPMSamplePercent < 1 || req.HighRPMSamplePercent > 100 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "highRpmSamplePercent 必须在 1-100"})
+		return
+	}
 
 	resp := model.RequestDetailConfigResponse{
-		Enabled:        req.Enabled,
-		TTLSec:         req.TTLSec,
-		MaxEntries:     req.MaxEntries,
-		MaxMemoryMB:    req.MaxMemoryMB,
-		BodyCapKB:      req.BodyCapKB,
-		PersistEnabled: req.PersistEnabled,
+		Enabled:              req.Enabled,
+		TTLSec:               req.TTLSec,
+		MaxEntries:           req.MaxEntries,
+		MaxMemoryMB:          req.MaxMemoryMB,
+		BodyCapKB:            req.BodyCapKB,
+		PersistEnabled:       req.PersistEnabled,
+		HighRPMMode:          req.HighRPMMode,
+		HighRPMThreshold:     req.HighRPMThreshold,
+		HighRPMSamplePercent: req.HighRPMSamplePercent,
 	}
 
 	if err := service.NewSystemConfigService().SetRequestDetailConfig(resp); err != nil {
@@ -727,12 +1035,15 @@ func (h *SystemHandler) UpdateRequestDetailConfig(c *gin.Context) {
 		return
 	}
 	amp.UpdateRequestDetailConfig(amp.RequestDetailConfig{
-		Enabled:        resp.Enabled,
-		TTL:            time.Duration(resp.TTLSec) * time.Second,
-		MaxEntries:     resp.MaxEntries,
-		MaxMemoryBytes: resp.MaxMemoryMB * 1024 * 1024,
-		BodyCapBytes:   resp.BodyCapKB * 1024,
-		PersistEnabled: resp.PersistEnabled,
+		Enabled:              resp.Enabled,
+		TTL:                  time.Duration(resp.TTLSec) * time.Second,
+		MaxEntries:           resp.MaxEntries,
+		MaxMemoryBytes:       resp.MaxMemoryMB * 1024 * 1024,
+		BodyCapBytes:         resp.BodyCapKB * 1024,
+		PersistEnabled:       resp.PersistEnabled,
+		HighRPMMode:          resp.HighRPMMode,
+		HighRPMThreshold:     resp.HighRPMThreshold,
+		HighRPMSamplePercent: resp.HighRPMSamplePercent,
 	})
 
 	c.JSON(http.StatusOK, gin.H{"message": "配置已更新", "config": resp})

@@ -1,6 +1,7 @@
 package router
 
 import (
+	"os"
 	"strings"
 
 	"ampmanager/internal/amp"
@@ -13,7 +14,11 @@ import (
 )
 
 func Setup() *gin.Engine {
-	r := gin.Default()
+	r := gin.New()
+	r.Use(gin.Recovery())
+	if os.Getenv("AMP_ENABLE_ACCESS_LOG") == "true" {
+		r.Use(gin.Logger())
+	}
 
 	cfg := config.Get()
 
@@ -202,6 +207,11 @@ func Setup() *gin.Engine {
 				// 缓存 TTL 配置
 				system.GET("/cache-ttl", systemHandler.GetCacheTTLConfig)
 				system.PUT("/cache-ttl", systemHandler.UpdateCacheTTLConfig)
+
+				// Redis 计费运行时配置
+				system.GET("/billing-runtime-config", systemHandler.GetBillingRuntimeConfig)
+				system.GET("/billing-runtime-stats", systemHandler.GetBillingRuntimeStats)
+				system.PUT("/billing-runtime-config", systemHandler.UpdateBillingRuntimeConfig)
 
 				// 站点配置
 				system.GET("/site-config", systemHandler.GetSiteConfig)

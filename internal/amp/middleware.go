@@ -451,10 +451,22 @@ func BillingCheckMiddleware() gin.HandlerFunc {
 			return
 		}
 
-		canStart, err := billingSvc.CanStartRequest(cfg.UserID)
+		requestID := GetRequestID(c.Request.Context())
+		if requestID == "" {
+			requestID = uuid.New().String()
+			c.Request = c.Request.WithContext(WithRequestID(c.Request.Context(), requestID))
+		}
+
+		estimate := GetBillingEstimate(c.Request.Context())
+		canStart, err := billingSvc.ReserveRequest(service.AdmissionRequest{
+			RequestID:           requestID,
+			UserID:              cfg.UserID,
+			PricingModel:        safeEstimateModel(estimate),
+			EstimatedCostMicros: safeEstimateCost(estimate),
+		})
 		if err != nil {
 			log.Errorf("billing check: failed for user %s: %v", cfg.UserID, err)
-			c.Next()
+			c.AbortWithStatusJSON(http.StatusServiceUnavailable, NewStandardError(http.StatusServiceUnavailable, "billing state unavailable"))
 			return
 		}
 
@@ -466,6 +478,20 @@ func BillingCheckMiddleware() gin.HandlerFunc {
 
 		c.Next()
 	}
+}
+
+func safeEstimateModel(estimate *BillingEstimate) string {
+	if estimate == nil {
+		return ""
+	}
+	return estimate.PricingModel
+}
+
+func safeEstimateCost(estimate *BillingEstimate) int64 {
+	if estimate == nil {
+		return 0
+	}
+	return estimate.EstimatedCostMicros
 }
 
 // ForceFreeTierMiddleware forces webSearch2 and extractWebPageContent requests to use free tier

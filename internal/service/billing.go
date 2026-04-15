@@ -1,12 +1,14 @@
 package service
 
 import (
+	"context"
 	"database/sql"
 	"errors"
 	"fmt"
 	"math"
 	"time"
 
+	"ampmanager/internal/billingstate"
 	"ampmanager/internal/database"
 	"ampmanager/internal/model"
 	"ampmanager/internal/repository"
@@ -27,6 +29,19 @@ type BillingService struct {
 	userRepo    repository.UserRepositoryInterface
 	quotaSvc    *QuotaService
 	subSvc      *UserSubscriptionService
+}
+
+type RequestBillingResult struct {
+	Status                    string
+	ChargedSubscriptionMicros int64
+	ChargedBalanceMicros      int64
+}
+
+type AdmissionRequest struct {
+	RequestID           string
+	UserID              string
+	PricingModel        string
+	EstimatedCostMicros int64
 }
 
 func NewBillingService() *BillingService {
@@ -60,6 +75,10 @@ func NewBillingServiceWithRepo(
 }
 
 func (s *BillingService) CanStartRequest(userID string) (bool, error) {
+	return s.canStartRequestLegacy(userID)
+}
+
+func (s *BillingService) canStartRequestLegacy(userID string) (bool, error) {
 	setting, err := s.settingRepo.GetByUserID(userID)
 	if err != nil {
 		return false, err
@@ -107,6 +126,19 @@ func (s *BillingService) CanStartRequest(userID string) (bool, error) {
 	return false, nil
 }
 
+func (s *BillingService) ReserveRequest(req AdmissionRequest) (bool, error) {
+	if runtime := billingstate.Get(); runtime != nil {
+		if err := runtime.ReserveRequest(context.Background(), req.RequestID, req.UserID, req.EstimatedCostMicros); err != nil {
+			if errors.Is(err, billingstate.ErrInsufficientBudget) {
+				return false, nil
+			}
+			return false, err
+		}
+		return true, nil
+	}
+	return s.canStartRequestLegacy(req.UserID)
+}
+
 func (s *BillingService) calcSubscriptionRemaining(sub *model.UserSubscription, limits []model.SubscriptionPlanLimit) int64 {
 	now := time.Now().UTC()
 	location, err := s.quotaSvc.getSiteLocation()
@@ -140,42 +172,96 @@ func (s *BillingService) calcSubscriptionRemaining(sub *model.UserSubscription, 
 }
 
 func (s *BillingService) SettleRequestCost(requestLogID, userID string, costMicros int64) error {
+	result, err := s.SettleRequestCostResult(requestLogID, userID, costMicros)
+	if err != nil {
+		return err
+	}
+	if result == nil {
+		return nil
+	}
+	return s.ApplyBillingResult(requestLogID, result)
+}
+
+func (s *BillingService) ApplyBillingResult(requestLogID string, result *RequestBillingResult) error {
+	if result == nil {
+		return nil
+	}
+	return s.markBillingStatus(requestLogID, result.Status, result.ChargedSubscriptionMicros, result.ChargedBalanceMicros)
+}
+
+func (s *BillingService) SettleRequestCostResult(requestLogID, userID string, costMicros int64) (*RequestBillingResult, error) {
+	if runtime := billingstate.Get(); runtime != nil {
+		result, err := runtime.SettleRequest(context.Background(), requestLogID, userID, costMicros)
+		if err != nil {
+			if errors.Is(err, billingstate.ErrReservationNotFound) {
+				return s.settleRequestCostLegacy(requestLogID, userID, costMicros)
+			}
+			return nil, err
+		}
+
+		status := "free"
+		if result != nil {
+			status = result.Status
+			if status == "" {
+				if costMicros == 0 {
+					status = "free"
+				} else {
+					status = "settled"
+				}
+			}
+		}
+		chargedSub := int64(0)
+		chargedBal := int64(0)
+		if result != nil {
+			chargedSub = result.ChargedSubscriptionMicros
+			chargedBal = result.ChargedBalanceMicros
+		}
+		return &RequestBillingResult{
+			Status:                    status,
+			ChargedSubscriptionMicros: chargedSub,
+			ChargedBalanceMicros:      chargedBal,
+		}, nil
+	}
+	return s.settleRequestCostLegacy(requestLogID, userID, costMicros)
+}
+
+func (s *BillingService) settleRequestCostLegacy(requestLogID, userID string, costMicros int64) (*RequestBillingResult, error) {
 	if costMicros < 0 {
-		return fmt.Errorf("billing: invalid negative cost %d", costMicros)
+		return nil, fmt.Errorf("billing: invalid negative cost %d", costMicros)
 	}
 	if costMicros == 0 {
-		return s.markBillingStatus(requestLogID, "free", 0, 0)
+		return &RequestBillingResult{Status: "free"}, nil
 	}
 
 	db := database.GetDB()
 
 	tx, err := db.Begin()
 	if err != nil {
-		return fmt.Errorf("billing: begin tx: %w", err)
+		return nil, fmt.Errorf("billing: begin tx: %w", err)
 	}
 	defer tx.Rollback()
 
 	setting, err := s.queryBillingSetting(tx, userID)
 	if err != nil {
-		return fmt.Errorf("billing: query setting: %w", err)
+		return nil, fmt.Errorf("billing: query setting: %w", err)
 	}
 
 	sub, err := s.queryActiveSubscription(tx, userID)
 	if err != nil {
-		return fmt.Errorf("billing: query subscription: %w", err)
+		return nil, fmt.Errorf("billing: query subscription: %w", err)
 	}
 
 	var subscriptionRemaining int64
 	if sub != nil {
 		subscriptionRemaining, err = s.calcSubscriptionRemainingTx(tx, sub)
 		if err != nil {
-			return fmt.Errorf("billing: calc subscription remaining: %w", err)
+			return nil, fmt.Errorf("billing: calc subscription remaining: %w", err)
 		}
 	}
 
 	balance, err := s.queryBalance(tx, userID)
 	if err != nil {
-		return fmt.Errorf("billing: query balance: %w", err)
+		return nil, fmt.Errorf("billing: query balance: %w", err)
 	}
 
 	var chargedSubscription, chargedBalance int64
@@ -193,7 +279,7 @@ func (s *BillingService) SettleRequestCost(requestLogID, userID string, costMicr
 				if charge > subscriptionRemaining {
 					charge = subscriptionRemaining
 				}
-				chargedSubscription = charge
+				chargedSubscription += charge
 				remaining -= charge
 				subscriptionRemaining -= charge
 			}
@@ -203,7 +289,7 @@ func (s *BillingService) SettleRequestCost(requestLogID, userID string, costMicr
 				if charge > balance {
 					charge = balance
 				}
-				chargedBalance = charge
+				chargedBalance += charge
 				remaining -= charge
 				balance -= charge
 			}
@@ -217,40 +303,41 @@ func (s *BillingService) SettleRequestCost(requestLogID, userID string, costMicr
 
 	if chargedSubscription > 0 && sub != nil {
 		if err := s.insertBillingEvent(tx, requestLogID, userID, &sub.ID, model.BillingSourceSubscription, "charge", chargedSubscription, now); err != nil {
-			return fmt.Errorf("billing: insert subscription event: %w", err)
+			return nil, fmt.Errorf("billing: insert subscription event: %w", err)
 		}
 	}
 
 	if chargedBalance > 0 {
 		if err := s.insertBillingEvent(tx, requestLogID, userID, nil, model.BillingSourceBalance, "charge", chargedBalance, now); err != nil {
-			return fmt.Errorf("billing: insert balance event: %w", err)
+			return nil, fmt.Errorf("billing: insert balance event: %w", err)
 		}
 		if _, err := tx.Exec(
 			`UPDATE users SET balance_micros = CASE WHEN balance_micros >= ? THEN balance_micros - ? ELSE 0 END, updated_at = ? WHERE id = ?`,
 			chargedBalance, chargedBalance, now, userID,
 		); err != nil {
-			return fmt.Errorf("billing: deduct balance: %w", err)
+			return nil, fmt.Errorf("billing: deduct balance: %w", err)
 		}
 	}
 
 	billingStatus := "settled"
+	if costMicros == 0 {
+		billingStatus = "free"
+	}
 	if remaining > 0 {
 		billingStatus = "overuse"
 	}
-	if _, err := tx.Exec(
-		`UPDATE request_logs SET charged_subscription_micros = ?, charged_balance_micros = ?, billing_status = ? WHERE id = ?`,
-		chargedSubscription, chargedBalance, billingStatus, requestLogID,
-	); err != nil {
-		return fmt.Errorf("billing: update request_logs: %w", err)
-	}
 
 	if err := tx.Commit(); err != nil {
-		return fmt.Errorf("billing: commit: %w", err)
+		return nil, fmt.Errorf("billing: commit: %w", err)
 	}
 
 	log.Debugf("billing: settled request %s user %s cost=%d sub=%d bal=%d status=%s",
 		requestLogID, userID, costMicros, chargedSubscription, chargedBalance, billingStatus)
-	return nil
+	return &RequestBillingResult{
+		Status:                    billingStatus,
+		ChargedSubscriptionMicros: chargedSubscription,
+		ChargedBalanceMicros:      chargedBalance,
+	}, nil
 }
 
 func (s *BillingService) GetBillingState(userID string) (*model.BillingStateResponse, error) {
@@ -416,9 +503,23 @@ func (s *BillingService) insertBillingEvent(tx *sql.Tx, requestLogID, userID str
 
 func (s *BillingService) markBillingStatus(requestLogID, status string, subMicros, balMicros int64) error {
 	db := database.GetDB()
-	_, err := db.Exec(
-		`UPDATE request_logs SET charged_subscription_micros = ?, charged_balance_micros = ?, billing_status = ? WHERE id = ?`,
+	return updateRequestLogBilling(db, requestLogID, status, subMicros, balMicros)
+}
+
+func updateRequestLogBilling(exec interface {
+	Exec(query string, args ...any) (sql.Result, error)
+}, requestLogID, status string, subMicros, balMicros int64) error {
+	_, err := exec.Exec(
+		`UPDATE request_logs
+		 SET charged_subscription_micros = ?, charged_balance_micros = ?, billing_status = ?
+		 WHERE id = ?
+		   AND (
+		     COALESCE(charged_subscription_micros, -1) <> ?
+		     OR COALESCE(charged_balance_micros, -1) <> ?
+		     OR COALESCE(billing_status, '') <> ?
+		   )`,
 		subMicros, balMicros, status, requestLogID,
+		subMicros, balMicros, status,
 	)
 	return err
 }

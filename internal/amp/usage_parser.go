@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 
 	log "github.com/sirupsen/logrus"
+	"github.com/tidwall/gjson"
 )
 
 // UsageParser 提供商 token 使用量解析接口
@@ -121,43 +122,19 @@ type openAIChatUsage struct {
 }
 
 func (p *openAIChatParser) ConsumeSSE(eventName string, data []byte) (*TokenUsage, bool, bool) {
-	var chunk struct {
-		Usage *openAIChatUsage `json:"usage,omitempty"`
-	}
-	if err := json.Unmarshal(data, &chunk); err != nil || chunk.Usage == nil {
+	usage, ok := parseOpenAIChatUsageBytes(data)
+	if !ok {
 		return nil, false, false
 	}
 
-	usage := &TokenUsage{
-		InputTokens:  intPtr(chunk.Usage.PromptTokens),
-		OutputTokens: intPtr(chunk.Usage.CompletionTokens),
-	}
-	if chunk.Usage.PromptTokensDetails != nil && chunk.Usage.PromptTokensDetails.CachedTokens != nil {
-		usage.CacheReadInputTokens = chunk.Usage.PromptTokensDetails.CachedTokens
-	}
-
 	log.Debugf("usage parser [openai_chat]: usage chunk - input=%d, output=%d, cache_read=%v",
-		chunk.Usage.PromptTokens, chunk.Usage.CompletionTokens, ptrToInt(usage.CacheReadInputTokens))
+		ptrToInt(usage.InputTokens), ptrToInt(usage.OutputTokens), ptrToInt(usage.CacheReadInputTokens))
 
 	return usage, true, true
 }
 
 func (p *openAIChatParser) ParseResponse(body []byte) (*TokenUsage, bool) {
-	var resp struct {
-		Usage *openAIChatUsage `json:"usage,omitempty"`
-	}
-	if err := json.Unmarshal(body, &resp); err != nil || resp.Usage == nil {
-		return nil, false
-	}
-
-	usage := &TokenUsage{
-		InputTokens:  intPtr(resp.Usage.PromptTokens),
-		OutputTokens: intPtr(resp.Usage.CompletionTokens),
-	}
-	if resp.Usage.PromptTokensDetails != nil && resp.Usage.PromptTokensDetails.CachedTokens != nil {
-		usage.CacheReadInputTokens = resp.Usage.PromptTokensDetails.CachedTokens
-	}
-	return usage, true
+	return parseOpenAIChatUsageBytes(body)
 }
 
 // ========== OpenAI Responses API Parser ==========
@@ -174,60 +151,28 @@ type openAIResponsesUsage struct {
 }
 
 func (p *openAIResponsesParser) ConsumeSSE(eventName string, data []byte) (*TokenUsage, bool, bool) {
-	var ev struct {
-		Type     string `json:"type"`
-		Response *struct {
-			Usage *openAIResponsesUsage `json:"usage,omitempty"`
-		} `json:"response,omitempty"`
-		Usage *openAIResponsesUsage `json:"usage,omitempty"`
-	}
-	if err := json.Unmarshal(data, &ev); err != nil {
-		return nil, false, false
-	}
-
-	isCompleted := (eventName == "response.completed" || ev.Type == "response.completed")
+	eventType := gjson.GetBytes(data, "type").String()
+	isCompleted := eventName == "response.completed" || eventType == "response.completed"
 	if !isCompleted {
 		return nil, false, false
 	}
 
-	u := ev.Usage
-	if u == nil && ev.Response != nil {
-		u = ev.Response.Usage
-	}
-	if u == nil {
-		return nil, false, false
-	}
-
-	usage := &TokenUsage{
-		InputTokens:  intPtr(u.InputTokens),
-		OutputTokens: intPtr(u.OutputTokens),
-	}
-	if u.InputTokensDetails != nil && u.InputTokensDetails.CachedTokens != nil {
-		usage.CacheReadInputTokens = u.InputTokensDetails.CachedTokens
+	usage, ok := parseOpenAIResponsesUsageBytes(data)
+	if !ok {
+		usage, ok = parseOpenAIResponsesUsageBytes([]byte(gjson.GetBytes(data, "response").Raw))
+		if !ok {
+			return nil, false, false
+		}
 	}
 
 	log.Debugf("usage parser [openai_responses]: response.completed - input=%d, output=%d, cache_read=%v",
-		u.InputTokens, u.OutputTokens, ptrToInt(usage.CacheReadInputTokens))
+		ptrToInt(usage.InputTokens), ptrToInt(usage.OutputTokens), ptrToInt(usage.CacheReadInputTokens))
 
 	return usage, true, true
 }
 
 func (p *openAIResponsesParser) ParseResponse(body []byte) (*TokenUsage, bool) {
-	var resp struct {
-		Usage *openAIResponsesUsage `json:"usage,omitempty"`
-	}
-	if err := json.Unmarshal(body, &resp); err != nil || resp.Usage == nil {
-		return nil, false
-	}
-
-	usage := &TokenUsage{
-		InputTokens:  intPtr(resp.Usage.InputTokens),
-		OutputTokens: intPtr(resp.Usage.OutputTokens),
-	}
-	if resp.Usage.InputTokensDetails != nil && resp.Usage.InputTokensDetails.CachedTokens != nil {
-		usage.CacheReadInputTokens = resp.Usage.InputTokensDetails.CachedTokens
-	}
-	return usage, true
+	return parseOpenAIResponsesUsageBytes(body)
 }
 
 // ========== Gemini Parser ==========
@@ -242,49 +187,79 @@ type geminiUsageMetadata struct {
 }
 
 func (p *geminiParser) ConsumeSSE(eventName string, data []byte) (*TokenUsage, bool, bool) {
-	var chunk struct {
-		Candidates []struct {
-			FinishReason string `json:"finishReason"`
-		} `json:"candidates,omitempty"`
-		UsageMetadata *geminiUsageMetadata `json:"usageMetadata,omitempty"`
-	}
-	if err := json.Unmarshal(data, &chunk); err != nil || chunk.UsageMetadata == nil {
+	usage, ok := parseGeminiUsageMetadataBytes(data)
+	if !ok {
 		return nil, false, false
 	}
 
 	isFinal := false
-	for _, c := range chunk.Candidates {
-		if c.FinishReason != "" {
+	gjson.GetBytes(data, "candidates").ForEach(func(_, value gjson.Result) bool {
+		if value.Get("finishReason").String() != "" {
 			isFinal = true
-			break
 		}
-	}
-
-	usage := &TokenUsage{
-		InputTokens:          intPtr(chunk.UsageMetadata.PromptTokenCount),
-		OutputTokens:         intPtr(chunk.UsageMetadata.CandidatesTokenCount),
-		CacheReadInputTokens: chunk.UsageMetadata.CachedContentTokenCount,
-	}
+		return true
+	})
 
 	log.Debugf("usage parser [gemini]: usageMetadata - input=%d, output=%d, cache_read=%v, final=%v",
-		chunk.UsageMetadata.PromptTokenCount, chunk.UsageMetadata.CandidatesTokenCount,
-		ptrToInt(usage.CacheReadInputTokens), isFinal)
+		ptrToInt(usage.InputTokens), ptrToInt(usage.OutputTokens), ptrToInt(usage.CacheReadInputTokens), isFinal)
 
 	return usage, isFinal, true
 }
 
 func (p *geminiParser) ParseResponse(body []byte) (*TokenUsage, bool) {
-	var resp struct {
-		UsageMetadata *geminiUsageMetadata `json:"usageMetadata,omitempty"`
-	}
-	if err := json.Unmarshal(body, &resp); err != nil || resp.UsageMetadata == nil {
+	return parseGeminiUsageMetadataBytes(body)
+}
+
+func parseOpenAIChatUsageBytes(body []byte) (*TokenUsage, bool) {
+	root := gjson.GetBytes(body, "usage")
+	if !root.Exists() {
 		return nil, false
 	}
-
+	prompt := int(root.Get("prompt_tokens").Int())
+	completion := int(root.Get("completion_tokens").Int())
 	usage := &TokenUsage{
-		InputTokens:          intPtr(resp.UsageMetadata.PromptTokenCount),
-		OutputTokens:         intPtr(resp.UsageMetadata.CandidatesTokenCount),
-		CacheReadInputTokens: resp.UsageMetadata.CachedContentTokenCount,
+		InputTokens:  intPtr(prompt),
+		OutputTokens: intPtr(completion),
+	}
+	if cached := root.Get("prompt_tokens_details.cached_tokens"); cached.Exists() {
+		value := int(cached.Int())
+		usage.CacheReadInputTokens = &value
+	}
+	return usage, true
+}
+
+func parseOpenAIResponsesUsageBytes(body []byte) (*TokenUsage, bool) {
+	root := gjson.GetBytes(body, "usage")
+	if !root.Exists() {
+		return nil, false
+	}
+	input := int(root.Get("input_tokens").Int())
+	output := int(root.Get("output_tokens").Int())
+	usage := &TokenUsage{
+		InputTokens:  intPtr(input),
+		OutputTokens: intPtr(output),
+	}
+	if cached := root.Get("input_tokens_details.cached_tokens"); cached.Exists() {
+		value := int(cached.Int())
+		usage.CacheReadInputTokens = &value
+	}
+	return usage, true
+}
+
+func parseGeminiUsageMetadataBytes(body []byte) (*TokenUsage, bool) {
+	root := gjson.GetBytes(body, "usageMetadata")
+	if !root.Exists() {
+		return nil, false
+	}
+	prompt := int(root.Get("promptTokenCount").Int())
+	candidates := int(root.Get("candidatesTokenCount").Int())
+	usage := &TokenUsage{
+		InputTokens:  intPtr(prompt),
+		OutputTokens: intPtr(candidates),
+	}
+	if cached := root.Get("cachedContentTokenCount"); cached.Exists() {
+		value := int(cached.Int())
+		usage.CacheReadInputTokens = &value
 	}
 	return usage, true
 }

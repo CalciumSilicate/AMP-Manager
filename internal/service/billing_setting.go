@@ -1,8 +1,10 @@
 package service
 
 import (
+	"context"
 	"errors"
 
+	"ampmanager/internal/billingstate"
 	"ampmanager/internal/model"
 	"ampmanager/internal/repository"
 )
@@ -47,6 +49,12 @@ func (s *BillingSettingService) Update(userID string, req *model.UpdateBillingPr
 
 	if err := s.repo.Upsert(setting); err != nil {
 		return nil, err
+	}
+
+	if runtime := billingstate.Get(); runtime != nil {
+		if err := runtime.RefreshUserState(context.Background(), userID); err != nil {
+			return nil, err
+		}
 	}
 
 	return s.repo.GetByUserID(userID)

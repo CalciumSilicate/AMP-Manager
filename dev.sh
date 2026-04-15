@@ -8,6 +8,7 @@ COMPOSE_FILE="$ROOT_DIR/docker-compose.dev.yml"
 AIR_CONFIG="$ROOT_DIR/.air.unix.toml"
 FRONTEND_PORT=5274
 BACKEND_PORT=16823
+REDIS_PORT=6379
 TMP_DIR="$ROOT_DIR/tmp"
 AIR_LOG="$TMP_DIR/air-dev.log"
 
@@ -52,30 +53,19 @@ ensure_air() {
   exit 1
 }
 
-wait_for_postgres() {
-  for _ in $(seq 1 60); do
-    if (echo >/dev/tcp/127.0.0.1/5432) >/dev/null 2>&1; then
-      return
-    fi
-    sleep 1
-  done
-
-  echo -e "${RED}[错误] 等待 PostgreSQL 就绪超时${NC}"
-  exit 1
-}
-
 wait_for_port() {
   local port="$1"
   local label="$2"
   local timeout="${3:-20}"
 
   for _ in $(seq 1 "$timeout"); do
+    if (echo >/dev/tcp/127.0.0.1/"$port") >/dev/null 2>&1; then
+      return
+    fi
     if command -v lsof >/dev/null 2>&1; then
       if lsof -nP -iTCP:"$port" -sTCP:LISTEN >/dev/null 2>&1; then
         return
       fi
-    elif (echo >/dev/tcp/127.0.0.1/"$port") >/dev/null 2>&1; then
-      return
     fi
     sleep 1
   done
@@ -90,11 +80,15 @@ wait_for_port() {
 
 port_in_use() {
   local port="$1"
+  (echo >/dev/tcp/127.0.0.1/"$port") >/dev/null 2>&1
+  if [ $? -eq 0 ]; then
+    return 0
+  fi
   if command -v lsof >/dev/null 2>&1; then
     lsof -nP -iTCP:"$port" -sTCP:LISTEN >/dev/null 2>&1
     return $?
   fi
-  (echo >/dev/tcp/127.0.0.1/"$port") >/dev/null 2>&1
+  return 1
 }
 
 ensure_port_free() {
@@ -143,8 +137,9 @@ ensure_port_free "$FRONTEND_PORT" "前端"
 ensure_port_free "$BACKEND_PORT" "后端"
 
 echo -e "${GREEN}[1/4] 启动 PostgreSQL 容器...${NC}"
-docker compose -f "$COMPOSE_FILE" up -d postgres
-wait_for_postgres
+docker compose -f "$COMPOSE_FILE" up -d postgres redis
+wait_for_port 5432 "PostgreSQL" 60
+wait_for_port "$REDIS_PORT" "Redis" 60
 
 echo ""
 echo -e "${GREEN}[2/4] 安装前端依赖...${NC}"
@@ -160,6 +155,8 @@ export ALLOW_INSECURE_DEFAULTS=true
 export AMP_DEV_RUNTIME_DB_CONFIG=true
 export DB_TYPE=postgres
 export DATABASE_URL="postgres://${POSTGRES_USER_VALUE}:${POSTGRES_PASSWORD_VALUE}@localhost:5432/${POSTGRES_DB_VALUE}?sslmode=disable"
+export REDIS_URL="${REDIS_URL:-redis://localhost:${REDIS_PORT}/0}"
+export REDIS_PREFIX="${REDIS_PREFIX:-ampmanager-dev}"
 export CORS_ALLOWED_ORIGINS=http://localhost:${FRONTEND_PORT}
 export SERVER_PORT=${BACKEND_PORT}
 
@@ -182,6 +179,7 @@ echo "=============================="
 echo "   前端: http://localhost:${FRONTEND_PORT}"
 echo "   后端: http://localhost:${BACKEND_PORT}"
 echo "   PostgreSQL 容器: localhost:5432"
+echo "   Redis 容器: localhost:${REDIS_PORT}"
 echo "   默认数据库模式: 读取 ./data/config.json；首次缺省为 PostgreSQL"
 echo "   Air 日志: $AIR_LOG"
 echo "=============================="

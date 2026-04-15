@@ -1,27 +1,42 @@
 package service
 
 import (
+	"ampmanager/internal/billingstate"
+	"ampmanager/internal/config"
 	"ampmanager/internal/model"
 	"ampmanager/internal/repository"
+	"encoding/json"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
 )
 
 const (
-	retryConfigKey                 = "retry_config"
-	requestDetailEnabledKey        = "request_detail_enabled"
-	requestDetailTTLSecKey         = "request_detail_ttl_sec"
-	requestDetailMaxEntriesKey     = "request_detail_max_entries"
-	requestDetailMaxMemoryMBKey    = "request_detail_max_memory_mb"
-	requestDetailBodyCapKBKey      = "request_detail_body_cap_kb"
-	requestDetailPersistEnabledKey = "request_detail_persist_enabled"
-	timeoutConfigKey               = "timeout_config"
-	cacheTTLOverrideKey            = "cache_ttl_override"
-	siteNameKey                    = "site_name"
-	siteTimeZoneKey                = "site_time_zone"
-	defaultSiteName                = "AMP Manager"
-	defaultSiteTimeZone            = "Asia/Shanghai"
+	retryConfigKey                       = "retry_config"
+	requestDetailEnabledKey              = "request_detail_enabled"
+	requestDetailTTLSecKey               = "request_detail_ttl_sec"
+	requestDetailMaxEntriesKey           = "request_detail_max_entries"
+	requestDetailMaxMemoryMBKey          = "request_detail_max_memory_mb"
+	requestDetailBodyCapKBKey            = "request_detail_body_cap_kb"
+	requestDetailPersistEnabledKey       = "request_detail_persist_enabled"
+	requestDetailHighRPMModeKey          = "request_detail_high_rpm_mode"
+	requestDetailHighRPMThresholdKey     = "request_detail_high_rpm_threshold"
+	requestDetailHighRPMSamplePctKey     = "request_detail_high_rpm_sample_percent"
+	timeoutConfigKey                     = "timeout_config"
+	cacheTTLOverrideKey                  = "cache_ttl_override"
+	siteNameKey                          = "site_name"
+	billingRuntimeConfigKey              = "billing_runtime_config"
+	defaultSiteName                      = "AMP Manager"
+	defaultRequestDetailTTLSec           = 120
+	defaultRequestDetailMaxEntries       = 500
+	defaultRequestDetailMaxMemoryMB      = 256
+	defaultRequestDetailBodyCapKB        = 128
+	defaultRequestDetailHighRPMMode      = "full"
+	defaultRequestDetailHighRPMThreshold = 3000
+	defaultRequestDetailHighRPMSamplePct = 10
+	siteTimeZoneKey                      = "site_time_zone"
+	defaultSiteTimeZone                 = "Asia/Shanghai"
 )
 
 type SystemConfigService struct {
@@ -64,14 +79,7 @@ func (s *SystemConfigService) SetRequestDetailEnabled(enabled bool) error {
 }
 
 func (s *SystemConfigService) GetRequestDetailConfig() (model.RequestDetailConfigResponse, error) {
-	resp := model.RequestDetailConfigResponse{
-		Enabled:        true,
-		TTLSec:         120,
-		MaxEntries:     500,
-		MaxMemoryMB:    256,
-		BodyCapKB:      128,
-		PersistEnabled: true,
-	}
+	resp := defaultRequestDetailConfigResponse()
 
 	if value, err := s.repo.Get(requestDetailEnabledKey); err == nil && value != "" {
 		resp.Enabled = value != "false"
@@ -99,18 +107,35 @@ func (s *SystemConfigService) GetRequestDetailConfig() (model.RequestDetailConfi
 	if value, err := s.repo.Get(requestDetailPersistEnabledKey); err == nil && value != "" {
 		resp.PersistEnabled = value != "false"
 	}
+	if value, err := s.repo.Get(requestDetailHighRPMModeKey); err == nil && value != "" {
+		resp.HighRPMMode = strings.TrimSpace(value)
+	}
+	if value, err := s.repo.Get(requestDetailHighRPMThresholdKey); err == nil && value != "" {
+		if parsed, parseErr := parsePositiveInt(value); parseErr == nil {
+			resp.HighRPMThreshold = parsed
+		}
+	}
+	if value, err := s.repo.Get(requestDetailHighRPMSamplePctKey); err == nil && value != "" {
+		if parsed, parseErr := parsePositiveInt(value); parseErr == nil {
+			resp.HighRPMSamplePercent = parsed
+		}
+	}
 
-	return resp, nil
+	return normalizeRequestDetailConfigResponse(resp), nil
 }
 
 func (s *SystemConfigService) SetRequestDetailConfig(req model.RequestDetailConfigResponse) error {
+	req = normalizeRequestDetailConfigResponse(req)
 	entries := map[string]string{
-		requestDetailEnabledKey:        boolToConfigString(req.Enabled),
-		requestDetailTTLSecKey:         formatInt64(req.TTLSec),
-		requestDetailMaxEntriesKey:     formatInt(req.MaxEntries),
-		requestDetailMaxMemoryMBKey:    formatInt64(req.MaxMemoryMB),
-		requestDetailBodyCapKBKey:      formatInt(req.BodyCapKB),
-		requestDetailPersistEnabledKey: boolToConfigString(req.PersistEnabled),
+		requestDetailEnabledKey:          boolToConfigString(req.Enabled),
+		requestDetailTTLSecKey:           formatInt64(req.TTLSec),
+		requestDetailMaxEntriesKey:       formatInt(req.MaxEntries),
+		requestDetailMaxMemoryMBKey:      formatInt64(req.MaxMemoryMB),
+		requestDetailBodyCapKBKey:        formatInt(req.BodyCapKB),
+		requestDetailPersistEnabledKey:   boolToConfigString(req.PersistEnabled),
+		requestDetailHighRPMModeKey:      req.HighRPMMode,
+		requestDetailHighRPMThresholdKey: formatInt(req.HighRPMThreshold),
+		requestDetailHighRPMSamplePctKey: formatInt(req.HighRPMSamplePercent),
 	}
 
 	for key, value := range entries {
@@ -120,6 +145,52 @@ func (s *SystemConfigService) SetRequestDetailConfig(req model.RequestDetailConf
 	}
 
 	return nil
+}
+
+func defaultRequestDetailConfigResponse() model.RequestDetailConfigResponse {
+	return model.RequestDetailConfigResponse{
+		Enabled:              true,
+		TTLSec:               defaultRequestDetailTTLSec,
+		MaxEntries:           defaultRequestDetailMaxEntries,
+		MaxMemoryMB:          defaultRequestDetailMaxMemoryMB,
+		BodyCapKB:            defaultRequestDetailBodyCapKB,
+		PersistEnabled:       true,
+		HighRPMMode:          defaultRequestDetailHighRPMMode,
+		HighRPMThreshold:     defaultRequestDetailHighRPMThreshold,
+		HighRPMSamplePercent: defaultRequestDetailHighRPMSamplePct,
+	}
+}
+
+func normalizeRequestDetailConfigResponse(req model.RequestDetailConfigResponse) model.RequestDetailConfigResponse {
+	defaults := defaultRequestDetailConfigResponse()
+	if req.TTLSec <= 0 {
+		req.TTLSec = defaults.TTLSec
+	}
+	if req.MaxEntries <= 0 {
+		req.MaxEntries = defaults.MaxEntries
+	}
+	if req.MaxMemoryMB <= 0 {
+		req.MaxMemoryMB = defaults.MaxMemoryMB
+	}
+	if req.BodyCapKB <= 0 {
+		req.BodyCapKB = defaults.BodyCapKB
+	}
+	switch strings.TrimSpace(req.HighRPMMode) {
+	case "full", "off", "sample":
+		req.HighRPMMode = strings.TrimSpace(req.HighRPMMode)
+	default:
+		req.HighRPMMode = defaults.HighRPMMode
+	}
+	if req.HighRPMThreshold <= 0 {
+		req.HighRPMThreshold = defaults.HighRPMThreshold
+	}
+	if req.HighRPMSamplePercent <= 0 {
+		req.HighRPMSamplePercent = defaults.HighRPMSamplePercent
+	}
+	if req.HighRPMSamplePercent > 100 {
+		req.HighRPMSamplePercent = 100
+	}
+	return req
 }
 
 // GetTimeoutConfigJSON 获取超时配置的 JSON 字符串
@@ -231,4 +302,165 @@ func parsePositiveInt(value string) (int, error) {
 
 func parsePositiveInt64(value string) (int64, error) {
 	return strconv.ParseInt(value, 10, 64)
+}
+
+func defaultBillingRuntimeConfigRequest() model.BillingRuntimeConfigRequest {
+	resp := model.BillingRuntimeConfigRequest{
+		RedisPrefix:           "ampmanager",
+		ReservationTTLSec:     600,
+		ReconcileIntervalSec:  60,
+		StreamBatchSize:       100,
+		ProjectorClaimIdleSec: 30,
+	}
+
+	if cfg := config.Get(); cfg != nil {
+		resp.RedisURL = strings.TrimSpace(cfg.RedisURL)
+		if strings.TrimSpace(cfg.RedisPrefix) != "" {
+			resp.RedisPrefix = strings.TrimSpace(cfg.RedisPrefix)
+		}
+		if cfg.BillingReservationTTLSec > 0 {
+			resp.ReservationTTLSec = cfg.BillingReservationTTLSec
+		}
+		if cfg.BillingReconcileIntervalSec > 0 {
+			resp.ReconcileIntervalSec = cfg.BillingReconcileIntervalSec
+		}
+		if cfg.BillingStreamBatchSize > 0 {
+			resp.StreamBatchSize = cfg.BillingStreamBatchSize
+		}
+		if cfg.BillingReconcileBatchSize > 0 {
+			resp.ReconcileBatchSize = cfg.BillingReconcileBatchSize
+		}
+		if cfg.BillingExpiryBatchSize > 0 {
+			resp.ExpiryBatchSize = cfg.BillingExpiryBatchSize
+		}
+		if cfg.BillingProjectorWorkers > 0 {
+			resp.ProjectorWorkers = cfg.BillingProjectorWorkers
+		}
+		if cfg.BillingProjectorClaimIdleSec > 0 {
+			resp.ProjectorClaimIdleSec = cfg.BillingProjectorClaimIdleSec
+		}
+	}
+
+	return normalizeBillingRuntimeConfigRequest(resp)
+}
+
+func normalizeBillingRuntimeConfigRequest(req model.BillingRuntimeConfigRequest) model.BillingRuntimeConfigRequest {
+	req.RedisURL = strings.TrimSpace(req.RedisURL)
+	req.RedisPrefix = strings.TrimSpace(req.RedisPrefix)
+	if req.RedisPrefix == "" {
+		req.RedisPrefix = "ampmanager"
+	}
+	if req.ReservationTTLSec <= 0 {
+		req.ReservationTTLSec = 600
+	}
+	if req.ReconcileIntervalSec <= 0 {
+		req.ReconcileIntervalSec = 60
+	}
+	if req.StreamBatchSize <= 0 {
+		req.StreamBatchSize = 100
+	}
+	if req.ReconcileBatchSize <= 0 {
+		req.ReconcileBatchSize = req.StreamBatchSize
+	}
+	if req.ExpiryBatchSize <= 0 {
+		req.ExpiryBatchSize = req.StreamBatchSize
+	}
+	if req.ProjectorWorkers <= 0 {
+		req.ProjectorWorkers = 1
+	}
+	if req.ProjectorClaimIdleSec <= 0 {
+		req.ProjectorClaimIdleSec = 30
+	}
+	return req
+}
+
+func (s *SystemConfigService) GetBillingRuntimeConfigRequest() (model.BillingRuntimeConfigRequest, error) {
+	resp := defaultBillingRuntimeConfigRequest()
+
+	value, err := s.repo.Get(billingRuntimeConfigKey)
+	if err != nil {
+		return resp, err
+	}
+	if value == "" {
+		return resp, nil
+	}
+
+	var stored model.BillingRuntimeConfigRequest
+	if err := json.Unmarshal([]byte(value), &stored); err != nil {
+		return resp, nil
+	}
+
+	resp.RedisURL = strings.TrimSpace(stored.RedisURL)
+	if strings.TrimSpace(stored.RedisPrefix) != "" {
+		resp.RedisPrefix = strings.TrimSpace(stored.RedisPrefix)
+	}
+	if stored.ReservationTTLSec > 0 {
+		resp.ReservationTTLSec = stored.ReservationTTLSec
+	}
+	if stored.ReconcileIntervalSec > 0 {
+		resp.ReconcileIntervalSec = stored.ReconcileIntervalSec
+	}
+	if stored.StreamBatchSize > 0 {
+		resp.StreamBatchSize = stored.StreamBatchSize
+	}
+	cfg := config.Get()
+	if stored.ReconcileBatchSize > 0 {
+		resp.ReconcileBatchSize = stored.ReconcileBatchSize
+	} else if cfg == nil || !cfg.BillingEnvExplicit.ReconcileBatchSize {
+		resp.ReconcileBatchSize = resp.StreamBatchSize
+	}
+	if stored.ExpiryBatchSize > 0 {
+		resp.ExpiryBatchSize = stored.ExpiryBatchSize
+	} else if cfg == nil || !cfg.BillingEnvExplicit.ExpiryBatchSize {
+		resp.ExpiryBatchSize = resp.StreamBatchSize
+	}
+	if stored.ProjectorWorkers > 0 {
+		resp.ProjectorWorkers = stored.ProjectorWorkers
+	}
+	if stored.ProjectorClaimIdleSec > 0 {
+		resp.ProjectorClaimIdleSec = stored.ProjectorClaimIdleSec
+	}
+
+	return normalizeBillingRuntimeConfigRequest(resp), nil
+}
+
+func (s *SystemConfigService) GetBillingRuntimeConfig() (model.BillingRuntimeConfigResponse, error) {
+	req, err := s.GetBillingRuntimeConfigRequest()
+	if err != nil {
+		return model.BillingRuntimeConfigResponse{}, err
+	}
+
+	resp := model.BillingRuntimeConfigResponse{
+		RedisURL:              req.RedisURL,
+		RedisURLMasked:        maskRedisURL(req.RedisURL),
+		RedisPrefix:           req.RedisPrefix,
+		ReservationTTLSec:     req.ReservationTTLSec,
+		ReconcileIntervalSec:  req.ReconcileIntervalSec,
+		StreamBatchSize:       req.StreamBatchSize,
+		ReconcileBatchSize:    req.ReconcileBatchSize,
+		ExpiryBatchSize:       req.ExpiryBatchSize,
+		ProjectorWorkers:      req.ProjectorWorkers,
+		ProjectorClaimIdleSec: req.ProjectorClaimIdleSec,
+		RuntimeEnabled:        strings.TrimSpace(req.RedisURL) != "",
+	}
+	resp.RuntimeHealthy = resp.RuntimeEnabled && billingstate.Get() != nil
+	return resp, nil
+}
+
+func (s *SystemConfigService) SetBillingRuntimeConfig(req model.BillingRuntimeConfigRequest) error {
+	req = normalizeBillingRuntimeConfigRequest(req)
+	data, err := json.Marshal(req)
+	if err != nil {
+		return err
+	}
+	return s.repo.Set(billingRuntimeConfigKey, string(data))
+}
+
+func maskRedisURL(raw string) string {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return ""
+	}
+	re := regexp.MustCompile(`://([^:/?#]+):([^@/?#]+)@`)
+	return re.ReplaceAllString(raw, `://$1:******@`)
 }

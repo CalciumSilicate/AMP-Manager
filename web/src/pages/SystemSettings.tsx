@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, useCallback } from 'react'
 import { motion, AnimatePresence } from '@/lib/motion'
 import { formatDateTime } from '@/lib/formatters'
 import { SITE_TIME_ZONE_OPTIONS } from '@/lib/site-config'
@@ -18,14 +18,20 @@ import {
   getRetryConfig,
   updateRetryConfig,
   RetryConfig,
-  getRequestDetailEnabled,
-  updateRequestDetailEnabled,
+  getRequestDetailConfig,
+  updateRequestDetailConfig,
+  RequestDetailConfig,
   getTimeoutConfig,
   updateTimeoutConfig,
   TimeoutConfig,
   getCacheTTLConfig,
   updateCacheTTLConfig,
   updateSiteConfig,
+  getBillingRuntimeConfig,
+  getBillingRuntimeStats,
+  updateBillingRuntimeConfig,
+  BillingRuntimeConfig,
+  BillingRuntimeStats,
 } from '../api/system'
 import { Button } from '@/components/ui/button'
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/card'
@@ -45,8 +51,9 @@ import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
 import { Progress } from '@/components/ui/progress'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import { RefreshCw } from 'lucide-react'
 
-type SettingsTab = 'site' | 'database' | 'retry' | 'monitoring' | 'cache' | 'timeout'
+type SettingsTab = 'site' | 'database' | 'retry' | 'monitoring' | 'cache' | 'timeout' | 'billing'
 
 const tabs: { key: SettingsTab; label: string }[] = [
   { key: 'site', label: '网站配置' },
@@ -55,6 +62,7 @@ const tabs: { key: SettingsTab; label: string }[] = [
   { key: 'monitoring', label: '请求监控' },
   { key: 'cache', label: '缓存配置' },
   { key: 'timeout', label: '超时配置' },
+  { key: 'billing', label: 'Redis计费' },
 ]
 
 interface Props {
@@ -82,8 +90,9 @@ export default function SystemSettings({ siteName, siteTimeZone, onSiteNameChang
   const fileInputRef = useRef<HTMLInputElement>(null)
   const [retryConfig, setRetryConfig] = useState<RetryConfig | null>(null)
   const [retryLoading, setRetryLoading] = useState(false)
-  const [requestDetailEnabled, setRequestDetailEnabled] = useState(true)
+  const [requestDetailConfig, setRequestDetailConfig] = useState<RequestDetailConfig | null>(null)
   const [requestDetailLoading, setRequestDetailLoading] = useState(false)
+  const [requestDetailLoadError, setRequestDetailLoadError] = useState<string | null>(null)
   const [timeoutConfig, setTimeoutConfig] = useState<TimeoutConfig | null>(null)
   const [timeoutLoading, setTimeoutLoading] = useState(false)
   const [cacheTTL, setCacheTTL] = useState<string>('1h')
@@ -91,14 +100,10 @@ export default function SystemSettings({ siteName, siteTimeZone, onSiteNameChang
   const [siteNameInput, setSiteNameInput] = useState(siteName)
   const [siteTimeZoneInput, setSiteTimeZoneInput] = useState(siteTimeZone)
   const [siteConfigSaving, setSiteConfigSaving] = useState(false)
-
-  useEffect(() => {
-    fetchDatabaseInfo()
-    fetchRetryConfig()
-    fetchRequestDetailEnabled()
-    fetchTimeoutConfig()
-    fetchCacheTTLConfig()
-  }, [])
+  const [billingRuntimeConfig, setBillingRuntimeConfig] = useState<BillingRuntimeConfig | null>(null)
+  const [billingRuntimeLoading, setBillingRuntimeLoading] = useState(false)
+  const [billingRuntimeStats, setBillingRuntimeStats] = useState<BillingRuntimeStats | null>(null)
+  const [billingRuntimeStatsLoading, setBillingRuntimeStatsLoading] = useState(false)
 
   useEffect(() => {
     setSiteNameInput(siteName)
@@ -108,7 +113,21 @@ export default function SystemSettings({ siteName, siteTimeZone, onSiteNameChang
     setSiteTimeZoneInput(siteTimeZone)
   }, [siteTimeZone])
 
-  const fetchDatabaseInfo = async () => {
+  const showMessage = useCallback((type: 'success' | 'error', text: string) => {
+    setMessage({ type, text })
+    setTimeout(() => setMessage(null), 5000)
+  }, [])
+
+  const fetchBackups = useCallback(async () => {
+    try {
+      const data = await listBackups()
+      setBackups(data)
+    } catch (err) {
+      console.error('获取备份列表失败:', err)
+    }
+  }, [])
+
+  const fetchDatabaseInfo = useCallback(async () => {
     setDatabaseInfoLoading(true)
     try {
       const data = await getDatabaseInfo()
@@ -119,7 +138,7 @@ export default function SystemSettings({ siteName, siteTimeZone, onSiteNameChang
         setMigrationTargetDatabaseUrl(data.databaseURL)
       }
       if (data.supportsFileBackups) {
-        fetchBackups()
+        await fetchBackups()
       } else {
         setBackups([])
       }
@@ -128,52 +147,94 @@ export default function SystemSettings({ siteName, siteTimeZone, onSiteNameChang
     } finally {
       setDatabaseInfoLoading(false)
     }
-  }
+  }, [fetchBackups])
 
-  const fetchBackups = async () => {
-    try {
-      const data = await listBackups()
-      setBackups(data)
-    } catch (err) {
-      console.error('获取备份列表失败:', err)
-    }
-  }
-
-  const fetchRetryConfig = async () => {
+  const fetchRetryConfig = useCallback(async () => {
     try {
       const data = await getRetryConfig()
       setRetryConfig(data)
     } catch (err) {
       console.error('获取重试配置失败:', err)
     }
-  }
+  }, [])
 
-  const fetchRequestDetailEnabled = async () => {
+  const fetchRequestDetailConfig = useCallback(async () => {
+    setRequestDetailLoading(true)
+    setRequestDetailLoadError(null)
     try {
-      const data = await getRequestDetailEnabled()
-      setRequestDetailEnabled(data.enabled)
+      const data = await getRequestDetailConfig()
+      setRequestDetailConfig(data)
     } catch (err) {
       console.error('获取请求详情监控配置失败:', err)
+      setRequestDetailLoadError(err instanceof Error ? err.message : '获取请求详情监控配置失败')
+    } finally {
+      setRequestDetailLoading(false)
     }
-  }
+  }, [])
 
-  const fetchTimeoutConfig = async () => {
+  const fetchTimeoutConfig = useCallback(async () => {
     try {
       const data = await getTimeoutConfig()
       setTimeoutConfig(data)
     } catch (err) {
       console.error('获取超时配置失败:', err)
     }
-  }
+  }, [])
 
-  const fetchCacheTTLConfig = async () => {
+  const fetchCacheTTLConfig = useCallback(async () => {
     try {
       const data = await getCacheTTLConfig()
       setCacheTTL(data.cacheTTL)
     } catch (err) {
       console.error('获取缓存TTL配置失败:', err)
     }
-  }
+  }, [])
+
+  const fetchBillingRuntimeConfig = useCallback(async () => {
+    try {
+      const data = await getBillingRuntimeConfig()
+      setBillingRuntimeConfig(data)
+    } catch (err) {
+      console.error('获取 Redis 计费配置失败:', err)
+    }
+  }, [])
+
+  const fetchBillingRuntimeStats = useCallback(async (silent = false) => {
+    if (!silent) {
+      setBillingRuntimeStatsLoading(true)
+    }
+    try {
+      const data = await getBillingRuntimeStats()
+      setBillingRuntimeStats(data)
+    } catch (err) {
+      console.error('获取 Redis 计费运行时统计失败:', err)
+      if (!silent) {
+        showMessage('error', err instanceof Error ? err.message : '获取运行时统计失败')
+      }
+    } finally {
+      if (!silent) {
+        setBillingRuntimeStatsLoading(false)
+      }
+    }
+  }, [showMessage])
+
+  useEffect(() => {
+    fetchDatabaseInfo()
+    fetchRetryConfig()
+    fetchRequestDetailConfig()
+    fetchTimeoutConfig()
+    fetchCacheTTLConfig()
+    fetchBillingRuntimeConfig()
+    fetchBillingRuntimeStats(true)
+  }, [
+    fetchBillingRuntimeConfig,
+    fetchBillingRuntimeStats,
+    fetchCacheTTLConfig,
+    fetchDatabaseInfo,
+    fetchRequestDetailConfig,
+    fetchRetryConfig,
+    fetchTimeoutConfig,
+  ])
 
   const handleCacheTTLChange = async (value: string) => {
     setCacheTTLLoading(true)
@@ -204,6 +265,37 @@ export default function SystemSettings({ siteName, siteTimeZone, onSiteNameChang
     }
   }
 
+  const handleBillingRuntimeConfigChange = (key: keyof BillingRuntimeConfig, value: string | number | boolean) => {
+    if (!billingRuntimeConfig) return
+    setBillingRuntimeConfig({ ...billingRuntimeConfig, [key]: value } as BillingRuntimeConfig)
+  }
+
+  const handleSaveBillingRuntimeConfig = async () => {
+    if (!billingRuntimeConfig) return
+
+    setBillingRuntimeLoading(true)
+    try {
+      const result = await updateBillingRuntimeConfig({
+        redisUrl: billingRuntimeConfig.redisUrl,
+        redisPrefix: billingRuntimeConfig.redisPrefix,
+        reservationTtlSec: billingRuntimeConfig.reservationTtlSec,
+        reconcileIntervalSec: billingRuntimeConfig.reconcileIntervalSec,
+        streamBatchSize: billingRuntimeConfig.streamBatchSize,
+        reconcileBatchSize: billingRuntimeConfig.reconcileBatchSize,
+        expiryBatchSize: billingRuntimeConfig.expiryBatchSize,
+        projectorWorkers: billingRuntimeConfig.projectorWorkers,
+        projectorClaimIdleSec: billingRuntimeConfig.projectorClaimIdleSec,
+      })
+      setBillingRuntimeConfig(result.config)
+      await fetchBillingRuntimeStats(true)
+      showMessage('success', 'Redis 计费配置已保存并已热更新')
+    } catch (err) {
+      showMessage('error', err instanceof Error ? err.message : '保存失败')
+    } finally {
+      setBillingRuntimeLoading(false)
+    }
+  }
+
   const handleTimeoutConfigChange = (key: keyof TimeoutConfig, value: number) => {
     if (timeoutConfig) {
       setTimeoutConfig({ ...timeoutConfig, [key]: value })
@@ -224,14 +316,24 @@ export default function SystemSettings({ siteName, siteTimeZone, onSiteNameChang
     }
   }
 
-  const handleRequestDetailToggle = async (enabled: boolean) => {
+  const handleRequestDetailConfigChange = (
+    key: keyof RequestDetailConfig,
+    value: RequestDetailConfig[keyof RequestDetailConfig]
+  ) => {
+    if (!requestDetailConfig) return
+    setRequestDetailConfig({ ...requestDetailConfig, [key]: value })
+  }
+
+  const handleSaveRequestDetailConfig = async () => {
+    if (!requestDetailConfig) return
+
     setRequestDetailLoading(true)
     try {
-      await updateRequestDetailEnabled(enabled)
-      setRequestDetailEnabled(enabled)
-      showMessage('success', enabled ? '请求详情监控已启用' : '请求详情监控已停止')
+      const result = await updateRequestDetailConfig(requestDetailConfig)
+      setRequestDetailConfig(result.config)
+      showMessage('success', '请求详情监控配置已保存')
     } catch (err) {
-      showMessage('error', err instanceof Error ? err.message : '操作失败')
+      showMessage('error', err instanceof Error ? err.message : '保存失败')
     } finally {
       setRequestDetailLoading(false)
     }
@@ -257,10 +359,30 @@ export default function SystemSettings({ siteName, siteTimeZone, onSiteNameChang
     }
   }
 
-  const showMessage = (type: 'success' | 'error', text: string) => {
-    setMessage({ type, text })
-    setTimeout(() => setMessage(null), 5000)
-  }
+  const billingRuntimeBadge = !billingRuntimeConfig?.runtimeEnabled
+    ? { label: 'Legacy', variant: 'secondary' as const }
+    : billingRuntimeConfig.runtimeHealthy
+      ? { label: 'Healthy', variant: 'default' as const }
+      : { label: 'Fallback', variant: 'destructive' as const }
+
+  const billingRuntimeDescription = !billingRuntimeConfig?.runtimeEnabled
+    ? '当前未配置 Redis，系统使用旧的 SQL 计费路径。'
+    : billingRuntimeConfig.runtimeHealthy
+      ? (billingRuntimeConfig.redisUrlMasked || 'Redis 计费运行时已启用。')
+      : '已配置 Redis，但当前运行时不可用，系统已回退到 legacy billing。'
+
+  const formatLatency = (ms: number) => (ms > 0 ? `${ms} ms` : '-')
+  const formatIdleMs = (ms: number) => (ms > 0 ? `${Math.round(ms / 1000)} s` : '-')
+
+  const billingMetricItems = billingRuntimeStats
+    ? [
+        { key: 'reserve', label: 'Reserve', value: billingRuntimeStats.reserve },
+        { key: 'settle', label: 'Settle', value: billingRuntimeStats.settle },
+        { key: 'project', label: 'Project', value: billingRuntimeStats.project },
+        { key: 'reclaim', label: 'Reclaim', value: billingRuntimeStats.reclaim },
+        { key: 'reconcile', label: 'Reconcile', value: billingRuntimeStats.reconcile },
+      ]
+    : []
 
   const handleUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
@@ -353,7 +475,7 @@ export default function SystemSettings({ siteName, siteTimeZone, onSiteNameChang
     }, 1500)
 
     return () => window.clearInterval(timer)
-  }, [migrationTask])
+  }, [fetchDatabaseInfo, migrationTask, showMessage])
 
   const handleRestore = async (filename: string) => {
     if (!confirm(`确定要恢复备份 ${filename} 吗？当前数据将被备份。`)) {
@@ -854,8 +976,19 @@ export default function SystemSettings({ siteName, siteTimeZone, onSiteNameChang
                       {retryLoading ? '保存中...' : '保存配置'}
                     </Button>
                   </>
-                ) : (
+                ) : requestDetailLoading ? (
                   <div className="text-center text-muted-foreground py-4">加载中...</div>
+                ) : (
+                  <div className="space-y-4">
+                    <Alert variant="destructive">
+                      <AlertDescription>
+                        {requestDetailLoadError || '请求详情监控配置加载失败，请重试。'}
+                      </AlertDescription>
+                    </Alert>
+                    <Button variant="outline" onClick={fetchRequestDetailConfig} disabled={requestDetailLoading}>
+                      重新加载
+                    </Button>
+                  </div>
                 )}
               </CardContent>
             </Card>
@@ -865,22 +998,175 @@ export default function SystemSettings({ siteName, siteTimeZone, onSiteNameChang
             <Card>
               <CardHeader>
                 <CardTitle>请求详情监控</CardTitle>
-                <CardDescription>控制是否记录请求和响应的详细信息（头部和正文）</CardDescription>
+                <CardDescription>控制请求详情记录策略，包括高 RPM 降级模式、阈值和采样率</CardDescription>
               </CardHeader>
-              <CardContent className="space-y-4">
-                <div className="flex items-center justify-between">
-                  <div className="space-y-0.5">
-                    <Label>启用详情监控</Label>
-                    <p className="text-sm text-muted-foreground">
-                      启用后可在日志页面点击状态列查看请求/响应详情。关闭可减少内存使用。
-                    </p>
-                  </div>
-                  <Switch
-                    checked={requestDetailEnabled}
-                    onCheckedChange={handleRequestDetailToggle}
-                    disabled={requestDetailLoading}
-                  />
-                </div>
+              <CardContent className="space-y-6">
+                {requestDetailConfig ? (
+                  <>
+                    <div className="grid gap-4 md:grid-cols-2">
+                      <div className="rounded-lg border p-4 space-y-2">
+                        <div className="flex items-center justify-between">
+                          <span className="text-sm text-muted-foreground">当前状态</span>
+                          <Badge variant={requestDetailConfig.enabled ? 'default' : 'secondary'}>
+                            {requestDetailConfig.enabled ? '已启用' : '已关闭'}
+                          </Badge>
+                        </div>
+                        <p className="text-sm text-muted-foreground">
+                          启用后可在日志页面点击状态列查看请求/响应详情；关闭后将停止新的详情采集。
+                        </p>
+                      </div>
+                      <div className="rounded-lg border p-4 space-y-2">
+                        <div className="flex items-center justify-between">
+                          <span className="text-sm text-muted-foreground">高 RPM 策略</span>
+                          <Badge variant="outline">
+                            {requestDetailConfig.highRpmMode === 'full'
+                              ? '全量保留'
+                              : requestDetailConfig.highRpmMode === 'sample'
+                                ? `采样 ${requestDetailConfig.highRpmSamplePercent}%`
+                                : '停止采集'}
+                          </Badge>
+                        </div>
+                        <p className="text-sm text-muted-foreground">
+                          当分钟请求量达到 {requestDetailConfig.highRpmThreshold} RPM 时，自动切换到该降级策略。
+                        </p>
+                      </div>
+                    </div>
+
+                    <div className="space-y-4">
+                      <div className="flex items-center justify-between">
+                        <div className="space-y-0.5">
+                          <Label>启用详情监控</Label>
+                          <p className="text-sm text-muted-foreground">
+                            控制是否记录请求与响应的头部和正文详情。
+                          </p>
+                        </div>
+                        <Switch
+                          checked={requestDetailConfig.enabled}
+                          onCheckedChange={(checked) => handleRequestDetailConfigChange('enabled', checked)}
+                          disabled={requestDetailLoading}
+                        />
+                      </div>
+                      <div className="flex items-center justify-between">
+                        <div className="space-y-0.5">
+                          <Label>启用持久化</Label>
+                          <p className="text-sm text-muted-foreground">
+                            开启后，详情会落库归档，便于跨重启排查问题。
+                          </p>
+                        </div>
+                        <Switch
+                          checked={requestDetailConfig.persistEnabled}
+                          onCheckedChange={(checked) => handleRequestDetailConfigChange('persistEnabled', checked)}
+                          disabled={requestDetailLoading}
+                        />
+                      </div>
+                    </div>
+
+                    <div className="grid gap-4 md:grid-cols-2">
+                      <div className="space-y-2">
+                        <Label>内存保留时间 (秒)</Label>
+                        <Input
+                          type="number"
+                          min={30}
+                          value={requestDetailConfig.ttlSec}
+                          onChange={(e) => handleRequestDetailConfigChange('ttlSec', parseInt(e.target.value) || 30)}
+                        />
+                        <p className="text-xs text-muted-foreground">内存中的请求详情保留时长，最小 30 秒。</p>
+                      </div>
+                      <div className="space-y-2">
+                        <Label>最大记录条数</Label>
+                        <Input
+                          type="number"
+                          min={50}
+                          value={requestDetailConfig.maxEntries}
+                          onChange={(e) => handleRequestDetailConfigChange('maxEntries', parseInt(e.target.value) || 50)}
+                        />
+                        <p className="text-xs text-muted-foreground">超过上限后会优先淘汰旧记录，最小 50 条。</p>
+                      </div>
+                      <div className="space-y-2">
+                        <Label>最大内存预算 (MB)</Label>
+                        <Input
+                          type="number"
+                          min={16}
+                          value={requestDetailConfig.maxMemoryMB}
+                          onChange={(e) => handleRequestDetailConfigChange('maxMemoryMB', parseInt(e.target.value) || 16)}
+                        />
+                        <p className="text-xs text-muted-foreground">请求详情总内存预算，最小 16 MB。</p>
+                      </div>
+                      <div className="space-y-2">
+                        <Label>单次正文截断上限 (KB)</Label>
+                        <Input
+                          type="number"
+                          min={4}
+                          value={requestDetailConfig.bodyCapKB}
+                          onChange={(e) => handleRequestDetailConfigChange('bodyCapKB', parseInt(e.target.value) || 4)}
+                        />
+                        <p className="text-xs text-muted-foreground">单次请求或响应正文最多记录大小，最小 4 KB。</p>
+                      </div>
+                    </div>
+
+                    <div className="grid gap-4 md:grid-cols-2">
+                      <div className="space-y-2">
+                        <Label>高 RPM 模式</Label>
+                        <Select
+                          value={requestDetailConfig.highRpmMode}
+                          onValueChange={(value: RequestDetailConfig['highRpmMode']) =>
+                            handleRequestDetailConfigChange('highRpmMode', value)
+                          }
+                        >
+                          <SelectTrigger>
+                            <SelectValue placeholder="选择高 RPM 策略" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="full">继续全量记录</SelectItem>
+                            <SelectItem value="sample">按采样率记录</SelectItem>
+                            <SelectItem value="off">停止记录详情</SelectItem>
+                          </SelectContent>
+                        </Select>
+                        <p className="text-xs text-muted-foreground">高流量时的降级方式。</p>
+                      </div>
+                      <div className="space-y-2">
+                        <Label>高 RPM 阈值</Label>
+                        <Input
+                          type="number"
+                          min={100}
+                          value={requestDetailConfig.highRpmThreshold}
+                          onChange={(e) =>
+                            handleRequestDetailConfigChange('highRpmThreshold', parseInt(e.target.value) || 100)
+                          }
+                        />
+                        <p className="text-xs text-muted-foreground">当分钟请求量达到该值后启用高 RPM 模式，最小 100。</p>
+                      </div>
+                      <div className="space-y-2 md:col-span-2">
+                        <Label>高 RPM 采样率 (%)</Label>
+                        <Input
+                          type="number"
+                          min={1}
+                          max={100}
+                          value={requestDetailConfig.highRpmSamplePercent}
+                          onChange={(e) =>
+                            handleRequestDetailConfigChange('highRpmSamplePercent', parseInt(e.target.value) || 1)
+                          }
+                          disabled={requestDetailConfig.highRpmMode !== 'sample'}
+                        />
+                        <p className="text-xs text-muted-foreground">
+                          仅在“按采样率记录”模式下生效，取值 1-100。
+                        </p>
+                      </div>
+                    </div>
+
+                    <Alert>
+                      <AlertDescription>
+                        建议在高并发环境下结合阈值与采样率使用，避免请求详情占用过多内存和存储资源。
+                      </AlertDescription>
+                    </Alert>
+
+                    <Button onClick={handleSaveRequestDetailConfig} disabled={requestDetailLoading}>
+                      {requestDetailLoading ? '保存中...' : '保存配置'}
+                    </Button>
+                  </>
+                ) : (
+                  <div className="text-center text-muted-foreground py-4">加载中...</div>
+                )}
               </CardContent>
             </Card>
           )}
@@ -993,6 +1279,238 @@ export default function SystemSettings({ siteName, siteTimeZone, onSiteNameChang
                     <Button onClick={handleSaveTimeoutConfig} disabled={timeoutLoading}>
                       {timeoutLoading ? '保存中...' : '保存配置'}
                     </Button>
+                  </>
+                ) : (
+                  <div className="text-center text-muted-foreground py-4">加载中...</div>
+                )}
+              </CardContent>
+            </Card>
+          )}
+
+          {activeTab === 'billing' && (
+            <Card>
+              <CardHeader>
+                <CardTitle>Redis 计费运行时</CardTitle>
+                <CardDescription>配置多实例共享的 Redis 计费热路径，并在保存后立即重连应用运行时。</CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-6">
+                {billingRuntimeConfig ? (
+                  <>
+                    <div className="grid gap-4 md:grid-cols-2">
+                      <div className="rounded-lg border p-4 space-y-2">
+                        <div className="flex items-center justify-between">
+                          <span className="text-sm text-muted-foreground">运行时状态</span>
+                          <Badge variant={billingRuntimeBadge.variant}>{billingRuntimeBadge.label}</Badge>
+                        </div>
+                        <p className="text-sm text-muted-foreground">{billingRuntimeDescription}</p>
+                      </div>
+                      <div className="rounded-lg border p-4 space-y-2">
+                        <div className="flex items-center justify-between">
+                          <span className="text-sm text-muted-foreground">Redis 前缀</span>
+                          <Badge variant="outline">{billingRuntimeConfig.redisPrefix || 'ampmanager'}</Badge>
+                        </div>
+                        <p className="text-sm text-muted-foreground">
+                          多实例部署时请确保所有实例共享同一 Redis 和同一前缀。
+                        </p>
+                      </div>
+                    </div>
+
+                    <div className="rounded-lg border p-4 space-y-4">
+                      <div className="flex items-center justify-between gap-3">
+                        <div className="space-y-1">
+                          <h3 className="text-sm font-medium">运行时摘要</h3>
+                          <p className="text-sm text-muted-foreground">
+                            页面进入时拉取一次，必要时手动刷新；不进行后台轮询。
+                          </p>
+                        </div>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          onClick={() => fetchBillingRuntimeStats()}
+                          disabled={billingRuntimeStatsLoading}
+                        >
+                          <RefreshCw className={`mr-2 h-4 w-4 ${billingRuntimeStatsLoading ? 'animate-spin' : ''}`} />
+                          刷新统计
+                        </Button>
+                      </div>
+
+                      {billingRuntimeStats ? (
+                        <>
+                          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+                            <div className="rounded-md bg-muted/40 p-3">
+                              <div className="text-xs text-muted-foreground">Reclaim claimed</div>
+                              <div className="mt-1 text-2xl font-semibold">{billingRuntimeStats.reclaimClaimed}</div>
+                            </div>
+                            <div className="rounded-md bg-muted/40 p-3">
+                              <div className="text-xs text-muted-foreground">Reconcile repairs</div>
+                              <div className="mt-1 text-2xl font-semibold">{billingRuntimeStats.reconcileRepairs}</div>
+                            </div>
+                            <div className="rounded-md bg-muted/40 p-3">
+                              <div className="text-xs text-muted-foreground">Runtime enabled</div>
+                              <div className="mt-1 text-2xl font-semibold">{billingRuntimeStats.runtimeEnabled ? 'Yes' : 'No'}</div>
+                            </div>
+                            <div className="rounded-md bg-muted/40 p-3">
+                              <div className="text-xs text-muted-foreground">Runtime healthy</div>
+                              <div className="mt-1 text-2xl font-semibold">{billingRuntimeStats.runtimeHealthy ? 'Yes' : 'No'}</div>
+                            </div>
+                          </div>
+
+                          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-5">
+                            <div className="rounded-md bg-muted/40 p-3">
+                              <div className="text-xs text-muted-foreground">Projector consumers</div>
+                              <div className="mt-1 text-2xl font-semibold">{billingRuntimeStats.consumerCount}</div>
+                            </div>
+                            <div className="rounded-md bg-muted/40 p-3">
+                              <div className="text-xs text-muted-foreground">Active consumers</div>
+                              <div className="mt-1 text-2xl font-semibold">{billingRuntimeStats.activeProjectorConsumers}</div>
+                            </div>
+                            <div className="rounded-md bg-muted/40 p-3">
+                              <div className="text-xs text-muted-foreground">Stale consumers</div>
+                              <div className="mt-1 text-2xl font-semibold">{billingRuntimeStats.staleProjectorConsumers}</div>
+                            </div>
+                            <div className="rounded-md bg-muted/40 p-3">
+                              <div className="text-xs text-muted-foreground">Pending entries</div>
+                              <div className="mt-1 text-2xl font-semibold">{billingRuntimeStats.pendingEntries}</div>
+                            </div>
+                            <div className="rounded-md bg-muted/40 p-3">
+                              <div className="text-xs text-muted-foreground">Oldest pending idle</div>
+                              <div className="mt-1 text-2xl font-semibold">{formatIdleMs(billingRuntimeStats.oldestPendingIdleMs)}</div>
+                            </div>
+                          </div>
+
+                          <div className="overflow-x-auto">
+                            <Table>
+                              <TableHeader>
+                                <TableRow>
+                                  <TableHead>阶段</TableHead>
+                                  <TableHead>样本数</TableHead>
+                                  <TableHead>p95</TableHead>
+                                  <TableHead>p99</TableHead>
+                                  <TableHead>失败数</TableHead>
+                                </TableRow>
+                              </TableHeader>
+                              <TableBody>
+                                {billingMetricItems.map((item) => (
+                                  <TableRow key={item.key}>
+                                    <TableCell className="font-medium">{item.label}</TableCell>
+                                    <TableCell>{item.value.samples}</TableCell>
+                                    <TableCell>{formatLatency(item.value.p95Ms)}</TableCell>
+                                    <TableCell>{formatLatency(item.value.p99Ms)}</TableCell>
+                                    <TableCell>{item.value.failures}</TableCell>
+                                  </TableRow>
+                                ))}
+                              </TableBody>
+                            </Table>
+                          </div>
+                        </>
+                      ) : (
+                        <div className="text-sm text-muted-foreground">暂无运行时统计。</div>
+                      )}
+                    </div>
+
+                    <div className="grid gap-4 md:grid-cols-2">
+                      <div className="space-y-2 md:col-span-2">
+                        <Label htmlFor="redisUrl">Redis URL</Label>
+                        <Input
+                          id="redisUrl"
+                          value={billingRuntimeConfig.redisUrl}
+                          onChange={(e) => handleBillingRuntimeConfigChange('redisUrl', e.target.value)}
+                          placeholder="redis://localhost:6379/0"
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <Label htmlFor="redisPrefix">Redis Prefix</Label>
+                        <Input
+                          id="redisPrefix"
+                          value={billingRuntimeConfig.redisPrefix}
+                          onChange={(e) => handleBillingRuntimeConfigChange('redisPrefix', e.target.value)}
+                          placeholder="ampmanager"
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <Label htmlFor="streamBatchSize">Projector 批大小</Label>
+                        <Input
+                          id="streamBatchSize"
+                          type="number"
+                          min={1}
+                          value={billingRuntimeConfig.streamBatchSize}
+                          onChange={(e) => handleBillingRuntimeConfigChange('streamBatchSize', parseInt(e.target.value) || 1)}
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <Label htmlFor="projectorWorkers">Projector Workers</Label>
+                        <Input
+                          id="projectorWorkers"
+                          type="number"
+                          min={1}
+                          value={billingRuntimeConfig.projectorWorkers}
+                          onChange={(e) => handleBillingRuntimeConfigChange('projectorWorkers', parseInt(e.target.value) || 1)}
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <Label htmlFor="projectorClaimIdleSec">Projector reclaim idle (秒)</Label>
+                        <Input
+                          id="projectorClaimIdleSec"
+                          type="number"
+                          min={1}
+                          value={billingRuntimeConfig.projectorClaimIdleSec}
+                          onChange={(e) => handleBillingRuntimeConfigChange('projectorClaimIdleSec', parseInt(e.target.value) || 1)}
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <Label htmlFor="reconcileBatchSize">Reconcile 批大小</Label>
+                        <Input
+                          id="reconcileBatchSize"
+                          type="number"
+                          min={1}
+                          value={billingRuntimeConfig.reconcileBatchSize}
+                          onChange={(e) => handleBillingRuntimeConfigChange('reconcileBatchSize', parseInt(e.target.value) || 1)}
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <Label htmlFor="expiryBatchSize">Expiry 批大小</Label>
+                        <Input
+                          id="expiryBatchSize"
+                          type="number"
+                          min={1}
+                          value={billingRuntimeConfig.expiryBatchSize}
+                          onChange={(e) => handleBillingRuntimeConfigChange('expiryBatchSize', parseInt(e.target.value) || 1)}
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <Label htmlFor="reservationTtlSec">Reservation TTL (秒)</Label>
+                        <Input
+                          id="reservationTtlSec"
+                          type="number"
+                          min={60}
+                          value={billingRuntimeConfig.reservationTtlSec}
+                          onChange={(e) => handleBillingRuntimeConfigChange('reservationTtlSec', parseInt(e.target.value) || 60)}
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <Label htmlFor="reconcileIntervalSec">Reconcile 间隔 (秒)</Label>
+                        <Input
+                          id="reconcileIntervalSec"
+                          type="number"
+                          min={10}
+                          value={billingRuntimeConfig.reconcileIntervalSec}
+                          onChange={(e) => handleBillingRuntimeConfigChange('reconcileIntervalSec', parseInt(e.target.value) || 10)}
+                        />
+                      </div>
+                    </div>
+
+                    <Alert>
+                      <AlertDescription>
+                        保存后会立即重载后端 Redis 计费运行时。要完成真实压测，请让所有应用实例共享同一 PostgreSQL 和同一 Redis。
+                      </AlertDescription>
+                    </Alert>
+
+                    <div className="flex justify-end">
+                      <Button onClick={handleSaveBillingRuntimeConfig} disabled={billingRuntimeLoading}>
+                        {billingRuntimeLoading ? '保存中...' : '保存并热更新'}
+                      </Button>
+                    </div>
                   </>
                 ) : (
                   <div className="text-center text-muted-foreground py-4">加载中...</div>

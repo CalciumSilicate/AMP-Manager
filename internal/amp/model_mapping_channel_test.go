@@ -2,6 +2,7 @@ package amp
 
 import (
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http/httptest"
 	"sort"
@@ -163,6 +164,76 @@ func TestApplyModelMappingMiddleware_BindsPreferredChannel(t *testing.T) {
 	}
 	if preferredChannel != "preferred" {
 		t.Fatalf("expected preferred channel preferred, got %q", preferredChannel)
+	}
+}
+
+func TestApplyModelMappingMiddleware_LargeBodyAvoidsEagerJSONParseForSimpleRewrite(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	repo := &fakeChannelRepo{
+		channels: map[string]*model.Channel{
+			"preferred": testChannel("preferred", "Preferred"),
+		},
+		groups: map[string][]string{},
+	}
+
+	originalService := mappingChannelService
+	mappingChannelService = service.NewChannelServiceWithRepo(repo)
+	defer func() { mappingChannelService = originalService }()
+
+	mappingsJSON, err := json.Marshal([]model.ModelMapping{{
+		From: "gpt-4.1",
+		To:   "gpt-4o",
+	}})
+	if err != nil {
+		t.Fatalf("marshal mappings: %v", err)
+	}
+
+	largeText := strings.Repeat("hello world ", largeEstimateBodyThresholdBytes/12+32)
+	body := fmt.Sprintf(`{"model":"gpt-4.1","input":[{"role":"user","content":"%s"}]}`, largeText)
+
+	var payload *RequestPayload
+	var mappedModel string
+
+	router := gin.New()
+	router.Use(func(c *gin.Context) {
+		cfg := &ProxyConfig{ModelMappingsJSON: string(mappingsJSON)}
+		c.Request = c.Request.WithContext(WithProxyConfig(c.Request.Context(), cfg))
+		c.Next()
+	})
+	router.Use(ApplyModelMappingMiddleware())
+	router.POST("/", func(c *gin.Context) {
+		payload = GetRequestPayload(c.Request.Context())
+		raw, readErr := io.ReadAll(c.Request.Body)
+		if readErr != nil {
+			t.Fatalf("read mapped body: %v", readErr)
+		}
+		var decoded struct {
+			Model string `json:"model"`
+		}
+		if err := json.Unmarshal(raw, &decoded); err != nil {
+			t.Fatalf("unmarshal mapped body: %v", err)
+		}
+		mappedModel = decoded.Model
+		c.Status(204)
+	})
+
+	req := httptest.NewRequest("POST", "/", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != 204 {
+		t.Fatalf("expected status 204, got %d", rec.Code)
+	}
+	if mappedModel != "gpt-4o" {
+		t.Fatalf("expected mapped model gpt-4o, got %q", mappedModel)
+	}
+	if payload == nil {
+		t.Fatal("expected request payload to be cached")
+	}
+	if payload.JSON != nil || payload.jsonParsed {
+		t.Fatal("expected large-body simple rewrite to avoid eager JSON parsing")
 	}
 }
 

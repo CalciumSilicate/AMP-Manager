@@ -245,40 +245,7 @@ func (s *ModelService) ListAvailableModelsForUser(userID string, isAdmin bool) (
 
 // modelMatchesChannelRules checks if a model ID matches the channel's model rules (supports * wildcard)
 func modelMatchesChannelRules(modelID string, modelsJSON string) bool {
-	var rules []model.ChannelModel
-	if err := json.Unmarshal([]byte(modelsJSON), &rules); err != nil || len(rules) == 0 {
-		return true
-	}
-
-	modelLower := strings.ToLower(modelID)
-	for _, r := range rules {
-		if strings.EqualFold(r.Name, modelID) || strings.EqualFold(r.Alias, modelID) {
-			return true
-		}
-		nameLower := strings.ToLower(r.Name)
-		if strings.Contains(nameLower, "*") {
-			if simpleWildcardMatch(nameLower, modelLower) {
-				return true
-			}
-		}
-	}
-	return false
-}
-
-func simpleWildcardMatch(pattern, text string) bool {
-	if pattern == "*" {
-		return true
-	}
-	if strings.HasPrefix(pattern, "*") && strings.HasSuffix(pattern, "*") {
-		return strings.Contains(text, strings.Trim(pattern, "*"))
-	}
-	if strings.HasPrefix(pattern, "*") {
-		return strings.HasSuffix(text, strings.TrimPrefix(pattern, "*"))
-	}
-	if strings.HasSuffix(pattern, "*") {
-		return strings.HasPrefix(text, strings.TrimSuffix(pattern, "*"))
-	}
-	return pattern == text
+	return MatchChannelModelRules(modelID, modelsJSON)
 }
 
 func (s *ModelService) FetchAllChannelsModels() (map[string]int, error) {

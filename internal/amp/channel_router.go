@@ -12,6 +12,7 @@ import (
 	"runtime"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"ampmanager/internal/billing"
@@ -24,10 +25,13 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 	log "github.com/sirupsen/logrus"
+	"github.com/tidwall/gjson"
+	"github.com/tidwall/sjson"
 )
 
 // sharedChannelTransport 是共享的 Channel Proxy Transport，用于连接复用
 var sharedChannelTransport = NewStreamingTransport()
+var channelHeadersCache sync.Map
 
 // translationContextKey is used to store translation info in context
 type translationContextKey struct{}
@@ -289,31 +293,11 @@ func extractModelName(c *gin.Context) string {
 		}
 	}
 
-	if c.Request.Body == nil || c.Request.ContentLength == 0 {
+	payload, err := ensureRequestBody(c)
+	if err != nil || payload == nil {
 		return ""
 	}
-
-	contentType := c.GetHeader("Content-Type")
-	if !strings.Contains(contentType, "application/json") {
-		return ""
-	}
-
-	bodyBytes, err := io.ReadAll(io.LimitReader(c.Request.Body, 10*1024*1024))
-	if err != nil {
-		return ""
-	}
-	c.Request.Body = io.NopCloser(bytes.NewBuffer(bodyBytes))
-	c.Request.ContentLength = int64(len(bodyBytes))
-	c.Request.TransferEncoding = nil
-
-	var payload struct {
-		Model string `json:"model"`
-	}
-	if err := json.Unmarshal(bodyBytes, &payload); err != nil {
-		return ""
-	}
-
-	return payload.Model
+	return extractModelNameFromPayloadBytes(payload.Body)
 }
 
 // ChannelProxyHandler creates a handler using httputil.ReverseProxy for robust proxying
@@ -372,23 +356,22 @@ func ChannelProxyHandler() gin.HandlerFunc {
 		// Some clients send JSON bodies with chunked transfer encoding (Content-Length = -1).
 		// We still need to buffer the body so /v1/responses SSE retry can replay it.
 		if c.Request.Body != nil {
-			bodyBytes, err := io.ReadAll(io.LimitReader(c.Request.Body, 10*1024*1024))
-			c.Request.Body.Close()
+			requestPayload, err := ensureRequestBody(c)
 			if err != nil {
 				log.Errorf("channel proxy: failed to read request body: %v", err)
 				c.JSON(http.StatusInternalServerError, NewStandardError(http.StatusInternalServerError, "failed to read request body"))
 				return
 			}
+			bodyBytes := requestPayload.Body
 			originalRequestBody = bodyBytes
 			convertedBody = bodyBytes
 
-			// Check if streaming
-			var payload struct {
-				Stream bool `json:"stream"`
-			}
-			if err := json.Unmarshal(bodyBytes, &payload); err == nil {
-				clientWantsStream = payload.Stream
-				isStreaming = payload.Stream
+			// Check if streaming without forcing a full JSON parse.
+			if stream := gjson.GetBytes(bodyBytes, "stream"); stream.Exists() {
+				if stream.Type == gjson.True || stream.Type == gjson.False {
+					clientWantsStream = stream.Bool()
+					isStreaming = clientWantsStream
+				}
 			}
 
 			// Apply outgoing format filters (e.g., Claude system string to array)
@@ -498,8 +481,12 @@ func ChannelProxyHandler() gin.HandlerFunc {
 		var trace *RequestTrace
 		if IsModelInvocation(c.Request.Method, c.Request.URL.Path) {
 			if cfg := GetProxyConfig(c.Request.Context()); cfg != nil {
+				requestID := GetRequestID(c.Request.Context())
+				if requestID == "" {
+					requestID = uuid.New().String()
+				}
 				trace = NewRequestTrace(
-					uuid.New().String(),
+					requestID,
 					cfg.UserID,
 					cfg.APIKeyID,
 					c.Request.Method,
@@ -565,12 +552,7 @@ func ChannelProxyHandler() gin.HandlerFunc {
 				// Spoof User-Agent for OpenAI channels to mimic Codex CLI
 				if channel.Type == model.ChannelTypeOpenAI {
 					req.Header.Set("User-Agent", "codex_exec/0.98.0 (Mac OS 15.1.0; arm64) unknown")
-					stripOpenAIUnsupportedFields(req)
-				}
-
-				// For OpenAI Chat, inject stream_options.include_usage=true for streaming requests
-				if channel.Type == model.ChannelTypeOpenAI && channel.Endpoint != model.ChannelEndpointResponses {
-					injectOpenAIStreamOptions(req)
+					rewriteOpenAIRequestBody(req, channel.Endpoint != model.ChannelEndpointResponses)
 				}
 
 				simulateClaudeCLI := channel.SimulateCLI && channel.Type == model.ChannelTypeClaude
@@ -589,12 +571,8 @@ func ChannelProxyHandler() gin.HandlerFunc {
 				// In strict Claude CLI simulation mode we rebuild a fixed header set,
 				// so custom channel headers must not be reintroduced afterwards.
 				if !simulateClaudeCLI {
-					// Apply custom headers from channel config
-					var headersMap map[string]string
-					if err := json.Unmarshal([]byte(channel.HeadersJSON), &headersMap); err == nil {
-						for k, v := range headersMap {
-							req.Header.Set(k, v)
-						}
+					for k, v := range getParsedChannelHeaders(channel.HeadersJSON) {
+						req.Header.Set(k, v)
 					}
 				}
 
@@ -767,7 +745,7 @@ func ChannelProxyHandler() gin.HandlerFunc {
 				// Streaming response handling (existing logic)
 				if trace != nil {
 					resp.Body = WrapResponseBodyForTokenExtraction(resp.Body, isStreaming, trace, providerInfo)
-					if IsRequestDetailEnabled() {
+					if IsRequestDetailCaptureEnabled(resp.Request.Context()) {
 						resp.Body = NewResponseCaptureWrapper(resp.Body, trace.RequestID, resp.Header)
 					}
 					resp.Body = NewLoggingBodyWrapper(resp.Body, trace, resp.StatusCode, resp.Request.Context())
@@ -928,6 +906,36 @@ func applyChannelAuth(channel *model.Channel, req *http.Request) {
 	}
 }
 
+type parsedChannelHeaders struct {
+	headers map[string]string
+	valid   bool
+}
+
+func getParsedChannelHeaders(raw string) map[string]string {
+	if strings.TrimSpace(raw) == "" {
+		return nil
+	}
+	if cached, ok := channelHeadersCache.Load(raw); ok {
+		entry := cached.(*parsedChannelHeaders)
+		if entry.valid {
+			return entry.headers
+		}
+		return nil
+	}
+
+	headers := make(map[string]string)
+	err := json.Unmarshal([]byte(raw), &headers)
+	entry := &parsedChannelHeaders{
+		headers: headers,
+		valid:   err == nil,
+	}
+	channelHeadersCache.Store(raw, entry)
+	if !entry.valid {
+		return nil
+	}
+	return entry.headers
+}
+
 // applyClaudeCLISimulation 注入 Claude Code CLI headers。
 // 严格白名单模式：除少数协议必需头外，不透传客户端、代理或自定义 headers。
 // spoofUA 为 true 时额外注入 User-Agent 和 X-Stainless SDK 指纹。
@@ -1021,8 +1029,8 @@ func mapStainlessArch() string {
 	}
 }
 
-// stripOpenAIUnsupportedFields 从 OpenAI 请求体中移除不支持的字段（max_output_tokens、stream_options）
-func stripOpenAIUnsupportedFields(req *http.Request) {
+// rewriteOpenAIRequestBody applies OpenAI-specific request body rewrites in a single read/modify pass.
+func rewriteOpenAIRequestBody(req *http.Request, injectStreamUsage bool) {
 	if req.Body == nil || req.ContentLength == 0 {
 		return
 	}
@@ -1037,96 +1045,57 @@ func stripOpenAIUnsupportedFields(req *http.Request) {
 	}
 	req.Body.Close()
 
-	var payload map[string]interface{}
-	if err := json.Unmarshal(bodyBytes, &payload); err != nil {
-		req.Body = io.NopCloser(bytes.NewReader(bodyBytes))
-		req.ContentLength = int64(len(bodyBytes))
-		return
+	modifiedBody, modified := stripOpenAIUnsupportedFieldsBytes(bodyBytes)
+	if injectStreamUsage {
+		if injectedBody, injected := injectOpenAIStreamOptionsBytes(modifiedBody); injected {
+			modifiedBody = injectedBody
+			modified = true
+		}
 	}
-
-	modified := false
-	if _, exists := payload["max_output_tokens"]; exists {
-		delete(payload, "max_output_tokens")
-		modified = true
-	}
-	if _, exists := payload["stream_options"]; exists {
-		delete(payload, "stream_options")
-		modified = true
-	}
-
 	if !modified {
 		req.Body = io.NopCloser(bytes.NewReader(bodyBytes))
 		req.ContentLength = int64(len(bodyBytes))
 		return
 	}
-
-	newBody, err := json.Marshal(payload)
-	if err != nil {
-		req.Body = io.NopCloser(bytes.NewReader(bodyBytes))
-		req.ContentLength = int64(len(bodyBytes))
-		return
-	}
-	req.Body = io.NopCloser(bytes.NewReader(newBody))
-	req.ContentLength = int64(len(newBody))
-	req.Header.Set("Content-Length", fmt.Sprintf("%d", len(newBody)))
+	req.Body = io.NopCloser(bytes.NewReader(modifiedBody))
+	req.ContentLength = int64(len(modifiedBody))
+	req.Header.Set("Content-Length", fmt.Sprintf("%d", len(modifiedBody)))
 }
 
-// injectOpenAIStreamOptions 为 OpenAI Chat 流式请求注入 stream_options.include_usage=true
-// 这是获取 streaming 响应中 usage 数据的必要条件
-func injectOpenAIStreamOptions(req *http.Request) {
-	if req.Body == nil || req.ContentLength == 0 {
-		return
+func stripOpenAIUnsupportedFieldsBytes(body []byte) ([]byte, bool) {
+	modified := false
+	result := body
+	if gjson.GetBytes(result, "max_output_tokens").Exists() {
+		if updated, err := sjson.DeleteBytes(result, "max_output_tokens"); err == nil {
+			result = updated
+			modified = true
+		}
+	}
+	if gjson.GetBytes(result, "stream_options").Exists() {
+		if updated, err := sjson.DeleteBytes(result, "stream_options"); err == nil {
+			result = updated
+			modified = true
+		}
+	}
+	return result, modified
+}
+
+func injectOpenAIStreamOptionsBytes(body []byte) ([]byte, bool) {
+	stream := gjson.GetBytes(body, "stream")
+	if !stream.Exists() || !stream.Bool() {
+		return body, false
 	}
 
-	contentType := req.Header.Get("Content-Type")
-	if !strings.Contains(contentType, "application/json") {
-		return
+	if gjson.GetBytes(body, "stream_options.include_usage").Exists() {
+		return body, false
 	}
 
-	bodyBytes, err := io.ReadAll(io.LimitReader(req.Body, 10*1024*1024))
+	updated, err := sjson.SetBytes(body, "stream_options.include_usage", true)
 	if err != nil {
-		return
+		return body, false
 	}
-	req.Body.Close()
-
-	var payload map[string]interface{}
-	if err := json.Unmarshal(bodyBytes, &payload); err != nil {
-		req.Body = io.NopCloser(bytes.NewReader(bodyBytes))
-		req.ContentLength = int64(len(bodyBytes))
-		return
-	}
-
-	// 检查是否为流式请求
-	stream, ok := payload["stream"].(bool)
-	if !ok || !stream {
-		req.Body = io.NopCloser(bytes.NewReader(bodyBytes))
-		req.ContentLength = int64(len(bodyBytes))
-		return
-	}
-
-	// 检查 stream_options 是否已存在
-	streamOptions, ok := payload["stream_options"].(map[string]interface{})
-	if !ok {
-		streamOptions = make(map[string]interface{})
-		payload["stream_options"] = streamOptions
-	}
-
-	// 设置 include_usage = true
-	if _, exists := streamOptions["include_usage"]; !exists {
-		streamOptions["include_usage"] = true
-		log.Debugf("channel proxy: injected stream_options.include_usage=true for OpenAI streaming")
-	}
-
-	newBody, err := json.Marshal(payload)
-	if err != nil {
-		req.Body = io.NopCloser(bytes.NewReader(bodyBytes))
-		req.ContentLength = int64(len(bodyBytes))
-		return
-	}
-
-	req.Body = io.NopCloser(bytes.NewReader(newBody))
-	req.ContentLength = int64(len(newBody))
-	req.Header.Set("Content-Length", fmt.Sprintf("%d", len(newBody)))
+	log.Debugf("channel proxy: injected stream_options.include_usage=true for OpenAI streaming")
+	return updated, true
 }
 
 // findSSEDelimiter finds the earliest SSE delimiter (\n\n or \r\n\r\n) in data
@@ -1180,7 +1149,7 @@ func handleNonStreamingResponse(resp *http.Response, trace *RequestTrace, transI
 	body = TransformResponseJSON(resp.Request.Context(), body, originalModel, mappedModel)
 
 	// Capture response for logging
-	if trace != nil {
+	if trace != nil && IsRequestDetailCaptureEnabled(resp.Request.Context()) {
 		StoreResponseDetail(trace.RequestID, sanitizeHeaders(resp.Header), body)
 	}
 
@@ -1225,8 +1194,11 @@ func handleNonStreamingResponse(resp *http.Response, trace *RequestTrace, transI
 
 						if proxyCfg != nil && adjustedCostMicros > 0 {
 							billingSvc := service.NewBillingService()
-							if err := billingSvc.SettleRequestCost(trace.RequestID, proxyCfg.UserID, adjustedCostMicros); err != nil {
+							result, err := billingSvc.SettleRequestCostResult(trace.RequestID, proxyCfg.UserID, adjustedCostMicros)
+							if err != nil {
 								log.Warnf("channel router: failed to settle cost for user %s: %v", proxyCfg.UserID, err)
+							} else {
+								trace.SetBillingResult(result)
 							}
 						}
 					}
@@ -1235,7 +1207,14 @@ func handleNonStreamingResponse(resp *http.Response, trace *RequestTrace, transI
 		}
 
 		if writer := GetLogWriter(); writer != nil {
-			writer.UpdateFromTrace(trace)
+			if ok := writer.UpdateFromTrace(trace); !ok {
+				if billingResult := trace.BillingResult(); billingResult != nil {
+					billingSvc := service.NewBillingService()
+					if err := billingSvc.ApplyBillingResult(trace.RequestID, billingResult); err != nil {
+						log.Warnf("channel router: failed to apply billing fallback for request %s: %v", trace.RequestID, err)
+					}
+				}
+			}
 		}
 	}
 

@@ -1,10 +1,12 @@
 package service
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"log"
 
+	"ampmanager/internal/billingstate"
 	"ampmanager/internal/config"
 	"ampmanager/internal/model"
 	"ampmanager/internal/repository"
@@ -261,7 +263,13 @@ func (s *UserService) GetBalance(userID string) (int64, error) {
 }
 
 func (s *UserService) TopUp(userID string, amountMicros int64) error {
-	return s.repo.TopUpBalance(userID, amountMicros)
+	if err := s.repo.TopUpBalance(userID, amountMicros); err != nil {
+		return err
+	}
+	if runtime := billingstate.Get(); runtime != nil {
+		return runtime.ApplyBalanceDelta(context.Background(), userID, amountMicros)
+	}
+	return nil
 }
 
 func (s *UserService) GetTotalBalanceAndUserCount() (int64, int64, error) {

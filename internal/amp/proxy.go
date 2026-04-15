@@ -166,8 +166,8 @@ func NewStreamingTransport() *http.Transport {
 		TLSHandshakeTimeout: cfg.TLSHandshakeTimeout,
 
 		// 连接池设置
-		MaxIdleConns:        100,
-		MaxIdleConnsPerHost: 10,
+		MaxIdleConns:        2048,
+		MaxIdleConnsPerHost: 1024,
 		MaxConnsPerHost:     0, // 无限制
 
 		// 关键：延长空闲连接超时，避免连接过早关闭
@@ -271,17 +271,17 @@ func getSocks5Transport(proxyURL string) (*http.Transport, error) {
 	cfg := GetTimeoutConfig()
 	transport := &http.Transport{
 		DialContext:           contextDialer.DialContext,
-		TLSClientConfig:      &tls.Config{MinVersion: tls.VersionTLS12},
-		TLSHandshakeTimeout:  cfg.TLSHandshakeTimeout,
-		MaxIdleConns:         100,
-		MaxIdleConnsPerHost:  10,
-		MaxConnsPerHost:      0,
-		IdleConnTimeout:      cfg.IdleConnTimeout,
+		TLSClientConfig:       &tls.Config{MinVersion: tls.VersionTLS12},
+		TLSHandshakeTimeout:   cfg.TLSHandshakeTimeout,
+		MaxIdleConns:          2048,
+		MaxIdleConnsPerHost:   1024,
+		MaxConnsPerHost:       0,
+		IdleConnTimeout:       cfg.IdleConnTimeout,
 		ResponseHeaderTimeout: 0,
 		ExpectContinueTimeout: 0,
-		DisableCompression:   true,
-		DisableKeepAlives:    false,
-		ForceAttemptHTTP2:    false,
+		DisableCompression:    true,
+		DisableKeepAlives:     false,
+		ForceAttemptHTTP2:     false,
 	}
 
 	socks5TransportCache.Store(proxyURL, transport)
@@ -372,8 +372,12 @@ func CreateDynamicReverseProxy() *httputil.ReverseProxy {
 
 			// Only create trace for model invocation requests
 			if IsModelInvocation(req.Method, req.URL.Path) {
+				requestID := GetRequestID(req.Context())
+				if requestID == "" {
+					requestID = uuid.New().String()
+				}
 				trace := NewRequestTrace(
-					uuid.New().String(),
+					requestID,
 					cfg.UserID,
 					cfg.APIKeyID,
 					req.Method,

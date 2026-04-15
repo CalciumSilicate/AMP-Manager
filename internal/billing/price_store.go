@@ -420,6 +420,26 @@ func (s *PriceStore) seedBuiltinPrices() {
 		provider string
 		data     PriceData
 	}{
+		{
+			model:    "gpt-4.1-mini",
+			provider: "openai",
+			data: PriceData{
+				InputCostPerToken:      0.40 / 1_000_000,
+				OutputCostPerToken:     1.60 / 1_000_000,
+				CacheReadInputPerToken: 0.10 / 1_000_000,
+				CacheCreationPerToken:  0.40 / 1_000_000,
+			},
+		},
+		{
+			model:    "gpt-4o-mini",
+			provider: "openai",
+			data: PriceData{
+				InputCostPerToken:      0.15 / 1_000_000,
+				OutputCostPerToken:     0.60 / 1_000_000,
+				CacheReadInputPerToken: 0.075 / 1_000_000,
+				CacheCreationPerToken:  0.15 / 1_000_000,
+			},
+		},
 		// Anthropic Claude 4 系列 (2025 年价格)
 		{
 			model:    "claude-sonnet-4-20250514",

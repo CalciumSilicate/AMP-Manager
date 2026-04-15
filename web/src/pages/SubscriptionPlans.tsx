@@ -1,5 +1,4 @@
-import { useEffect, useState } from 'react'
-
+import { useState, useEffect, useCallback } from 'react'
 import { motion, AnimatePresence, tableStaggerContainer, tableRowVariants } from '@/lib/motion'
 import {
   getPlans,
@@ -102,11 +101,12 @@ export default function SubscriptionPlans() {
   const [saving, setSaving] = useState(false)
   const [deleteConfirmModal, setDeleteConfirmModal] = useState<SubscriptionPlanResponse | null>(null)
 
-  useEffect(() => {
-    fetchPlans()
+  const showMsg = useCallback((type: 'success' | 'error', text: string) => {
+    setMessage({ type, text })
+    setTimeout(() => setMessage(null), 3000)
   }, [])
 
-  const fetchPlans = async () => {
+  const fetchPlans = useCallback(async () => {
     try {
       const data = await getPlans()
       setPlans(data)
@@ -115,12 +115,11 @@ export default function SubscriptionPlans() {
     } finally {
       setLoading(false)
     }
-  }
+  }, [showMsg])
 
-  const showMsg = (type: 'success' | 'error', text: string) => {
-    setMessage({ type, text })
-    setTimeout(() => setMessage(null), 3000)
-  }
+  useEffect(() => {
+    fetchPlans()
+  }, [fetchPlans])
 
   const handleCreate = () => {
     setEditingPlan(null)

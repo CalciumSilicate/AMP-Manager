@@ -183,7 +183,8 @@ func (w *LogWriter) UpdateFromTrace(trace *RequestTrace) bool {
 	}
 
 	// 构建可选字段
-	var originalModel, mappedModel, provider, channelID, endpoint, errorType, pricingModel, costUsd *string
+	var originalModel, mappedModel, provider, channelID, endpoint, errorType, pricingModel, costUsd, billingStatus *string
+	var chargedSubscriptionMicros, chargedBalanceMicros *int64
 	if snapshot.OriginalModel != "" {
 		originalModel = &snapshot.OriginalModel
 	}
@@ -207,6 +208,15 @@ func (w *LogWriter) UpdateFromTrace(trace *RequestTrace) bool {
 	}
 	if snapshot.CostUsd != nil {
 		costUsd = snapshot.CostUsd
+	}
+	if snapshot.BillingStatus != nil {
+		billingStatus = snapshot.BillingStatus
+	}
+	if snapshot.ChargedSubscriptionMicros != nil {
+		chargedSubscriptionMicros = snapshot.ChargedSubscriptionMicros
+	}
+	if snapshot.ChargedBalanceMicros != nil {
+		chargedBalanceMicros = snapshot.ChargedBalanceMicros
 	}
 
 	var thinkingLevel *string
@@ -242,6 +252,9 @@ func (w *LogWriter) UpdateFromTrace(trace *RequestTrace) bool {
 			cost_micros = ?,
 			cost_usd = ?,
 			pricing_model = ?,
+			charged_subscription_micros = COALESCE(?, charged_subscription_micros),
+			charged_balance_micros = COALESCE(?, charged_balance_micros),
+			billing_status = COALESCE(?, billing_status),
 			thinking_level = COALESCE(?, thinking_level),
 			rate_multiplier = COALESCE(?, rate_multiplier),
 			response_text = COALESCE(?, response_text)
@@ -266,6 +279,9 @@ func (w *LogWriter) UpdateFromTrace(trace *RequestTrace) bool {
 		snapshot.CostMicros,
 		costUsd,
 		pricingModel,
+		chargedSubscriptionMicros,
+		chargedBalanceMicros,
+		billingStatus,
 		thinkingLevel,
 		rateMultiplier,
 		stringPtrIfNonEmpty(snapshot.ResponseText),
@@ -304,7 +320,8 @@ func (w *LogWriter) insertComplete(trace *RequestTrace) bool {
 		isStreaming = 1
 	}
 
-	var originalModel, mappedModel, provider, channelID, endpoint, errorType, pricingModel, costUsd *string
+	var originalModel, mappedModel, provider, channelID, endpoint, errorType, pricingModel, costUsd, billingStatus *string
+	var chargedSubscriptionMicros, chargedBalanceMicros *int64
 	if snapshot.OriginalModel != "" {
 		originalModel = &snapshot.OriginalModel
 	}
@@ -329,6 +346,15 @@ func (w *LogWriter) insertComplete(trace *RequestTrace) bool {
 	if snapshot.CostUsd != nil {
 		costUsd = snapshot.CostUsd
 	}
+	if snapshot.BillingStatus != nil {
+		billingStatus = snapshot.BillingStatus
+	}
+	if snapshot.ChargedSubscriptionMicros != nil {
+		chargedSubscriptionMicros = snapshot.ChargedSubscriptionMicros
+	}
+	if snapshot.ChargedBalanceMicros != nil {
+		chargedBalanceMicros = snapshot.ChargedBalanceMicros
+	}
 	var thinkingLevel *string
 	if snapshot.ThinkingLevel != "" {
 		thinkingLevel = &snapshot.ThinkingLevel
@@ -344,8 +370,9 @@ func (w *LogWriter) insertComplete(trace *RequestTrace) bool {
 			id, created_at, updated_at, status, user_id, api_key_id, original_model, mapped_model,
 			provider, channel_id, endpoint, method, path, status_code, latency_ms, ttfb_ms,
 			is_streaming, input_tokens, output_tokens, cache_read_input_tokens,
-			cache_creation_input_tokens, error_type, cost_micros, cost_usd, pricing_model, thinking_level, rate_multiplier
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+			cache_creation_input_tokens, error_type, cost_micros, cost_usd, pricing_model,
+			charged_subscription_micros, charged_balance_micros, billing_status, thinking_level, rate_multiplier
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 	`,
 		snapshot.RequestID,
 		snapshot.StartTime.UTC(),
@@ -372,6 +399,9 @@ func (w *LogWriter) insertComplete(trace *RequestTrace) bool {
 		snapshot.CostMicros,
 		costUsd,
 		pricingModel,
+		chargedSubscriptionMicros,
+		chargedBalanceMicros,
+		billingStatus,
 		thinkingLevel,
 		rateMultiplier,
 	)
@@ -595,8 +625,11 @@ func (w *LoggingBodyWrapper) Close() error {
 
 							if proxyCfg != nil && adjustedCostMicros > 0 {
 								billingSvc := service.NewBillingService()
-								if err := billingSvc.SettleRequestCost(w.trace.RequestID, proxyCfg.UserID, adjustedCostMicros); err != nil {
+								result, err := billingSvc.SettleRequestCostResult(w.trace.RequestID, proxyCfg.UserID, adjustedCostMicros)
+								if err != nil {
 									log.Warnf("log writer: failed to settle cost for user %s: %v", proxyCfg.UserID, err)
+								} else {
+									w.trace.SetBillingResult(result)
 								}
 							}
 						}
@@ -605,7 +638,14 @@ func (w *LoggingBodyWrapper) Close() error {
 			}
 
 			if writer := GetLogWriter(); writer != nil {
-				writer.UpdateFromTrace(w.trace)
+				if ok := writer.UpdateFromTrace(w.trace); !ok {
+					if billingResult := w.trace.BillingResult(); billingResult != nil {
+						billingSvc := service.NewBillingService()
+						if err := billingSvc.ApplyBillingResult(w.trace.RequestID, billingResult); err != nil {
+							log.Warnf("log writer: failed to apply billing fallback for request %s: %v", w.trace.RequestID, err)
+						}
+					}
+				}
 			}
 		}
 	})

@@ -137,8 +137,9 @@ func registerAmpProxyAPI(engine *gin.Engine, proxyHandler, channelHandler, model
 	api := engine.Group("/api")
 	api.Use(APIKeyAuthMiddleware())
 	api.Use(rateLimiter.RateLimitByAPIKey())
-	api.Use(NativeModeSkipMiddleware(BillingCheckMiddleware()))
 	api.Use(NativeModeSkipMiddleware(ApplyModelMappingMiddleware()))
+	api.Use(NativeModeSkipMiddleware(BillingEstimateMiddleware()))
+	api.Use(NativeModeSkipMiddleware(BillingCheckMiddleware()))
 	api.Use(NativeModeSkipMiddleware(ChannelRouterMiddleware()))
 	api.Use(NativeModeSkipMiddleware(RequestCaptureMiddleware()))
 
@@ -151,8 +152,9 @@ func registerAmpProxyAPI(engine *gin.Engine, proxyHandler, channelHandler, model
 	v1 := engine.Group("/v1")
 	v1.Use(APIKeyAuthMiddleware())
 	v1.Use(rateLimiter.RateLimitByAPIKey())
-	v1.Use(NativeModeSkipMiddleware(BillingCheckMiddleware()))
 	v1.Use(NativeModeSkipMiddleware(ApplyModelMappingMiddleware()))
+	v1.Use(NativeModeSkipMiddleware(BillingEstimateMiddleware()))
+	v1.Use(NativeModeSkipMiddleware(BillingCheckMiddleware()))
 	v1.Use(NativeModeSkipMiddleware(ChannelRouterMiddleware()))
 	v1.Use(NativeModeSkipMiddleware(RequestCaptureMiddleware()))
 
@@ -164,8 +166,9 @@ func registerAmpProxyAPI(engine *gin.Engine, proxyHandler, channelHandler, model
 	v1beta := engine.Group("/v1beta")
 	v1beta.Use(APIKeyAuthMiddleware())
 	v1beta.Use(rateLimiter.RateLimitByAPIKey())
-	v1beta.Use(NativeModeSkipMiddleware(BillingCheckMiddleware()))
 	v1beta.Use(NativeModeSkipMiddleware(ApplyModelMappingMiddleware()))
+	v1beta.Use(NativeModeSkipMiddleware(BillingEstimateMiddleware()))
+	v1beta.Use(NativeModeSkipMiddleware(BillingCheckMiddleware()))
 	v1beta.Use(NativeModeSkipMiddleware(ChannelRouterMiddleware()))
 	v1beta.Use(NativeModeSkipMiddleware(RequestCaptureMiddleware()))
 

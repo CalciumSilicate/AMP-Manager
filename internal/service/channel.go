@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"reflect"
 	"sort"
 	"strings"
 	"sync"
@@ -19,13 +20,46 @@ var (
 	ErrChannelNotFound = errors.New("渠道不存在")
 )
 
+const defaultChannelRepoCacheKey = "default-channel-repo"
+
 // modelsCache 缓存 ModelsJSON -> []model.ChannelModel 的解析结果
 // key: ModelsJSON 字符串, value: *parsedModelsEntry
 var modelsCache sync.Map
+var compiledChannelModelRulesCache sync.Map
+var headersCache sync.Map
+var enabledChannelsSnapshot = &enabledChannelsCache{
+	snapshots: make(map[string]enabledChannelsSnapshotEntry),
+	cacheTTL: 2 * time.Second,
+}
 
 type parsedModelsEntry struct {
 	models []model.ChannelModel
 	valid  bool
+}
+
+type compiledChannelModelRule struct {
+	name         string
+	alias        string
+	nameLower    string
+	aliasLower   string
+	wildcardName bool
+}
+
+type parsedHeadersEntry struct {
+	headers map[string]string
+	valid   bool
+}
+
+type enabledChannelsCache struct {
+	mu       sync.RWMutex
+	snapshots map[string]enabledChannelsSnapshotEntry
+	cacheTTL time.Duration
+}
+
+type enabledChannelsSnapshotEntry struct {
+	channels        []*model.Channel
+	channelGroupMap map[string][]string
+	loadedAt        time.Time
 }
 
 // getParsedModels 从缓存获取或解析 ModelsJSON
@@ -43,6 +77,116 @@ func getParsedModels(modelsJSON string) ([]model.ChannelModel, bool) {
 	}
 	modelsCache.Store(modelsJSON, entry)
 	return models, entry.valid
+}
+
+func GetParsedChannelModels(modelsJSON string) ([]model.ChannelModel, bool) {
+	return getParsedModels(modelsJSON)
+}
+
+func getCompiledChannelModelRules(modelsJSON string) ([]compiledChannelModelRule, bool) {
+	if cached, ok := compiledChannelModelRulesCache.Load(modelsJSON); ok {
+		return cached.([]compiledChannelModelRule), true
+	}
+
+	models, valid := getParsedModels(modelsJSON)
+	if !valid {
+		return nil, false
+	}
+
+	rules := make([]compiledChannelModelRule, 0, len(models))
+	for _, modelRule := range models {
+		rules = append(rules, compiledChannelModelRule{
+			name:         modelRule.Name,
+			alias:        modelRule.Alias,
+			nameLower:    strings.ToLower(modelRule.Name),
+			aliasLower:   strings.ToLower(modelRule.Alias),
+			wildcardName: strings.Contains(strings.ToLower(modelRule.Name), "*"),
+		})
+	}
+	compiledChannelModelRulesCache.Store(modelsJSON, rules)
+	return rules, true
+}
+
+func MatchChannelModelRules(modelID string, modelsJSON string) bool {
+	rules, valid := getCompiledChannelModelRules(modelsJSON)
+	if !valid || len(rules) == 0 {
+		return true
+	}
+
+	modelLower := strings.ToLower(modelID)
+	for _, rule := range rules {
+		if strings.EqualFold(rule.name, modelID) || (rule.alias != "" && strings.EqualFold(rule.alias, modelID)) {
+			return true
+		}
+		if rule.wildcardName && wildcardMatch(rule.nameLower, modelLower) {
+			return true
+		}
+	}
+	return false
+}
+
+func wildcardMatch(pattern, text string) bool {
+	if pattern == "*" {
+		return true
+	}
+	if strings.HasPrefix(pattern, "*") && strings.HasSuffix(pattern, "*") {
+		return strings.Contains(text, strings.Trim(pattern, "*"))
+	}
+	if strings.HasPrefix(pattern, "*") {
+		return strings.HasSuffix(text, strings.TrimPrefix(pattern, "*"))
+	}
+	if strings.HasSuffix(pattern, "*") {
+		return strings.HasPrefix(text, strings.TrimSuffix(pattern, "*"))
+	}
+	return pattern == text
+}
+
+func getParsedHeaders(headersJSON string) (map[string]string, bool) {
+	if cached, ok := headersCache.Load(headersJSON); ok {
+		entry := cached.(*parsedHeadersEntry)
+		return entry.headers, entry.valid
+	}
+
+	var headers map[string]string
+	err := json.Unmarshal([]byte(headersJSON), &headers)
+	entry := &parsedHeadersEntry{
+		headers: headers,
+		valid:   err == nil,
+	}
+	headersCache.Store(headersJSON, entry)
+	return headers, entry.valid
+}
+
+func cloneChannels(channels []*model.Channel) []*model.Channel {
+	if len(channels) == 0 {
+		return nil
+	}
+	cloned := make([]*model.Channel, 0, len(channels))
+	for _, channel := range channels {
+		if channel == nil {
+			continue
+		}
+		copyChannel := *channel
+		cloned = append(cloned, &copyChannel)
+	}
+	return cloned
+}
+
+func invalidateEnabledChannelsCache() {
+	enabledChannelsSnapshot.mu.Lock()
+	defer enabledChannelsSnapshot.mu.Unlock()
+	enabledChannelsSnapshot.snapshots = make(map[string]enabledChannelsSnapshotEntry)
+}
+
+func cacheKeyForChannelRepo(repo repository.ChannelRepositoryInterface) string {
+	if _, ok := repo.(*repository.ChannelRepository); ok {
+		return defaultChannelRepoCacheKey
+	}
+	value := reflect.ValueOf(repo)
+	if value.IsValid() && value.Kind() == reflect.Pointer {
+		return fmt.Sprintf("%T:%x", repo, value.Pointer())
+	}
+	return fmt.Sprintf("%T", repo)
 }
 
 type ChannelService struct {
@@ -99,27 +243,28 @@ func (s *ChannelService) Create(req *model.ChannelRequest) (*model.ChannelRespon
 	}
 
 	channel := &model.Channel{
-		Type:           req.Type,
-		Endpoint:       endpoint,
-		Name:           req.Name,
-		BaseURL:        strings.TrimSuffix(req.BaseURL, "/"),
-		APIKey:         req.APIKey,
-		Enabled:        req.Enabled,
-		Weight:         weight,
-		Priority:       priority,
-		ModelWhitelist: req.ModelWhitelist,
+		Type:                 req.Type,
+		Endpoint:             endpoint,
+		Name:                 req.Name,
+		BaseURL:              strings.TrimSuffix(req.BaseURL, "/"),
+		APIKey:               req.APIKey,
+		Enabled:              req.Enabled,
+		Weight:               weight,
+		Priority:             priority,
+		ModelWhitelist:       req.ModelWhitelist,
 		SimulateCLI:          req.SimulateCLI,
 		SimulateUA:           req.SimulateUA,
 		SimulateSystemPrompt: req.SimulateSystemPrompt,
 		TraditionalChinese:   req.TraditionalChinese,
 		CopilotAPI:           req.CopilotAPI,
 		ModelsJSON:           string(modelsJSON),
-		HeadersJSON:    string(headersJSON),
+		HeadersJSON:          string(headersJSON),
 	}
 
 	if err := s.repo.Create(channel); err != nil {
 		return nil, err
 	}
+	invalidateEnabledChannelsCache()
 
 	if len(req.GroupIDs) > 0 {
 		_ = s.repo.SetGroups(channel.ID, req.GroupIDs)
@@ -215,6 +360,7 @@ func (s *ChannelService) Update(id string, req *model.ChannelRequest) (*model.Ch
 	if err := s.repo.Update(existing); err != nil {
 		return nil, err
 	}
+	invalidateEnabledChannelsCache()
 
 	_ = s.repo.SetGroups(id, req.GroupIDs)
 
@@ -229,7 +375,11 @@ func (s *ChannelService) Delete(id string) error {
 	if existing == nil {
 		return ErrChannelNotFound
 	}
-	return s.repo.Delete(id)
+	if err := s.repo.Delete(id); err != nil {
+		return err
+	}
+	invalidateEnabledChannelsCache()
+	return nil
 }
 
 func (s *ChannelService) SetEnabled(id string, enabled bool) error {
@@ -240,7 +390,11 @@ func (s *ChannelService) SetEnabled(id string, enabled bool) error {
 	if existing == nil {
 		return ErrChannelNotFound
 	}
-	return s.repo.SetEnabled(id, enabled)
+	if err := s.repo.SetEnabled(id, enabled); err != nil {
+		return err
+	}
+	invalidateEnabledChannelsCache()
+	return nil
 }
 
 func (s *ChannelService) TestConnection(id string) (*model.TestChannelResponse, error) {
@@ -324,7 +478,7 @@ func (s *ChannelService) TestConnection(id string) (*model.TestChannelResponse, 
 }
 
 func (s *ChannelService) SelectChannelForModel(modelName string) (*model.Channel, error) {
-	channels, err := s.repo.ListEnabled()
+	channels, err := s.listEnabledChannels()
 	if err != nil {
 		return nil, err
 	}
@@ -378,21 +532,26 @@ func (s *ChannelService) SelectSpecificChannelForModelWithGroups(channelID, mode
 		return nil, nil
 	}
 
-	channel, err := s.repo.GetByID(channelID)
+	channels, channelGroupMap, err := s.listEnabledChannelsWithGroups()
 	if err != nil {
 		return nil, err
 	}
-	if channel == nil || !channel.Enabled {
+
+	var channel *model.Channel
+	for _, candidate := range channels {
+		if candidate != nil && candidate.ID == channelID {
+			channel = candidate
+			break
+		}
+	}
+	if channel == nil {
 		return nil, nil
 	}
 	if !s.channelMatchesModel(channel, modelName) {
 		return nil, nil
 	}
 
-	channelGroupIDs, err := s.repo.GetGroupIDs(channelID)
-	if err != nil {
-		return nil, err
-	}
+	channelGroupIDs := channelGroupMap[channelID]
 	if !channelAccessibleForGroups(channelGroupIDs, groupIDs) {
 		return nil, nil
 	}
@@ -404,7 +563,7 @@ func (s *ChannelService) SelectSpecificChannelForModelWithGroups(channelID, mode
 // 无分组用户: 只能使用未关联分组的渠道
 // 有分组用户: 可以使用其分组渠道 + 未关联分组的渠道
 func (s *ChannelService) SelectChannelForModelWithGroups(modelName string, groupIDs []string) (*model.Channel, error) {
-	channels, err := s.repo.ListEnabled()
+	channels, channelGroupMap, err := s.listEnabledChannelsWithGroups()
 	if err != nil {
 		return nil, err
 	}
@@ -421,26 +580,12 @@ func (s *ChannelService) SelectChannelForModelWithGroups(modelName string, group
 		return nil, nil
 	}
 
-	// Batch fetch group mappings
-	matchingIDs := make([]string, len(matchingChannels))
-	for i, ch := range matchingChannels {
-		matchingIDs[i] = ch.ID
-	}
-	channelGroupMap, batchErr := s.repo.GetGroupIDsByChannelIDs(matchingIDs)
-	fallbackToSingleLookup := batchErr != nil
 	userGroupIDSet := toStringSet(groupIDs)
 
 	// Filter by group access
 	var candidates []*model.Channel
 	for _, ch := range matchingChannels {
 		chGroupIDs := channelGroupMap[ch.ID]
-		if fallbackToSingleLookup {
-			var singleLookupErr error
-			chGroupIDs, singleLookupErr = s.repo.GetGroupIDs(ch.ID)
-			if singleLookupErr != nil {
-				continue
-			}
-		}
 		if channelAccessibleWithSet(chGroupIDs, userGroupIDSet) {
 			candidates = append(candidates, ch)
 		}
@@ -479,6 +624,91 @@ func (s *ChannelService) SelectChannelForModelWithGroups(modelName string, group
 	return selected, nil
 }
 
+func (s *ChannelService) listEnabledChannels() ([]*model.Channel, error) {
+	cacheKey := cacheKeyForChannelRepo(s.repo)
+	enabledChannelsSnapshot.mu.RLock()
+	if snapshot, ok := enabledChannelsSnapshot.snapshots[cacheKey]; ok && time.Since(snapshot.loadedAt) < enabledChannelsSnapshot.cacheTTL && len(snapshot.channels) > 0 {
+		channels := cloneChannels(snapshot.channels)
+		enabledChannelsSnapshot.mu.RUnlock()
+		return channels, nil
+	}
+	enabledChannelsSnapshot.mu.RUnlock()
+
+	channels, err := s.repo.ListEnabled()
+	if err != nil {
+		return nil, err
+	}
+
+	cloned := cloneChannels(channels)
+	enabledChannelsSnapshot.mu.Lock()
+	enabledChannelsSnapshot.snapshots[cacheKey] = enabledChannelsSnapshotEntry{
+		channels:        cloneChannels(channels),
+		channelGroupMap: nil,
+		loadedAt:        time.Now(),
+	}
+	enabledChannelsSnapshot.mu.Unlock()
+	return cloned, nil
+}
+
+func cloneChannelGroupMap(source map[string][]string) map[string][]string {
+	if len(source) == 0 {
+		return nil
+	}
+	cloned := make(map[string][]string, len(source))
+	for key, values := range source {
+		cloned[key] = append([]string(nil), values...)
+	}
+	return cloned
+}
+
+func (s *ChannelService) listEnabledChannelsWithGroups() ([]*model.Channel, map[string][]string, error) {
+	cacheKey := cacheKeyForChannelRepo(s.repo)
+	enabledChannelsSnapshot.mu.RLock()
+	if snapshot, ok := enabledChannelsSnapshot.snapshots[cacheKey]; ok && time.Since(snapshot.loadedAt) < enabledChannelsSnapshot.cacheTTL && len(snapshot.channels) > 0 && snapshot.channelGroupMap != nil {
+		channels := cloneChannels(snapshot.channels)
+		groupMap := cloneChannelGroupMap(snapshot.channelGroupMap)
+		enabledChannelsSnapshot.mu.RUnlock()
+		return channels, groupMap, nil
+	}
+	enabledChannelsSnapshot.mu.RUnlock()
+
+	channels, err := s.repo.ListEnabled()
+	if err != nil {
+		return nil, nil, err
+	}
+
+	channelIDs := make([]string, 0, len(channels))
+	for _, ch := range channels {
+		if ch == nil {
+			continue
+		}
+		channelIDs = append(channelIDs, ch.ID)
+	}
+
+	channelGroupMap, batchErr := s.repo.GetGroupIDsByChannelIDs(channelIDs)
+	fallbackToSingleLookup := batchErr != nil
+	if fallbackToSingleLookup {
+		channelGroupMap = make(map[string][]string, len(channelIDs))
+		for _, channelID := range channelIDs {
+			gids, err := s.repo.GetGroupIDs(channelID)
+			if err != nil {
+				continue
+			}
+			channelGroupMap[channelID] = gids
+		}
+	}
+
+	clonedChannels := cloneChannels(channels)
+	clonedGroups := cloneChannelGroupMap(channelGroupMap)
+	enabledChannelsSnapshot.mu.Lock()
+	enabledChannelsSnapshot.snapshots[cacheKey] = enabledChannelsSnapshotEntry{
+		channels:        cloneChannels(channels),
+		channelGroupMap: cloneChannelGroupMap(channelGroupMap),
+		loadedAt:        time.Now(),
+	}
+	enabledChannelsSnapshot.mu.Unlock()
+	return clonedChannels, clonedGroups, nil
+}
 func toStringSet(values []string) map[string]struct{} {
 	set := make(map[string]struct{}, len(values))
 	for _, value := range values {
@@ -508,25 +738,22 @@ func channelAccessibleWithSet(channelGroupIDs []string, userGroupIDSet map[strin
 }
 
 func (s *ChannelService) channelMatchesModel(channel *model.Channel, modelName string) bool {
-	models, valid := getParsedModels(channel.ModelsJSON)
+	rules, valid := getCompiledChannelModelRules(channel.ModelsJSON)
 	if !valid {
 		return false
 	}
 
-	if len(models) == 0 {
+	if len(rules) == 0 {
 		return s.defaultModelMatch(channel.Type, modelName)
 	}
 
 	modelLower := strings.ToLower(modelName)
-	for _, m := range models {
-		if strings.EqualFold(m.Name, modelName) || strings.EqualFold(m.Alias, modelName) {
+	for _, rule := range rules {
+		if strings.EqualFold(rule.name, modelName) || (rule.alias != "" && strings.EqualFold(rule.alias, modelName)) {
 			return true
 		}
-		nameLower := strings.ToLower(m.Name)
-		if strings.Contains(nameLower, "*") {
-			if s.wildcardMatch(nameLower, modelLower) {
-				return true
-			}
+		if rule.wildcardName && s.wildcardMatch(rule.nameLower, modelLower) {
+			return true
 		}
 	}
 
@@ -547,19 +774,7 @@ func (s *ChannelService) defaultModelMatch(channelType model.ChannelType, modelN
 }
 
 func (s *ChannelService) wildcardMatch(pattern, text string) bool {
-	if pattern == "*" {
-		return true
-	}
-	if strings.HasPrefix(pattern, "*") && strings.HasSuffix(pattern, "*") {
-		return strings.Contains(text, strings.Trim(pattern, "*"))
-	}
-	if strings.HasPrefix(pattern, "*") {
-		return strings.HasSuffix(text, strings.TrimPrefix(pattern, "*"))
-	}
-	if strings.HasSuffix(pattern, "*") {
-		return strings.HasPrefix(text, strings.TrimSuffix(pattern, "*"))
-	}
-	return pattern == text
+	return wildcardMatch(pattern, text)
 }
 
 func (s *ChannelService) GetChannelInternal(id string) (*model.Channel, error) {
@@ -629,16 +844,19 @@ func (s *ChannelService) toResponsesBatch(channels []*model.Channel) ([]*model.C
 }
 
 func (s *ChannelService) buildResponse(channel *model.Channel, gids []string, groupMap map[string]*model.Group) *model.ChannelResponse {
-	var models []model.ChannelModel
-	_ = json.Unmarshal([]byte(channel.ModelsJSON), &models)
-	if models == nil {
+	models, validModels := getParsedModels(channel.ModelsJSON)
+	if !validModels || models == nil {
 		models = []model.ChannelModel{}
 	}
+	models = append([]model.ChannelModel(nil), models...)
 
-	var headers map[string]string
-	_ = json.Unmarshal([]byte(channel.HeadersJSON), &headers)
-	if headers == nil {
+	headers, validHeaders := getParsedHeaders(channel.HeadersJSON)
+	if !validHeaders || headers == nil {
 		headers = map[string]string{}
+	}
+	clonedHeaders := make(map[string]string, len(headers))
+	for k, v := range headers {
+		clonedHeaders[k] = v
 	}
 
 	groupIDs := []string{}
@@ -653,26 +871,26 @@ func (s *ChannelService) buildResponse(channel *model.Channel, gids []string, gr
 	}
 
 	return &model.ChannelResponse{
-		ID:             channel.ID,
-		Type:           channel.Type,
-		Endpoint:       channel.Endpoint,
-		Name:           channel.Name,
-		BaseURL:        channel.BaseURL,
-		APIKeySet:      channel.APIKey != "",
-		Enabled:        channel.Enabled,
-		Weight:         channel.Weight,
-		Priority:       channel.Priority,
-		ModelWhitelist: channel.ModelWhitelist,
+		ID:                   channel.ID,
+		Type:                 channel.Type,
+		Endpoint:             channel.Endpoint,
+		Name:                 channel.Name,
+		BaseURL:              channel.BaseURL,
+		APIKeySet:            channel.APIKey != "",
+		Enabled:              channel.Enabled,
+		Weight:               channel.Weight,
+		Priority:             channel.Priority,
+		ModelWhitelist:       channel.ModelWhitelist,
 		SimulateCLI:          channel.SimulateCLI,
 		SimulateUA:           channel.SimulateUA,
 		SimulateSystemPrompt: channel.SimulateSystemPrompt,
 		TraditionalChinese:   channel.TraditionalChinese,
 		CopilotAPI:           channel.CopilotAPI,
 		GroupIDs:             groupIDs,
-		GroupNames:     groupNames,
-		Models:         models,
-		Headers:        headers,
-		CreatedAt:      channel.CreatedAt,
-		UpdatedAt:      channel.UpdatedAt,
+		GroupNames:           groupNames,
+		Models:               models,
+		Headers:              clonedHeaders,
+		CreatedAt:            channel.CreatedAt,
+		UpdatedAt:            channel.UpdatedAt,
 	}
 }

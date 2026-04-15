@@ -57,22 +57,28 @@ type TimeoutConfigRequest struct {
 
 // RequestDetailConfigResponse 请求详情配置响应
 type RequestDetailConfigResponse struct {
-	Enabled        bool  `json:"enabled"`
-	TTLSec         int64 `json:"ttlSec"`
-	MaxEntries     int   `json:"maxEntries"`
-	MaxMemoryMB    int64 `json:"maxMemoryMB"`
-	BodyCapKB      int   `json:"bodyCapKB"`
-	PersistEnabled bool  `json:"persistEnabled"`
+	Enabled              bool   `json:"enabled"`
+	TTLSec               int64  `json:"ttlSec"`
+	MaxEntries           int    `json:"maxEntries"`
+	MaxMemoryMB          int64  `json:"maxMemoryMB"`
+	BodyCapKB            int    `json:"bodyCapKB"`
+	PersistEnabled       bool   `json:"persistEnabled"`
+	HighRPMMode          string `json:"highRpmMode"`
+	HighRPMThreshold     int    `json:"highRpmThreshold"`
+	HighRPMSamplePercent int    `json:"highRpmSamplePercent"`
 }
 
 // RequestDetailConfigRequest 请求详情配置请求
 type RequestDetailConfigRequest struct {
-	Enabled        bool  `json:"enabled"`
-	TTLSec         int64 `json:"ttlSec"`
-	MaxEntries     int   `json:"maxEntries"`
-	MaxMemoryMB    int64 `json:"maxMemoryMB"`
-	BodyCapKB      int   `json:"bodyCapKB"`
-	PersistEnabled bool  `json:"persistEnabled"`
+	Enabled              bool   `json:"enabled"`
+	TTLSec               int64  `json:"ttlSec"`
+	MaxEntries           int    `json:"maxEntries"`
+	MaxMemoryMB          int64  `json:"maxMemoryMB"`
+	BodyCapKB            int    `json:"bodyCapKB"`
+	PersistEnabled       bool   `json:"persistEnabled"`
+	HighRPMMode          string `json:"highRpmMode"`
+	HighRPMThreshold     int    `json:"highRpmThreshold"`
+	HighRPMSamplePercent int    `json:"highRpmSamplePercent"`
 }
 
 // SiteConfigResponse 站点配置响应
@@ -85,4 +91,55 @@ type SiteConfigResponse struct {
 type SiteConfigRequest struct {
 	SiteName string `json:"siteName"`
 	TimeZone string `json:"timeZone"`
+}
+
+type BillingRuntimeConfigResponse struct {
+	RedisURL              string `json:"redisUrl"`
+	RedisURLMasked        string `json:"redisUrlMasked"`
+	RedisPrefix           string `json:"redisPrefix"`
+	ReservationTTLSec     int    `json:"reservationTtlSec"`
+	ReconcileIntervalSec  int    `json:"reconcileIntervalSec"`
+	StreamBatchSize       int    `json:"streamBatchSize"`
+	ReconcileBatchSize    int    `json:"reconcileBatchSize"`
+	ExpiryBatchSize       int    `json:"expiryBatchSize"`
+	ProjectorWorkers      int    `json:"projectorWorkers"`
+	ProjectorClaimIdleSec int    `json:"projectorClaimIdleSec"`
+	RuntimeEnabled        bool   `json:"runtimeEnabled"`
+	RuntimeHealthy        bool   `json:"runtimeHealthy"`
+}
+
+type BillingRuntimeConfigRequest struct {
+	RedisURL              string `json:"redisUrl"`
+	RedisPrefix           string `json:"redisPrefix"`
+	ReservationTTLSec     int    `json:"reservationTtlSec"`
+	ReconcileIntervalSec  int    `json:"reconcileIntervalSec"`
+	StreamBatchSize       int    `json:"streamBatchSize"`
+	ReconcileBatchSize    int    `json:"reconcileBatchSize"`
+	ExpiryBatchSize       int    `json:"expiryBatchSize"`
+	ProjectorWorkers      int    `json:"projectorWorkers"`
+	ProjectorClaimIdleSec int    `json:"projectorClaimIdleSec"`
+}
+
+type BillingRuntimeMetricSummary struct {
+	Samples  int   `json:"samples"`
+	P95Ms    int64 `json:"p95Ms"`
+	P99Ms    int64 `json:"p99Ms"`
+	Failures int64 `json:"failures"`
+}
+
+type BillingRuntimeStatsResponse struct {
+	RuntimeEnabled   bool                        `json:"runtimeEnabled"`
+	RuntimeHealthy   bool                        `json:"runtimeHealthy"`
+	Reserve          BillingRuntimeMetricSummary `json:"reserve"`
+	Settle           BillingRuntimeMetricSummary `json:"settle"`
+	Project          BillingRuntimeMetricSummary `json:"project"`
+	Reclaim          BillingRuntimeMetricSummary `json:"reclaim"`
+	Reconcile        BillingRuntimeMetricSummary `json:"reconcile"`
+	ReclaimClaimed   int64                       `json:"reclaimClaimed"`
+	ReconcileRepairs int64                       `json:"reconcileRepairs"`
+	ConsumerCount    int                         `json:"consumerCount"`
+	ActiveConsumers  int                         `json:"activeProjectorConsumers"`
+	StaleConsumers   int                         `json:"staleProjectorConsumers"`
+	PendingEntries   int64                       `json:"pendingEntries"`
+	OldestPendingMs  int64                       `json:"oldestPendingIdleMs"`
 }

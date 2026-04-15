@@ -7,12 +7,15 @@ import (
 	"io"
 	"regexp"
 	"strings"
+	"sync"
 
 	"ampmanager/internal/model"
 	"ampmanager/internal/service"
 
 	"github.com/gin-gonic/gin"
 	log "github.com/sirupsen/logrus"
+	"github.com/tidwall/gjson"
+	"github.com/tidwall/sjson"
 )
 
 // Context keys for model mapping (gin.Context)
@@ -100,6 +103,49 @@ type MappingResult struct {
 
 // channelService for checking model availability
 var mappingChannelService = service.NewChannelService()
+var compiledModelMappingsCache sync.Map
+
+type compiledModelMapping struct {
+	model.ModelMapping
+	regex *regexp.Regexp
+}
+
+func getCompiledModelMappings(raw string) ([]compiledModelMapping, bool) {
+	if raw == "" {
+		return nil, false
+	}
+	if cached, ok := compiledModelMappingsCache.Load(raw); ok {
+		if mappings, ok := cached.([]compiledModelMapping); ok {
+			return mappings, true
+		}
+	}
+
+	var mappings []model.ModelMapping
+	if err := json.Unmarshal([]byte(raw), &mappings); err != nil {
+		return nil, false
+	}
+	if len(mappings) == 0 {
+		return nil, false
+	}
+
+	compiled := make([]compiledModelMapping, 0, len(mappings))
+	for _, mapping := range mappings {
+		entry := compiledModelMapping{ModelMapping: mapping}
+		if mapping.Regex && mapping.From != "" {
+			re, err := regexp.Compile("(?i)" + mapping.From)
+			if err != nil {
+				continue
+			}
+			entry.regex = re
+		}
+		compiled = append(compiled, entry)
+	}
+	if len(compiled) == 0 {
+		return nil, false
+	}
+	compiledModelMappingsCache.Store(raw, compiled)
+	return compiled, true
+}
 
 func ApplyModelMappingMiddleware() gin.HandlerFunc {
 	return func(c *gin.Context) {
@@ -109,13 +155,8 @@ func ApplyModelMappingMiddleware() gin.HandlerFunc {
 			return
 		}
 
-		var mappings []model.ModelMapping
-		if err := json.Unmarshal([]byte(cfg.ModelMappingsJSON), &mappings); err != nil {
-			c.Next()
-			return
-		}
-
-		if len(mappings) == 0 {
+		mappings, ok := getCompiledModelMappings(cfg.ModelMappingsJSON)
+		if !ok {
 			c.Next()
 			return
 		}
@@ -125,42 +166,26 @@ func ApplyModelMappingMiddleware() gin.HandlerFunc {
 
 		// Read body for non-Gemini requests or if path extraction failed
 		var bodyBytes []byte
-		var payload map[string]interface{}
-
-		if c.Request.Body != nil && c.Request.ContentLength != 0 {
-			var err error
-			bodyBytes, err = io.ReadAll(c.Request.Body)
-			if err == nil {
-				contentType := c.GetHeader("Content-Type")
-				if strings.Contains(contentType, "application/json") {
-					if err := json.Unmarshal(bodyBytes, &payload); err == nil {
-						if modelName == "" {
-							if bodyModel, ok := payload["model"].(string); ok && bodyModel != "" {
-								modelName = bodyModel
-								modelSource = "body"
-							}
-						}
-					}
+		if requestPayload, err := ensureRequestBody(c); err == nil {
+			bodyBytes = requestPayload.Body
+			if modelName == "" {
+				if bodyModel := strings.TrimSpace(gjson.GetBytes(bodyBytes, "model").String()); bodyModel != "" {
+					modelName = bodyModel
+					modelSource = "body"
 				}
 			}
 		}
 
 		// No model found, restore body and continue
 		if modelName == "" {
-			if bodyBytes != nil {
-				c.Request.Body = io.NopCloser(bytes.NewBuffer(bodyBytes))
-			}
 			c.Next()
 			return
 		}
 
 		// Apply mapping (pass header getter for AMP-only check)
-		result := applyMappingWithHeaders(modelName, mappings, c.GetHeader)
+		result := applyCompiledMappingWithHeaders(modelName, mappings, c.GetHeader)
 
 		if !result.Applied {
-			if bodyBytes != nil {
-				c.Request.Body = io.NopCloser(bytes.NewBuffer(bodyBytes))
-			}
 			c.Next()
 			return
 		}
@@ -170,9 +195,6 @@ func ApplyModelMappingMiddleware() gin.HandlerFunc {
 			channel, err := mappingChannelService.SelectSpecificChannelForModelWithGroups(result.PreferredChannelID, result.MappedModel, cfg.GroupIDs)
 			if err != nil || channel == nil {
 				log.Warnf("model mapping: preferred channel '%s' cannot serve model '%s', skipping mapping", result.PreferredChannelID, result.MappedModel)
-				if bodyBytes != nil {
-					c.Request.Body = io.NopCloser(bytes.NewBuffer(bodyBytes))
-				}
 				c.Next()
 				return
 			}
@@ -180,9 +202,6 @@ func ApplyModelMappingMiddleware() gin.HandlerFunc {
 			channel, err := mappingChannelService.SelectChannelForModel(result.MappedModel)
 			if err != nil || channel == nil {
 				log.Warnf("model mapping: target model '%s' has no available channel, skipping mapping", result.MappedModel)
-				if bodyBytes != nil {
-					c.Request.Body = io.NopCloser(bytes.NewBuffer(bodyBytes))
-				}
 				c.Next()
 				return
 			}
@@ -231,13 +250,25 @@ func ApplyModelMappingMiddleware() gin.HandlerFunc {
 			}
 		}
 
-		// Also update body if it contains model field
-		if payload != nil {
-			if _, hasModel := payload["model"]; hasModel {
+		// Also update body if it contains model field.
+		if len(bodyBytes) > 0 && gjson.GetBytes(bodyBytes, "model").Exists() {
+			if updated, err := sjson.SetBytes(bodyBytes, "model", result.MappedModel); err == nil {
+				bodyBytes = updated
+			}
+
+			needsStructuredMutation := result.ThinkingLevel != "" || (result.CustomInstructionsEnabled && result.CustomInstructions != "")
+			if !needsStructuredMutation {
+				if result.FastMode {
+					if updated, err := sjson.SetBytes(bodyBytes, "service_tier", "priority"); err == nil {
+						bodyBytes = updated
+						log.Infof("model mapping: applied fast mode (service_tier=priority)")
+					}
+				}
+			} else if requestPayload, err := EnsureRequestPayload(c); err == nil && requestPayload.JSON != nil {
+				payload := requestPayload.JSON
 				payload["model"] = result.MappedModel
 
 				thinkingLevel := result.ThinkingLevel
-
 				if thinkingLevel != "" {
 					applyThinkingLevelWithPath(payload, thinkingLevel, c.Request.URL.Path)
 					c.Set(ThinkingLevelContextKey, thinkingLevel)
@@ -249,16 +280,20 @@ func ApplyModelMappingMiddleware() gin.HandlerFunc {
 					log.Infof("model mapping: applied fast mode (service_tier=priority)")
 				}
 
-				// Apply custom instructions if enabled
 				if result.CustomInstructionsEnabled && result.CustomInstructions != "" {
 					applyCustomInstructions(payload, result.CustomInstructions, c.Request.URL.Path)
 					log.Infof("model mapping: applied custom instructions")
 				}
 
-				newBody, err := json.Marshal(payload)
-				if err == nil {
+				if newBody, marshalErr := json.Marshal(payload); marshalErr == nil {
 					bodyBytes = newBody
 				}
+			}
+
+			if requestPayload := GetRequestPayload(c.Request.Context()); requestPayload != nil {
+				requestPayload.Body = bodyBytes
+				requestPayload.JSON = nil
+				requestPayload.jsonParsed = false
 			}
 		}
 
@@ -365,6 +400,21 @@ func applyMapping(modelName string, mappings []model.ModelMapping) MappingResult
 }
 
 func applyMappingWithHeaders(modelName string, mappings []model.ModelMapping, header func(string) string) MappingResult {
+	compiled := make([]compiledModelMapping, 0, len(mappings))
+	for _, mapping := range mappings {
+		entry := compiledModelMapping{ModelMapping: mapping}
+		if mapping.Regex && mapping.From != "" {
+			re, err := regexp.Compile("(?i)" + mapping.From)
+			if err == nil {
+				entry.regex = re
+			}
+		}
+		compiled = append(compiled, entry)
+	}
+	return applyCompiledMappingWithHeaders(modelName, compiled, header)
+}
+
+func applyCompiledMappingWithHeaders(modelName string, mappings []compiledModelMapping, header func(string) string) MappingResult {
 	for _, m := range mappings {
 		if m.From == "" {
 			continue
@@ -383,10 +433,7 @@ func applyMappingWithHeaders(modelName string, mappings []model.ModelMapping, he
 
 		matched := false
 		if m.Regex {
-			// Case-insensitive regex matching
-			pattern := "(?i)" + m.From
-			re, err := regexp.Compile(pattern)
-			if err == nil && re.MatchString(modelName) {
+			if m.regex != nil && m.regex.MatchString(modelName) {
 				matched = true
 			}
 		} else {

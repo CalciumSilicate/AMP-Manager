@@ -191,6 +191,47 @@ export async function updateRetryConfig(config: RetryConfig): Promise<{ message:
   return res.json()
 }
 
+export type RequestDetailHighRPMMode = 'full' | 'off' | 'sample'
+
+export interface RequestDetailConfig {
+  enabled: boolean
+  ttlSec: number
+  maxEntries: number
+  maxMemoryMB: number
+  bodyCapKB: number
+  persistEnabled: boolean
+  highRpmMode: RequestDetailHighRPMMode
+  highRpmThreshold: number
+  highRpmSamplePercent: number
+}
+
+export async function getRequestDetailConfig(): Promise<RequestDetailConfig> {
+  const res = await authFetch(`${API_BASE}/admin/system/request-detail-config`)
+
+  if (!res.ok) {
+    const data = await res.json()
+    throw new Error(data.error || '获取配置失败')
+  }
+
+  return res.json()
+}
+
+export async function updateRequestDetailConfig(
+  config: RequestDetailConfig
+): Promise<{ message: string; config: RequestDetailConfig }> {
+  const res = await authFetch(`${API_BASE}/admin/system/request-detail-config`, {
+    method: 'PUT',
+    body: JSON.stringify(config),
+  })
+
+  if (!res.ok) {
+    const data = await res.json()
+    throw new Error(data.error || '更新配置失败')
+  }
+
+  return res.json()
+}
+
 // 获取请求详情监控状态
 export async function getRequestDetailEnabled(): Promise<{ enabled: boolean }> {
   const res = await authFetch(`${API_BASE}/admin/system/request-detail-enabled`)
@@ -316,6 +357,95 @@ export async function updateSiteConfig(siteName: string, timeZone: string): Prom
   if (!res.ok) {
     const data = await res.json()
     throw new Error(data.error || '更新站点配置失败')
+  }
+
+  return res.json()
+}
+
+export interface BillingRuntimeConfig {
+  redisUrl: string
+  redisUrlMasked: string
+  redisPrefix: string
+  reservationTtlSec: number
+  reconcileIntervalSec: number
+  streamBatchSize: number
+  reconcileBatchSize: number
+  expiryBatchSize: number
+  projectorWorkers: number
+  projectorClaimIdleSec: number
+  runtimeEnabled: boolean
+  runtimeHealthy: boolean
+}
+
+export interface BillingRuntimeConfigRequest {
+  redisUrl: string
+  redisPrefix: string
+  reservationTtlSec: number
+  reconcileIntervalSec: number
+  streamBatchSize: number
+  reconcileBatchSize: number
+  expiryBatchSize: number
+  projectorWorkers: number
+  projectorClaimIdleSec: number
+}
+
+export interface BillingRuntimeMetricSummary {
+  samples: number
+  p95Ms: number
+  p99Ms: number
+  failures: number
+}
+
+export interface BillingRuntimeStats {
+  runtimeEnabled: boolean
+  runtimeHealthy: boolean
+  reserve: BillingRuntimeMetricSummary
+  settle: BillingRuntimeMetricSummary
+  project: BillingRuntimeMetricSummary
+  reclaim: BillingRuntimeMetricSummary
+  reconcile: BillingRuntimeMetricSummary
+  reclaimClaimed: number
+  reconcileRepairs: number
+  consumerCount: number
+  activeProjectorConsumers: number
+  staleProjectorConsumers: number
+  pendingEntries: number
+  oldestPendingIdleMs: number
+}
+
+export async function getBillingRuntimeConfig(): Promise<BillingRuntimeConfig> {
+  const res = await authFetch(`${API_BASE}/admin/system/billing-runtime-config`)
+
+  if (!res.ok) {
+    const data = await res.json()
+    throw new Error(data.error || '获取 Redis 计费配置失败')
+  }
+
+  return res.json()
+}
+
+export async function getBillingRuntimeStats(): Promise<BillingRuntimeStats> {
+  const res = await authFetch(`${API_BASE}/admin/system/billing-runtime-stats`)
+
+  if (!res.ok) {
+    const data = await res.json()
+    throw new Error(data.error || '获取 Redis 计费运行时统计失败')
+  }
+
+  return res.json()
+}
+
+export async function updateBillingRuntimeConfig(
+  config: BillingRuntimeConfigRequest
+): Promise<{ message: string; config: BillingRuntimeConfig }> {
+  const res = await authFetch(`${API_BASE}/admin/system/billing-runtime-config`, {
+    method: 'PUT',
+    body: JSON.stringify(config),
+  })
+
+  if (!res.ok) {
+    const data = await res.json()
+    throw new Error(data.error || '更新 Redis 计费配置失败')
   }
 
   return res.json()

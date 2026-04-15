@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { DistinctAPIKey } from '@/api/amp'
 import { UserInfo } from '@/api/users'
 import { Card, CardContent } from '@/components/ui/card'
@@ -78,12 +78,17 @@ function localToISO(localStr: string): string {
 
 export function LogFilterBar({ isAdmin, users, keys, models, values, onChange, showStatusFilter = true }: LogFilterBarProps) {
   const [activePreset, setActivePreset] = useState<PresetKey>('custom')
+  const preservePresetOnSyncRef = useRef(false)
 
   useEffect(() => {
+    if (preservePresetOnSyncRef.current) {
+      preservePresetOnSyncRef.current = false
+      return
+    }
     if (values.from || values.to) {
       setActivePreset('custom')
     }
-  }, [])
+  }, [values.from, values.to])
 
   const update = (partial: Partial<FilterValues>) => {
     onChange({ ...values, ...partial })
@@ -94,6 +99,7 @@ export function LogFilterBar({ isAdmin, users, keys, models, values, onChange, s
     if (key === 'custom') {
       update({ from: '', to: '' })
     } else {
+      preservePresetOnSyncRef.current = true
       const range = getPresetRange(key)
       update(range)
     }

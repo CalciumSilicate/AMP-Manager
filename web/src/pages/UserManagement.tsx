@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { AnimatePresence, motion, tableRowVariants, tableStaggerContainer } from '@/lib/motion'
 import { register } from '../api/auth'
 import {
@@ -128,22 +128,17 @@ export default function UserManagement() {
   const [createPassword, setCreatePassword] = useState('')
   const [creatingUser, setCreatingUser] = useState(false)
 
-  useEffect(() => {
-    fetchUsers()
-  }, [page, pageSize])
-
-  useEffect(() => {
-    fetchGroups()
-    fetchPlansList()
+  const showMessage = useCallback((type: 'success' | 'error', text: string) => {
+    setMessage({ type, text })
+    setTimeout(() => setMessage(null), 3000)
   }, [])
 
-  const fetchUsers = async (targetPage = page, targetPageSize = pageSize) => {
+  const fetchUsers = useCallback(async (targetPage = page, targetPageSize = pageSize) => {
     if (!hasLoadedUsers) {
       setLoading(true)
     } else {
       setFetching(true)
     }
-
     try {
       const data = await listUsersPaged(targetPage, targetPageSize)
       setUsers(data.items || [])
@@ -155,26 +150,30 @@ export default function UserManagement() {
       setFetching(false)
       setHasLoadedUsers(true)
     }
-  }
+  }, [page, pageSize, showMessage])
 
-  const fetchGroups = async () => {
+  const fetchGroups = useCallback(async () => {
     try {
       const data = await listGroups()
       setGroups(data)
     } catch {}
-  }
+  }, [])
 
-  const fetchPlansList = async () => {
+  const fetchPlansList = useCallback(async () => {
     try {
       const data = await getPlans()
       setPlans(data.filter((plan) => plan.enabled))
     } catch {}
-  }
+  }, [])
 
-  const showMessage = (type: 'success' | 'error', text: string) => {
-    setMessage({ type, text })
-    setTimeout(() => setMessage(null), 3000)
-  }
+  useEffect(() => {
+    fetchUsers()
+  }, [fetchUsers])
+
+  useEffect(() => {
+    fetchGroups()
+    fetchPlansList()
+  }, [fetchGroups, fetchPlansList])
 
   const closeEditSubscriptionModal = () => {
     setEditSubscriptionModal(null)

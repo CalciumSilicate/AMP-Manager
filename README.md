@@ -147,14 +147,17 @@ docker-compose up -d
 ```bash
 DB_TYPE=postgres
 DATABASE_URL=postgres://postgres:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}?sslmode=disable
+REDIS_URL=redis://redis:6379/0
 docker-compose up -d
 ```
 
 说明：
 
 1. `postgres` 是 compose 内部服务名。
-2. 容器内连接 PostgreSQL 时应使用 `postgres:5432`，不要写 `localhost:5432`。
-3. 当前 `docker-compose.yml` 已为 `ampmanager` 配置 `depends_on + healthcheck`，会等待 PostgreSQL 就绪后再启动应用。
+2. `redis` 是 compose 内部 Redis 服务名。
+3. 容器内连接 PostgreSQL 时应使用 `postgres:5432`，不要写 `localhost:5432`。
+4. 容器内连接 Redis 时应使用 `redis:6379`，不要写 `localhost:6379`。
+5. 当前 `docker-compose.yml` 已为 `ampmanager` 配置 `depends_on + healthcheck`，会等待 PostgreSQL 和 Redis 就绪后再启动应用。
 
 ### 二进制部署
 
@@ -191,6 +194,8 @@ chmod +x manage.sh
 | `DB_TYPE` | 数据库类型，支持 `sqlite` / `postgres` | `sqlite` |
 | `SQLITE_PATH` | SQLite 数据库文件路径 | `./data/data.db` |
 | `DATABASE_URL` | PostgreSQL 连接串（`DB_TYPE=postgres` 时必填） | 空 |
+| `REDIS_URL` | Redis 连接串，多实例共享计费热路径时必填 | 空 |
+| `REDIS_PREFIX` | Redis Key 前缀 | `ampmanager` |
 | `ADMIN_USERNAME` | 管理员用户名 | `admin` |
 | `ADMIN_PASSWORD` | 管理员密码（**生产必须修改**） | `admin123` |
 | `SERVER_PORT` | 服务端口 | `16823` |
@@ -202,8 +207,25 @@ chmod +x manage.sh
 | `RATE_LIMIT_AUTH_RPS` | 认证端点每秒请求限制 | `5` |
 | `RATE_LIMIT_PROXY_RPS` | 代理端点每秒请求限制 | `100` |
 | `ALLOW_INSECURE_DEFAULTS` | 跳过安全校验（仅开发用） | `false` |
+| `BILLING_RESERVATION_TTL_SEC` | 计费预留 TTL（秒） | `600` |
+| `BILLING_RECONCILE_INTERVAL_SEC` | Redis 与 PostgreSQL 对账间隔（秒） | `60` |
+| `BILLING_STREAM_BATCH_SIZE` | Redis Stream projector 批大小 | `100` |
+| `BILLING_RECONCILE_BATCH_SIZE` | Reconcile 单轮分页批大小 | 跟随 `BILLING_STREAM_BATCH_SIZE` |
+| `BILLING_EXPIRY_BATCH_SIZE` | Expiry 单轮分页批大小 | 跟随 `BILLING_STREAM_BATCH_SIZE` |
+| `BILLING_PROJECTOR_WORKERS` | Projector worker 数 | `1` |
+| `BILLING_PROJECTOR_CLAIM_IDLE_SEC` | Projector reclaim idle 阈值（秒） | `30` |
 
 > ⚠️ 生产环境**必须**修改 `ADMIN_PASSWORD` 和 `JWT_SECRET`，否则服务将拒绝启动。
+
+## Shared-Billing Benchmark
+
+仓库内置了 `cmd/loadtest-responses`，可直接做基于 PostgreSQL + Redis 的 shared-billing benchmark。
+
+- 操作说明见 [docs/shared-billing-benchmark.md](docs/shared-billing-benchmark.md)
+- Linux/macOS 可直接运行 `scripts/run-shared-billing-benchmark.sh`
+- Linux/macOS 也可运行 `scripts/run-shared-billing-matrix-suite.sh` 一次完成 workers/batch/claim 三套矩阵并生成摘要
+- 现有 JSON 报告可用 `scripts/summarize-shared-billing-report.mjs` 汇总为 markdown
+- benchmark 支持 matrix 模式，可直接比较 `projectorWorkers`、batch size、claim idle 等 knobs
 
 ## 数据库迁移
 
@@ -406,7 +428,7 @@ docker compose -f docker-compose.dev.yml up -d postgres
 
 ### 构建
 
-使用项目提供的构建脚本（自动完成前端构建 → 复制到嵌入目录 → Go 编译）：
+使用项目提供的构建脚本（自动完成前端构建 → 复制到嵌入目录 → 使用 `embed_frontend` 构建后端）：
 
 ```bash
 # Windows
@@ -423,14 +445,18 @@ docker compose -f docker-compose.dev.yml up -d postgres
 # 1. 构建前端
 cd web && pnpm install && pnpm run build && cd ..
 
-# 2. 复制到嵌入目录
+# 2. 复制到嵌入目录（仅发布 / 嵌入构建需要）
 # Windows:
 xcopy /E /I /Y "web\dist" "internal\web\dist"
 # Linux/macOS:
 cp -r web/dist internal/web/dist
 
-# 3. 构建后端（前端文件通过 go:embed 嵌入二进制）
+# 3. 构建后端
+# 开发 / 测试：默认从磁盘 web/dist 读取；如果缺失会返回一个明确提示页
 go build -ldflags="-s -w" -o ampmanager ./cmd/server
+
+# 发布 / 单文件二进制：使用显式嵌入模式
+go build -tags embed_frontend -ldflags="-s -w" -o ampmanager ./cmd/server
 ```
 
 </details>
@@ -465,7 +491,7 @@ AMPManager/
 │   ├── service/             # 业务逻辑：用户、渠道、分组、计费、订阅
 │   ├── translator/          # 请求过滤器框架：Claude Code 模拟、缓存 TTL
 │   ├── util/                # 工具函数：JSON 思维预算、模型能力检测
-│   └── web/                 # 嵌入的前端静态文件 (go:embed)
+│   └── web/                 # 前端静态文件加载（默认读 web/dist，发布时可 embed）
 ├── web/                     # 前端源码
 │   └── src/
 │       ├── api/             #   API 客户端 (auth, admin, me, channels, etc.)

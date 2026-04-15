@@ -35,6 +35,22 @@ interface Props {
   isAdmin: boolean
 }
 
+const billingBadgeVariant: Record<RequestLog['billingStatus'], 'secondary' | 'default' | 'destructive' | 'outline'> = {
+  free: 'secondary',
+  settled: 'default',
+  overuse: 'destructive',
+  expired: 'outline',
+  none: 'outline',
+}
+
+const billingBadgeLabel: Record<RequestLog['billingStatus'], string> = {
+  free: '免费',
+  settled: '已结算',
+  overuse: '超额',
+  expired: '已过期',
+  none: '未结算',
+}
+
 export default function RequestLogs({ isAdmin }: Props) {
   const [logs, setLogs] = useState<RequestLog[]>([])
   const [loading, setLoading] = useState(true)
@@ -107,10 +123,6 @@ export default function RequestLogs({ isAdmin }: Props) {
   useEffect(() => {
     totalRef.current = total
   }, [total])
-
-  useEffect(() => {
-    loadData()
-  }, [page, pageSize, filters])
 
   useEffect(() => {
     if (autoRefresh && isAdmin) {
@@ -224,6 +236,10 @@ export default function RequestLogs({ isAdmin }: Props) {
     }
   }, [isAdmin, page, pageSize, filters])
 
+  useEffect(() => {
+    loadData()
+  }, [loadData])
+
   const handleFilterChange = (newFilters: FilterValues) => {
     setFilters(newFilters)
     setPage(1)
@@ -272,6 +288,11 @@ export default function RequestLogs({ isAdmin }: Props) {
         </TooltipContent>
       </Tooltip>
     )
+  }
+
+  const formatUsdMicros = (value?: number) => {
+    if (value === undefined) return '-'
+    return `$${(value / 1_000_000).toFixed(6)}`
   }
 
   return (
@@ -341,6 +362,9 @@ export default function RequestLogs({ isAdmin }: Props) {
                       <TableHead className="text-right">缓存读</TableHead>
                       <TableHead className="text-right">缓存写</TableHead>
                       <TableHead className="text-right">成本</TableHead>
+                      <TableHead>计费</TableHead>
+                      <TableHead className="text-right">扣费</TableHead>
+                      <TableHead className="text-right">差额</TableHead>
                       <TableHead>流式</TableHead>
                     </TableRow>
                   </TableHeader>
@@ -426,6 +450,17 @@ export default function RequestLogs({ isAdmin }: Props) {
                         <TableCell className="text-right"><Num value={log.cacheCreationInputTokens} /></TableCell>
                         <TableCell className="text-right text-muted-foreground">
                           {log.costUsd ? `$${log.costUsd}` : '-'}
+                        </TableCell>
+                        <TableCell>
+                          <Badge variant={billingBadgeVariant[log.billingStatus]}>
+                            {billingBadgeLabel[log.billingStatus]}
+                          </Badge>
+                        </TableCell>
+                        <TableCell className="text-right text-muted-foreground">
+                          {formatUsdMicros(log.chargedSubscriptionMicros + log.chargedBalanceMicros)}
+                        </TableCell>
+                        <TableCell className="text-right text-muted-foreground">
+                          {log.billingGapMicros && log.billingGapMicros > 0 ? formatUsdMicros(log.billingGapMicros) : '-'}
                         </TableCell>
                         <TableCell>
                           {log.isStreaming ? (

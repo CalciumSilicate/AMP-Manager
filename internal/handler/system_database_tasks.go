@@ -5,7 +5,6 @@ import (
 	"sync"
 	"time"
 
-	"ampmanager/internal/amp"
 	"ampmanager/internal/config"
 	"ampmanager/internal/database"
 
@@ -121,9 +120,9 @@ func switchRuntimeDatabase(options database.Options) error {
 		return err
 	}
 
-	amp.ReinitLogWriter(database.GetDB())
-	amp.ReinitRequestDetailStore(database.GetDB())
-	amp.ReinitPendingCleaner(database.GetDB())
+	if err := reinitDatabaseBackedRuntimeServices(); err != nil {
+		return err
+	}
 
 	if cfg := config.Get(); cfg != nil {
 		cfg.DBType = string(options.Type)
