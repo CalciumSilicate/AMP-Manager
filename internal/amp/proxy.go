@@ -389,6 +389,9 @@ func CreateDynamicReverseProxy() *httputil.ReverseProxy {
 				if modelInfo := GetModelInfo(req.Context()); modelInfo != nil {
 					trace.SetModels(modelInfo.OriginalModel, modelInfo.MappedModel)
 				}
+				if thinkingLevel := GetThinkingLevelFromContext(req.Context()); thinkingLevel != "" {
+					trace.SetThinkingLevel(thinkingLevel)
+				}
 				// Store trace in context
 				ctx := WithRequestTrace(req.Context(), trace)
 				// Store ProviderInfo in context for token extraction

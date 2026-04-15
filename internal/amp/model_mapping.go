@@ -30,6 +30,7 @@ const (
 
 // modelInfoKey 用于在 req.Context() 中存储模型信息
 type modelInfoKey struct{}
+type thinkingLevelKey struct{}
 
 // ModelInfo 存储在 context 中的模型信息
 type ModelInfo struct {
@@ -43,6 +44,14 @@ func WithModelInfo(ctx context.Context, original, mapped string) context.Context
 		OriginalModel: original,
 		MappedModel:   mapped,
 	})
+}
+
+func WithThinkingLevel(ctx context.Context, level string) context.Context {
+	normalized := normalizeThinkingLevel(level)
+	if normalized == "" {
+		return ctx
+	}
+	return context.WithValue(ctx, thinkingLevelKey{}, normalized)
 }
 
 // GetModelInfo 从 context 获取模型信息
@@ -272,6 +281,7 @@ func ApplyModelMappingMiddleware() gin.HandlerFunc {
 				if thinkingLevel != "" {
 					applyThinkingLevelWithPath(payload, thinkingLevel, c.Request.URL.Path)
 					c.Set(ThinkingLevelContextKey, thinkingLevel)
+					ctx = WithThinkingLevel(ctx, thinkingLevel)
 					log.Infof("model mapping: applied thinking level '%s'", thinkingLevel)
 				}
 
@@ -648,6 +658,18 @@ func IsModelMappingApplied(c *gin.Context) bool {
 func GetThinkingLevel(c *gin.Context) string {
 	if val, exists := c.Get(ThinkingLevelContextKey); exists {
 		if level, ok := val.(string); ok {
+			return normalizeThinkingLevel(level)
+		}
+	}
+	if level := GetThinkingLevelFromContext(c.Request.Context()); level != "" {
+		c.Set(ThinkingLevelContextKey, level)
+		c.Request = c.Request.WithContext(WithThinkingLevel(c.Request.Context(), level))
+		return level
+	}
+	if payload, err := ensureRequestBody(c); err == nil {
+		if level := extractThinkingLevelFromBody(payload.Body); level != "" {
+			c.Set(ThinkingLevelContextKey, level)
+			c.Request = c.Request.WithContext(WithThinkingLevel(c.Request.Context(), level))
 			return level
 		}
 	}
