@@ -99,7 +99,7 @@ type ListParams struct {
 	UserID      string
 	APIKeyID    string
 	Model       string
-	StatusCode  *int
+	StatusCodes []int
 	IsStreaming *bool
 	From        *time.Time
 	To          *time.Time
@@ -127,9 +127,12 @@ func (r *RequestLogRepository) List(params ListParams) ([]model.RequestLog, int6
 		conditions = append(conditions, "(r.original_model = ? OR r.mapped_model = ?)")
 		args = append(args, params.Model, params.Model)
 	}
-	if params.StatusCode != nil {
-		conditions = append(conditions, "r.status_code = ?")
-		args = append(args, *params.StatusCode)
+	if len(params.StatusCodes) > 0 {
+		placeholders := strings.TrimRight(strings.Repeat("?,", len(params.StatusCodes)), ",")
+		conditions = append(conditions, "r.status_code IN ("+placeholders+")")
+		for _, statusCode := range params.StatusCodes {
+			args = append(args, statusCode)
+		}
 	}
 	if params.IsStreaming != nil {
 		val := 0

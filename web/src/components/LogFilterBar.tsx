@@ -3,17 +3,17 @@ import { DistinctAPIKey } from '@/api/amp'
 import { UserInfo } from '@/api/users'
 import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { DateTimePicker } from '@/components/ui/datetime-picker'
 import { SearchableSelect, SelectOption } from '@/components/SearchableSelect'
+import { SearchableMultiSelect, MultiSelectOption } from '@/components/SearchableMultiSelect'
 import { motion } from '@/lib/motion'
 
 export interface FilterValues {
   userId: string
   apiKeyId: string
   model: string
-  status: string
+  statuses: string[]
   from: string
   to: string
 }
@@ -37,6 +37,12 @@ const presets: { key: PresetKey; label: string }[] = [
   { key: '7d', label: '最近 7 天' },
   { key: '30d', label: '最近 30 天' },
 ]
+
+const statusOptions: MultiSelectOption[] = [
+  '200', '201', '204',
+  '400', '401', '403', '404', '408', '409', '422', '429',
+  '500', '502', '503', '504',
+].map((status) => ({ value: status, label: status }))
 
 function toLocalDatetimeString(date: Date): string {
   const pad = (n: number) => n.toString().padStart(2, '0')
@@ -117,7 +123,7 @@ export function LogFilterBar({ isAdmin, users, keys, models, values, onChange, s
 
   const handleClearAll = () => {
     setActivePreset('custom')
-    onChange({ userId: '', apiKeyId: '', model: '', status: '', from: '', to: '' })
+    onChange({ userId: '', apiKeyId: '', model: '', statuses: [], from: '', to: '' })
   }
 
   const handleUserChange = (userId: string) => {
@@ -128,7 +134,7 @@ export function LogFilterBar({ isAdmin, users, keys, models, values, onChange, s
   const keyOptions: SelectOption[] = keys.map(k => ({ value: k.id, label: `${k.name} (${k.prefix})`, keywords: [k.prefix] }))
   const modelOptions: SelectOption[] = models.map(m => ({ value: m, label: m }))
 
-  const hasAnyFilter = values.userId || values.apiKeyId || values.model || values.status || values.from || values.to
+  const hasAnyFilter = values.userId || values.apiKeyId || values.model || values.statuses.length > 0 || values.from || values.to
 
   return (
     <motion.div
@@ -181,15 +187,14 @@ export function LogFilterBar({ isAdmin, users, keys, models, values, onChange, s
 
             {showStatusFilter && (
               <div className="flex items-center gap-2">
-                <Label htmlFor="status-code" className="text-sm text-muted-foreground whitespace-nowrap">状态码</Label>
-                <Input
-                  id="status-code"
-                  inputMode="numeric"
-                  maxLength={3}
-                  placeholder="429"
-                  value={values.status}
-                  onChange={(event) => update({ status: event.target.value.replace(/\D/g, '').slice(0, 3) })}
-                  className="h-9 w-24"
+                <Label className="text-sm text-muted-foreground whitespace-nowrap">状态码</Label>
+                <SearchableMultiSelect
+                  values={values.statuses}
+                  onValuesChange={(statuses) => update({ statuses })}
+                  options={statusOptions}
+                  searchPlaceholder="搜索状态码..."
+                  allLabel="全部状态码"
+                  className="w-48"
                 />
               </div>
             )}

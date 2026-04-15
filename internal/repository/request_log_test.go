@@ -255,11 +255,10 @@ func TestListFiltersByStatusCode(t *testing.T) {
 	insertRequestLogWithStatus(t, "log-rate-limit", "user-1", 429, now.Add(time.Minute))
 
 	repo := NewRequestLogRepository()
-	statusCode := 429
 	logs, total, err := repo.List(ListParams{
-		StatusCode: &statusCode,
-		Page:       1,
-		PageSize:   20,
+		StatusCodes: []int{429},
+		Page:        1,
+		PageSize:    20,
 	})
 	if err != nil {
 		t.Fatalf("List returned error: %v", err)
@@ -269,6 +268,34 @@ func TestListFiltersByStatusCode(t *testing.T) {
 	}
 	if len(logs) != 1 || logs[0].ID != "log-rate-limit" {
 		t.Fatalf("unexpected filtered logs: %+v", logs)
+	}
+}
+
+func TestListFiltersByMultipleStatusCodes(t *testing.T) {
+	setupRequestLogTestDB(t)
+
+	now := time.Now().UTC()
+	insertRequestLogWithStatus(t, "log-ok", "user-1", 200, now)
+	insertRequestLogWithStatus(t, "log-unauthorized", "user-1", 401, now.Add(time.Minute))
+	insertRequestLogWithStatus(t, "log-rate-limit", "user-1", 429, now.Add(2*time.Minute))
+
+	repo := NewRequestLogRepository()
+	logs, total, err := repo.List(ListParams{
+		StatusCodes: []int{401, 429},
+		Page:        1,
+		PageSize:    20,
+	})
+	if err != nil {
+		t.Fatalf("List returned error: %v", err)
+	}
+	if total != 2 {
+		t.Fatalf("expected 2 matching logs, got %d", total)
+	}
+	if len(logs) != 2 {
+		t.Fatalf("expected 2 rows, got %d", len(logs))
+	}
+	if logs[0].StatusCode != 429 || logs[1].StatusCode != 401 {
+		t.Fatalf("unexpected filtered status codes: %+v", logs)
 	}
 }
 

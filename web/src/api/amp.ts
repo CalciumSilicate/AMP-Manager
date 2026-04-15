@@ -213,7 +213,7 @@ export interface RequestLogListParams {
   pageSize?: number
   apiKeyId?: string
   model?: string
-  status?: number
+  statusCodes?: number[]
   isStreaming?: boolean
   from?: string
   to?: string
@@ -226,7 +226,7 @@ export async function getRequestLogs(params: RequestLogListParams = {}, signal?:
   if (params.pageSize) searchParams.set('pageSize', params.pageSize.toString())
   if (params.apiKeyId) searchParams.set('apiKeyId', params.apiKeyId)
   if (params.model) searchParams.set('model', params.model)
-  if (params.status !== undefined) searchParams.set('status', params.status.toString())
+  params.statusCodes?.forEach((status) => searchParams.append('status', status.toString()))
   if (params.isStreaming !== undefined) searchParams.set('isStreaming', params.isStreaming.toString())
   if (params.from) searchParams.set('from', params.from)
   if (params.to) searchParams.set('to', params.to)
@@ -280,7 +280,7 @@ export async function getAdminRequestLogs(params: AdminRequestLogListParams = {}
   if (params.userId) searchParams.set('userId', params.userId)
   if (params.apiKeyId) searchParams.set('apiKeyId', params.apiKeyId)
   if (params.model) searchParams.set('model', params.model)
-  if (params.status !== undefined) searchParams.set('status', params.status.toString())
+  params.statusCodes?.forEach((status) => searchParams.append('status', status.toString()))
   if (params.isStreaming !== undefined) searchParams.set('isStreaming', params.isStreaming.toString())
   if (params.from) searchParams.set('from', params.from)
   if (params.to) searchParams.set('to', params.to)

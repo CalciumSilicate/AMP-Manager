@@ -45,7 +45,7 @@ export default function RequestLogs({ isAdmin }: Props) {
   const [total, setTotal] = useState(0)
   const [pageSize, setPageSize] = useState(20)
 
-  const [filters, setFilters] = useState<FilterValues>({ userId: '', apiKeyId: '', model: '', status: '', from: '', to: '' })
+  const [filters, setFilters] = useState<FilterValues>({ userId: '', apiKeyId: '', model: '', statuses: [], from: '', to: '' })
 
   const [users, setUsers] = useState<UserInfo[]>([])
   const [models, setModels] = useState<string[]>([])
@@ -192,7 +192,7 @@ export default function RequestLogs({ isAdmin }: Props) {
         page,
         pageSize,
         model: filters.model || undefined,
-        status: filters.status ? Number.parseInt(filters.status, 10) : undefined,
+        statusCodes: filters.statuses.length ? filters.statuses.map((status) => Number.parseInt(status, 10)) : undefined,
         from: filters.from ? localToISO(filters.from) : undefined,
         to: filters.to ? localToISO(filters.to) : undefined,
       }
@@ -241,7 +241,7 @@ export default function RequestLogs({ isAdmin }: Props) {
     filters.userId,
     filters.apiKeyId,
     filters.model,
-    filters.status,
+    filters.statuses.join(','),
     filters.from,
     filters.to,
   ].join(':')
@@ -402,14 +402,28 @@ export default function RequestLogs({ isAdmin }: Props) {
                             <div className="flex flex-wrap items-center gap-1.5">
                               <Badge variant="outline" className="text-xs">{log.channelName || log.provider}</Badge>
                               {formatTransportLabel(log.downstreamTransport) && (
-                                <Badge variant="outline" className="text-[10px] uppercase tracking-[0.12em] text-muted-foreground">
-                                  D {formatTransportLabel(log.downstreamTransport)}
-                                </Badge>
+                                <Tooltip>
+                                  <TooltipTrigger asChild>
+                                    <Badge variant="outline" className="cursor-help text-[10px] uppercase tracking-[0.12em] text-muted-foreground">
+                                      D {formatTransportLabel(log.downstreamTransport)}
+                                    </Badge>
+                                  </TooltipTrigger>
+                                  <TooltipContent side="bottom" className="max-w-72 text-xs">
+                                    Downstream：AMP Manager 到客户端这一侧的传输方式。
+                                  </TooltipContent>
+                                </Tooltip>
                               )}
                               {formatTransportLabel(log.upstreamTransport) && (
-                                <Badge variant="outline" className="text-[10px] uppercase tracking-[0.12em] text-muted-foreground">
-                                  U {formatTransportLabel(log.upstreamTransport)}
-                                </Badge>
+                                <Tooltip>
+                                  <TooltipTrigger asChild>
+                                    <Badge variant="outline" className="cursor-help text-[10px] uppercase tracking-[0.12em] text-muted-foreground">
+                                      U {formatTransportLabel(log.upstreamTransport)}
+                                    </Badge>
+                                  </TooltipTrigger>
+                                  <TooltipContent side="bottom" className="max-w-72 text-xs">
+                                    Upstream：AMP Manager 到上游模型服务这一侧的传输方式。
+                                  </TooltipContent>
+                                </Tooltip>
                               )}
                               {log.transportFallbackReason && (
                                 <Tooltip>

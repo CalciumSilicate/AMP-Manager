@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"ampmanager/internal/amp"
@@ -19,6 +20,33 @@ import (
 
 type RequestLogHandler struct {
 	logService *service.RequestLogService
+}
+
+func parseStatusCodes(values []string) ([]int, error) {
+	if len(values) == 0 {
+		return nil, nil
+	}
+
+	seen := make(map[int]struct{}, len(values))
+	statusCodes := make([]int, 0, len(values))
+	for _, rawValue := range values {
+		for _, part := range strings.Split(rawValue, ",") {
+			trimmed := strings.TrimSpace(part)
+			if trimmed == "" {
+				continue
+			}
+			statusCode, err := strconv.Atoi(trimmed)
+			if err != nil {
+				return nil, err
+			}
+			if _, exists := seen[statusCode]; exists {
+				continue
+			}
+			seen[statusCode] = struct{}{}
+			statusCodes = append(statusCodes, statusCode)
+		}
+	}
+	return statusCodes, nil
 }
 
 func NewRequestLogHandler() *RequestLogHandler {
@@ -50,13 +78,13 @@ func (h *RequestLogHandler) ListRequestLogs(c *gin.Context) {
 	if model := c.Query("model"); model != "" {
 		params.Model = model
 	}
-	if statusStr := c.Query("status"); statusStr != "" {
-		statusCode, err := strconv.Atoi(statusStr)
+	if rawStatuses := c.QueryArray("status"); len(rawStatuses) > 0 {
+		statusCodes, err := parseStatusCodes(rawStatuses)
 		if err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "status 参数无效，应为整数"})
 			return
 		}
-		params.StatusCode = &statusCode
+		params.StatusCodes = statusCodes
 	}
 	if isStreaming := c.Query("isStreaming"); isStreaming != "" {
 		val := isStreaming == "true" || isStreaming == "1"
@@ -195,13 +223,13 @@ func (h *RequestLogHandler) AdminListRequestLogs(c *gin.Context) {
 	if model := c.Query("model"); model != "" {
 		params.Model = model
 	}
-	if statusStr := c.Query("status"); statusStr != "" {
-		statusCode, err := strconv.Atoi(statusStr)
+	if rawStatuses := c.QueryArray("status"); len(rawStatuses) > 0 {
+		statusCodes, err := parseStatusCodes(rawStatuses)
 		if err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "status 参数无效，应为整数"})
 			return
 		}
-		params.StatusCode = &statusCode
+		params.StatusCodes = statusCodes
 	}
 	if isStreaming := c.Query("isStreaming"); isStreaming != "" {
 		val := isStreaming == "true" || isStreaming == "1"
