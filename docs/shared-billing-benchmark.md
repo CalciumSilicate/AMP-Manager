@@ -159,6 +159,17 @@ node scripts/summarize-shared-billing-report.mjs \
 
 适合在跑完多轮 matrix 后，快速形成一份可读摘要。
 
+如果需要生成仓内 findings 风格的 markdown，可再用：
+
+```bash
+node scripts/generate-shared-billing-findings.mjs \
+  --date 2026-04-15 \
+  --output docs/shared-billing-findings-2026-04-15.md \
+  /path/to/pf-workers-matrix.json \
+  /path/to/pf-batch-matrix.json \
+  /path/to/pf-claim-matrix.json
+```
+
 ## 最近一轮实测
 
 当前仓库已经基于真实 shared-billing 环境跑过一轮短时矩阵，并整理为仓内 findings：
