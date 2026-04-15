@@ -223,6 +223,7 @@ chmod +x manage.sh
 
 - 操作说明见 [docs/shared-billing-benchmark.md](docs/shared-billing-benchmark.md)
 - Linux/macOS 可直接运行 `scripts/run-shared-billing-benchmark.sh`
+- Linux/macOS 也可运行 `scripts/run-shared-billing-matrix-suite.sh` 一次完成 workers/batch/claim 三套矩阵并生成摘要
 - 现有 JSON 报告可用 `scripts/summarize-shared-billing-report.mjs` 汇总为 markdown
 - benchmark 支持 matrix 模式，可直接比较 `projectorWorkers`、batch size、claim idle 等 knobs
 
