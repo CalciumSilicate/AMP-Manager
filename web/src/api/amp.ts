@@ -169,7 +169,6 @@ export interface RequestLog {
   latencyMs: number
   ttfbMs?: number
   tps?: number
-  isStreaming: boolean
   inputTokens?: number
   outputTokens?: number
   cacheReadInputTokens?: number
@@ -180,10 +179,6 @@ export interface RequestLog {
   costUsd?: string
   pricingModel?: string
   thinkingLevel?: string
-  billingStatus: 'free' | 'settled' | 'overuse' | 'expired' | 'none'
-  chargedSubscriptionMicros: number
-  chargedBalanceMicros: number
-  billingGapMicros?: number
   downstreamTransport?: string
   upstreamTransport?: string
   transportFallbackReason?: string

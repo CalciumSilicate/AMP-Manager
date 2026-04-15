@@ -153,7 +153,7 @@ type RequestLog struct {
 	LatencyMs                int64            `json:"latencyMs"`
 	TTFBMs                   *int64           `json:"ttfbMs,omitempty"`
 	TPS                      *float64         `json:"tps,omitempty"`
-	IsStreaming              bool             `json:"isStreaming"`
+	IsStreaming              bool             `json:"-"`
 	InputTokens              *int             `json:"inputTokens,omitempty"`
 	OutputTokens             *int             `json:"outputTokens,omitempty"`
 	CacheReadInputTokens     *int             `json:"cacheReadInputTokens,omitempty"`
@@ -169,10 +169,10 @@ type RequestLog struct {
 	CostMicros                *int64  `json:"costMicros,omitempty"`   // 成本（微美元，USD * 1e6）
 	CostUsd                   *string `json:"costUsd,omitempty"`      // 成本（USD，用于展示）
 	PricingModel              *string `json:"pricingModel,omitempty"` // 计价模型名
-	BillingStatus             string  `json:"billingStatus"`
-	ChargedSubscriptionMicros int64   `json:"chargedSubscriptionMicros"`
-	ChargedBalanceMicros      int64   `json:"chargedBalanceMicros"`
-	BillingGapMicros          *int64  `json:"billingGapMicros,omitempty"`
+	BillingStatus             string  `json:"-"`
+	ChargedSubscriptionMicros int64   `json:"-"`
+	ChargedBalanceMicros      int64   `json:"-"`
+	BillingGapMicros          *int64  `json:"-"`
 }
 
 // RequestLogListResponse 请求日志列表响应
