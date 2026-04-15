@@ -161,6 +161,7 @@ func registerAmpProxyAPI(engine *gin.Engine, proxyHandler, channelHandler, model
 	v1.POST("/chat/completions", createRoutingHandler(proxyHandler, channelHandler))
 	v1.POST("/completions", createRoutingHandler(proxyHandler, channelHandler))
 	v1.POST("/messages", createRoutingHandler(proxyHandler, channelHandler))
+	v1.GET("/responses", ResponsesWebsocketProxyHandler())
 	v1.POST("/responses", createRoutingHandler(proxyHandler, channelHandler))
 
 	v1beta := engine.Group("/v1beta")
