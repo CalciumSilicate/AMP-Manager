@@ -11,7 +11,7 @@ RUN pnpm run build
 # ============================================
 # Stage 2: Build backend (cross-compile via xx)
 # ============================================
-FROM --platform=$BUILDPLATFORM golang:1.24-alpine AS backend
+FROM --platform=$BUILDPLATFORM golang:1.26-alpine AS backend
 # xx provides cross-compilation helpers for multi-platform builds
 COPY --from=tonistiigi/xx / /
 ARG TARGETPLATFORM
