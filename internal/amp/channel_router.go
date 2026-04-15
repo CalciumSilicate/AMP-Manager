@@ -24,6 +24,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 	log "github.com/sirupsen/logrus"
+	"github.com/tidwall/gjson"
 )
 
 // sharedChannelTransport 是共享的 Channel Proxy Transport，用于连接复用
@@ -289,14 +290,11 @@ func extractModelName(c *gin.Context) string {
 		}
 	}
 
-	payload, err := EnsureRequestPayload(c)
-	if err != nil || payload == nil || payload.JSON == nil {
+	payload, err := ensureRequestBody(c)
+	if err != nil || payload == nil {
 		return ""
 	}
-	if modelName, ok := payload.JSON["model"].(string); ok {
-		return modelName
-	}
-	return ""
+	return extractModelNameFromPayloadBytes(payload.Body)
 }
 
 // ChannelProxyHandler creates a handler using httputil.ReverseProxy for robust proxying
@@ -355,7 +353,7 @@ func ChannelProxyHandler() gin.HandlerFunc {
 		// Some clients send JSON bodies with chunked transfer encoding (Content-Length = -1).
 		// We still need to buffer the body so /v1/responses SSE retry can replay it.
 		if c.Request.Body != nil {
-			requestPayload, err := EnsureRequestPayload(c)
+			requestPayload, err := ensureRequestBody(c)
 			if err != nil {
 				log.Errorf("channel proxy: failed to read request body: %v", err)
 				c.JSON(http.StatusInternalServerError, NewStandardError(http.StatusInternalServerError, "failed to read request body"))
@@ -365,11 +363,11 @@ func ChannelProxyHandler() gin.HandlerFunc {
 			originalRequestBody = bodyBytes
 			convertedBody = bodyBytes
 
-			// Check if streaming
-			if requestPayload.JSON != nil {
-				if stream, ok := requestPayload.JSON["stream"].(bool); ok {
-					clientWantsStream = stream
-					isStreaming = stream
+			// Check if streaming without forcing a full JSON parse.
+			if stream := gjson.GetBytes(bodyBytes, "stream"); stream.Exists() {
+				if stream.Type == gjson.True || stream.Type == gjson.False {
+					clientWantsStream = stream.Bool()
+					isStreaming = clientWantsStream
 				}
 			}
 

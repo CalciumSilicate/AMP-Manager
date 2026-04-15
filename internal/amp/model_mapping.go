@@ -13,6 +13,8 @@ import (
 
 	"github.com/gin-gonic/gin"
 	log "github.com/sirupsen/logrus"
+	"github.com/tidwall/gjson"
+	"github.com/tidwall/sjson"
 )
 
 // Context keys for model mapping (gin.Context)
@@ -125,12 +127,10 @@ func ApplyModelMappingMiddleware() gin.HandlerFunc {
 
 		// Read body for non-Gemini requests or if path extraction failed
 		var bodyBytes []byte
-		var payload map[string]interface{}
-		if requestPayload, err := EnsureRequestPayload(c); err == nil {
+		if requestPayload, err := ensureRequestBody(c); err == nil {
 			bodyBytes = requestPayload.Body
-			payload = requestPayload.JSON
-			if modelName == "" && payload != nil {
-				if bodyModel, ok := payload["model"].(string); ok && bodyModel != "" {
+			if modelName == "" {
+				if bodyModel := strings.TrimSpace(gjson.GetBytes(bodyBytes, "model").String()); bodyModel != "" {
 					modelName = bodyModel
 					modelSource = "body"
 				}
@@ -211,13 +211,25 @@ func ApplyModelMappingMiddleware() gin.HandlerFunc {
 			}
 		}
 
-		// Also update body if it contains model field
-		if payload != nil {
-			if _, hasModel := payload["model"]; hasModel {
+		// Also update body if it contains model field.
+		if len(bodyBytes) > 0 && gjson.GetBytes(bodyBytes, "model").Exists() {
+			if updated, err := sjson.SetBytes(bodyBytes, "model", result.MappedModel); err == nil {
+				bodyBytes = updated
+			}
+
+			needsStructuredMutation := result.ThinkingLevel != "" || (result.CustomInstructionsEnabled && result.CustomInstructions != "")
+			if !needsStructuredMutation {
+				if result.FastMode {
+					if updated, err := sjson.SetBytes(bodyBytes, "service_tier", "priority"); err == nil {
+						bodyBytes = updated
+						log.Infof("model mapping: applied fast mode (service_tier=priority)")
+					}
+				}
+			} else if requestPayload, err := EnsureRequestPayload(c); err == nil && requestPayload.JSON != nil {
+				payload := requestPayload.JSON
 				payload["model"] = result.MappedModel
 
 				thinkingLevel := result.ThinkingLevel
-
 				if thinkingLevel != "" {
 					applyThinkingLevelWithPath(payload, thinkingLevel, c.Request.URL.Path)
 					c.Set(ThinkingLevelContextKey, thinkingLevel)
@@ -229,16 +241,20 @@ func ApplyModelMappingMiddleware() gin.HandlerFunc {
 					log.Infof("model mapping: applied fast mode (service_tier=priority)")
 				}
 
-				// Apply custom instructions if enabled
 				if result.CustomInstructionsEnabled && result.CustomInstructions != "" {
 					applyCustomInstructions(payload, result.CustomInstructions, c.Request.URL.Path)
 					log.Infof("model mapping: applied custom instructions")
 				}
 
-				newBody, err := json.Marshal(payload)
-				if err == nil {
+				if newBody, marshalErr := json.Marshal(payload); marshalErr == nil {
 					bodyBytes = newBody
 				}
+			}
+
+			if requestPayload := GetRequestPayload(c.Request.Context()); requestPayload != nil {
+				requestPayload.Body = bodyBytes
+				requestPayload.JSON = nil
+				requestPayload.jsonParsed = false
 			}
 		}
 
