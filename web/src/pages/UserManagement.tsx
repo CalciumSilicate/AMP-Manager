@@ -500,7 +500,7 @@ export default function UserManagement() {
                             </Button>
                             <DropdownMenu>
                               <DropdownMenuTrigger asChild>
-                                <Button variant="ghost" size="sm">
+                                <Button variant="outline" size="sm">
                                   <MoreHorizontal className="mr-1.5 h-4 w-4" />
                                   更多操作
                                 </Button>
@@ -514,7 +514,11 @@ export default function UserManagement() {
                                   <KeyRound className="mr-2 h-4 w-4" />
                                   重置密码
                                 </DropdownMenuItem>
-                                <DropdownMenuItem onClick={() => setCancelSubConfirm({ userId: user.id, username: user.username })}>
+                                <DropdownMenuItem
+                                  onClick={() => setCancelSubConfirm({ userId: user.id, username: user.username })}
+                                  className="text-destructive focus:text-destructive"
+                                >
+                                  <XCircle className="mr-2 h-4 w-4" />
                                   取消订阅
                                 </DropdownMenuItem>
                                 <DropdownMenuItem

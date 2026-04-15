@@ -358,7 +358,7 @@ func prepareResponsesWebsocketTurn(c *gin.Context, session *responsesWebsocketSe
 		return nil, errSelect
 	}
 	if channel == nil {
-		return nil, &responsesWebsocketError{StatusCode: http.StatusBadGateway, Message: "no channel available for this request"}
+		return nil, &responsesWebsocketError{StatusCode: http.StatusServiceUnavailable, Message: noAvailableChannelMessage}
 	}
 	if channel.Type != model.ChannelTypeOpenAI || channel.Endpoint != model.ChannelEndpointResponses {
 		return nil, &responsesWebsocketError{StatusCode: http.StatusBadRequest, Message: "responses websocket requires an OpenAI responses channel"}

@@ -33,6 +33,8 @@ import (
 var sharedChannelTransport = NewStreamingTransport()
 var channelHeadersCache sync.Map
 
+const noAvailableChannelMessage = "无可用供应商（渠道）可提供当前模型"
+
 // translationContextKey is used to store translation info in context
 type translationContextKey struct{}
 
@@ -249,7 +251,7 @@ func ChannelRouterMiddleware() gin.HandlerFunc {
 		}
 
 		if channel == nil {
-			c.Next()
+			c.AbortWithStatusJSON(http.StatusServiceUnavailable, NewStandardError(http.StatusServiceUnavailable, noAvailableChannelMessage))
 			return
 		}
 
@@ -313,8 +315,8 @@ func ChannelProxyHandler() gin.HandlerFunc {
 
 		channelCfg := GetChannelConfig(c)
 		if channelCfg == nil || channelCfg.Channel == nil {
-			c.JSON(http.StatusBadGateway, gin.H{
-				"error": "no channel available for this request",
+			c.JSON(http.StatusServiceUnavailable, gin.H{
+				"error": noAvailableChannelMessage,
 			})
 			return
 		}

@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net/http"
 	"net/http/httptest"
 	"sort"
 	"strings"
@@ -329,5 +330,81 @@ func TestChannelRouterMiddleware_FallsBackWhenPreferredChannelIsInaccessible(t *
 	}
 	if selectedChannelID != "public" {
 		t.Fatalf("expected fallback public channel, got %q", selectedChannelID)
+	}
+}
+
+func TestChannelRouterMiddleware_ReturnsServiceUnavailableWhenNoChannelSupportsModel(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	repo := &fakeChannelRepo{
+		channels: map[string]*model.Channel{
+			"openai": testChannel("openai", "OpenAI"),
+		},
+		groups: map[string][]string{},
+	}
+
+	originalService := channelService
+	channelService = service.NewChannelServiceWithRepo(repo)
+	defer func() { channelService = originalService }()
+
+	router := gin.New()
+	router.Use(func(c *gin.Context) {
+		c.Request = c.Request.WithContext(WithProxyConfig(c.Request.Context(), &ProxyConfig{}))
+		c.Next()
+	})
+	router.Use(ChannelRouterMiddleware())
+	router.POST("/", func(c *gin.Context) {
+		t.Fatal("expected middleware to abort before handler")
+	})
+
+	req := httptest.NewRequest("POST", "/", strings.NewReader(`{"model":"gpt-5.4"}`))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusServiceUnavailable {
+		t.Fatalf("expected status %d, got %d", http.StatusServiceUnavailable, rec.Code)
+	}
+	if !strings.Contains(rec.Body.String(), noAvailableChannelMessage) {
+		t.Fatalf("expected response body to contain %q, got %s", noAvailableChannelMessage, rec.Body.String())
+	}
+}
+
+func TestChannelRouterMiddleware_ReturnsServiceUnavailableWhenUserCannotAccessAnyChannel(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	repo := &fakeChannelRepo{
+		channels: map[string]*model.Channel{
+			"vip-only": testChannel("vip-only", "VIP"),
+		},
+		groups: map[string][]string{
+			"vip-only": {"vip"},
+		},
+	}
+
+	originalService := channelService
+	channelService = service.NewChannelServiceWithRepo(repo)
+	defer func() { channelService = originalService }()
+
+	router := gin.New()
+	router.Use(func(c *gin.Context) {
+		c.Request = c.Request.WithContext(WithProxyConfig(c.Request.Context(), &ProxyConfig{GroupIDs: []string{"basic"}}))
+		c.Next()
+	})
+	router.Use(ChannelRouterMiddleware())
+	router.POST("/", func(c *gin.Context) {
+		t.Fatal("expected middleware to abort before handler")
+	})
+
+	req := httptest.NewRequest("POST", "/", strings.NewReader(`{"model":"gpt-4o"}`))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusServiceUnavailable {
+		t.Fatalf("expected status %d, got %d", http.StatusServiceUnavailable, rec.Code)
+	}
+	if !strings.Contains(rec.Body.String(), noAvailableChannelMessage) {
+		t.Fatalf("expected response body to contain %q, got %s", noAvailableChannelMessage, rec.Body.String())
 	}
 }
