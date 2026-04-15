@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"reflect"
 	"sort"
 	"strings"
 	"sync"
@@ -19,13 +20,30 @@ var (
 	ErrChannelNotFound = errors.New("渠道不存在")
 )
 
+const defaultChannelRepoCacheKey = "default-channel-repo"
+
 // modelsCache 缓存 ModelsJSON -> []model.ChannelModel 的解析结果
 // key: ModelsJSON 字符串, value: *parsedModelsEntry
 var modelsCache sync.Map
+var enabledChannelsSnapshot = &enabledChannelsCache{
+	snapshots: make(map[string]enabledChannelsSnapshotEntry),
+	cacheTTL: 2 * time.Second,
+}
 
 type parsedModelsEntry struct {
 	models []model.ChannelModel
 	valid  bool
+}
+
+type enabledChannelsCache struct {
+	mu       sync.RWMutex
+	snapshots map[string]enabledChannelsSnapshotEntry
+	cacheTTL time.Duration
+}
+
+type enabledChannelsSnapshotEntry struct {
+	channels []*model.Channel
+	loadedAt time.Time
 }
 
 // getParsedModels 从缓存获取或解析 ModelsJSON
@@ -43,6 +61,38 @@ func getParsedModels(modelsJSON string) ([]model.ChannelModel, bool) {
 	}
 	modelsCache.Store(modelsJSON, entry)
 	return models, entry.valid
+}
+
+func cloneChannels(channels []*model.Channel) []*model.Channel {
+	if len(channels) == 0 {
+		return nil
+	}
+	cloned := make([]*model.Channel, 0, len(channels))
+	for _, channel := range channels {
+		if channel == nil {
+			continue
+		}
+		copyChannel := *channel
+		cloned = append(cloned, &copyChannel)
+	}
+	return cloned
+}
+
+func invalidateEnabledChannelsCache() {
+	enabledChannelsSnapshot.mu.Lock()
+	defer enabledChannelsSnapshot.mu.Unlock()
+	enabledChannelsSnapshot.snapshots = make(map[string]enabledChannelsSnapshotEntry)
+}
+
+func cacheKeyForChannelRepo(repo repository.ChannelRepositoryInterface) string {
+	if _, ok := repo.(*repository.ChannelRepository); ok {
+		return defaultChannelRepoCacheKey
+	}
+	value := reflect.ValueOf(repo)
+	if value.IsValid() && value.Kind() == reflect.Pointer {
+		return fmt.Sprintf("%T:%x", repo, value.Pointer())
+	}
+	return fmt.Sprintf("%T", repo)
 }
 
 type ChannelService struct {
@@ -120,6 +170,7 @@ func (s *ChannelService) Create(req *model.ChannelRequest) (*model.ChannelRespon
 	if err := s.repo.Create(channel); err != nil {
 		return nil, err
 	}
+	invalidateEnabledChannelsCache()
 
 	if len(req.GroupIDs) > 0 {
 		_ = s.repo.SetGroups(channel.ID, req.GroupIDs)
@@ -215,6 +266,7 @@ func (s *ChannelService) Update(id string, req *model.ChannelRequest) (*model.Ch
 	if err := s.repo.Update(existing); err != nil {
 		return nil, err
 	}
+	invalidateEnabledChannelsCache()
 
 	_ = s.repo.SetGroups(id, req.GroupIDs)
 
@@ -229,7 +281,11 @@ func (s *ChannelService) Delete(id string) error {
 	if existing == nil {
 		return ErrChannelNotFound
 	}
-	return s.repo.Delete(id)
+	if err := s.repo.Delete(id); err != nil {
+		return err
+	}
+	invalidateEnabledChannelsCache()
+	return nil
 }
 
 func (s *ChannelService) SetEnabled(id string, enabled bool) error {
@@ -240,7 +296,11 @@ func (s *ChannelService) SetEnabled(id string, enabled bool) error {
 	if existing == nil {
 		return ErrChannelNotFound
 	}
-	return s.repo.SetEnabled(id, enabled)
+	if err := s.repo.SetEnabled(id, enabled); err != nil {
+		return err
+	}
+	invalidateEnabledChannelsCache()
+	return nil
 }
 
 func (s *ChannelService) TestConnection(id string) (*model.TestChannelResponse, error) {
@@ -324,7 +384,7 @@ func (s *ChannelService) TestConnection(id string) (*model.TestChannelResponse, 
 }
 
 func (s *ChannelService) SelectChannelForModel(modelName string) (*model.Channel, error) {
-	channels, err := s.repo.ListEnabled()
+	channels, err := s.listEnabledChannels()
 	if err != nil {
 		return nil, err
 	}
@@ -404,7 +464,7 @@ func (s *ChannelService) SelectSpecificChannelForModelWithGroups(channelID, mode
 // 无分组用户: 只能使用未关联分组的渠道
 // 有分组用户: 可以使用其分组渠道 + 未关联分组的渠道
 func (s *ChannelService) SelectChannelForModelWithGroups(modelName string, groupIDs []string) (*model.Channel, error) {
-	channels, err := s.repo.ListEnabled()
+	channels, err := s.listEnabledChannels()
 	if err != nil {
 		return nil, err
 	}
@@ -476,6 +536,31 @@ func (s *ChannelService) SelectChannelForModelWithGroups(modelName string, group
 	selected := priorityCandidates[idx%len(priorityCandidates)]
 
 	return selected, nil
+}
+
+func (s *ChannelService) listEnabledChannels() ([]*model.Channel, error) {
+	cacheKey := cacheKeyForChannelRepo(s.repo)
+	enabledChannelsSnapshot.mu.RLock()
+	if snapshot, ok := enabledChannelsSnapshot.snapshots[cacheKey]; ok && time.Since(snapshot.loadedAt) < enabledChannelsSnapshot.cacheTTL && len(snapshot.channels) > 0 {
+		channels := cloneChannels(snapshot.channels)
+		enabledChannelsSnapshot.mu.RUnlock()
+		return channels, nil
+	}
+	enabledChannelsSnapshot.mu.RUnlock()
+
+	channels, err := s.repo.ListEnabled()
+	if err != nil {
+		return nil, err
+	}
+
+	cloned := cloneChannels(channels)
+	enabledChannelsSnapshot.mu.Lock()
+	enabledChannelsSnapshot.snapshots[cacheKey] = enabledChannelsSnapshotEntry{
+		channels: cloneChannels(channels),
+		loadedAt: time.Now(),
+	}
+	enabledChannelsSnapshot.mu.Unlock()
+	return cloned, nil
 }
 func toStringSet(values []string) map[string]struct{} {
 	set := make(map[string]struct{}, len(values))
