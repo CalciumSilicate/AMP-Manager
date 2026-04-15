@@ -5,6 +5,7 @@ import { getBillingState, updateBillingPriority, type BillingStateResponse } fro
 import { navigateDashboard } from '@/lib/dashboard-navigation'
 import { formatDateTime, formatDecimal } from '@/lib/formatters'
 import { RedeemQuickEntry, RedeemRecordTable } from '@/components/redeem/RedeemPanels'
+import { PageShell, PageSubnav, PageSubnavButton, PageSurface } from '@/components/layout/PageScaffold'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -158,48 +159,43 @@ export default function AccountSettings({ username, onUsernameChange }: Props) {
   }
 
   return (
-    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-6">
-      <div className="space-y-1 border-b border-border/70 pb-5">
-        <h2 className="text-2xl font-semibold tracking-tight">账户设置</h2>
-        <p className="text-sm text-muted-foreground">余额、扣费顺序、订阅与安全。</p>
-      </div>
+    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
+      <PageShell
+        title="账户设置"
+        description="把余额、扣费顺序、订阅和安全操作拆成清晰的操作主体，减少跨区切换。"
+        width="7xl"
+      >
+        {message && (
+          <Alert variant={message.type === 'error' ? 'destructive' : 'default'}>
+            {message.type === 'success' ? <CheckCircle2 className="h-4 w-4" /> : <XCircle className="h-4 w-4" />}
+            <AlertDescription>{message.text}</AlertDescription>
+          </Alert>
+        )}
 
-      {message && (
-        <Alert variant={message.type === 'error' ? 'destructive' : 'default'}>
-          {message.type === 'success' ? <CheckCircle2 className="h-4 w-4" /> : <XCircle className="h-4 w-4" />}
-          <AlertDescription>{message.text}</AlertDescription>
-        </Alert>
-      )}
-
-      <div className="flex items-center gap-2 border-b border-border/70 pb-2">
-        {tabs.map((tab) => (
-          <button
-            key={tab.key}
-            onClick={() => setActiveTab(tab.key)}
-            className={`rounded-full px-3 py-1.5 text-sm transition-colors ${
-              activeTab === tab.key
-                ? 'bg-primary text-primary-foreground'
-                : 'text-muted-foreground hover:bg-muted hover:text-foreground'
-            }`}
-          >
-            {tab.label}
-          </button>
-        ))}
-      </div>
+        <PageSubnav>
+          {tabs.map((tab) => (
+            <PageSubnavButton
+              key={tab.key}
+              active={activeTab === tab.key}
+              onClick={() => setActiveTab(tab.key)}
+            >
+              {tab.label}
+            </PageSubnavButton>
+          ))}
+        </PageSubnav>
 
       {activeTab === 'balance' && (
-        <section className="rounded-xl border border-border/80 bg-card/95 shadow-sm">
-          <div className="flex flex-col gap-3 border-b border-border/70 px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
-            <div>
-              <h3 className="text-base font-semibold">账户余额</h3>
-              <p className="text-sm text-muted-foreground">余额由管理员充值，按请求自动扣费。</p>
-            </div>
+        <PageSurface
+          title="账户余额"
+          description="余额卡显示结果，右侧入口只保留最相关的后续动作。"
+          actions={(
             <Button variant="outline" size="sm" onClick={() => void fetchBalance()} disabled={balanceLoading}>
               <RefreshCw className={`mr-2 h-4 w-4 ${balanceLoading ? 'animate-spin' : ''}`} />
               刷新
             </Button>
-          </div>
-          <div className="grid gap-4 px-5 py-5 lg:grid-cols-[1fr_0.8fr]">
+          )}
+        >
+          <div className="grid gap-4 lg:grid-cols-[1fr_0.8fr]">
             <div className="rounded-xl border border-border/70 bg-background/70 px-5 py-5">
               <p className="text-[11px] uppercase tracking-[0.18em] text-muted-foreground">当前余额</p>
               <p className="mt-3 text-4xl font-semibold tracking-tight">
@@ -216,23 +212,21 @@ export default function AccountSettings({ username, onUsernameChange }: Props) {
               </div>
             </div>
           </div>
-        </section>
+        </PageSurface>
       )}
 
       {activeTab === 'billing' && (
         <div className="space-y-5">
-          <section className="rounded-xl border border-border/80 bg-card/95 shadow-sm">
-            <div className="flex flex-col gap-3 border-b border-border/70 px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
-              <div>
-                <h3 className="text-base font-semibold">扣费顺序</h3>
-                <p className="text-sm text-muted-foreground">设置请求优先扣订阅还是余额。</p>
-              </div>
+          <PageSurface
+            title="扣费顺序"
+            description="把扣费优先级做成单独操作主体，避免和订阅状态混在同一区块。"
+            actions={(
               <Button variant="outline" size="sm" onClick={() => void fetchBillingState()} disabled={billingLoading}>
                 <RefreshCw className={`mr-2 h-4 w-4 ${billingLoading ? 'animate-spin' : ''}`} />
                 刷新
               </Button>
-            </div>
-            <div className="px-5 py-5">
+            )}
+          >
               <RadioGroup
                 value={billingState?.primarySource || 'subscription'}
                 onValueChange={(value) => void handlePriorityChange(value)}
@@ -258,21 +252,18 @@ export default function AccountSettings({ username, onUsernameChange }: Props) {
                   </label>
                 ))}
               </RadioGroup>
-            </div>
-          </section>
+          </PageSurface>
 
-          <section className="rounded-xl border border-border/80 bg-card/95 shadow-sm">
-            <div className="flex flex-col gap-3 border-b border-border/70 px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
-              <div>
-                <h3 className="text-base font-semibold">当前订阅</h3>
-                <p className="text-sm text-muted-foreground">查看套餐状态和额度窗口。</p>
-              </div>
+          <PageSurface
+            title="当前订阅"
+            description="把套餐概览、额度窗口和续费动作放在同一个主面板里。"
+            actions={(
               <Button variant="outline" size="sm" onClick={() => navigateDashboard('purchase-center')}>
                 <CreditCard className="mr-2 h-4 w-4" />
                 购买续费
               </Button>
-            </div>
-            <div className="px-5 py-5">
+            )}
+          >
               {billingState?.subscription ? (
                 <div className="space-y-4">
                   <div className="flex flex-wrap items-start justify-between gap-3 rounded-xl border border-border/70 bg-background/70 px-4 py-4">
@@ -315,44 +306,37 @@ export default function AccountSettings({ username, onUsernameChange }: Props) {
                   暂无生效中的订阅。
                 </div>
               )}
-            </div>
-          </section>
+          </PageSurface>
 
-          <section className="rounded-xl border border-border/80 bg-card/95 shadow-sm">
-            <div className="border-b border-border/70 px-5 py-4">
-              <h3 className="text-base font-semibold">兑换码</h3>
-              <p className="mt-1 text-sm text-muted-foreground">可直接兑换订阅或余额。</p>
-            </div>
-            <div className="px-5 py-5">
+          <PageSurface
+            title="兑换码"
+            description="保持单一输入路径，成功后立即刷新余额和订阅状态。"
+          >
               <RedeemQuickEntry
                 onSuccess={async () => {
                   setRedeemRefreshKey((current) => current + 1)
                   await Promise.all([fetchBalance(), fetchBillingState()])
                 }}
               />
-            </div>
-          </section>
+          </PageSurface>
 
-          <section className="rounded-xl border border-border/80 bg-card/95 shadow-sm">
-            <div className="border-b border-border/70 px-5 py-4">
-              <h3 className="text-base font-semibold">最近兑换记录</h3>
-              <p className="mt-1 text-sm text-muted-foreground">保留当前账号最近记录。</p>
-            </div>
-            <div className="overflow-hidden rounded-b-xl px-5 py-5">
+          <PageSurface
+            title="最近兑换记录"
+            description="把历史记录作为结果面板，和上方兑换操作分层。"
+            bodyClassName="px-5 py-5"
+          >
               <RedeemRecordTable compact refreshKey={redeemRefreshKey} />
-            </div>
-          </section>
+          </PageSurface>
         </div>
       )}
 
       {activeTab === 'security' && (
         <div className="grid gap-5 xl:grid-cols-2">
-          <section className="rounded-xl border border-border/80 bg-card/95 shadow-sm">
-            <div className="border-b border-border/70 px-5 py-4">
-              <h3 className="text-base font-semibold">修改密码</h3>
-              <p className="mt-1 text-sm text-muted-foreground">更新当前账户密码。</p>
-            </div>
-            <form onSubmit={(event) => void handleChangePassword(event)} className="space-y-4 px-5 py-5">
+          <PageSurface
+            title="修改密码"
+            description="安全操作单独成面板，避免与用户名修改表单互相干扰。"
+          >
+            <form onSubmit={(event) => void handleChangePassword(event)} className="space-y-4">
               <div className="space-y-2">
                 <Label htmlFor="oldPassword">当前密码</Label>
                 <Input id="oldPassword" type="password" value={oldPassword} onChange={(event) => setOldPassword(event.target.value)} required />
@@ -370,14 +354,13 @@ export default function AccountSettings({ username, onUsernameChange }: Props) {
                 修改密码
               </Button>
             </form>
-          </section>
+          </PageSurface>
 
-          <section className="rounded-xl border border-border/80 bg-card/95 shadow-sm">
-            <div className="border-b border-border/70 px-5 py-4">
-              <h3 className="text-base font-semibold">修改用户名</h3>
-              <p className="mt-1 text-sm text-muted-foreground">当前用户名：{username}</p>
-            </div>
-            <form onSubmit={(event) => void handleChangeUsername(event)} className="space-y-4 px-5 py-5">
+          <PageSurface
+            title="修改用户名"
+            description={`当前用户名：${username}`}
+          >
+            <form onSubmit={(event) => void handleChangeUsername(event)} className="space-y-4">
               <div className="space-y-2">
                 <Label htmlFor="newUsername">新用户名</Label>
                 <Input id="newUsername" value={newUsername} onChange={(event) => setNewUsername(event.target.value)} required minLength={3} maxLength={32} />
@@ -387,9 +370,10 @@ export default function AccountSettings({ username, onUsernameChange }: Props) {
                 更新用户名
               </Button>
             </form>
-          </section>
+          </PageSurface>
         </div>
       )}
+      </PageShell>
     </motion.div>
   )
 }

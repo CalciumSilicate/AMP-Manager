@@ -20,6 +20,7 @@ import {
 } from '@/api/redeem'
 import { getPlans, type SubscriptionPlanResponse } from '@/api/subscription'
 import { AdminPageShell, AdminSurface, AdminToolbarRow } from '@/components/admin/AdminPageShell'
+import { PageStat, PageStatStrip } from '@/components/layout/PageScaffold'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -360,6 +361,13 @@ export default function RedeemManagement() {
           </Alert>
         )}
 
+        <PageStatStrip>
+          <PageStat label="活动" value={campaigns.length} note="共享码与单次码统一管理" />
+          <PageStat label="批次" value={batches.length} note="仅单次码支持批量生成" />
+          <PageStat label="兑换码" value={codes.length} note="明细支持启停与搜索" />
+          <PageStat label="兑换记录" value={redemptions.length} note="包含成功与拒绝记录" />
+        </PageStatStrip>
+
         <AdminSurface>
           <div className="admin-surface-header">
             <div className="space-y-1">
@@ -371,7 +379,7 @@ export default function RedeemManagement() {
               刷新
             </Button>
           </div>
-          <div className="overflow-hidden rounded-b-xl">
+          <div className="ops-table-shell rounded-none border-x-0 border-b-0">
             <Table>
               <TableHeader>
                 <TableRow>
@@ -468,7 +476,7 @@ export default function RedeemManagement() {
                 </SelectContent>
               </Select>
             </AdminToolbarRow>
-            <div className="overflow-hidden rounded-b-xl">
+            <div className="ops-table-shell rounded-none border-x-0 border-b-0">
               <Table>
                 <TableHeader>
                   <TableRow>
@@ -533,7 +541,7 @@ export default function RedeemManagement() {
                 </Button>
               </div>
             </AdminToolbarRow>
-            <div className="overflow-hidden rounded-b-xl">
+            <div className="ops-table-shell rounded-none border-x-0 border-b-0">
               <Table>
                 <TableHeader>
                   <TableRow>
@@ -622,7 +630,7 @@ export default function RedeemManagement() {
               </Button>
             </div>
           </AdminToolbarRow>
-          <div className="overflow-hidden rounded-b-xl">
+          <div className="ops-table-shell rounded-none border-x-0 border-b-0">
             <Table>
               <TableHeader>
                 <TableRow>

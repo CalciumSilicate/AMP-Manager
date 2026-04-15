@@ -29,6 +29,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Switch } from '@/components/ui/switch'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { Textarea } from '@/components/ui/textarea'
+import { PageShell, PageStat, PageStatStrip, PageSurface, PageToolbarRow } from '@/components/layout/PageScaffold'
 import { CheckCircle2, CircleAlert, CreditCard, Pencil, Plus, RefreshCw, Trash2 } from 'lucide-react'
 
 function formatCNY(cents: number): string {
@@ -332,74 +333,72 @@ export default function PaidSubscriptions() {
   }
 
   return (
-    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-8">
-      <div className="space-y-4 border-b border-border/70 pb-5">
-        <div className="flex items-center justify-between gap-4">
-          <div>
-            <h2 className="text-2xl font-semibold tracking-tight">付费订阅</h2>
-            <p className="text-sm text-muted-foreground">商品、支付和订单统一管理。</p>
-          </div>
+    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
+      <PageShell
+        title="付费订阅"
+        description="把支付开关、商品管理和订单履约收束到同一套运营工作台。"
+        width="7xl"
+        actions={(
           <Button variant="outline" size="sm" onClick={() => void loadBase()}>
             <RefreshCw className="mr-2 h-4 w-4" />
             刷新
           </Button>
-        </div>
-
-        <div className="grid gap-3 md:grid-cols-4">
-          {[
-            {
-              label: '支付开关',
-              value: settings?.purchaseEnabled ? '开启' : '关闭',
-              note: settings?.paymentConfigured ? '配置完整' : '待配置',
-            },
-            {
-              label: 'DEBUG',
-              value: settings?.debugAutoPaid ? '开启' : '关闭',
-              note: settings?.debugAutoPaid ? '自动入账' : '真实扫码',
-            },
-            {
-              label: '商品',
-              value: String(enabledProducts),
-              note: `${products.length} 个总商品`,
-            },
-            {
-              label: '待支付订单',
-              value: String(pendingOrders),
-              note: `${orders.length} 条最近订单`,
-            },
-          ].map((item) => (
-            <div key={item.label} className="rounded-xl border border-border/70 bg-background px-4 py-4 shadow-sm">
-              <p className="text-[11px] uppercase tracking-[0.18em] text-muted-foreground">{item.label}</p>
-              <p className="mt-3 text-xl font-semibold tracking-tight">{item.value}</p>
-              <p className="mt-1 text-xs text-muted-foreground">{item.note}</p>
-            </div>
-          ))}
-        </div>
-      </div>
-
-      <AnimatePresence>
-        {message && (
-          <motion.div initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }}>
-            <Alert variant={message.type === 'error' ? 'destructive' : 'default'}>
-              {message.type === 'error' ? <CircleAlert className="h-4 w-4" /> : <CheckCircle2 className="h-4 w-4" />}
-              <AlertDescription>{message.text}</AlertDescription>
-            </Alert>
-          </motion.div>
         )}
-      </AnimatePresence>
-
-      <motion.section
-        initial={{ opacity: 0, y: 18 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ type: 'spring', bounce: 0.18, duration: 0.45 }}
-        className="space-y-4"
       >
-        <div>
-          <h3 className="text-sm font-semibold tracking-[0.08em]">支付设置</h3>
-          <p className="text-xs text-muted-foreground">单支付宝扫码，私钥不回显。</p>
-        </div>
+        <PageStatStrip>
+          <PageStat
+            label="支付开关"
+            value={settings?.purchaseEnabled ? '开启' : '关闭'}
+            note={settings?.paymentConfigured ? '配置完整' : '待配置'}
+          />
+          <PageStat
+            label="DEBUG"
+            value={settings?.debugAutoPaid ? '开启' : '关闭'}
+            note={settings?.debugAutoPaid ? '自动入账' : '真实扫码'}
+          />
+          <PageStat
+            label="商品"
+            value={enabledProducts}
+            note={`${products.length} 个总商品`}
+          />
+          <PageStat
+            label="待支付订单"
+            value={pendingOrders}
+            note={`${orders.length} 条最近订单`}
+          />
+        </PageStatStrip>
 
-        <div className="rounded-xl border border-border/70 bg-background px-5 py-5 shadow-sm">
+        <AnimatePresence>
+          {message && (
+            <motion.div initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }}>
+              <Alert variant={message.type === 'error' ? 'destructive' : 'default'}>
+                {message.type === 'error' ? <CircleAlert className="h-4 w-4" /> : <CheckCircle2 className="h-4 w-4" />}
+                <AlertDescription>{message.text}</AlertDescription>
+              </Alert>
+            </motion.div>
+          )}
+        </AnimatePresence>
+
+        <PageSurface
+          title="支付设置"
+          description="沿用系统设置页的“标题 + 说明 + 操作入口 + 主体表单”结构，私钥保持不回显。"
+          actions={(
+            <Badge variant="outline" className={settings?.paymentConfigured ? 'border-emerald-200 bg-emerald-50 text-emerald-700' : 'border-slate-200 bg-slate-100 text-slate-600'}>
+              {settings?.paymentConfigured ? '支付配置完整' : '支付配置待补齐'}
+            </Badge>
+          )}
+          footer={(
+            <>
+              <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+                <span>真实支付和 DEBUG 共用同一套订单与发放逻辑。</span>
+              </div>
+              <Button onClick={handleSaveSettings} disabled={savingSettings}>
+                {savingSettings ? <RefreshCw className="mr-2 h-4 w-4 animate-spin" /> : <CreditCard className="mr-2 h-4 w-4" />}
+                保存设置
+              </Button>
+            </>
+          )}
+        >
           <div className="grid gap-5 lg:grid-cols-2">
             <div className="space-y-4">
               <div className="flex items-center justify-between border-b border-border/70 pb-3">
@@ -498,40 +497,25 @@ export default function PaidSubscriptions() {
               </div>
             </div>
           </div>
+        </PageSurface>
 
-          <div className="mt-5 flex items-center justify-between border-t border-border/70 pt-4">
-            <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-              <Badge variant="outline" className={`${settings?.paymentConfigured ? 'border-emerald-200 bg-emerald-50 text-emerald-700' : 'border-slate-200 bg-slate-100 text-slate-600'}`}>
-                {settings?.paymentConfigured ? '支付配置完整' : '支付配置待补齐'}
-              </Badge>
-              <span>真实支付和 DEBUG 共用同一套订单与发放逻辑。</span>
-            </div>
-            <Button onClick={handleSaveSettings} disabled={savingSettings}>
-              {savingSettings ? <RefreshCw className="mr-2 h-4 w-4 animate-spin" /> : <CreditCard className="mr-2 h-4 w-4" />}
-              保存设置
+        <PageSurface
+          title="售卖商品"
+          description="商品是面向用户的购买入口，重点呈现绑定套餐、排序和推荐状态。"
+          actions={(
+            <Button onClick={openCreateProduct}>
+              <Plus className="mr-2 h-4 w-4" />
+              新建商品
             </Button>
-          </div>
-        </div>
-      </motion.section>
-
-      <motion.section
-        initial={{ opacity: 0, y: 18 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ type: 'spring', bounce: 0.18, duration: 0.45, delay: 0.04 }}
-        className="space-y-4"
-      >
-        <div className="flex items-center justify-between">
-          <div>
-            <h3 className="text-sm font-semibold tracking-[0.08em]">售卖商品</h3>
-            <p className="text-xs text-muted-foreground">商品绑定现有订阅套餐。</p>
-          </div>
-          <Button onClick={openCreateProduct}>
-            <Plus className="mr-2 h-4 w-4" />
-            新建商品
-          </Button>
-        </div>
-
-        <div className="overflow-hidden rounded-xl border border-border/70 bg-background shadow-sm">
+          )}
+          footer={(
+            <>
+              <span className="ops-inline-note">展示 {products.length} 条记录，推荐商品会固定靠前。</span>
+              <span className="ops-inline-note">操作主体：编辑、上/下架、删除。</span>
+            </>
+          )}
+        >
+          <div className="ops-table-shell">
           {products.length === 0 ? (
             <div className="px-5 py-10 text-sm text-muted-foreground">暂无商品。</div>
           ) : (
@@ -592,21 +576,20 @@ export default function PaidSubscriptions() {
               </TableBody>
             </Table>
           )}
-        </div>
-      </motion.section>
-
-      <motion.section
-        initial={{ opacity: 0, y: 18 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ type: 'spring', bounce: 0.18, duration: 0.45, delay: 0.08 }}
-        className="space-y-4"
-      >
-        <div className="space-y-3">
-          <div>
-            <h3 className="text-sm font-semibold tracking-[0.08em]">订单</h3>
-            <p className="text-xs text-muted-foreground">最近 100 条，可按支付和发放状态筛选。</p>
           </div>
-          <div className="grid gap-3 md:grid-cols-[1fr_180px_180px_220px_auto]">
+        </PageSurface>
+
+        <PageSurface
+          title="订单"
+          description="最近 100 条订单保留完整支付和发放状态，筛选与列表分成两个层次。"
+          bodyClassName="px-0 py-0"
+        >
+          <PageToolbarRow>
+            <div className="space-y-1">
+              <p className="text-sm font-medium text-foreground">筛选条件</p>
+              <p className="ops-inline-note">按用户、支付状态、发放状态和商品组合过滤。</p>
+            </div>
+            <div className="grid gap-3 md:grid-cols-[1fr_180px_180px_220px_auto]">
             <Input
               value={orderFilters.username}
               onChange={(event) => setOrderFilters((current) => ({ ...current, username: event.target.value }))}
@@ -651,10 +634,10 @@ export default function PaidSubscriptions() {
               <RefreshCw className={`mr-2 h-4 w-4 ${ordersLoading ? 'animate-spin' : ''}`} />
               查询
             </Button>
-          </div>
-        </div>
+            </div>
+          </PageToolbarRow>
 
-        <div className="overflow-hidden rounded-xl border border-border/70 bg-background shadow-sm">
+          <div className="ops-table-shell rounded-none border-x-0 border-b-0">
           {orders.length === 0 ? (
             <div className="px-5 py-10 text-sm text-muted-foreground">暂无订单。</div>
           ) : (
@@ -722,10 +705,10 @@ export default function PaidSubscriptions() {
               </TableBody>
             </Table>
           )}
-        </div>
-      </motion.section>
+          </div>
+        </PageSurface>
 
-      <Dialog open={productDialogOpen} onOpenChange={setProductDialogOpen}>
+        <Dialog open={productDialogOpen} onOpenChange={setProductDialogOpen}>
         <DialogContent className="max-w-2xl border-border/80">
           <DialogHeader>
             <DialogTitle className="text-xl">{editingProduct ? '编辑商品' : '新建商品'}</DialogTitle>
@@ -826,7 +809,8 @@ export default function PaidSubscriptions() {
             </Button>
           </DialogFooter>
         </DialogContent>
-      </Dialog>
+        </Dialog>
+      </PageShell>
     </motion.div>
   )
 }

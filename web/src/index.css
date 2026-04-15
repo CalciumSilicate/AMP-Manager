@@ -91,6 +91,66 @@ html[data-noto-sc-full="1"] {
 }
 
 @layer components {
+  .ops-page-shell {
+    @apply mx-auto space-y-6;
+  }
+
+  .ops-page-header {
+    @apply flex flex-col gap-4 border-b border-border/70 pb-5 sm:flex-row sm:items-end sm:justify-between;
+  }
+
+  .ops-subnav {
+    @apply flex flex-wrap items-center gap-2 rounded-2xl border border-border/70 bg-card/95 px-3 py-3 shadow-sm;
+  }
+
+  .ops-subnav-button {
+    @apply rounded-full px-3.5 py-1.5 text-sm font-medium transition-colors;
+  }
+
+  .ops-subnav-button-active {
+    @apply bg-primary text-primary-foreground shadow-sm;
+  }
+
+  .ops-subnav-button-idle {
+    @apply text-muted-foreground hover:bg-muted hover:text-foreground;
+  }
+
+  .ops-stat-strip {
+    @apply grid gap-3 md:grid-cols-2 xl:grid-cols-4;
+  }
+
+  .ops-stat-card {
+    @apply rounded-2xl border border-border/70 bg-card/95 px-4 py-4 shadow-sm;
+  }
+
+  .ops-surface {
+    @apply overflow-hidden rounded-2xl border border-border/80 bg-card/95 shadow-sm;
+  }
+
+  .ops-surface-header {
+    @apply flex flex-col gap-3 border-b border-border/70 px-5 py-4 lg:flex-row lg:items-start lg:justify-between;
+  }
+
+  .ops-surface-body {
+    @apply px-5 py-5;
+  }
+
+  .ops-surface-footer {
+    @apply flex flex-col gap-3 border-t border-border/70 px-5 py-4 sm:flex-row sm:items-center sm:justify-between;
+  }
+
+  .ops-toolbar-row {
+    @apply flex flex-col gap-3 border-b border-border/70 px-5 py-4 lg:flex-row lg:items-start lg:justify-between;
+  }
+
+  .ops-inline-note {
+    @apply text-xs text-muted-foreground;
+  }
+
+  .ops-table-shell {
+    @apply overflow-hidden rounded-xl border border-border/70 bg-background/80;
+  }
+
   .admin-page-shell {
     @apply mx-auto space-y-5;
   }

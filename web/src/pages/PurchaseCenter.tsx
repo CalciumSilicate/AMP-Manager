@@ -13,6 +13,7 @@ import {
   type PurchaseProduct,
 } from '@/api/purchase'
 import { RedeemQuickEntry } from '@/components/redeem/RedeemPanels'
+import { PageShell, PageStat, PageStatStrip, PageSurface } from '@/components/layout/PageScaffold'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -200,37 +201,43 @@ export default function PurchaseCenter() {
   }
 
   return (
-    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-6">
-      <div className="flex items-start justify-between gap-4 border-b border-border/70 pb-5">
-        <div className="space-y-1">
-          <h2 className="text-2xl font-semibold tracking-tight">购买订阅</h2>
-          <p className="text-sm text-muted-foreground">直购续期，也可直接兑换。</p>
-        </div>
-        <Button variant="outline" size="sm" onClick={() => void loadAll(true)} disabled={reloading}>
-          <RefreshCw className={`mr-2 h-4 w-4 ${reloading ? 'animate-spin' : ''}`} />
-          刷新
-        </Button>
-      </div>
+    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
+      <PageShell
+        title="购买订阅"
+        description="把当前订阅、兑换入口、商品清单和订单状态放进同一条自助购买路径。"
+        width="7xl"
+        actions={(
+          <Button variant="outline" size="sm" onClick={() => void loadAll(true)} disabled={reloading}>
+            <RefreshCw className={`mr-2 h-4 w-4 ${reloading ? 'animate-spin' : ''}`} />
+            刷新
+          </Button>
+        )}
+      >
+        <PageStatStrip>
+          <PageStat label="支付方式" value={paymentChannelLabel(catalog)} note={catalog?.paymentConfigured ? '扫码即可下单' : '等待配置'} />
+          <PageStat label="当前套餐" value={catalog?.currentSubscription?.planName || '未订阅'} note={catalog?.currentSubscription?.expiresAt ? `到期 ${formatDateTime(catalog.currentSubscription.expiresAt)}` : catalog?.renewalRule || '-'} />
+          <PageStat label="可购商品" value={catalog?.products.length || 0} note={catalog?.purchaseEnabled ? '可立即下单' : '购买已关闭'} />
+          <PageStat label="待支付订单" value={pendingOrders.length} note={`${orders.length} 条最近订单`} />
+        </PageStatStrip>
 
-      {message && (
-        <Alert variant={message.type === 'error' ? 'destructive' : 'default'}>
-          {message.type === 'error' ? <CircleAlert className="h-4 w-4" /> : <CheckCircle2 className="h-4 w-4" />}
-          <AlertDescription>{message.text}</AlertDescription>
-        </Alert>
-      )}
+        {message && (
+          <Alert variant={message.type === 'error' ? 'destructive' : 'default'}>
+            {message.type === 'error' ? <CircleAlert className="h-4 w-4" /> : <CheckCircle2 className="h-4 w-4" />}
+            <AlertDescription>{message.text}</AlertDescription>
+          </Alert>
+        )}
 
-      <div className="grid gap-5 xl:grid-cols-[1.1fr_0.9fr]">
-        <section className="rounded-xl border border-border/80 bg-card/95 shadow-sm">
-          <div className="flex flex-col gap-3 border-b border-border/70 px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
-            <div>
-              <h3 className="text-base font-semibold">当前订阅</h3>
-              <p className="text-sm text-muted-foreground">购买与续期走同一条支付链路。</p>
-            </div>
-            <Badge variant="outline" className="self-start sm:self-center">
-              {paymentChannelLabel(catalog)}
-            </Badge>
-          </div>
-          <div className="grid gap-4 px-5 py-5 lg:grid-cols-[1.3fr_0.7fr]">
+        <div className="grid gap-5 xl:grid-cols-[1.1fr_0.9fr]">
+          <PageSurface
+            title="当前订阅"
+            description="续费、开通和支付方式都沿用一条支付链路。"
+            actions={(
+              <Badge variant="outline" className="self-start sm:self-center">
+                {paymentChannelLabel(catalog)}
+              </Badge>
+            )}
+          >
+            <div className="grid gap-4 lg:grid-cols-[1.3fr_0.7fr]">
             <div className="space-y-3">
               <div>
                 <p className="text-[11px] uppercase tracking-[0.18em] text-muted-foreground">套餐</p>
@@ -268,35 +275,28 @@ export default function PurchaseCenter() {
                 <span className="text-right font-medium">{catalog?.renewalRule || '-'}</span>
               </div>
             </div>
-          </div>
-        </section>
+            </div>
+          </PageSurface>
 
-        <section className="rounded-xl border border-border/80 bg-card/95 shadow-sm">
-          <div className="border-b border-border/70 px-5 py-4">
-            <h3 className="text-base font-semibold">兑换码</h3>
-            <p className="mt-1 text-sm text-muted-foreground">支持活动码和单次码。</p>
-          </div>
-          <div className="px-5 py-5">
+          <PageSurface
+            title="兑换码"
+            description="把兑换入口收成一个独立操作主体，避免和购买动作混淆。"
+          >
             <RedeemQuickEntry onSuccess={() => loadAll(true)} />
-          </div>
-        </section>
-      </div>
+          </PageSurface>
+        </div>
 
-      <section className="space-y-4">
-        <div className="flex items-center justify-between gap-3">
-          <div>
-            <h3 className="text-sm font-semibold tracking-[0.08em] text-foreground">可购商品</h3>
-            <p className="text-xs text-muted-foreground">只保留可下单所需信息。</p>
-          </div>
-          {catalog?.currentSubscription ? (
+        <PageSurface
+          title="可购商品"
+          description="展示当前可下单的商品结构，卡片负责选择，页头动作负责跳回额度页。"
+          actions={catalog?.currentSubscription ? (
             <Button variant="ghost" size="sm" onClick={() => navigateDashboard('overview')}>
               <CreditCard className="mr-2 h-4 w-4" />
               查看当前额度
             </Button>
           ) : null}
-        </div>
-
-        {catalog?.products.length ? (
+        >
+          {catalog?.products.length ? (
           <div className="grid gap-4 xl:grid-cols-3">
             {catalog.products.map((product) => (
               <button
@@ -327,22 +327,20 @@ export default function PurchaseCenter() {
               </button>
             ))}
           </div>
-        ) : (
-          <div className="rounded-xl border border-dashed border-border/70 px-5 py-8 text-sm text-muted-foreground">
-            当前没有可购买的商品。
-          </div>
-        )}
-      </section>
+          ) : (
+            <div className="rounded-xl border border-dashed border-border/70 px-5 py-8 text-sm text-muted-foreground">
+              当前没有可购买的商品。
+            </div>
+          )}
+        </PageSurface>
 
-      <section className="rounded-xl border border-border/80 bg-card/95 shadow-sm">
-        <div className="flex flex-col gap-3 border-b border-border/70 px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
-          <div>
-            <h3 className="text-sm font-semibold tracking-[0.08em] text-foreground">我的订单</h3>
-            <p className="text-xs text-muted-foreground">保留当前账号的最近订单。</p>
-          </div>
-          <div className="text-xs text-muted-foreground">共 {orders.length} 条</div>
-        </div>
-        <div className="overflow-hidden rounded-b-xl">
+        <PageSurface
+          title="我的订单"
+          description="保留最近订单和支付动作，操作区只放当前仍然有效的下一步。"
+          actions={<div className="text-xs text-muted-foreground">共 {orders.length} 条</div>}
+          bodyClassName="px-0 py-0"
+        >
+          <div className="ops-table-shell rounded-none border-x-0 border-b-0">
           {orders.length === 0 ? (
             <div className="px-5 py-10 text-sm text-muted-foreground">暂无订单。</div>
           ) : (
@@ -415,10 +413,10 @@ export default function PurchaseCenter() {
               </TableBody>
             </Table>
           )}
-        </div>
-      </section>
+          </div>
+        </PageSurface>
 
-      <Dialog open={!!confirmProduct} onOpenChange={(open) => !open && setConfirmProduct(null)}>
+        <Dialog open={!!confirmProduct} onOpenChange={(open) => !open && setConfirmProduct(null)}>
         <DialogContent className="max-w-md">
           <DialogHeader>
             <DialogTitle className="text-xl">确认下单</DialogTitle>
@@ -508,7 +506,8 @@ export default function PurchaseCenter() {
             </div>
           ) : null}
         </DialogContent>
-      </Dialog>
+        </Dialog>
+      </PageShell>
     </motion.div>
   )
 }
