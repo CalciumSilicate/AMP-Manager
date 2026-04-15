@@ -12,6 +12,8 @@ type countingChannelRepo struct {
 	listEnabledCalls  int
 	channelGroupIDs   map[string][]string
 	groupBatchCalls   int
+	getByIDCalls      int
+	getGroupIDCalls   int
 }
 
 func (r *countingChannelRepo) Create(channel *model.Channel) error {
@@ -20,6 +22,7 @@ func (r *countingChannelRepo) Create(channel *model.Channel) error {
 }
 
 func (r *countingChannelRepo) GetByID(id string) (*model.Channel, error) {
+	r.getByIDCalls++
 	channel, ok := r.channels[id]
 	if !ok {
 		return nil, nil
@@ -69,6 +72,7 @@ func (r *countingChannelRepo) SetGroups(id string, groupIDs []string) error {
 }
 
 func (r *countingChannelRepo) GetGroupIDs(channelID string) ([]string, error) {
+	r.getGroupIDCalls++
 	return append([]string(nil), r.channelGroupIDs[channelID]...), nil
 }
 
@@ -203,5 +207,44 @@ func TestSelectChannelForModelWithGroupsUsesCachedGroupSnapshot(t *testing.T) {
 	}
 	if repo.groupBatchCalls != 1 {
 		t.Fatalf("GetGroupIDsByChannelIDs calls = %d, want 1", repo.groupBatchCalls)
+	}
+}
+
+func TestSelectSpecificChannelForModelWithGroupsUsesCachedSnapshot(t *testing.T) {
+	invalidateEnabledChannelsCache()
+	repo := &countingChannelRepo{
+		channels: map[string]*model.Channel{
+			"ch-1": {
+				ID:         "ch-1",
+				Enabled:    true,
+				Priority:   1,
+				Weight:     1,
+				Type:       model.ChannelTypeOpenAI,
+				ModelsJSON: `[{"name":"gpt-4o"}]`,
+			},
+		},
+		channelGroupIDs: map[string][]string{
+			"ch-1": {"group-a"},
+		},
+	}
+	svc := NewChannelServiceWithRepo(repo)
+
+	if _, err := svc.SelectSpecificChannelForModelWithGroups("ch-1", "gpt-4o", []string{"group-a"}); err != nil {
+		t.Fatalf("SelectSpecificChannelForModelWithGroups returned error: %v", err)
+	}
+	if _, err := svc.SelectSpecificChannelForModelWithGroups("ch-1", "gpt-4o", []string{"group-a"}); err != nil {
+		t.Fatalf("second SelectSpecificChannelForModelWithGroups returned error: %v", err)
+	}
+	if repo.listEnabledCalls != 1 {
+		t.Fatalf("ListEnabled calls = %d, want 1", repo.listEnabledCalls)
+	}
+	if repo.groupBatchCalls != 1 {
+		t.Fatalf("GetGroupIDsByChannelIDs calls = %d, want 1", repo.groupBatchCalls)
+	}
+	if repo.getByIDCalls != 0 {
+		t.Fatalf("GetByID calls = %d, want 0", repo.getByIDCalls)
+	}
+	if repo.getGroupIDCalls != 0 {
+		t.Fatalf("GetGroupIDs calls = %d, want 0", repo.getGroupIDCalls)
 	}
 }

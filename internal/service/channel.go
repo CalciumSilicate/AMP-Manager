@@ -439,21 +439,26 @@ func (s *ChannelService) SelectSpecificChannelForModelWithGroups(channelID, mode
 		return nil, nil
 	}
 
-	channel, err := s.repo.GetByID(channelID)
+	channels, channelGroupMap, err := s.listEnabledChannelsWithGroups()
 	if err != nil {
 		return nil, err
 	}
-	if channel == nil || !channel.Enabled {
+
+	var channel *model.Channel
+	for _, candidate := range channels {
+		if candidate != nil && candidate.ID == channelID {
+			channel = candidate
+			break
+		}
+	}
+	if channel == nil {
 		return nil, nil
 	}
 	if !s.channelMatchesModel(channel, modelName) {
 		return nil, nil
 	}
 
-	channelGroupIDs, err := s.repo.GetGroupIDs(channelID)
-	if err != nil {
-		return nil, err
-	}
+	channelGroupIDs := channelGroupMap[channelID]
 	if !channelAccessibleForGroups(channelGroupIDs, groupIDs) {
 		return nil, nil
 	}
