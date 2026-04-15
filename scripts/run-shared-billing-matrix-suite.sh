@@ -1,0 +1,84 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+
+PROFILE="${PROFILE:-benchmark-shared-billing}"
+STAGE_SECONDS="${STAGE_SECONDS:-3}"
+STAGES="${STAGES:-100,300,1000}"
+DATABASE_URL="${DATABASE_URL:-postgres://postgres:mysecretpassword@localhost:5432/ampmanager?sslmode=disable}"
+REDIS_URL="${REDIS_URL:-redis://localhost:6379/0}"
+REPORT_DIR="${REPORT_DIR:-${TMPDIR:-/tmp}}"
+STAMP="$(date +%Y%m%d-%H%M%S)"
+
+MATRIX_PROJECTOR_WORKERS="${MATRIX_PROJECTOR_WORKERS:-1,2,4}"
+MATRIX_STREAM_BATCH_SIZES="${MATRIX_STREAM_BATCH_SIZES:-50,100,200}"
+MATRIX_PROJECTOR_CLAIM_IDLE_SECS="${MATRIX_PROJECTOR_CLAIM_IDLE_SECS:-15,30,60}"
+
+mkdir -p "$REPORT_DIR"
+cd "$REPO_ROOT"
+
+WORKERS_REPORT="$REPORT_DIR/pf-shared-workers-matrix-$STAMP.json"
+BATCH_REPORT="$REPORT_DIR/pf-shared-batch-matrix-$STAMP.json"
+CLAIM_REPORT="$REPORT_DIR/pf-shared-claim-matrix-$STAMP.json"
+SUMMARY_REPORT="$REPORT_DIR/pf-shared-summary-$STAMP.md"
+
+echo "== workers matrix =="
+DATABASE_URL="$DATABASE_URL" \
+REDIS_URL="$REDIS_URL" \
+REDIS_PREFIX="pf-workers-$STAMP" \
+PROFILE="$PROFILE" \
+STAGE_SECONDS="$STAGE_SECONDS" \
+STAGES="$STAGES" \
+MATRIX_PROJECTOR_WORKERS="$MATRIX_PROJECTOR_WORKERS" \
+OUTPUT_PATH="$WORKERS_REPORT" \
+MATRIX_STREAM_BATCH_SIZES="" \
+MATRIX_RECONCILE_BATCH_SIZES="" \
+MATRIX_EXPIRY_BATCH_SIZES="" \
+MATRIX_PROJECTOR_CLAIM_IDLE_SECS="" \
+./scripts/run-shared-billing-benchmark.sh
+
+echo "== batch matrix =="
+DATABASE_URL="$DATABASE_URL" \
+REDIS_URL="$REDIS_URL" \
+REDIS_PREFIX="pf-batch-$STAMP" \
+PROFILE="$PROFILE" \
+STAGE_SECONDS="$STAGE_SECONDS" \
+STAGES="$STAGES" \
+PROJECTOR_WORKERS="${PROJECTOR_WORKERS:-4}" \
+MATRIX_PROJECTOR_WORKERS="" \
+MATRIX_STREAM_BATCH_SIZES="$MATRIX_STREAM_BATCH_SIZES" \
+MATRIX_RECONCILE_BATCH_SIZES="" \
+MATRIX_EXPIRY_BATCH_SIZES="" \
+MATRIX_PROJECTOR_CLAIM_IDLE_SECS="" \
+OUTPUT_PATH="$BATCH_REPORT" \
+./scripts/run-shared-billing-benchmark.sh
+
+echo "== claim-idle matrix =="
+DATABASE_URL="$DATABASE_URL" \
+REDIS_URL="$REDIS_URL" \
+REDIS_PREFIX="pf-claim-$STAMP" \
+PROFILE="$PROFILE" \
+STAGE_SECONDS="$STAGE_SECONDS" \
+STAGES="$STAGES" \
+PROJECTOR_WORKERS="${PROJECTOR_WORKERS:-4}" \
+MATRIX_PROJECTOR_WORKERS="" \
+MATRIX_STREAM_BATCH_SIZES="" \
+MATRIX_RECONCILE_BATCH_SIZES="" \
+MATRIX_EXPIRY_BATCH_SIZES="" \
+MATRIX_PROJECTOR_CLAIM_IDLE_SECS="$MATRIX_PROJECTOR_CLAIM_IDLE_SECS" \
+OUTPUT_PATH="$CLAIM_REPORT" \
+./scripts/run-shared-billing-benchmark.sh
+
+echo "== markdown summary =="
+node ./scripts/summarize-shared-billing-report.mjs \
+  --output "$SUMMARY_REPORT" \
+  "$WORKERS_REPORT" \
+  "$BATCH_REPORT" \
+  "$CLAIM_REPORT"
+
+echo "workers_report=$WORKERS_REPORT"
+echo "batch_report=$BATCH_REPORT"
+echo "claim_report=$CLAIM_REPORT"
+echo "summary_report=$SUMMARY_REPORT"

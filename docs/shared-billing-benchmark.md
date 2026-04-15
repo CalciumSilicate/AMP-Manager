@@ -91,6 +91,30 @@ go run ./cmd/loadtest-responses \
   -output "${TMPDIR:-/tmp}/pf-claim-matrix.json"
 ```
 
+一次性运行三套矩阵并自动生成摘要：
+
+```bash
+./scripts/run-shared-billing-matrix-suite.sh
+```
+
+可通过环境变量覆盖参数，例如：
+
+```bash
+STAGE_SECONDS=5 \
+STAGES=100,300,1000 \
+MATRIX_PROJECTOR_WORKERS=1,2,4 \
+MATRIX_STREAM_BATCH_SIZES=50,100,200 \
+MATRIX_PROJECTOR_CLAIM_IDLE_SECS=15,30,60 \
+./scripts/run-shared-billing-matrix-suite.sh
+```
+
+脚本会输出：
+
+- workers matrix JSON
+- batch matrix JSON
+- claim-idle matrix JSON
+- 一份 markdown summary
+
 ## 输出解读
 
 终端会输出：
