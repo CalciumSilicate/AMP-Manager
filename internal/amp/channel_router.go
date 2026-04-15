@@ -12,6 +12,7 @@ import (
 	"runtime"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"ampmanager/internal/billing"
@@ -29,6 +30,7 @@ import (
 
 // sharedChannelTransport 是共享的 Channel Proxy Transport，用于连接复用
 var sharedChannelTransport = NewStreamingTransport()
+var channelHeadersCache sync.Map
 
 // translationContextKey is used to store translation info in context
 type translationContextKey struct{}
@@ -573,12 +575,8 @@ func ChannelProxyHandler() gin.HandlerFunc {
 				// In strict Claude CLI simulation mode we rebuild a fixed header set,
 				// so custom channel headers must not be reintroduced afterwards.
 				if !simulateClaudeCLI {
-					// Apply custom headers from channel config
-					var headersMap map[string]string
-					if err := json.Unmarshal([]byte(channel.HeadersJSON), &headersMap); err == nil {
-						for k, v := range headersMap {
-							req.Header.Set(k, v)
-						}
+					for k, v := range getParsedChannelHeaders(channel.HeadersJSON) {
+						req.Header.Set(k, v)
 					}
 				}
 
@@ -910,6 +908,36 @@ func applyChannelAuth(channel *model.Channel, req *http.Request) {
 	case model.ChannelTypeGemini:
 		req.Header.Set("x-goog-api-key", channel.APIKey)
 	}
+}
+
+type parsedChannelHeaders struct {
+	headers map[string]string
+	valid   bool
+}
+
+func getParsedChannelHeaders(raw string) map[string]string {
+	if strings.TrimSpace(raw) == "" {
+		return nil
+	}
+	if cached, ok := channelHeadersCache.Load(raw); ok {
+		entry := cached.(*parsedChannelHeaders)
+		if entry.valid {
+			return entry.headers
+		}
+		return nil
+	}
+
+	headers := make(map[string]string)
+	err := json.Unmarshal([]byte(raw), &headers)
+	entry := &parsedChannelHeaders{
+		headers: headers,
+		valid:   err == nil,
+	}
+	channelHeadersCache.Store(raw, entry)
+	if !entry.valid {
+		return nil
+	}
+	return entry.headers
 }
 
 // applyClaudeCLISimulation 注入 Claude Code CLI headers。
