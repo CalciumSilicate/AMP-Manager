@@ -184,9 +184,6 @@ export interface RequestLog {
   chargedSubscriptionMicros: number
   chargedBalanceMicros: number
   billingGapMicros?: number
-  downstreamTransport?: string
-  upstreamTransport?: string
-  transportFallbackReason?: string
 }
 
 export interface RequestLogListResponse {

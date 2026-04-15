@@ -492,7 +492,6 @@ func ChannelProxyHandler() gin.HandlerFunc {
 					c.Request.Method,
 					c.Request.URL.Path,
 				)
-				trace.SetUpstreamTransport("http")
 				// Set channel info
 				trace.SetChannel(channel.ID, string(channel.Type), channel.BaseURL)
 				trace.SetModels(originalModel, mappedModel)

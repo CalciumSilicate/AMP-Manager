@@ -383,7 +383,6 @@ func CreateDynamicReverseProxy() *httputil.ReverseProxy {
 					req.Method,
 					req.URL.Path,
 				)
-				trace.SetUpstreamTransport("http")
 				// Set provider info (amp upstream defaults to Anthropic)
 				trace.SetChannel("", string(ProviderAnthropic), cfg.UpstreamURL)
 				// Get model info from context if available

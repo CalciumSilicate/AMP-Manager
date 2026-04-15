@@ -182,7 +182,6 @@ func (r *RequestLogRepository) List(params ListParams) ([]model.RequestLog, int6
 		       r.is_streaming, r.input_tokens, r.output_tokens, r.cache_read_input_tokens,
 		       r.cache_creation_input_tokens, r.error_type, r.request_id, r.cost_micros, r.cost_usd, r.pricing_model, r.thinking_level,
 		       r.charged_subscription_micros, r.charged_balance_micros, r.billing_status,
-		       r.downstream_transport, r.upstream_transport, r.transport_fallback_reason,
 		       %s as output_preview
 		FROM request_logs r
                 LEFT JOIN users u ON r.user_id = u.id
@@ -209,7 +208,7 @@ func (r *RequestLogRepository) List(params ListParams) ([]model.RequestLog, int6
 		var status sql.NullString
 		var isStreaming int
 		var username, apiKeyName, apiKeyPrefix sql.NullString
-		var originalModel, mappedModel, provider, channelID, channelName, endpoint, errorType, requestID, costUsd, pricingModel, thinkingLevel, downstreamTransport, upstreamTransport, transportFallbackReason, outputPreview, billingStatus sql.NullString
+		var originalModel, mappedModel, provider, channelID, channelName, endpoint, errorType, requestID, costUsd, pricingModel, thinkingLevel, outputPreview, billingStatus sql.NullString
 		var inputTokens, outputTokens, cacheRead, cacheCreation, costMicros, ttfbMs, chargedSubscriptionMicros, chargedBalanceMicros sql.NullInt64
 
 		err := rows.Scan(
@@ -219,7 +218,6 @@ func (r *RequestLogRepository) List(params ListParams) ([]model.RequestLog, int6
 			&isStreaming, &inputTokens, &outputTokens, &cacheRead, &cacheCreation,
 			&errorType, &requestID, &costMicros, &costUsd, &pricingModel, &thinkingLevel,
 			&chargedSubscriptionMicros, &chargedBalanceMicros, &billingStatus,
-			&downstreamTransport, &upstreamTransport, &transportFallbackReason,
 			&outputPreview,
 		)
 		if err != nil {
@@ -311,15 +309,6 @@ func (r *RequestLogRepository) List(params ListParams) ([]model.RequestLog, int6
 		}
 		if thinkingLevel.Valid {
 			log.ThinkingLevel = &thinkingLevel.String
-		}
-		if downstreamTransport.Valid {
-			log.DownstreamTransport = &downstreamTransport.String
-		}
-		if upstreamTransport.Valid {
-			log.UpstreamTransport = &upstreamTransport.String
-		}
-		if transportFallbackReason.Valid {
-			log.TransportFallbackReason = &transportFallbackReason.String
 		}
 		if outputPreview.Valid {
 			log.OutputPreview = &outputPreview.String
@@ -884,7 +873,7 @@ func (r *RequestLogRepository) GetByID(id string) (*model.RequestLog, error) {
 	var updatedAt sql.NullTime
 	var status sql.NullString
 	var isStreaming int
-	var originalModel, mappedModel, provider, channelID, channelName, endpoint, errorType, requestID, costUsd, pricingModel, thinkingLevel, downstreamTransport, upstreamTransport, transportFallbackReason, billingStatus sql.NullString
+	var originalModel, mappedModel, provider, channelID, channelName, endpoint, errorType, requestID, costUsd, pricingModel, thinkingLevel, billingStatus sql.NullString
 	var inputTokens, outputTokens, cacheRead, cacheCreation, costMicros, ttfbMs, chargedSubscriptionMicros, chargedBalanceMicros sql.NullInt64
 
 	err := db.QueryRow(`
@@ -892,8 +881,7 @@ func (r *RequestLogRepository) GetByID(id string) (*model.RequestLog, error) {
 		       r.provider, r.channel_id, c.name as channel_name, r.endpoint, r.method, r.path, r.status_code, r.latency_ms, r.ttfb_ms,
 		       r.is_streaming, r.input_tokens, r.output_tokens, r.cache_read_input_tokens,
 		       r.cache_creation_input_tokens, r.error_type, r.request_id, r.cost_micros, r.cost_usd, r.pricing_model, r.thinking_level,
-		       r.charged_subscription_micros, r.charged_balance_micros, r.billing_status,
-		       r.downstream_transport, r.upstream_transport, r.transport_fallback_reason
+		       r.charged_subscription_micros, r.charged_balance_micros, r.billing_status
 		FROM request_logs r
 		LEFT JOIN channels c ON r.channel_id = c.id
 		WHERE r.id = ?
@@ -904,7 +892,6 @@ func (r *RequestLogRepository) GetByID(id string) (*model.RequestLog, error) {
 		&isStreaming, &inputTokens, &outputTokens, &cacheRead, &cacheCreation,
 		&errorType, &requestID, &costMicros, &costUsd, &pricingModel, &thinkingLevel,
 		&chargedSubscriptionMicros, &chargedBalanceMicros, &billingStatus,
-		&downstreamTransport, &upstreamTransport, &transportFallbackReason,
 	)
 
 	if err == sql.ErrNoRows {
@@ -991,15 +978,6 @@ func (r *RequestLogRepository) GetByID(id string) (*model.RequestLog, error) {
 	if thinkingLevel.Valid {
 		log.ThinkingLevel = &thinkingLevel.String
 	}
-	if downstreamTransport.Valid {
-		log.DownstreamTransport = &downstreamTransport.String
-	}
-	if upstreamTransport.Valid {
-		log.UpstreamTransport = &upstreamTransport.String
-	}
-	if transportFallbackReason.Valid {
-		log.TransportFallbackReason = &transportFallbackReason.String
-	}
 	enrichRequestLogMetrics(&log)
 
 	return &log, nil
@@ -1015,7 +993,7 @@ func (r *RequestLogRepository) GetByIDWithJoins(id string) (*model.RequestLog, e
 	var status sql.NullString
 	var isStreaming int
 	var username, apiKeyName, apiKeyPrefix sql.NullString
-	var originalModel, mappedModel, provider, channelID, channelName, endpoint, errorType, requestID, costUsd, pricingModel, thinkingLevel, downstreamTransport, upstreamTransport, transportFallbackReason, billingStatus sql.NullString
+	var originalModel, mappedModel, provider, channelID, channelName, endpoint, errorType, requestID, costUsd, pricingModel, thinkingLevel, billingStatus sql.NullString
 	var inputTokens, outputTokens, cacheRead, cacheCreation, costMicros, ttfbMs, chargedSubscriptionMicros, chargedBalanceMicros sql.NullInt64
 
 	err := db.QueryRow(`
@@ -1024,8 +1002,7 @@ func (r *RequestLogRepository) GetByIDWithJoins(id string) (*model.RequestLog, e
 		       r.method, r.path, r.status_code, r.latency_ms, r.ttfb_ms,
 		       r.is_streaming, r.input_tokens, r.output_tokens, r.cache_read_input_tokens,
 		       r.cache_creation_input_tokens, r.error_type, r.request_id, r.cost_micros, r.cost_usd, r.pricing_model, r.thinking_level,
-		       r.charged_subscription_micros, r.charged_balance_micros, r.billing_status,
-		       r.downstream_transport, r.upstream_transport, r.transport_fallback_reason
+		       r.charged_subscription_micros, r.charged_balance_micros, r.billing_status
 		FROM request_logs r
 		LEFT JOIN users u ON r.user_id = u.id
 		LEFT JOIN user_api_keys k ON r.api_key_id = k.id
@@ -1038,7 +1015,6 @@ func (r *RequestLogRepository) GetByIDWithJoins(id string) (*model.RequestLog, e
 		&isStreaming, &inputTokens, &outputTokens, &cacheRead, &cacheCreation,
 		&errorType, &requestID, &costMicros, &costUsd, &pricingModel, &thinkingLevel,
 		&chargedSubscriptionMicros, &chargedBalanceMicros, &billingStatus,
-		&downstreamTransport, &upstreamTransport, &transportFallbackReason,
 	)
 
 	if err == sql.ErrNoRows {
@@ -1132,15 +1108,6 @@ func (r *RequestLogRepository) GetByIDWithJoins(id string) (*model.RequestLog, e
 	}
 	if thinkingLevel.Valid {
 		l.ThinkingLevel = &thinkingLevel.String
-	}
-	if downstreamTransport.Valid {
-		l.DownstreamTransport = &downstreamTransport.String
-	}
-	if upstreamTransport.Valid {
-		l.UpstreamTransport = &upstreamTransport.String
-	}
-	if transportFallbackReason.Valid {
-		l.TransportFallbackReason = &transportFallbackReason.String
 	}
 	enrichRequestLogMetrics(&l)
 

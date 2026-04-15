@@ -29,7 +29,7 @@ var compiledChannelModelRulesCache sync.Map
 var headersCache sync.Map
 var enabledChannelsSnapshot = &enabledChannelsCache{
 	snapshots: make(map[string]enabledChannelsSnapshotEntry),
-	cacheTTL:  2 * time.Second,
+	cacheTTL: 2 * time.Second,
 }
 
 type parsedModelsEntry struct {
@@ -51,9 +51,9 @@ type parsedHeadersEntry struct {
 }
 
 type enabledChannelsCache struct {
-	mu        sync.RWMutex
+	mu       sync.RWMutex
 	snapshots map[string]enabledChannelsSnapshotEntry
-	cacheTTL  time.Duration
+	cacheTTL time.Duration
 }
 
 type enabledChannelsSnapshotEntry struct {
@@ -243,23 +243,22 @@ func (s *ChannelService) Create(req *model.ChannelRequest) (*model.ChannelRespon
 	}
 
 	channel := &model.Channel{
-		Type:                  req.Type,
-		Endpoint:              endpoint,
-		Name:                  req.Name,
-		BaseURL:               strings.TrimSuffix(req.BaseURL, "/"),
-		APIKey:                req.APIKey,
-		Enabled:               req.Enabled,
-		Weight:                weight,
-		Priority:              priority,
-		ModelWhitelist:        req.ModelWhitelist,
-		SimulateCLI:           req.SimulateCLI,
-		SimulateUA:            req.SimulateUA,
-		SimulateSystemPrompt:  req.SimulateSystemPrompt,
-		TraditionalChinese:    req.TraditionalChinese,
-		CopilotAPI:            req.CopilotAPI,
-		CodexWebsocketEnabled: req.CodexWebsocketEnabled,
-		ModelsJSON:            string(modelsJSON),
-		HeadersJSON:           string(headersJSON),
+		Type:                 req.Type,
+		Endpoint:             endpoint,
+		Name:                 req.Name,
+		BaseURL:              strings.TrimSuffix(req.BaseURL, "/"),
+		APIKey:               req.APIKey,
+		Enabled:              req.Enabled,
+		Weight:               weight,
+		Priority:             priority,
+		ModelWhitelist:       req.ModelWhitelist,
+		SimulateCLI:          req.SimulateCLI,
+		SimulateUA:           req.SimulateUA,
+		SimulateSystemPrompt: req.SimulateSystemPrompt,
+		TraditionalChinese:   req.TraditionalChinese,
+		CopilotAPI:           req.CopilotAPI,
+		ModelsJSON:           string(modelsJSON),
+		HeadersJSON:          string(headersJSON),
 	}
 
 	if err := s.repo.Create(channel); err != nil {
@@ -351,7 +350,6 @@ func (s *ChannelService) Update(id string, req *model.ChannelRequest) (*model.Ch
 	existing.SimulateSystemPrompt = req.SimulateSystemPrompt
 	existing.TraditionalChinese = req.TraditionalChinese
 	existing.CopilotAPI = req.CopilotAPI
-	existing.CodexWebsocketEnabled = req.CodexWebsocketEnabled
 	existing.ModelsJSON = string(modelsJSON)
 	existing.HeadersJSON = string(headersJSON)
 
@@ -873,27 +871,26 @@ func (s *ChannelService) buildResponse(channel *model.Channel, gids []string, gr
 	}
 
 	return &model.ChannelResponse{
-		ID:                    channel.ID,
-		Type:                  channel.Type,
-		Endpoint:              channel.Endpoint,
-		Name:                  channel.Name,
-		BaseURL:               channel.BaseURL,
-		APIKeySet:             channel.APIKey != "",
-		Enabled:               channel.Enabled,
-		Weight:                channel.Weight,
-		Priority:              channel.Priority,
-		ModelWhitelist:        channel.ModelWhitelist,
-		SimulateCLI:           channel.SimulateCLI,
-		SimulateUA:            channel.SimulateUA,
-		SimulateSystemPrompt:  channel.SimulateSystemPrompt,
-		TraditionalChinese:    channel.TraditionalChinese,
-		CopilotAPI:            channel.CopilotAPI,
-		CodexWebsocketEnabled: channel.CodexWebsocketEnabled,
-		GroupIDs:              groupIDs,
-		GroupNames:            groupNames,
-		Models:                models,
-		Headers:               clonedHeaders,
-		CreatedAt:             channel.CreatedAt,
-		UpdatedAt:             channel.UpdatedAt,
+		ID:                   channel.ID,
+		Type:                 channel.Type,
+		Endpoint:             channel.Endpoint,
+		Name:                 channel.Name,
+		BaseURL:              channel.BaseURL,
+		APIKeySet:            channel.APIKey != "",
+		Enabled:              channel.Enabled,
+		Weight:               channel.Weight,
+		Priority:             channel.Priority,
+		ModelWhitelist:       channel.ModelWhitelist,
+		SimulateCLI:          channel.SimulateCLI,
+		SimulateUA:           channel.SimulateUA,
+		SimulateSystemPrompt: channel.SimulateSystemPrompt,
+		TraditionalChinese:   channel.TraditionalChinese,
+		CopilotAPI:           channel.CopilotAPI,
+		GroupIDs:             groupIDs,
+		GroupNames:           groupNames,
+		Models:               models,
+		Headers:              clonedHeaders,
+		CreatedAt:            channel.CreatedAt,
+		UpdatedAt:            channel.UpdatedAt,
 	}
 }
