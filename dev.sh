@@ -59,12 +59,13 @@ wait_for_port() {
   local timeout="${3:-20}"
 
   for _ in $(seq 1 "$timeout"); do
+    if (echo >/dev/tcp/127.0.0.1/"$port") >/dev/null 2>&1; then
+      return
+    fi
     if command -v lsof >/dev/null 2>&1; then
       if lsof -nP -iTCP:"$port" -sTCP:LISTEN >/dev/null 2>&1; then
         return
       fi
-    elif (echo >/dev/tcp/127.0.0.1/"$port") >/dev/null 2>&1; then
-      return
     fi
     sleep 1
   done
@@ -79,11 +80,15 @@ wait_for_port() {
 
 port_in_use() {
   local port="$1"
+  (echo >/dev/tcp/127.0.0.1/"$port") >/dev/null 2>&1
+  if [ $? -eq 0 ]; then
+    return 0
+  fi
   if command -v lsof >/dev/null 2>&1; then
     lsof -nP -iTCP:"$port" -sTCP:LISTEN >/dev/null 2>&1
     return $?
   fi
-  (echo >/dev/tcp/127.0.0.1/"$port") >/dev/null 2>&1
+  return 1
 }
 
 ensure_port_free() {
