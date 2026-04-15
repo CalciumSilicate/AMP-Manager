@@ -42,8 +42,9 @@ type enabledChannelsCache struct {
 }
 
 type enabledChannelsSnapshotEntry struct {
-	channels []*model.Channel
-	loadedAt time.Time
+	channels        []*model.Channel
+	channelGroupMap map[string][]string
+	loadedAt        time.Time
 }
 
 // getParsedModels 从缓存获取或解析 ModelsJSON
@@ -464,7 +465,7 @@ func (s *ChannelService) SelectSpecificChannelForModelWithGroups(channelID, mode
 // 无分组用户: 只能使用未关联分组的渠道
 // 有分组用户: 可以使用其分组渠道 + 未关联分组的渠道
 func (s *ChannelService) SelectChannelForModelWithGroups(modelName string, groupIDs []string) (*model.Channel, error) {
-	channels, err := s.listEnabledChannels()
+	channels, channelGroupMap, err := s.listEnabledChannelsWithGroups()
 	if err != nil {
 		return nil, err
 	}
@@ -481,25 +482,12 @@ func (s *ChannelService) SelectChannelForModelWithGroups(modelName string, group
 		return nil, nil
 	}
 
-	matchingIDs := make([]string, len(matchingChannels))
-	for i, ch := range matchingChannels {
-		matchingIDs[i] = ch.ID
-	}
-	channelGroupMap, batchErr := s.repo.GetGroupIDsByChannelIDs(matchingIDs)
-	fallbackToSingleLookup := batchErr != nil
 	userGroupIDSet := toStringSet(groupIDs)
 
 	// Filter by group access
 	var candidates []*model.Channel
 	for _, ch := range matchingChannels {
 		chGroupIDs := channelGroupMap[ch.ID]
-		if fallbackToSingleLookup {
-			var singleLookupErr error
-			chGroupIDs, singleLookupErr = s.repo.GetGroupIDs(ch.ID)
-			if singleLookupErr != nil {
-				continue
-			}
-		}
 		if channelAccessibleWithSet(chGroupIDs, userGroupIDSet) {
 			candidates = append(candidates, ch)
 		}
@@ -556,11 +544,72 @@ func (s *ChannelService) listEnabledChannels() ([]*model.Channel, error) {
 	cloned := cloneChannels(channels)
 	enabledChannelsSnapshot.mu.Lock()
 	enabledChannelsSnapshot.snapshots[cacheKey] = enabledChannelsSnapshotEntry{
-		channels: cloneChannels(channels),
-		loadedAt: time.Now(),
+		channels:        cloneChannels(channels),
+		channelGroupMap: nil,
+		loadedAt:        time.Now(),
 	}
 	enabledChannelsSnapshot.mu.Unlock()
 	return cloned, nil
+}
+
+func cloneChannelGroupMap(source map[string][]string) map[string][]string {
+	if len(source) == 0 {
+		return nil
+	}
+	cloned := make(map[string][]string, len(source))
+	for key, values := range source {
+		cloned[key] = append([]string(nil), values...)
+	}
+	return cloned
+}
+
+func (s *ChannelService) listEnabledChannelsWithGroups() ([]*model.Channel, map[string][]string, error) {
+	cacheKey := cacheKeyForChannelRepo(s.repo)
+	enabledChannelsSnapshot.mu.RLock()
+	if snapshot, ok := enabledChannelsSnapshot.snapshots[cacheKey]; ok && time.Since(snapshot.loadedAt) < enabledChannelsSnapshot.cacheTTL && len(snapshot.channels) > 0 && snapshot.channelGroupMap != nil {
+		channels := cloneChannels(snapshot.channels)
+		groupMap := cloneChannelGroupMap(snapshot.channelGroupMap)
+		enabledChannelsSnapshot.mu.RUnlock()
+		return channels, groupMap, nil
+	}
+	enabledChannelsSnapshot.mu.RUnlock()
+
+	channels, err := s.repo.ListEnabled()
+	if err != nil {
+		return nil, nil, err
+	}
+
+	channelIDs := make([]string, 0, len(channels))
+	for _, ch := range channels {
+		if ch == nil {
+			continue
+		}
+		channelIDs = append(channelIDs, ch.ID)
+	}
+
+	channelGroupMap, batchErr := s.repo.GetGroupIDsByChannelIDs(channelIDs)
+	fallbackToSingleLookup := batchErr != nil
+	if fallbackToSingleLookup {
+		channelGroupMap = make(map[string][]string, len(channelIDs))
+		for _, channelID := range channelIDs {
+			gids, err := s.repo.GetGroupIDs(channelID)
+			if err != nil {
+				continue
+			}
+			channelGroupMap[channelID] = gids
+		}
+	}
+
+	clonedChannels := cloneChannels(channels)
+	clonedGroups := cloneChannelGroupMap(channelGroupMap)
+	enabledChannelsSnapshot.mu.Lock()
+	enabledChannelsSnapshot.snapshots[cacheKey] = enabledChannelsSnapshotEntry{
+		channels:        cloneChannels(channels),
+		channelGroupMap: cloneChannelGroupMap(channelGroupMap),
+		loadedAt:        time.Now(),
+	}
+	enabledChannelsSnapshot.mu.Unlock()
+	return clonedChannels, clonedGroups, nil
 }
 func toStringSet(values []string) map[string]struct{} {
 	set := make(map[string]struct{}, len(values))

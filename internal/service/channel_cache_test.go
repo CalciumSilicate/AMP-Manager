@@ -11,6 +11,7 @@ type countingChannelRepo struct {
 	channels          map[string]*model.Channel
 	listEnabledCalls  int
 	channelGroupIDs   map[string][]string
+	groupBatchCalls   int
 }
 
 func (r *countingChannelRepo) Create(channel *model.Channel) error {
@@ -72,6 +73,7 @@ func (r *countingChannelRepo) GetGroupIDs(channelID string) ([]string, error) {
 }
 
 func (r *countingChannelRepo) GetGroupIDsByChannelIDs(channelIDs []string) (map[string][]string, error) {
+	r.groupBatchCalls++
 	result := make(map[string][]string, len(channelIDs))
 	for _, channelID := range channelIDs {
 		result[channelID] = append([]string(nil), r.channelGroupIDs[channelID]...)
@@ -168,5 +170,38 @@ func TestEnabledChannelCacheExpiresByTTL(t *testing.T) {
 	}
 	if repo.listEnabledCalls != 2 {
 		t.Fatalf("ListEnabled calls = %d, want 2", repo.listEnabledCalls)
+	}
+}
+
+func TestSelectChannelForModelWithGroupsUsesCachedGroupSnapshot(t *testing.T) {
+	invalidateEnabledChannelsCache()
+	repo := &countingChannelRepo{
+		channels: map[string]*model.Channel{
+			"ch-1": {
+				ID:         "ch-1",
+				Enabled:    true,
+				Priority:   1,
+				Weight:     1,
+				Type:       model.ChannelTypeOpenAI,
+				ModelsJSON: `[{"name":"gpt-4o"}]`,
+			},
+		},
+		channelGroupIDs: map[string][]string{
+			"ch-1": {"group-a"},
+		},
+	}
+	svc := NewChannelServiceWithRepo(repo)
+
+	if _, err := svc.SelectChannelForModelWithGroups("gpt-4o", []string{"group-a"}); err != nil {
+		t.Fatalf("SelectChannelForModelWithGroups returned error: %v", err)
+	}
+	if _, err := svc.SelectChannelForModelWithGroups("gpt-4o", []string{"group-a"}); err != nil {
+		t.Fatalf("second SelectChannelForModelWithGroups returned error: %v", err)
+	}
+	if repo.listEnabledCalls != 1 {
+		t.Fatalf("ListEnabled calls = %d, want 1", repo.listEnabledCalls)
+	}
+	if repo.groupBatchCalls != 1 {
+		t.Fatalf("GetGroupIDsByChannelIDs calls = %d, want 1", repo.groupBatchCalls)
 	}
 }
