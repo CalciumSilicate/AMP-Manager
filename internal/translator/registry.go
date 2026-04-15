@@ -15,7 +15,9 @@ type Registry struct {
 
 // NewRegistry returns a wrapper around the SDK default registry.
 func NewRegistry() *Registry {
-	return &Registry{inner: sdktranslator.Default()}
+	registry := &Registry{inner: sdktranslator.Default()}
+	registerSupplementalTransforms(registry)
+	return registry
 }
 
 // Register attaches custom transforms to the shared registry.
