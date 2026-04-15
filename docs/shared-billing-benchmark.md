@@ -159,6 +159,14 @@ node scripts/summarize-shared-billing-report.mjs \
 
 适合在跑完多轮 matrix 后，快速形成一份可读摘要。
 
+## 最近一轮实测
+
+当前仓库已经基于真实 shared-billing 环境跑过一轮短时矩阵，并整理为仓内 findings：
+
+- [shared-billing-findings-2026-04-15.md](shared-billing-findings-2026-04-15.md)
+
+如果后续又跑了新矩阵，建议继续按相同格式补一份带日期的 findings 文档，避免只在 `/tmp` 里留 JSON。
+
 ## 当前短跑观察
 
 基于当前仓库的短时 shared-billing matrix，`projectorWorkers=1/2/4` 和 `streamBatchSize=50/100/200` 尚未拉开明显差距。这通常说明：
