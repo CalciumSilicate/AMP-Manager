@@ -172,6 +172,8 @@ type client struct {
 	token      string
 }
 
+const stabilityInstructions = "You are a helpful assistant for websocket stability validation."
+
 func main() {
 	cfg, err := loadConfig()
 	if err != nil {
@@ -602,7 +604,7 @@ func (c *client) runWebsocketConversation(downstreamKey, modelAlias, scenario st
 	defer conn.Close(websocket.StatusNormalClosure, "")
 
 	firstStart := time.Now()
-	req := []byte(`{"type":"response.create","model":"` + modelAlias + `","input":[{"type":"message","role":"user","content":[{"type":"input_text","text":"stability probe"}]}]}`)
+	req := []byte(`{"type":"response.create","model":"` + modelAlias + `","instructions":"` + stabilityInstructions + `","input":[{"type":"message","role":"user","content":[{"type":"input_text","text":"stability probe"}]}]}`)
 	if err := conn.Write(ctx, websocket.MessageText, req); err != nil {
 		return s, err
 	}
@@ -620,7 +622,7 @@ func (c *client) runWebsocketConversation(downstreamKey, modelAlias, scenario st
 			time.Sleep(time.Duration(idleSeconds) * time.Second)
 		}
 		responseID := gjson.GetBytes(firstResp, "response.id").String()
-		appendReq := []byte(`{"type":"response.append","previous_response_id":"` + responseID + `","input":[{"type":"message","role":"user","content":[{"type":"input_text","text":"continuation probe"}]}]}`)
+		appendReq := []byte(`{"type":"response.append","previous_response_id":"` + responseID + `","instructions":"` + stabilityInstructions + `","input":[{"type":"message","role":"user","content":[{"type":"input_text","text":"continuation probe"}]}]}`)
 		secondStart := time.Now()
 		if err := conn.Write(ctx, websocket.MessageText, appendReq); err != nil {
 			return s, err
