@@ -29,29 +29,61 @@ func loadAssetSource() assetSource {
 }
 
 func candidateDistDirs() []string {
-	candidates := make([]string, 0, 5)
-	if override := os.Getenv("AMP_WEB_DIST_DIR"); override != "" {
+	var override string
+	if env := os.Getenv("AMP_WEB_DIST_DIR"); env != "" {
+		override = env
+	}
+
+	var cwd string
+	if dir, err := os.Getwd(); err == nil {
+		cwd = dir
+	}
+
+	var exeDir string
+	if exePath, err := os.Executable(); err == nil {
+		exeDir = filepath.Dir(exePath)
+	}
+
+	return candidateDistDirsFrom(override, cwd, exeDir)
+}
+
+func candidateDistDirsFrom(override string, cwd string, exeDir string) []string {
+	candidates := make([]string, 0, 16)
+	if override != "" {
 		candidates = append(candidates, override)
 	}
 
-	cwd, err := os.Getwd()
-	if err == nil {
+	if cwd != "" {
 		candidates = append(candidates,
 			filepath.Join(cwd, "web", "dist"),
 			filepath.Join(cwd, "internal", "web", "dist"),
 		)
 	}
 
-	if exePath, err := os.Executable(); err == nil {
-		exeDir := filepath.Dir(exePath)
-		candidates = append(candidates,
-			filepath.Join(exeDir, "web", "dist"),
-			filepath.Join(exeDir, "..", "web", "dist"),
-			filepath.Join(exeDir, "internal", "web", "dist"),
-		)
+	if exeDir != "" {
+		for _, base := range parentDirs(exeDir, 3) {
+			candidates = append(candidates,
+				filepath.Join(base, "web", "dist"),
+				filepath.Join(base, "internal", "web", "dist"),
+			)
+		}
 	}
 
 	return uniquePaths(candidates)
+}
+
+func parentDirs(root string, maxDepth int) []string {
+	dirs := make([]string, 0, maxDepth+1)
+	current := filepath.Clean(root)
+	for depth := 0; depth <= maxDepth; depth++ {
+		dirs = append(dirs, current)
+		parent := filepath.Dir(current)
+		if parent == current {
+			break
+		}
+		current = parent
+	}
+	return dirs
 }
 
 func uniquePaths(paths []string) []string {

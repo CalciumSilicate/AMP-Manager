@@ -5,6 +5,7 @@ package web
 import (
 	"os"
 	"path/filepath"
+	"reflect"
 	"testing"
 
 	"github.com/gin-gonic/gin"
@@ -66,5 +67,25 @@ func TestRegisterStaticRoutesServesDiskDist(t *testing.T) {
 	}
 	if body := assetResp.Body.String(); !contains(body, "console.log") {
 		t.Fatalf("expected asset body, got %q", body)
+	}
+}
+
+func TestCandidateDistDirsFromIncludesRepoRootForNestedExecutable(t *testing.T) {
+	base := filepath.Join("/tmp", "ampmanager", "package", "dist")
+	got := candidateDistDirsFrom("", "", base)
+
+	wantPrefix := []string{
+		filepath.Join(base, "web", "dist"),
+		filepath.Join(base, "internal", "web", "dist"),
+		filepath.Join("/tmp", "ampmanager", "package", "web", "dist"),
+		filepath.Join("/tmp", "ampmanager", "package", "internal", "web", "dist"),
+		filepath.Join("/tmp", "ampmanager", "web", "dist"),
+		filepath.Join("/tmp", "ampmanager", "internal", "web", "dist"),
+		filepath.Join("/tmp", "web", "dist"),
+		filepath.Join("/tmp", "internal", "web", "dist"),
+	}
+
+	if !reflect.DeepEqual(got[:len(wantPrefix)], wantPrefix) {
+		t.Fatalf("unexpected candidate prefix:\nwant: %#v\ngot:  %#v", wantPrefix, got[:len(wantPrefix)])
 	}
 }
