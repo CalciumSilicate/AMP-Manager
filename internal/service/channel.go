@@ -25,6 +25,7 @@ const defaultChannelRepoCacheKey = "default-channel-repo"
 // modelsCache 缓存 ModelsJSON -> []model.ChannelModel 的解析结果
 // key: ModelsJSON 字符串, value: *parsedModelsEntry
 var modelsCache sync.Map
+var headersCache sync.Map
 var enabledChannelsSnapshot = &enabledChannelsCache{
 	snapshots: make(map[string]enabledChannelsSnapshotEntry),
 	cacheTTL: 2 * time.Second,
@@ -33,6 +34,11 @@ var enabledChannelsSnapshot = &enabledChannelsCache{
 type parsedModelsEntry struct {
 	models []model.ChannelModel
 	valid  bool
+}
+
+type parsedHeadersEntry struct {
+	headers map[string]string
+	valid   bool
 }
 
 type enabledChannelsCache struct {
@@ -66,6 +72,22 @@ func getParsedModels(modelsJSON string) ([]model.ChannelModel, bool) {
 
 func GetParsedChannelModels(modelsJSON string) ([]model.ChannelModel, bool) {
 	return getParsedModels(modelsJSON)
+}
+
+func getParsedHeaders(headersJSON string) (map[string]string, bool) {
+	if cached, ok := headersCache.Load(headersJSON); ok {
+		entry := cached.(*parsedHeadersEntry)
+		return entry.headers, entry.valid
+	}
+
+	var headers map[string]string
+	err := json.Unmarshal([]byte(headersJSON), &headers)
+	entry := &parsedHeadersEntry{
+		headers: headers,
+		valid:   err == nil,
+	}
+	headersCache.Store(headersJSON, entry)
+	return headers, entry.valid
 }
 
 func cloneChannels(channels []*model.Channel) []*model.Channel {
@@ -770,16 +792,19 @@ func (s *ChannelService) toResponsesBatch(channels []*model.Channel) ([]*model.C
 }
 
 func (s *ChannelService) buildResponse(channel *model.Channel, gids []string, groupMap map[string]*model.Group) *model.ChannelResponse {
-	var models []model.ChannelModel
-	_ = json.Unmarshal([]byte(channel.ModelsJSON), &models)
-	if models == nil {
+	models, validModels := getParsedModels(channel.ModelsJSON)
+	if !validModels || models == nil {
 		models = []model.ChannelModel{}
 	}
+	models = append([]model.ChannelModel(nil), models...)
 
-	var headers map[string]string
-	_ = json.Unmarshal([]byte(channel.HeadersJSON), &headers)
-	if headers == nil {
+	headers, validHeaders := getParsedHeaders(channel.HeadersJSON)
+	if !validHeaders || headers == nil {
 		headers = map[string]string{}
+	}
+	clonedHeaders := make(map[string]string, len(headers))
+	for k, v := range headers {
+		clonedHeaders[k] = v
 	}
 
 	groupIDs := []string{}
@@ -812,7 +837,7 @@ func (s *ChannelService) buildResponse(channel *model.Channel, gids []string, gr
 		GroupIDs:             groupIDs,
 		GroupNames:           groupNames,
 		Models:               models,
-		Headers:              headers,
+		Headers:              clonedHeaders,
 		CreatedAt:            channel.CreatedAt,
 		UpdatedAt:            channel.UpdatedAt,
 	}
