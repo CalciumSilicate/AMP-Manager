@@ -27,6 +27,9 @@ const (
 	responsesWebsocketRequestAppend = "response.append"
 	responsesWebsocketTransportHTTP = "http"
 	responsesWebsocketTransportWS   = "websocket"
+	// Codex embeds tool schemas and turn metadata in response.create, which can
+	// easily exceed nhooyr/websocket's default 32 KiB per-message read limit.
+	responsesWebsocketReadLimit = 8 << 20
 )
 
 type responsesWebsocketSession struct {
@@ -70,6 +73,7 @@ func ResponsesWebsocketProxyHandler() gin.HandlerFunc {
 		if err != nil {
 			return
 		}
+		setResponsesWebsocketReadLimit(conn)
 		defer conn.Close(websocket.StatusInternalError, "")
 		log.Infof("responses websocket: downstream connected")
 
@@ -607,6 +611,7 @@ func ensureResponsesUpstreamConn(ctx context.Context, clientHeaders http.Header,
 		}
 		return nil, nil, &responsesWebsocketError{StatusCode: statusCode, Message: message}
 	}
+	setResponsesWebsocketReadLimit(conn)
 
 	session.upstreamConn = conn
 	session.upstreamChannelID = channel.ID
@@ -714,6 +719,13 @@ func responsesWebsocketHTTPClient(proxyCfg *ProxyConfig) *http.Client {
 		Transport: transport,
 		Timeout:   0,
 	}
+}
+
+func setResponsesWebsocketReadLimit(conn *websocket.Conn) {
+	if conn == nil {
+		return
+	}
+	conn.SetReadLimit(responsesWebsocketReadLimit)
 }
 
 func normalizeResponsesCompletedEvent(payload []byte) []byte {
