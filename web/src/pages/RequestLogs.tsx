@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useMemo, useCallback } from 'react'
+import { memo, startTransition, useDeferredValue, useState, useEffect, useRef, useMemo, useCallback } from 'react'
 import {
   getRequestLogs, getAdminRequestLogs, getAdminDistinctModels, getAdminDistinctKeys, getDistinctKeys, getDistinctModels,
   RequestLog, DistinctAPIKey,
@@ -35,6 +35,179 @@ interface Props {
   isAdmin: boolean
 }
 
+function formatTransportLabel(transport?: string) {
+  if (!transport) return null
+  if (transport.toLowerCase() === 'websocket') return 'WS'
+  if (transport.toLowerCase() === 'http') return 'HTTP'
+  return transport
+}
+
+function renderDuration(valueMs?: number) {
+  if (typeof valueMs !== 'number') return '-'
+
+  const compact = valueMs >= 1000
+    ? `${Number((valueMs / 1000).toFixed(1)).toString()}s`
+    : `${valueMs}ms`
+
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <span className="inline-block cursor-default">{compact}</span>
+      </TooltipTrigger>
+      <TooltipContent side="bottom">
+        <p>{valueMs}ms</p>
+      </TooltipContent>
+    </Tooltip>
+  )
+}
+
+const RequestLogRow = memo(function RequestLogRow({
+  log,
+  isAdmin,
+  userIdToUsername,
+  onOpenDetail,
+}: {
+  log: RequestLog
+  isAdmin: boolean
+  userIdToUsername: Map<string, string>
+  onOpenDetail: (logId: string) => void
+}) {
+  const userDisplay = log.username || userIdToUsername.get(log.userId) || `${log.userId.slice(0, 8)}...`
+  const keyDisplay = log.apiKeyName ? `${log.apiKeyName}${log.apiKeyPrefix ? ` (${log.apiKeyPrefix})` : ''}` : (log.apiKeyPrefix || log.apiKeyId || '-')
+
+  return (
+    <TableRow>
+      <TableCell className="text-xs text-muted-foreground whitespace-nowrap">
+        {formatDateTimeWithSeconds(log.createdAt)}
+      </TableCell>
+      {isAdmin && (
+        <TableCell className="text-xs max-w-24">
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <span className="cursor-default truncate block">{userDisplay}</span>
+            </TooltipTrigger>
+            <TooltipContent side="bottom" className="bg-popover text-popover-foreground border shadow-md px-3 py-2 text-xs space-y-1">
+              <div className="flex items-center gap-1.5">
+                <span className="text-muted-foreground">用户</span>
+                <span className="font-medium">{log.username || userIdToUsername.get(log.userId) || log.userId}</span>
+              </div>
+              <div className="flex items-center gap-1.5">
+                <span className="text-muted-foreground">Key</span>
+                <span className="font-medium">{keyDisplay}</span>
+              </div>
+            </TooltipContent>
+          </Tooltip>
+        </TableCell>
+      )}
+      <TableCell>
+        <div className="flex flex-col">
+          <span className="font-medium text-sm truncate max-w-32" title={log.mappedModel || log.originalModel}>
+            {log.mappedModel || log.originalModel || '-'}
+          </span>
+          {log.mappedModel && log.originalModel && log.mappedModel !== log.originalModel && (
+            <span className="text-xs text-muted-foreground truncate max-w-32" title={log.originalModel}>
+              ← {log.originalModel}
+            </span>
+          )}
+        </div>
+      </TableCell>
+      <TableCell>
+        {(log.channelName || log.provider) ? (
+          <div className="flex flex-wrap items-center gap-1.5">
+            <Badge variant="outline" className="text-xs">{log.channelName || log.provider}</Badge>
+            {formatTransportLabel(log.downstreamTransport) && (
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Badge variant="outline" className="cursor-help text-[10px] uppercase tracking-[0.12em] text-muted-foreground">
+                    D {formatTransportLabel(log.downstreamTransport)}
+                  </Badge>
+                </TooltipTrigger>
+                <TooltipContent side="bottom" className="max-w-72 text-xs">
+                  Downstream：AMP Manager 到客户端这一侧的传输方式。
+                </TooltipContent>
+              </Tooltip>
+            )}
+            {formatTransportLabel(log.upstreamTransport) && (
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Badge variant="outline" className="cursor-help text-[10px] uppercase tracking-[0.12em] text-muted-foreground">
+                    U {formatTransportLabel(log.upstreamTransport)}
+                  </Badge>
+                </TooltipTrigger>
+                <TooltipContent side="bottom" className="max-w-72 text-xs">
+                  Upstream：AMP Manager 到上游模型服务这一侧的传输方式。
+                </TooltipContent>
+              </Tooltip>
+            )}
+            {log.transportFallbackReason && (
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Badge variant="secondary" className="cursor-help text-[10px] uppercase tracking-[0.12em]">
+                    Fallback
+                  </Badge>
+                </TooltipTrigger>
+                <TooltipContent side="bottom" className="max-w-72 text-xs">
+                  {log.transportFallbackReason}
+                </TooltipContent>
+              </Tooltip>
+            )}
+          </div>
+        ) : (
+          <span className="text-muted-foreground">-</span>
+        )}
+      </TableCell>
+      <TableCell>
+        {log.thinkingLevel ? (
+          <Badge variant="secondary" className="text-xs">{log.thinkingLevel}</Badge>
+        ) : (
+          <span className="text-muted-foreground">-</span>
+        )}
+      </TableCell>
+      <TableCell>
+        <Badge variant="outline">{log.method}</Badge>
+      </TableCell>
+      <TableCell>
+        {isAdmin ? (
+          <button
+            onClick={() => onOpenDetail(log.id)}
+            className="cursor-pointer hover:opacity-80 transition-opacity"
+            title="点击查看请求详情"
+          >
+            <StatusBadge status={log.statusCode} />
+          </button>
+        ) : (
+          <StatusBadge status={log.statusCode} />
+        )}
+      </TableCell>
+      <TableCell className="text-right text-muted-foreground">
+        {renderDuration(log.ttfbMs)}
+      </TableCell>
+      <TableCell className="text-right text-muted-foreground">
+        {typeof log.tps === 'number' ? `${log.tps.toFixed(1)}/s` : '-'}
+      </TableCell>
+      <TableCell className="text-right text-muted-foreground">
+        {renderDuration(log.latencyMs)}
+      </TableCell>
+      <TableCell className="text-right"><Num value={log.inputTokens} /></TableCell>
+      <TableCell className="text-right"><Num value={log.outputTokens} /></TableCell>
+      <TableCell className="text-right"><Num value={log.cacheReadInputTokens} /></TableCell>
+      <TableCell className="text-right"><Num value={log.cacheCreationInputTokens} /></TableCell>
+      <TableCell className="text-right text-muted-foreground">
+        {log.costUsd ? `$${log.costUsd}` : '-'}
+      </TableCell>
+      <TableCell className="text-right">
+        {typeof log.rateMultiplier === 'number' ? (
+          <Badge variant="outline" className="font-mono">
+            {formatDecimal(log.rateMultiplier, 2)}x
+          </Badge>
+        ) : (
+          <span className="text-muted-foreground">-</span>
+        )}
+      </TableCell>
+    </TableRow>
+  )
+})
+
 export default function RequestLogs({ isAdmin }: Props) {
   const [logs, setLogs] = useState<RequestLog[]>([])
   const [loading, setLoading] = useState(true)
@@ -68,6 +241,17 @@ export default function RequestLogs({ isAdmin }: Props) {
     users.forEach(u => map.set(u.id, u.username))
     return map
   }, [users])
+
+  const deferredLogs = useDeferredValue(logs)
+  const hasActiveFilters = !!(
+    filters.userId ||
+    filters.apiKeyId ||
+    filters.model ||
+    filters.statuses.length > 0 ||
+    filters.from ||
+    filters.to
+  )
+  const liveInsertEnabled = isAdmin && autoRefresh && page === 1 && !hasActiveFilters
 
   useEffect(() => {
     if (isAdmin) {
@@ -109,7 +293,7 @@ export default function RequestLogs({ isAdmin }: Props) {
   }, [total])
 
   useEffect(() => {
-    if (autoRefresh && isAdmin) {
+    if (liveInsertEnabled) {
       const flushBuf = () => {
         const batch = wsBufRef.current
         wsBufRef.current = []
@@ -134,12 +318,14 @@ export default function RequestLogs({ isAdmin }: Props) {
 
         next = next.slice(0, pageSize)
         logsRef.current = next
-        setLogs(next)
+        startTransition(() => {
+          setLogs(next)
 
-        if (newCount > 0) {
-          totalRef.current += newCount
-          setTotal(totalRef.current)
-        }
+          if (newCount > 0) {
+            totalRef.current += newCount
+            setTotal(totalRef.current)
+          }
+        })
       }
 
       const close = connectRequestLogsWS(
@@ -171,7 +357,7 @@ export default function RequestLogs({ isAdmin }: Props) {
         wsCloseRef.current = null
       }
     }
-  }, [autoRefresh, isAdmin, pageSize])
+  }, [liveInsertEnabled, pageSize])
 
   useEffect(() => {
     return () => {
@@ -246,40 +432,10 @@ export default function RequestLogs({ isAdmin }: Props) {
     filters.to,
   ].join(':')
 
-  const getUserDisplay = (log: RequestLog) => {
-    return log.username || userIdToUsername.get(log.userId) || `${log.userId.slice(0, 8)}...`
-  }
-
-  const getKeyDisplay = (log: RequestLog) => {
-    if (log.apiKeyName) return `${log.apiKeyName}${log.apiKeyPrefix ? ` (${log.apiKeyPrefix})` : ''}`
-    return log.apiKeyPrefix || log.apiKeyId || '-'
-  }
-
-  const renderDuration = (valueMs?: number) => {
-    if (typeof valueMs !== 'number') return '-'
-
-    const compact = valueMs >= 1000
-      ? `${Number((valueMs / 1000).toFixed(1)).toString()}s`
-      : `${valueMs}ms`
-
-    return (
-      <Tooltip>
-        <TooltipTrigger asChild>
-          <span className="inline-block cursor-default">{compact}</span>
-        </TooltipTrigger>
-        <TooltipContent side="bottom">
-          <p>{valueMs}ms</p>
-        </TooltipContent>
-      </Tooltip>
-    )
-  }
-
-  const formatTransportLabel = (transport?: string) => {
-    if (!transport) return null
-    if (transport.toLowerCase() === 'websocket') return 'WS'
-    if (transport.toLowerCase() === 'http') return 'HTTP'
-    return transport
-  }
+  const handleOpenDetail = useCallback((logId: string) => {
+    setSelectedLogId(logId)
+    setDetailModalOpen(true)
+  }, [])
 
   return (
     <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-6">
@@ -361,136 +517,14 @@ export default function RequestLogs({ isAdmin }: Props) {
                     </TableRow>
                   </TableHeader>
                   <TableBody key={tableBodyKey}>
-                    {logs.map((log) => (
-                      <TableRow key={log.id}>
-                        <TableCell className="text-xs text-muted-foreground whitespace-nowrap">
-                          {formatDateTimeWithSeconds(log.createdAt)}
-                        </TableCell>
-                        {isAdmin && (
-                          <TableCell className="text-xs max-w-24">
-                            <Tooltip>
-                              <TooltipTrigger asChild>
-                                <span className="cursor-default truncate block">{getUserDisplay(log)}</span>
-                              </TooltipTrigger>
-                              <TooltipContent side="bottom" className="bg-popover text-popover-foreground border shadow-md px-3 py-2 text-xs space-y-1">
-                                <div className="flex items-center gap-1.5">
-                                  <span className="text-muted-foreground">用户</span>
-                                  <span className="font-medium">{log.username || userIdToUsername.get(log.userId) || log.userId}</span>
-                                </div>
-                                <div className="flex items-center gap-1.5">
-                                  <span className="text-muted-foreground">Key</span>
-                                  <span className="font-medium">{getKeyDisplay(log)}</span>
-                                </div>
-                              </TooltipContent>
-                            </Tooltip>
-                          </TableCell>
-                        )}
-                        <TableCell>
-                          <div className="flex flex-col">
-                            <span className="font-medium text-sm truncate max-w-32" title={log.mappedModel || log.originalModel}>
-                              {log.mappedModel || log.originalModel || '-'}
-                            </span>
-                            {log.mappedModel && log.originalModel && log.mappedModel !== log.originalModel && (
-                              <span className="text-xs text-muted-foreground truncate max-w-32" title={log.originalModel}>
-                                ← {log.originalModel}
-                              </span>
-                            )}
-                          </div>
-                        </TableCell>
-                        <TableCell>
-                          {(log.channelName || log.provider) ? (
-                            <div className="flex flex-wrap items-center gap-1.5">
-                              <Badge variant="outline" className="text-xs">{log.channelName || log.provider}</Badge>
-                              {formatTransportLabel(log.downstreamTransport) && (
-                                <Tooltip>
-                                  <TooltipTrigger asChild>
-                                    <Badge variant="outline" className="cursor-help text-[10px] uppercase tracking-[0.12em] text-muted-foreground">
-                                      D {formatTransportLabel(log.downstreamTransport)}
-                                    </Badge>
-                                  </TooltipTrigger>
-                                  <TooltipContent side="bottom" className="max-w-72 text-xs">
-                                    Downstream：AMP Manager 到客户端这一侧的传输方式。
-                                  </TooltipContent>
-                                </Tooltip>
-                              )}
-                              {formatTransportLabel(log.upstreamTransport) && (
-                                <Tooltip>
-                                  <TooltipTrigger asChild>
-                                    <Badge variant="outline" className="cursor-help text-[10px] uppercase tracking-[0.12em] text-muted-foreground">
-                                      U {formatTransportLabel(log.upstreamTransport)}
-                                    </Badge>
-                                  </TooltipTrigger>
-                                  <TooltipContent side="bottom" className="max-w-72 text-xs">
-                                    Upstream：AMP Manager 到上游模型服务这一侧的传输方式。
-                                  </TooltipContent>
-                                </Tooltip>
-                              )}
-                              {log.transportFallbackReason && (
-                                <Tooltip>
-                                  <TooltipTrigger asChild>
-                                    <Badge variant="secondary" className="cursor-help text-[10px] uppercase tracking-[0.12em]">
-                                      Fallback
-                                    </Badge>
-                                  </TooltipTrigger>
-                                  <TooltipContent side="bottom" className="max-w-72 text-xs">
-                                    {log.transportFallbackReason}
-                                  </TooltipContent>
-                                </Tooltip>
-                              )}
-                            </div>
-                          ) : (
-                            <span className="text-muted-foreground">-</span>
-                          )}
-                        </TableCell>
-                        <TableCell>
-                          {log.thinkingLevel ? (
-                            <Badge variant="secondary" className="text-xs">{log.thinkingLevel}</Badge>
-                          ) : (
-                            <span className="text-muted-foreground">-</span>
-                          )}
-                        </TableCell>
-                        <TableCell>
-                          <Badge variant="outline">{log.method}</Badge>
-                        </TableCell>
-                        <TableCell>
-                          {isAdmin ? (
-                            <button
-                              onClick={() => { setSelectedLogId(log.id); setDetailModalOpen(true) }}
-                              className="cursor-pointer hover:opacity-80 transition-opacity"
-                              title="点击查看请求详情"
-                            >
-                              <StatusBadge status={log.statusCode} />
-                            </button>
-                          ) : (
-                            <StatusBadge status={log.statusCode} />
-                          )}
-                        </TableCell>
-                        <TableCell className="text-right text-muted-foreground">
-                          {renderDuration(log.ttfbMs)}
-                        </TableCell>
-                        <TableCell className="text-right text-muted-foreground">
-                          {typeof log.tps === 'number' ? `${log.tps.toFixed(1)}/s` : '-'}
-                        </TableCell>
-                        <TableCell className="text-right text-muted-foreground">
-                          {renderDuration(log.latencyMs)}
-                        </TableCell>
-                        <TableCell className="text-right"><Num value={log.inputTokens} /></TableCell>
-                        <TableCell className="text-right"><Num value={log.outputTokens} /></TableCell>
-                        <TableCell className="text-right"><Num value={log.cacheReadInputTokens} /></TableCell>
-                        <TableCell className="text-right"><Num value={log.cacheCreationInputTokens} /></TableCell>
-                        <TableCell className="text-right text-muted-foreground">
-                          {log.costUsd ? `$${log.costUsd}` : '-'}
-                        </TableCell>
-                        <TableCell className="text-right">
-                          {typeof log.rateMultiplier === 'number' ? (
-                            <Badge variant="outline" className="font-mono">
-                              {formatDecimal(log.rateMultiplier, 2)}x
-                            </Badge>
-                          ) : (
-                            <span className="text-muted-foreground">-</span>
-                          )}
-                        </TableCell>
-                      </TableRow>
+                    {deferredLogs.map((log) => (
+                      <RequestLogRow
+                        key={log.id}
+                        log={log}
+                        isAdmin={isAdmin}
+                        userIdToUsername={userIdToUsername}
+                        onOpenDetail={handleOpenDetail}
+                      />
                     ))}
                   </TableBody>
                 </Table>
