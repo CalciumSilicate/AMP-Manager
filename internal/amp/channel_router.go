@@ -552,12 +552,7 @@ func ChannelProxyHandler() gin.HandlerFunc {
 				// Spoof User-Agent for OpenAI channels to mimic Codex CLI
 				if channel.Type == model.ChannelTypeOpenAI {
 					req.Header.Set("User-Agent", "codex_exec/0.98.0 (Mac OS 15.1.0; arm64) unknown")
-					stripOpenAIUnsupportedFields(req)
-				}
-
-				// For OpenAI Chat, inject stream_options.include_usage=true for streaming requests
-				if channel.Type == model.ChannelTypeOpenAI && channel.Endpoint != model.ChannelEndpointResponses {
-					injectOpenAIStreamOptions(req)
+					rewriteOpenAIRequestBody(req, channel.Endpoint != model.ChannelEndpointResponses)
 				}
 
 				simulateClaudeCLI := channel.SimulateCLI && channel.Type == model.ChannelTypeClaude
@@ -1034,8 +1029,8 @@ func mapStainlessArch() string {
 	}
 }
 
-// stripOpenAIUnsupportedFields 从 OpenAI 请求体中移除不支持的字段（max_output_tokens、stream_options）
-func stripOpenAIUnsupportedFields(req *http.Request) {
+// rewriteOpenAIRequestBody applies OpenAI-specific request body rewrites in a single read/modify pass.
+func rewriteOpenAIRequestBody(req *http.Request, injectStreamUsage bool) {
 	if req.Body == nil || req.ContentLength == 0 {
 		return
 	}
@@ -1051,35 +1046,12 @@ func stripOpenAIUnsupportedFields(req *http.Request) {
 	req.Body.Close()
 
 	modifiedBody, modified := stripOpenAIUnsupportedFieldsBytes(bodyBytes)
-	if !modified {
-		req.Body = io.NopCloser(bytes.NewReader(bodyBytes))
-		req.ContentLength = int64(len(bodyBytes))
-		return
+	if injectStreamUsage {
+		if injectedBody, injected := injectOpenAIStreamOptionsBytes(modifiedBody); injected {
+			modifiedBody = injectedBody
+			modified = true
+		}
 	}
-	req.Body = io.NopCloser(bytes.NewReader(modifiedBody))
-	req.ContentLength = int64(len(modifiedBody))
-	req.Header.Set("Content-Length", fmt.Sprintf("%d", len(modifiedBody)))
-}
-
-// injectOpenAIStreamOptions 为 OpenAI Chat 流式请求注入 stream_options.include_usage=true
-// 这是获取 streaming 响应中 usage 数据的必要条件
-func injectOpenAIStreamOptions(req *http.Request) {
-	if req.Body == nil || req.ContentLength == 0 {
-		return
-	}
-
-	contentType := req.Header.Get("Content-Type")
-	if !strings.Contains(contentType, "application/json") {
-		return
-	}
-
-	bodyBytes, err := io.ReadAll(io.LimitReader(req.Body, 10*1024*1024))
-	if err != nil {
-		return
-	}
-	req.Body.Close()
-
-	modifiedBody, modified := injectOpenAIStreamOptionsBytes(bodyBytes)
 	if !modified {
 		req.Body = io.NopCloser(bytes.NewReader(bodyBytes))
 		req.ContentLength = int64(len(bodyBytes))
