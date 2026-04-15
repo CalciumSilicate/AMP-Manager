@@ -15,6 +15,7 @@ FROM --platform=$BUILDPLATFORM golang:1.24-alpine AS backend
 # xx provides cross-compilation helpers for multi-platform builds
 COPY --from=tonistiigi/xx / /
 ARG TARGETPLATFORM
+ARG GO_BUILD_TAGS=""
 
 WORKDIR /app
 
@@ -31,7 +32,7 @@ COPY --from=frontend /app/web/dist ./internal/web/dist
 
 RUN --mount=type=cache,target=/go/pkg/mod \
     --mount=type=cache,target=/root/.cache/go-build \
-    CGO_ENABLED=1 xx-go build -ldflags="-s -w" -o /out/ampmanager ./cmd/server && \
+    CGO_ENABLED=1 sh -c 'xx-go build ${GO_BUILD_TAGS:+-tags "$GO_BUILD_TAGS"} -ldflags="-s -w" -o /out/ampmanager ./cmd/server' && \
     xx-verify /out/ampmanager
 
 # ============================================

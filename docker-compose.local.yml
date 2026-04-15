@@ -36,6 +36,8 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
+      args:
+        GO_BUILD_TAGS: embed_frontend
     container_name: ampmanager-local
     restart: unless-stopped
     depends_on:
