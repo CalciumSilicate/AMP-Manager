@@ -26,6 +26,7 @@ import (
 	"github.com/google/uuid"
 	log "github.com/sirupsen/logrus"
 	"github.com/tidwall/gjson"
+	"github.com/tidwall/sjson"
 )
 
 // sharedChannelTransport 是共享的 Channel Proxy Transport，用于连接复用
@@ -1049,38 +1050,15 @@ func stripOpenAIUnsupportedFields(req *http.Request) {
 	}
 	req.Body.Close()
 
-	var payload map[string]interface{}
-	if err := json.Unmarshal(bodyBytes, &payload); err != nil {
-		req.Body = io.NopCloser(bytes.NewReader(bodyBytes))
-		req.ContentLength = int64(len(bodyBytes))
-		return
-	}
-
-	modified := false
-	if _, exists := payload["max_output_tokens"]; exists {
-		delete(payload, "max_output_tokens")
-		modified = true
-	}
-	if _, exists := payload["stream_options"]; exists {
-		delete(payload, "stream_options")
-		modified = true
-	}
-
+	modifiedBody, modified := stripOpenAIUnsupportedFieldsBytes(bodyBytes)
 	if !modified {
 		req.Body = io.NopCloser(bytes.NewReader(bodyBytes))
 		req.ContentLength = int64(len(bodyBytes))
 		return
 	}
-
-	newBody, err := json.Marshal(payload)
-	if err != nil {
-		req.Body = io.NopCloser(bytes.NewReader(bodyBytes))
-		req.ContentLength = int64(len(bodyBytes))
-		return
-	}
-	req.Body = io.NopCloser(bytes.NewReader(newBody))
-	req.ContentLength = int64(len(newBody))
-	req.Header.Set("Content-Length", fmt.Sprintf("%d", len(newBody)))
+	req.Body = io.NopCloser(bytes.NewReader(modifiedBody))
+	req.ContentLength = int64(len(modifiedBody))
+	req.Header.Set("Content-Length", fmt.Sprintf("%d", len(modifiedBody)))
 }
 
 // injectOpenAIStreamOptions 为 OpenAI Chat 流式请求注入 stream_options.include_usage=true
@@ -1101,44 +1079,51 @@ func injectOpenAIStreamOptions(req *http.Request) {
 	}
 	req.Body.Close()
 
-	var payload map[string]interface{}
-	if err := json.Unmarshal(bodyBytes, &payload); err != nil {
+	modifiedBody, modified := injectOpenAIStreamOptionsBytes(bodyBytes)
+	if !modified {
 		req.Body = io.NopCloser(bytes.NewReader(bodyBytes))
 		req.ContentLength = int64(len(bodyBytes))
 		return
 	}
+	req.Body = io.NopCloser(bytes.NewReader(modifiedBody))
+	req.ContentLength = int64(len(modifiedBody))
+	req.Header.Set("Content-Length", fmt.Sprintf("%d", len(modifiedBody)))
+}
 
-	// 检查是否为流式请求
-	stream, ok := payload["stream"].(bool)
-	if !ok || !stream {
-		req.Body = io.NopCloser(bytes.NewReader(bodyBytes))
-		req.ContentLength = int64(len(bodyBytes))
-		return
+func stripOpenAIUnsupportedFieldsBytes(body []byte) ([]byte, bool) {
+	modified := false
+	result := body
+	if gjson.GetBytes(result, "max_output_tokens").Exists() {
+		if updated, err := sjson.DeleteBytes(result, "max_output_tokens"); err == nil {
+			result = updated
+			modified = true
+		}
+	}
+	if gjson.GetBytes(result, "stream_options").Exists() {
+		if updated, err := sjson.DeleteBytes(result, "stream_options"); err == nil {
+			result = updated
+			modified = true
+		}
+	}
+	return result, modified
+}
+
+func injectOpenAIStreamOptionsBytes(body []byte) ([]byte, bool) {
+	stream := gjson.GetBytes(body, "stream")
+	if !stream.Exists() || !stream.Bool() {
+		return body, false
 	}
 
-	// 检查 stream_options 是否已存在
-	streamOptions, ok := payload["stream_options"].(map[string]interface{})
-	if !ok {
-		streamOptions = make(map[string]interface{})
-		payload["stream_options"] = streamOptions
+	if gjson.GetBytes(body, "stream_options.include_usage").Exists() {
+		return body, false
 	}
 
-	// 设置 include_usage = true
-	if _, exists := streamOptions["include_usage"]; !exists {
-		streamOptions["include_usage"] = true
-		log.Debugf("channel proxy: injected stream_options.include_usage=true for OpenAI streaming")
-	}
-
-	newBody, err := json.Marshal(payload)
+	updated, err := sjson.SetBytes(body, "stream_options.include_usage", true)
 	if err != nil {
-		req.Body = io.NopCloser(bytes.NewReader(bodyBytes))
-		req.ContentLength = int64(len(bodyBytes))
-		return
+		return body, false
 	}
-
-	req.Body = io.NopCloser(bytes.NewReader(newBody))
-	req.ContentLength = int64(len(newBody))
-	req.Header.Set("Content-Length", fmt.Sprintf("%d", len(newBody)))
+	log.Debugf("channel proxy: injected stream_options.include_usage=true for OpenAI streaming")
+	return updated, true
 }
 
 // findSSEDelimiter finds the earliest SSE delimiter (\n\n or \r\n\r\n) in data
