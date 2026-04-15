@@ -61,6 +61,14 @@ function renderDuration(valueMs?: number) {
   )
 }
 
+function formatPricePerMillion(costPerToken?: number) {
+  if (costPerToken === undefined || costPerToken === null) return '-'
+  const perMillion = costPerToken * 1_000_000
+  if (perMillion >= 1) return `$${perMillion.toFixed(2)} / 1M`
+  if (perMillion >= 0.01) return `$${perMillion.toFixed(3)} / 1M`
+  return `$${perMillion.toFixed(4)} / 1M`
+}
+
 const RequestLogRow = memo(function RequestLogRow({
   log,
   isAdmin,
@@ -193,7 +201,28 @@ const RequestLogRow = memo(function RequestLogRow({
       <TableCell className="text-right"><Num value={log.cacheReadInputTokens} /></TableCell>
       <TableCell className="text-right"><Num value={log.cacheCreationInputTokens} /></TableCell>
       <TableCell className="text-right text-muted-foreground">
-        {log.costUsd ? `$${log.costUsd}` : '-'}
+        {log.costUsd ? (
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <span className="cursor-help underline decoration-dotted underline-offset-4">{`$${log.costUsd}`}</span>
+            </TooltipTrigger>
+            <TooltipContent side="bottom" className="max-w-80 text-xs">
+              <div className="space-y-1.5">
+                <p className="font-medium">计费标准</p>
+                <div className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1">
+                  <span className="text-muted-foreground">输入</span>
+                  <span className="font-mono">{formatPricePerMillion(log.inputCostPerToken)}</span>
+                  <span className="text-muted-foreground">输出</span>
+                  <span className="font-mono">{formatPricePerMillion(log.outputCostPerToken)}</span>
+                  <span className="text-muted-foreground">缓存读</span>
+                  <span className="font-mono">{formatPricePerMillion(log.cacheReadInputPerToken)}</span>
+                  <span className="text-muted-foreground">缓存写</span>
+                  <span className="font-mono">{formatPricePerMillion(log.cacheCreationInputPerToken)}</span>
+                </div>
+              </div>
+            </TooltipContent>
+          </Tooltip>
+        ) : '-'}
       </TableCell>
       <TableCell className="text-right">
         {typeof log.rateMultiplier === 'number' ? (

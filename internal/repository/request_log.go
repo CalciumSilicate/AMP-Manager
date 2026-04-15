@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	"ampmanager/internal/billing"
 	"ampmanager/internal/database"
 	"ampmanager/internal/model"
 )
@@ -92,6 +93,40 @@ func enrichRequestLogMetrics(log *model.RequestLog) {
 
 	tps := float64(*log.OutputTokens) / (float64(streamDurationMs) / 1000)
 	log.TPS = &tps
+}
+
+func enrichRequestLogPricing(log *model.RequestLog) {
+	if log == nil {
+		return
+	}
+
+	store := billing.GetPriceStore()
+	if store == nil {
+		return
+	}
+
+	pricingModel := ""
+	if log.PricingModel != nil && strings.TrimSpace(*log.PricingModel) != "" {
+		pricingModel = strings.TrimSpace(*log.PricingModel)
+	} else if log.MappedModel != nil && strings.TrimSpace(*log.MappedModel) != "" {
+		pricingModel = strings.TrimSpace(*log.MappedModel)
+	} else if log.OriginalModel != nil && strings.TrimSpace(*log.OriginalModel) != "" {
+		pricingModel = strings.TrimSpace(*log.OriginalModel)
+	}
+
+	if pricingModel == "" {
+		return
+	}
+
+	priceData, found := store.GetPrice(pricingModel)
+	if !found {
+		return
+	}
+
+	log.InputCostPerToken = &priceData.InputCostPerToken
+	log.OutputCostPerToken = &priceData.OutputCostPerToken
+	log.CacheReadInputPerToken = &priceData.CacheReadInputPerToken
+	log.CacheCreationInputPerToken = &priceData.CacheCreationPerToken
 }
 
 // ListParams 查询参数
@@ -334,6 +369,7 @@ func (r *RequestLogRepository) List(params ListParams) ([]model.RequestLog, int6
 			log.OutputPreview = &outputPreview.String
 		}
 		enrichRequestLogMetrics(&log)
+		enrichRequestLogPricing(&log)
 
 		logs = append(logs, log)
 	}
@@ -1021,6 +1057,7 @@ func (r *RequestLogRepository) GetByID(id string) (*model.RequestLog, error) {
 		log.TransportFallbackReason = &transportFallbackReason.String
 	}
 	enrichRequestLogMetrics(&log)
+	enrichRequestLogPricing(&log)
 
 	return &log, nil
 }
@@ -1169,6 +1206,7 @@ func (r *RequestLogRepository) GetByIDWithJoins(id string) (*model.RequestLog, e
 		l.TransportFallbackReason = &transportFallbackReason.String
 	}
 	enrichRequestLogMetrics(&l)
+	enrichRequestLogPricing(&l)
 
 	return &l, nil
 }

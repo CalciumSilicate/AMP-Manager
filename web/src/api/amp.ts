@@ -178,6 +178,10 @@ export interface RequestLog {
   costMicros?: number
   costUsd?: string
   pricingModel?: string
+  inputCostPerToken?: number
+  outputCostPerToken?: number
+  cacheReadInputPerToken?: number
+  cacheCreationInputPerToken?: number
   rateMultiplier?: number
   thinkingLevel?: string
   downstreamTransport?: string
