@@ -7,6 +7,7 @@ import (
 	"io"
 	"regexp"
 	"strings"
+	"sync"
 
 	"ampmanager/internal/model"
 	"ampmanager/internal/service"
@@ -102,6 +103,49 @@ type MappingResult struct {
 
 // channelService for checking model availability
 var mappingChannelService = service.NewChannelService()
+var compiledModelMappingsCache sync.Map
+
+type compiledModelMapping struct {
+	model.ModelMapping
+	regex *regexp.Regexp
+}
+
+func getCompiledModelMappings(raw string) ([]compiledModelMapping, bool) {
+	if raw == "" {
+		return nil, false
+	}
+	if cached, ok := compiledModelMappingsCache.Load(raw); ok {
+		if mappings, ok := cached.([]compiledModelMapping); ok {
+			return mappings, true
+		}
+	}
+
+	var mappings []model.ModelMapping
+	if err := json.Unmarshal([]byte(raw), &mappings); err != nil {
+		return nil, false
+	}
+	if len(mappings) == 0 {
+		return nil, false
+	}
+
+	compiled := make([]compiledModelMapping, 0, len(mappings))
+	for _, mapping := range mappings {
+		entry := compiledModelMapping{ModelMapping: mapping}
+		if mapping.Regex && mapping.From != "" {
+			re, err := regexp.Compile("(?i)" + mapping.From)
+			if err != nil {
+				continue
+			}
+			entry.regex = re
+		}
+		compiled = append(compiled, entry)
+	}
+	if len(compiled) == 0 {
+		return nil, false
+	}
+	compiledModelMappingsCache.Store(raw, compiled)
+	return compiled, true
+}
 
 func ApplyModelMappingMiddleware() gin.HandlerFunc {
 	return func(c *gin.Context) {
@@ -111,13 +155,8 @@ func ApplyModelMappingMiddleware() gin.HandlerFunc {
 			return
 		}
 
-		var mappings []model.ModelMapping
-		if err := json.Unmarshal([]byte(cfg.ModelMappingsJSON), &mappings); err != nil {
-			c.Next()
-			return
-		}
-
-		if len(mappings) == 0 {
+		mappings, ok := getCompiledModelMappings(cfg.ModelMappingsJSON)
+		if !ok {
 			c.Next()
 			return
 		}
@@ -144,7 +183,7 @@ func ApplyModelMappingMiddleware() gin.HandlerFunc {
 		}
 
 		// Apply mapping (pass header getter for AMP-only check)
-		result := applyMappingWithHeaders(modelName, mappings, c.GetHeader)
+		result := applyCompiledMappingWithHeaders(modelName, mappings, c.GetHeader)
 
 		if !result.Applied {
 			c.Next()
@@ -361,6 +400,21 @@ func applyMapping(modelName string, mappings []model.ModelMapping) MappingResult
 }
 
 func applyMappingWithHeaders(modelName string, mappings []model.ModelMapping, header func(string) string) MappingResult {
+	compiled := make([]compiledModelMapping, 0, len(mappings))
+	for _, mapping := range mappings {
+		entry := compiledModelMapping{ModelMapping: mapping}
+		if mapping.Regex && mapping.From != "" {
+			re, err := regexp.Compile("(?i)" + mapping.From)
+			if err == nil {
+				entry.regex = re
+			}
+		}
+		compiled = append(compiled, entry)
+	}
+	return applyCompiledMappingWithHeaders(modelName, compiled, header)
+}
+
+func applyCompiledMappingWithHeaders(modelName string, mappings []compiledModelMapping, header func(string) string) MappingResult {
 	for _, m := range mappings {
 		if m.From == "" {
 			continue
@@ -379,10 +433,7 @@ func applyMappingWithHeaders(modelName string, mappings []model.ModelMapping, he
 
 		matched := false
 		if m.Regex {
-			// Case-insensitive regex matching
-			pattern := "(?i)" + m.From
-			re, err := regexp.Compile(pattern)
-			if err == nil && re.MatchString(modelName) {
+			if m.regex != nil && m.regex.MatchString(modelName) {
 				matched = true
 			}
 		} else {
