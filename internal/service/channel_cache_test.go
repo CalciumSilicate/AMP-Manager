@@ -248,3 +248,18 @@ func TestSelectSpecificChannelForModelWithGroupsUsesCachedSnapshot(t *testing.T)
 		t.Fatalf("GetGroupIDs calls = %d, want 0", repo.getGroupIDCalls)
 	}
 }
+
+func TestMatchChannelModelRulesSupportsAliasAndWildcard(t *testing.T) {
+	if !MatchChannelModelRules("gpt-4o", `[{"name":"gpt-4o"}]`) {
+		t.Fatal("expected exact match to succeed")
+	}
+	if !MatchChannelModelRules("gpt-4.1-mini", `[{"name":"gpt-*"}]`) {
+		t.Fatal("expected wildcard match to succeed")
+	}
+	if !MatchChannelModelRules("friendly-model", `[{"name":"ignored","alias":"friendly-model"}]`) {
+		t.Fatal("expected alias match to succeed")
+	}
+	if MatchChannelModelRules("claude-4", `[{"name":"gpt-*"}]`) {
+		t.Fatal("expected unrelated model to fail")
+	}
+}

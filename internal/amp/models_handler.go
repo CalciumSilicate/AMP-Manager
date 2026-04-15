@@ -160,24 +160,7 @@ func handleGeminiModels(c *gin.Context) {
 
 // modelMatchesRules checks if a model ID matches any of the channel's model rules
 func modelMatchesRules(modelID string, modelsJSON string) bool {
-	rules, valid := service.GetParsedChannelModels(modelsJSON)
-	if !valid || len(rules) == 0 {
-		return true // no rules = allow all
-	}
-
-	modelLower := strings.ToLower(modelID)
-	for _, r := range rules {
-		nameLower := strings.ToLower(r.Name)
-		if strings.EqualFold(r.Name, modelID) || strings.EqualFold(r.Alias, modelID) {
-			return true
-		}
-		if strings.Contains(nameLower, "*") {
-			if wildcardMatch(nameLower, modelLower) {
-				return true
-			}
-		}
-	}
-	return false
+	return service.MatchChannelModelRules(modelID, modelsJSON)
 }
 
 // wildcardMatch supports simple * wildcard matching

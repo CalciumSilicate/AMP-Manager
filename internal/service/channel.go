@@ -25,6 +25,7 @@ const defaultChannelRepoCacheKey = "default-channel-repo"
 // modelsCache 缓存 ModelsJSON -> []model.ChannelModel 的解析结果
 // key: ModelsJSON 字符串, value: *parsedModelsEntry
 var modelsCache sync.Map
+var compiledChannelModelRulesCache sync.Map
 var headersCache sync.Map
 var enabledChannelsSnapshot = &enabledChannelsCache{
 	snapshots: make(map[string]enabledChannelsSnapshotEntry),
@@ -34,6 +35,14 @@ var enabledChannelsSnapshot = &enabledChannelsCache{
 type parsedModelsEntry struct {
 	models []model.ChannelModel
 	valid  bool
+}
+
+type compiledChannelModelRule struct {
+	name         string
+	alias        string
+	nameLower    string
+	aliasLower   string
+	wildcardName bool
 }
 
 type parsedHeadersEntry struct {
@@ -72,6 +81,64 @@ func getParsedModels(modelsJSON string) ([]model.ChannelModel, bool) {
 
 func GetParsedChannelModels(modelsJSON string) ([]model.ChannelModel, bool) {
 	return getParsedModels(modelsJSON)
+}
+
+func getCompiledChannelModelRules(modelsJSON string) ([]compiledChannelModelRule, bool) {
+	if cached, ok := compiledChannelModelRulesCache.Load(modelsJSON); ok {
+		return cached.([]compiledChannelModelRule), true
+	}
+
+	models, valid := getParsedModels(modelsJSON)
+	if !valid {
+		return nil, false
+	}
+
+	rules := make([]compiledChannelModelRule, 0, len(models))
+	for _, modelRule := range models {
+		rules = append(rules, compiledChannelModelRule{
+			name:         modelRule.Name,
+			alias:        modelRule.Alias,
+			nameLower:    strings.ToLower(modelRule.Name),
+			aliasLower:   strings.ToLower(modelRule.Alias),
+			wildcardName: strings.Contains(strings.ToLower(modelRule.Name), "*"),
+		})
+	}
+	compiledChannelModelRulesCache.Store(modelsJSON, rules)
+	return rules, true
+}
+
+func MatchChannelModelRules(modelID string, modelsJSON string) bool {
+	rules, valid := getCompiledChannelModelRules(modelsJSON)
+	if !valid || len(rules) == 0 {
+		return true
+	}
+
+	modelLower := strings.ToLower(modelID)
+	for _, rule := range rules {
+		if strings.EqualFold(rule.name, modelID) || (rule.alias != "" && strings.EqualFold(rule.alias, modelID)) {
+			return true
+		}
+		if rule.wildcardName && wildcardMatch(rule.nameLower, modelLower) {
+			return true
+		}
+	}
+	return false
+}
+
+func wildcardMatch(pattern, text string) bool {
+	if pattern == "*" {
+		return true
+	}
+	if strings.HasPrefix(pattern, "*") && strings.HasSuffix(pattern, "*") {
+		return strings.Contains(text, strings.Trim(pattern, "*"))
+	}
+	if strings.HasPrefix(pattern, "*") {
+		return strings.HasSuffix(text, strings.TrimPrefix(pattern, "*"))
+	}
+	if strings.HasSuffix(pattern, "*") {
+		return strings.HasPrefix(text, strings.TrimSuffix(pattern, "*"))
+	}
+	return pattern == text
 }
 
 func getParsedHeaders(headersJSON string) (map[string]string, bool) {
@@ -671,25 +738,22 @@ func channelAccessibleWithSet(channelGroupIDs []string, userGroupIDSet map[strin
 }
 
 func (s *ChannelService) channelMatchesModel(channel *model.Channel, modelName string) bool {
-	models, valid := getParsedModels(channel.ModelsJSON)
+	rules, valid := getCompiledChannelModelRules(channel.ModelsJSON)
 	if !valid {
 		return false
 	}
 
-	if len(models) == 0 {
+	if len(rules) == 0 {
 		return s.defaultModelMatch(channel.Type, modelName)
 	}
 
 	modelLower := strings.ToLower(modelName)
-	for _, m := range models {
-		if strings.EqualFold(m.Name, modelName) || strings.EqualFold(m.Alias, modelName) {
+	for _, rule := range rules {
+		if strings.EqualFold(rule.name, modelName) || (rule.alias != "" && strings.EqualFold(rule.alias, modelName)) {
 			return true
 		}
-		nameLower := strings.ToLower(m.Name)
-		if strings.Contains(nameLower, "*") {
-			if s.wildcardMatch(nameLower, modelLower) {
-				return true
-			}
+		if rule.wildcardName && s.wildcardMatch(rule.nameLower, modelLower) {
+			return true
 		}
 	}
 
@@ -710,19 +774,7 @@ func (s *ChannelService) defaultModelMatch(channelType model.ChannelType, modelN
 }
 
 func (s *ChannelService) wildcardMatch(pattern, text string) bool {
-	if pattern == "*" {
-		return true
-	}
-	if strings.HasPrefix(pattern, "*") && strings.HasSuffix(pattern, "*") {
-		return strings.Contains(text, strings.Trim(pattern, "*"))
-	}
-	if strings.HasPrefix(pattern, "*") {
-		return strings.HasSuffix(text, strings.TrimPrefix(pattern, "*"))
-	}
-	if strings.HasSuffix(pattern, "*") {
-		return strings.HasPrefix(text, strings.TrimSuffix(pattern, "*"))
-	}
-	return pattern == text
+	return wildcardMatch(pattern, text)
 }
 
 func (s *ChannelService) GetChannelInternal(id string) (*model.Channel, error) {
