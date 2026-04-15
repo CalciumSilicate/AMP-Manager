@@ -300,6 +300,7 @@ func createTables() error {
 		codex_websocket_enabled INTEGER NOT NULL DEFAULT 0,
 		models_json TEXT NOT NULL DEFAULT '[]',
 		headers_json TEXT NOT NULL DEFAULT '{}',
+		translator_json TEXT NOT NULL DEFAULT '{}',
 		created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
 		updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
 	);
@@ -1186,6 +1187,10 @@ func runMigrations() error {
 		{
 			name: "add_channels_simulate_ua",
 			sql:  `ALTER TABLE channels ADD COLUMN simulate_ua INTEGER NOT NULL DEFAULT 0`,
+		},
+		{
+			name: "add_channels_translator_json",
+			sql:  `ALTER TABLE channels ADD COLUMN translator_json TEXT NOT NULL DEFAULT '{}'`,
 		},
 		{
 			name: "create_purchase_products_and_orders",

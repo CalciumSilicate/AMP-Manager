@@ -2,128 +2,125 @@ package translator
 
 import (
 	"context"
-	"sync"
+
+	sdktranslator "github.com/router-for-me/CLIProxyAPI/v6/sdk/translator"
+	_ "github.com/router-for-me/CLIProxyAPI/v6/sdk/translator/builtin"
 )
 
-// Registry manages translation functions across schemas.
+// Registry wraps the CLIProxyAPI SDK registry so the rest of AMP Manager can keep
+// using its existing translator package surface.
 type Registry struct {
-	mu        sync.RWMutex
-	requests  map[Format]map[Format]RequestTransform
-	responses map[Format]map[Format]ResponseTransform
+	inner *sdktranslator.Registry
 }
 
-// NewRegistry constructs an empty translator registry.
+// NewRegistry returns a wrapper around the SDK default registry.
 func NewRegistry() *Registry {
-	return &Registry{
-		requests:  make(map[Format]map[Format]RequestTransform),
-		responses: make(map[Format]map[Format]ResponseTransform),
-	}
+	return &Registry{inner: sdktranslator.Default()}
 }
 
-// Register stores request/response transforms between two formats.
+// Register attaches custom transforms to the shared registry.
 func (r *Registry) Register(from, to Format, request RequestTransform, response ResponseTransform) {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-
-	if _, ok := r.requests[from]; !ok {
-		r.requests[from] = make(map[Format]RequestTransform)
+	if r == nil {
+		return
 	}
+
+	var requestAdapter sdktranslator.RequestTransform
 	if request != nil {
-		r.requests[from][to] = request
+		requestAdapter = func(model string, rawJSON []byte, stream bool) []byte {
+			out, err := request(model, rawJSON, stream)
+			if err != nil {
+				return rawJSON
+			}
+			return out
+		}
 	}
 
-	if _, ok := r.responses[from]; !ok {
-		r.responses[from] = make(map[Format]ResponseTransform)
+	var responseAdapter sdktranslator.ResponseTransform
+	if response.Stream != nil {
+		responseAdapter.Stream = func(ctx context.Context, model string, originalRequestRawJSON, requestRawJSON, rawJSON []byte, param *any) [][]byte {
+			chunks, err := response.Stream(ctx, model, originalRequestRawJSON, requestRawJSON, rawJSON, param)
+			if err != nil {
+				return [][]byte{rawJSON}
+			}
+			out := make([][]byte, 0, len(chunks))
+			for _, chunk := range chunks {
+				out = append(out, []byte(chunk))
+			}
+			return out
+		}
 	}
-	r.responses[from][to] = response
+	if response.NonStream != nil {
+		responseAdapter.NonStream = func(ctx context.Context, model string, originalRequestRawJSON, requestRawJSON, rawJSON []byte, param *any) []byte {
+			out, err := response.NonStream(ctx, model, originalRequestRawJSON, requestRawJSON, rawJSON, param)
+			if err != nil {
+				return rawJSON
+			}
+			return []byte(out)
+		}
+	}
+	if response.TokenCount != nil {
+		responseAdapter.TokenCount = func(ctx context.Context, count int64) []byte {
+			return []byte(response.TokenCount(ctx, count))
+		}
+	}
+
+	r.inner.Register(canonicalSDKFormat(from), canonicalSDKFormat(to), requestAdapter, responseAdapter)
 }
 
-// TranslateRequest converts a payload between schemas, returning the original payload
-// if no translator is registered.
+// TranslateRequest converts a request from client format to upstream format.
 func (r *Registry) TranslateRequest(from, to Format, model string, rawJSON []byte, stream bool) ([]byte, error) {
-	r.mu.RLock()
-	defer r.mu.RUnlock()
-
-	if byTarget, ok := r.requests[from]; ok {
-		if fn, isOk := byTarget[to]; isOk && fn != nil {
-			return fn(model, rawJSON, stream)
-		}
+	if r == nil {
+		return rawJSON, nil
 	}
-	return rawJSON, nil
+	return r.inner.TranslateRequest(canonicalSDKFormat(from), canonicalSDKFormat(to), model, rawJSON, stream), nil
 }
 
-// HasResponseTransformer indicates whether a response translator exists.
+// HasResponseTransformer indicates whether a response translator exists for the request pair.
 func (r *Registry) HasResponseTransformer(from, to Format) bool {
-	r.mu.RLock()
-	defer r.mu.RUnlock()
-
-	if byTarget, ok := r.responses[from]; ok {
-		if _, isOk := byTarget[to]; isOk {
-			return true
-		}
+	if r == nil {
+		return false
 	}
-	return false
+	return r.inner.HasResponseTransformer(canonicalSDKFormat(from), canonicalSDKFormat(to))
 }
 
-// TranslateStream applies the registered streaming response translator.
+// TranslateStream converts a streaming upstream response back to the client format.
 func (r *Registry) TranslateStream(ctx context.Context, from, to Format, model string, originalRequestRawJSON, requestRawJSON, rawJSON []byte, param *any) ([]string, error) {
-	r.mu.RLock()
-	defer r.mu.RUnlock()
-
-	if byTarget, ok := r.responses[from]; ok {
-		if fn, isOk := byTarget[to]; isOk && fn.Stream != nil {
-			return fn.Stream(ctx, model, originalRequestRawJSON, requestRawJSON, rawJSON, param)
-		}
+	if r == nil {
+		return []string{string(rawJSON)}, nil
 	}
-	return []string{string(rawJSON)}, nil
+	chunks := r.inner.TranslateStream(ctx, canonicalSDKFormat(to), canonicalSDKFormat(from), model, originalRequestRawJSON, requestRawJSON, rawJSON, param)
+	out := make([]string, 0, len(chunks))
+	for _, chunk := range chunks {
+		out = append(out, string(chunk))
+	}
+	return out, nil
 }
 
-// TranslateNonStream applies the registered non-stream response translator.
+// TranslateNonStream converts a non-streaming upstream response back to the client format.
 func (r *Registry) TranslateNonStream(ctx context.Context, from, to Format, model string, originalRequestRawJSON, requestRawJSON, rawJSON []byte, param *any) (string, error) {
-	r.mu.RLock()
-	defer r.mu.RUnlock()
-
-	if byTarget, ok := r.responses[from]; ok {
-		if fn, isOk := byTarget[to]; isOk && fn.NonStream != nil {
-			return fn.NonStream(ctx, model, originalRequestRawJSON, requestRawJSON, rawJSON, param)
-		}
+	if r == nil {
+		return string(rawJSON), nil
 	}
-	return string(rawJSON), nil
+	out := r.inner.TranslateNonStream(ctx, canonicalSDKFormat(to), canonicalSDKFormat(from), model, originalRequestRawJSON, requestRawJSON, rawJSON, param)
+	return string(out), nil
 }
 
-// TranslateTokenCount applies the registered token count response translator.
+// TranslateTokenCount converts token-count payloads back to the client format.
 func (r *Registry) TranslateTokenCount(ctx context.Context, from, to Format, count int64, rawJSON []byte) string {
-	r.mu.RLock()
-	defer r.mu.RUnlock()
-
-	if byTarget, ok := r.responses[from]; ok {
-		if fn, isOk := byTarget[to]; isOk && fn.TokenCount != nil {
-			return fn.TokenCount(ctx, count)
-		}
+	if r == nil {
+		return string(rawJSON)
 	}
-	return string(rawJSON)
+	return string(r.inner.TranslateTokenCount(ctx, canonicalSDKFormat(to), canonicalSDKFormat(from), count, rawJSON))
 }
 
-var (
-	defaultRegistry     *Registry
-	defaultRegistryOnce sync.Once
-)
+var defaultRegistry = NewRegistry()
 
-// initDefaultRegistry initializes the default registry with all translators.
-// This is called lazily on first access.
-func initDefaultRegistry() {
-	defaultRegistry = NewRegistry()
-	RegisterAll(defaultRegistry)
-}
-
-// DefaultRegistry returns the initialized default registry.
-// It ensures all translators are registered before returning.
+// DefaultRegistry returns the shared registry wrapper.
 func DefaultRegistry() *Registry {
-	defaultRegistryOnce.Do(initDefaultRegistry)
 	return defaultRegistry
 }
 
-// Default exposes the package-level registry for shared use (alias for DefaultRegistry).
+// Default exposes the package-level registry for shared use.
 func Default() *Registry {
 	return DefaultRegistry()
 }

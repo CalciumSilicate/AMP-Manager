@@ -18,6 +18,7 @@ import {
   ChannelType,
   ChannelEndpoint,
   ChannelModel,
+  ChannelTranslator,
 } from '@/api/channels'
 import { Group } from '@/api/groups'
 import ModelRulesEditor from './ModelRulesEditor'
@@ -32,6 +33,36 @@ const OPENAI_ENDPOINTS: { value: ChannelEndpoint; label: string }[] = [
   { value: 'chat_completions', label: '/v1/chat/completions' },
   { value: 'responses', label: '/v1/responses' },
 ]
+
+const DEFAULT_TRANSLATOR: ChannelTranslator = {
+  compatible: false,
+  responses: false,
+  messages: false,
+  gemini: false,
+}
+
+const TRANSLATOR_OPTIONS: { key: keyof ChannelTranslator; label: string; hint: string }[] = [
+  { key: 'compatible', label: 'Compatible', hint: '允许 OpenAI Compatible 请求通过翻译器进入此渠道。' },
+  { key: 'responses', label: 'Responses', hint: '允许 /v1/responses 请求通过翻译器进入此渠道。' },
+  { key: 'messages', label: 'Messages', hint: '允许 Claude /v1/messages 请求通过翻译器进入此渠道。' },
+  { key: 'gemini', label: 'Gemini', hint: '允许 Gemini generateContent 请求通过翻译器进入此渠道。' },
+]
+
+function getNativeTranslatorKey(type: ChannelType, endpoint?: ChannelEndpoint): keyof ChannelTranslator {
+  if (type === 'openai') {
+    return endpoint === 'responses' ? 'responses' : 'compatible'
+  }
+  if (type === 'claude') {
+    return 'messages'
+  }
+  return 'gemini'
+}
+
+function normalizeTranslatorConfig(type: ChannelType, endpoint: ChannelEndpoint | undefined, translator?: ChannelTranslator): ChannelTranslator {
+  const next = { ...DEFAULT_TRANSLATOR, ...(translator || {}) }
+  next[getNativeTranslatorKey(type, endpoint)] = false
+  return next
+}
 
 interface ChannelFormDialogProps {
   open: boolean
@@ -75,6 +106,8 @@ export function ChannelFormDialog({
   groups = [],
 }: ChannelFormDialogProps) {
   const showCodexWebsocketToggle = formData.type === 'openai' && formData.endpoint === 'responses'
+  const translatorState = normalizeTranslatorConfig(formData.type, formData.endpoint, formData.translator)
+  const nativeTranslatorKey = getNativeTranslatorKey(formData.type, formData.endpoint)
 
   const handleTypeChange = (type: ChannelType) => {
     const channelType = CHANNEL_TYPES.find(t => t.value === type)
@@ -87,6 +120,7 @@ export function ChannelFormDialog({
         codexWebsocketEnabled: type === 'openai' && channelType.defaultEndpoint === 'responses'
           ? prev.codexWebsocketEnabled
           : false,
+        translator: normalizeTranslatorConfig(type, channelType.defaultEndpoint, prev.translator),
       }))
     }
   }
@@ -179,6 +213,7 @@ export function ChannelFormDialog({
                     ...prev,
                     endpoint,
                     codexWebsocketEnabled: endpoint === 'responses' ? prev.codexWebsocketEnabled : false,
+                    translator: normalizeTranslatorConfig(prev.type, endpoint, prev.translator),
                   }))
                 }}
                 className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
@@ -284,6 +319,39 @@ export function ChannelFormDialog({
             checked={formData.enabled}
             onCheckedChange={(checked) => setFormData(prev => ({ ...prev, enabled: checked }))}
           />
+
+          <div className="col-span-2 rounded-lg border border-border/70 p-4">
+            <div className="space-y-1">
+              <Label>翻译器</Label>
+              <p className="text-xs text-muted-foreground">
+                控制哪些入站协议可以通过 CLIProxyAPI translator SDK 转换后请求到这个渠道。
+              </p>
+            </div>
+            <div className="mt-3 space-y-2">
+              {TRANSLATOR_OPTIONS.map(option => (
+                <div key={option.key} className="flex items-center justify-between gap-4 rounded-md border border-border/60 px-3 py-2">
+                  <div className="space-y-0.5">
+                    <Label>{option.label}</Label>
+                    <p className="text-xs text-muted-foreground">
+                      {option.key === nativeTranslatorKey ? '当前渠道原生支持该协议，无需启用翻译器。' : option.hint}
+                    </p>
+                  </div>
+                  <Switch
+                    checked={translatorState[option.key]}
+                    disabled={option.key === nativeTranslatorKey}
+                    onCheckedChange={(checked) => setFormData(prev => ({
+                      ...prev,
+                      translator: normalizeTranslatorConfig(
+                        prev.type,
+                        prev.endpoint,
+                        { ...DEFAULT_TRANSLATOR, ...(prev.translator || {}), [option.key]: checked },
+                      ),
+                    }))}
+                  />
+                </div>
+              ))}
+            </div>
+          </div>
 
           {showCodexWebsocketToggle && (
             <div className="col-span-2 flex items-center justify-between border-y py-3">

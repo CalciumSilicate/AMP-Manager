@@ -1,19 +1,43 @@
-// Package translator provides format detection for different AI API schemas.
-// NOTE: Cross-platform and cross-format translation has been removed.
-// Only same-platform, same-format requests are supported.
+// Package translator adapts the CLIProxyAPI translator SDK for AMP Manager.
 package translator
 
-// Format constants
+import sdktranslator "github.com/router-for-me/CLIProxyAPI/v6/sdk/translator"
+
+// Format constants used inside AMP Manager.
 const (
-	FormatOpenAI          Format = "openai"           // Generic OpenAI (for backward compatibility)
-	FormatOpenAIChat      Format = "openai-chat"      // /v1/chat/completions
-	FormatOpenAIResponses Format = "openai-responses" // /v1/responses
+	FormatOpenAI          Format = "openai"
+	FormatOpenAIChat      Format = "openai-chat"
+	FormatOpenAIResponses Format = "openai-responses"
 	FormatClaude          Format = "claude"
 	FormatGemini          Format = "gemini"
 )
 
-// RegisterAll is a no-op since translation is no longer supported.
-// Only same-platform, same-format requests are allowed.
-func RegisterAll(registry *Registry) {
-	// No translators registered - cross-format conversion is not supported
+func canonicalSDKFormat(format Format) sdktranslator.Format {
+	switch format {
+	case FormatOpenAI, FormatOpenAIChat:
+		return sdktranslator.FormatOpenAI
+	case FormatOpenAIResponses:
+		return sdktranslator.FormatOpenAIResponse
+	case FormatClaude:
+		return sdktranslator.FormatClaude
+	case FormatGemini:
+		return sdktranslator.FormatGemini
+	default:
+		return sdktranslator.Format(format)
+	}
+}
+
+func fromSDKFormat(format sdktranslator.Format) Format {
+	switch format {
+	case sdktranslator.FormatOpenAI:
+		return FormatOpenAIChat
+	case sdktranslator.FormatOpenAIResponse:
+		return FormatOpenAIResponses
+	case sdktranslator.FormatClaude:
+		return FormatClaude
+	case sdktranslator.FormatGemini:
+		return FormatGemini
+	default:
+		return Format(format)
+	}
 }

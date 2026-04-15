@@ -48,8 +48,15 @@ export default function Channels() {
     simulateUa: false,
     simulateSystemPrompt: false,
     traditionalChinese: false,
+    copilotApi: false,
     codexWebsocketEnabled: false,
     headers: {},
+    translator: {
+      compatible: false,
+      responses: false,
+      messages: false,
+      gemini: false,
+    },
   })
   const [saving, setSaving] = useState(false)
 
@@ -99,6 +106,12 @@ export default function Channels() {
       copilotApi: false,
       codexWebsocketEnabled: false,
       headers: {},
+      translator: {
+        compatible: false,
+        responses: false,
+        messages: false,
+        gemini: false,
+      },
     })
     setShowForm(true)
   }
@@ -124,6 +137,12 @@ export default function Channels() {
       copilotApi: channel.copilotApi || false,
       codexWebsocketEnabled: channel.codexWebsocketEnabled || false,
       headers: channel.headers,
+      translator: channel.translator || {
+        compatible: false,
+        responses: false,
+        messages: false,
+        gemini: false,
+      },
     })
     setShowForm(true)
   }

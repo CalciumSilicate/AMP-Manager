@@ -19,6 +19,13 @@ const (
 	ChannelEndpointGenerateContent ChannelEndpoint = "generate_content"
 )
 
+type ChannelTranslator struct {
+	Compatible bool `json:"compatible"`
+	Responses  bool `json:"responses"`
+	Messages   bool `json:"messages"`
+	Gemini     bool `json:"gemini"`
+}
+
 type Channel struct {
 	ID                    string          `json:"id"`
 	Type                  ChannelType     `json:"type"`
@@ -38,6 +45,7 @@ type Channel struct {
 	CodexWebsocketEnabled bool            `json:"codexWebsocketEnabled"`
 	ModelsJSON            string          `json:"-"`
 	HeadersJSON           string          `json:"-"`
+	TranslatorJSON        string          `json:"-"`
 	CreatedAt             time.Time       `json:"createdAt"`
 	UpdatedAt             time.Time       `json:"updatedAt"`
 }
@@ -66,6 +74,7 @@ type ChannelRequest struct {
 	GroupIDs              []string          `json:"groupIds"`
 	Models                []ChannelModel    `json:"models,omitempty"`
 	Headers               map[string]string `json:"headers,omitempty"`
+	Translator            ChannelTranslator `json:"translator"`
 }
 
 type ChannelResponse struct {
@@ -89,6 +98,7 @@ type ChannelResponse struct {
 	GroupNames            []string          `json:"groupNames"`
 	Models                []ChannelModel    `json:"models"`
 	Headers               map[string]string `json:"headers"`
+	Translator            ChannelTranslator `json:"translator"`
 	CreatedAt             time.Time         `json:"createdAt"`
 	UpdatedAt             time.Time         `json:"updatedAt"`
 }

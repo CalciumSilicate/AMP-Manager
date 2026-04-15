@@ -14,6 +14,7 @@ import (
 
 	"ampmanager/internal/model"
 	"ampmanager/internal/repository"
+	internaltranslator "ampmanager/internal/translator"
 )
 
 var (
@@ -27,6 +28,7 @@ const defaultChannelRepoCacheKey = "default-channel-repo"
 var modelsCache sync.Map
 var compiledChannelModelRulesCache sync.Map
 var headersCache sync.Map
+var channelTranslatorCache sync.Map
 var enabledChannelsSnapshot = &enabledChannelsCache{
 	snapshots: make(map[string]enabledChannelsSnapshotEntry),
 	cacheTTL:  2 * time.Second,
@@ -48,6 +50,11 @@ type compiledChannelModelRule struct {
 type parsedHeadersEntry struct {
 	headers map[string]string
 	valid   bool
+}
+
+type parsedChannelTranslatorEntry struct {
+	translator model.ChannelTranslator
+	valid      bool
 }
 
 type enabledChannelsCache struct {
@@ -157,6 +164,36 @@ func getParsedHeaders(headersJSON string) (map[string]string, bool) {
 	return headers, entry.valid
 }
 
+func getParsedChannelTranslator(translatorJSON string) (model.ChannelTranslator, bool) {
+	if strings.TrimSpace(translatorJSON) == "" {
+		return model.ChannelTranslator{}, true
+	}
+	if cached, ok := channelTranslatorCache.Load(translatorJSON); ok {
+		entry := cached.(*parsedChannelTranslatorEntry)
+		return entry.translator, entry.valid
+	}
+
+	var translatorConfig model.ChannelTranslator
+	err := json.Unmarshal([]byte(translatorJSON), &translatorConfig)
+	entry := &parsedChannelTranslatorEntry{
+		translator: translatorConfig,
+		valid:      err == nil,
+	}
+	channelTranslatorCache.Store(translatorJSON, entry)
+	return translatorConfig, entry.valid
+}
+
+func marshalChannelTranslator(translatorConfig model.ChannelTranslator) string {
+	if translatorConfig == (model.ChannelTranslator{}) {
+		return "{}"
+	}
+	translatorJSON, err := json.Marshal(translatorConfig)
+	if err != nil {
+		return "{}"
+	}
+	return string(translatorJSON)
+}
+
 func cloneChannels(channels []*model.Channel) []*model.Channel {
 	if len(channels) == 0 {
 		return nil
@@ -227,6 +264,7 @@ func (s *ChannelService) Create(req *model.ChannelRequest) (*model.ChannelRespon
 	if req.Headers == nil {
 		headersJSON = []byte("{}")
 	}
+	translatorJSON := marshalChannelTranslator(req.Translator)
 
 	weight := req.Weight
 	if weight < 1 {
@@ -260,6 +298,7 @@ func (s *ChannelService) Create(req *model.ChannelRequest) (*model.ChannelRespon
 		CodexWebsocketEnabled: req.CodexWebsocketEnabled,
 		ModelsJSON:            string(modelsJSON),
 		HeadersJSON:           string(headersJSON),
+		TranslatorJSON:        translatorJSON,
 	}
 
 	if err := s.repo.Create(channel); err != nil {
@@ -323,6 +362,7 @@ func (s *ChannelService) Update(id string, req *model.ChannelRequest) (*model.Ch
 	if req.Headers == nil {
 		headersJSON = []byte("{}")
 	}
+	translatorJSON := marshalChannelTranslator(req.Translator)
 
 	weight := req.Weight
 	if weight < 1 {
@@ -354,6 +394,7 @@ func (s *ChannelService) Update(id string, req *model.ChannelRequest) (*model.Ch
 	existing.CodexWebsocketEnabled = req.CodexWebsocketEnabled
 	existing.ModelsJSON = string(modelsJSON)
 	existing.HeadersJSON = string(headersJSON)
+	existing.TranslatorJSON = translatorJSON
 
 	if req.APIKey != "" {
 		existing.APIKey = req.APIKey
@@ -480,6 +521,10 @@ func (s *ChannelService) TestConnection(id string) (*model.TestChannelResponse, 
 }
 
 func (s *ChannelService) SelectChannelForModel(modelName string) (*model.Channel, error) {
+	return s.SelectChannelForModelAndFormat(modelName, "", true)
+}
+
+func (s *ChannelService) SelectChannelForModelAndFormat(modelName string, incomingFormat internaltranslator.Format, allowTranslation bool) (*model.Channel, error) {
 	channels, err := s.listEnabledChannels()
 	if err != nil {
 		return nil, err
@@ -487,49 +532,22 @@ func (s *ChannelService) SelectChannelForModel(modelName string) (*model.Channel
 
 	var candidates []*model.Channel
 	for _, ch := range channels {
-		if s.channelMatchesModel(ch, modelName) {
+		if s.channelMatchesModel(ch, modelName) && s.channelSupportsRequestFormat(ch, incomingFormat, allowTranslation) {
 			candidates = append(candidates, ch)
 		}
 	}
 
-	if len(candidates) == 0 {
-		return nil, nil
-	}
-
-	if len(candidates) == 1 {
-		return candidates[0], nil
-	}
-
-	minPriority := candidates[0].Priority
-	for _, c := range candidates {
-		if c.Priority < minPriority {
-			minPriority = c.Priority
-		}
-	}
-
-	var priorityCandidates []*model.Channel
-	for _, c := range candidates {
-		if c.Priority == minPriority {
-			priorityCandidates = append(priorityCandidates, c)
-		}
-	}
-
-	// 按 ID 排序确保稳定顺序
-	sort.Slice(priorityCandidates, func(i, j int) bool {
-		return priorityCandidates[i].ID < priorityCandidates[j].ID
-	})
-
-	// 使用原子计数器实现线程安全的 round-robin
-	counter := s.getRRCounter(modelName)
-	idx := int(counter.Add(1) - 1)
-	selected := priorityCandidates[idx%len(priorityCandidates)]
-
-	return selected, nil
+	return s.selectCandidate(modelName, candidates), nil
 }
 
 // SelectSpecificChannelForModelWithGroups validates and returns a user-selected channel.
-// The channel must be enabled, match the requested model, and be accessible to the user's groups.
+// The channel must be enabled, match the requested model, satisfy the format policy,
+// and be accessible to the user's groups.
 func (s *ChannelService) SelectSpecificChannelForModelWithGroups(channelID, modelName string, groupIDs []string) (*model.Channel, error) {
+	return s.SelectSpecificChannelForModelWithGroupsAndFormat(channelID, modelName, groupIDs, "", true)
+}
+
+func (s *ChannelService) SelectSpecificChannelForModelWithGroupsAndFormat(channelID, modelName string, groupIDs []string, incomingFormat internaltranslator.Format, allowTranslation bool) (*model.Channel, error) {
 	if channelID == "" {
 		return nil, nil
 	}
@@ -549,7 +567,7 @@ func (s *ChannelService) SelectSpecificChannelForModelWithGroups(channelID, mode
 	if channel == nil {
 		return nil, nil
 	}
-	if !s.channelMatchesModel(channel, modelName) {
+	if !s.channelMatchesModel(channel, modelName) || !s.channelSupportsRequestFormat(channel, incomingFormat, allowTranslation) {
 		return nil, nil
 	}
 
@@ -565,53 +583,48 @@ func (s *ChannelService) SelectSpecificChannelForModelWithGroups(channelID, mode
 // 无分组用户: 只能使用未关联分组的渠道
 // 有分组用户: 可以使用其分组渠道 + 未关联分组的渠道
 func (s *ChannelService) SelectChannelForModelWithGroups(modelName string, groupIDs []string) (*model.Channel, error) {
+	return s.SelectChannelForModelWithGroupsAndFormat(modelName, groupIDs, "", true)
+}
+
+func (s *ChannelService) SelectChannelForModelWithGroupsAndFormat(modelName string, groupIDs []string, incomingFormat internaltranslator.Format, allowTranslation bool) (*model.Channel, error) {
 	channels, channelGroupMap, err := s.listEnabledChannelsWithGroups()
 	if err != nil {
 		return nil, err
 	}
 
-	// Collect IDs of model-matching channels for batch group lookup
-	var matchingChannels []*model.Channel
-	for _, ch := range channels {
-		if s.channelMatchesModel(ch, modelName) {
-			matchingChannels = append(matchingChannels, ch)
-		}
-	}
-
-	if len(matchingChannels) == 0 {
-		return nil, nil
-	}
-
 	userGroupIDSet := toStringSet(groupIDs)
-
-	// Filter by group access
 	var candidates []*model.Channel
-	for _, ch := range matchingChannels {
-		chGroupIDs := channelGroupMap[ch.ID]
-		if channelAccessibleWithSet(chGroupIDs, userGroupIDSet) {
+	for _, ch := range channels {
+		if !s.channelMatchesModel(ch, modelName) || !s.channelSupportsRequestFormat(ch, incomingFormat, allowTranslation) {
+			continue
+		}
+		if channelAccessibleWithSet(channelGroupMap[ch.ID], userGroupIDSet) {
 			candidates = append(candidates, ch)
 		}
 	}
 
-	if len(candidates) == 0 {
-		return nil, nil
-	}
+	return s.selectCandidate(modelName, candidates), nil
+}
 
+func (s *ChannelService) selectCandidate(modelName string, candidates []*model.Channel) *model.Channel {
+	if len(candidates) == 0 {
+		return nil
+	}
 	if len(candidates) == 1 {
-		return candidates[0], nil
+		return candidates[0]
 	}
 
 	minPriority := candidates[0].Priority
-	for _, c := range candidates {
-		if c.Priority < minPriority {
-			minPriority = c.Priority
+	for _, candidate := range candidates {
+		if candidate.Priority < minPriority {
+			minPriority = candidate.Priority
 		}
 	}
 
-	var priorityCandidates []*model.Channel
-	for _, c := range candidates {
-		if c.Priority == minPriority {
-			priorityCandidates = append(priorityCandidates, c)
+	priorityCandidates := make([]*model.Channel, 0, len(candidates))
+	for _, candidate := range candidates {
+		if candidate.Priority == minPriority {
+			priorityCandidates = append(priorityCandidates, candidate)
 		}
 	}
 
@@ -621,9 +634,7 @@ func (s *ChannelService) SelectChannelForModelWithGroups(modelName string, group
 
 	counter := s.getRRCounter(modelName)
 	idx := int(counter.Add(1) - 1)
-	selected := priorityCandidates[idx%len(priorityCandidates)]
-
-	return selected, nil
+	return priorityCandidates[idx%len(priorityCandidates)]
 }
 
 func (s *ChannelService) listEnabledChannels() ([]*model.Channel, error) {
@@ -737,6 +748,60 @@ func channelAccessibleWithSet(channelGroupIDs []string, userGroupIDSet map[strin
 		return true
 	}
 	return len(userGroupIDSet) > 0 && hasAnyInSet(userGroupIDSet, channelGroupIDs)
+}
+
+func channelNativeFormat(channel *model.Channel) internaltranslator.Format {
+	if channel == nil {
+		return internaltranslator.FormatOpenAIChat
+	}
+	switch channel.Type {
+	case model.ChannelTypeOpenAI:
+		if channel.Endpoint == model.ChannelEndpointResponses {
+			return internaltranslator.FormatOpenAIResponses
+		}
+		return internaltranslator.FormatOpenAIChat
+	case model.ChannelTypeClaude:
+		return internaltranslator.FormatClaude
+	case model.ChannelTypeGemini:
+		return internaltranslator.FormatGemini
+	default:
+		return internaltranslator.FormatOpenAIChat
+	}
+}
+
+func translatorConfigAllowsFormat(cfg model.ChannelTranslator, incomingFormat internaltranslator.Format) bool {
+	switch {
+	case internaltranslator.Equivalent(incomingFormat, internaltranslator.FormatOpenAIChat):
+		return cfg.Compatible
+	case internaltranslator.Equivalent(incomingFormat, internaltranslator.FormatOpenAIResponses):
+		return cfg.Responses
+	case internaltranslator.Equivalent(incomingFormat, internaltranslator.FormatClaude):
+		return cfg.Messages
+	case internaltranslator.Equivalent(incomingFormat, internaltranslator.FormatGemini):
+		return cfg.Gemini
+	default:
+		return false
+	}
+}
+
+func (s *ChannelService) channelSupportsRequestFormat(channel *model.Channel, incomingFormat internaltranslator.Format, allowTranslation bool) bool {
+	if strings.TrimSpace(incomingFormat.String()) == "" {
+		return true
+	}
+
+	nativeFormat := channelNativeFormat(channel)
+	if internaltranslator.Equivalent(incomingFormat, nativeFormat) {
+		return true
+	}
+	if !allowTranslation {
+		return false
+	}
+
+	translatorConfig, valid := getParsedChannelTranslator(channel.TranslatorJSON)
+	if !valid || !translatorConfigAllowsFormat(translatorConfig, incomingFormat) {
+		return false
+	}
+	return internaltranslator.SupportsTranslation(incomingFormat, nativeFormat)
 }
 
 func (s *ChannelService) channelMatchesModel(channel *model.Channel, modelName string) bool {
@@ -861,6 +926,11 @@ func (s *ChannelService) buildResponse(channel *model.Channel, gids []string, gr
 		clonedHeaders[k] = v
 	}
 
+	translatorConfig, validTranslator := getParsedChannelTranslator(channel.TranslatorJSON)
+	if !validTranslator {
+		translatorConfig = model.ChannelTranslator{}
+	}
+
 	groupIDs := []string{}
 	groupNames := []string{}
 	if len(gids) > 0 {
@@ -893,6 +963,7 @@ func (s *ChannelService) buildResponse(channel *model.Channel, gids []string, gr
 		GroupNames:            groupNames,
 		Models:                models,
 		Headers:               clonedHeaders,
+		Translator:            translatorConfig,
 		CreatedAt:             channel.CreatedAt,
 		UpdatedAt:             channel.UpdatedAt,
 	}

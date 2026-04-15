@@ -5,15 +5,16 @@ import (
 	"time"
 
 	"ampmanager/internal/model"
+	internaltranslator "ampmanager/internal/translator"
 )
 
 type countingChannelRepo struct {
-	channels          map[string]*model.Channel
-	listEnabledCalls  int
-	channelGroupIDs   map[string][]string
-	groupBatchCalls   int
-	getByIDCalls      int
-	getGroupIDCalls   int
+	channels         map[string]*model.Channel
+	listEnabledCalls int
+	channelGroupIDs  map[string][]string
+	groupBatchCalls  int
+	getByIDCalls     int
+	getGroupIDCalls  int
 }
 
 func (r *countingChannelRepo) Create(channel *model.Channel) error {
@@ -246,6 +247,67 @@ func TestSelectSpecificChannelForModelWithGroupsUsesCachedSnapshot(t *testing.T)
 	}
 	if repo.getGroupIDCalls != 0 {
 		t.Fatalf("GetGroupIDs calls = %d, want 0", repo.getGroupIDCalls)
+	}
+}
+
+func TestSelectChannelForModelAndFormatHonorsTranslatorConfig(t *testing.T) {
+	invalidateEnabledChannelsCache()
+	repo := &countingChannelRepo{
+		channels: map[string]*model.Channel{
+			"ch-no-translator": {
+				ID:             "ch-no-translator",
+				Enabled:        true,
+				Priority:       1,
+				Weight:         1,
+				Type:           model.ChannelTypeClaude,
+				ModelsJSON:     `[{"name":"gpt-4o"}]`,
+				TranslatorJSON: `{}`,
+			},
+			"ch-with-translator": {
+				ID:             "ch-with-translator",
+				Enabled:        true,
+				Priority:       2,
+				Weight:         1,
+				Type:           model.ChannelTypeClaude,
+				ModelsJSON:     `[{"name":"gpt-4o"}]`,
+				TranslatorJSON: `{"responses":true}`,
+			},
+		},
+	}
+	svc := NewChannelServiceWithRepo(repo)
+
+	channel, err := svc.SelectChannelForModelAndFormat("gpt-4o", internaltranslator.FormatOpenAIResponses, true)
+	if err != nil {
+		t.Fatalf("SelectChannelForModelAndFormat returned error: %v", err)
+	}
+	if channel == nil || channel.ID != "ch-with-translator" {
+		t.Fatalf("selected channel = %#v, want ch-with-translator", channel)
+	}
+}
+
+func TestSelectChannelForModelAndFormatRejectsTranslatedChannelWhenDisabled(t *testing.T) {
+	invalidateEnabledChannelsCache()
+	repo := &countingChannelRepo{
+		channels: map[string]*model.Channel{
+			"ch-with-translator": {
+				ID:             "ch-with-translator",
+				Enabled:        true,
+				Priority:       1,
+				Weight:         1,
+				Type:           model.ChannelTypeClaude,
+				ModelsJSON:     `[{"name":"gpt-4o"}]`,
+				TranslatorJSON: `{"responses":true}`,
+			},
+		},
+	}
+	svc := NewChannelServiceWithRepo(repo)
+
+	channel, err := svc.SelectChannelForModelAndFormat("gpt-4o", internaltranslator.FormatOpenAIResponses, false)
+	if err != nil {
+		t.Fatalf("SelectChannelForModelAndFormat returned error: %v", err)
+	}
+	if channel != nil {
+		t.Fatalf("selected channel = %#v, want nil", channel)
 	}
 }
 

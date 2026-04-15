@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 
+	"ampmanager/internal/translator"
+
 	log "github.com/sirupsen/logrus"
 	"github.com/tidwall/gjson"
 	"github.com/tidwall/sjson"
@@ -64,6 +66,18 @@ func TransformResponseJSON(ctx context.Context, data []byte, originalModel, mapp
 		}
 	}
 
+	return RewriteModelInResponseDataWithProvider(data, originalModel, mappedModel, info)
+}
+
+func TransformResponseJSONForFormat(ctx context.Context, data []byte, originalModel, mappedModel string, format translator.Format) []byte {
+	info := providerInfoForTranslatorFormat(format)
+	if ctx != nil && info.Provider == ProviderAnthropic {
+		if toolMap, ok := GetClaudeToolNameMap(ctx); ok && len(toolMap) > 0 {
+			if unprefixed, changed := UnprefixClaudeToolNamesWithMap(data, toolMap); changed {
+				data = unprefixed
+			}
+		}
+	}
 	return RewriteModelInResponseDataWithProvider(data, originalModel, mappedModel, info)
 }
 
@@ -129,5 +143,20 @@ func modelRewritePaths(info ProviderInfo) []string {
 		return nil
 	default:
 		return []string{"model", "message.model", "response.model"}
+	}
+}
+
+func providerInfoForTranslatorFormat(format translator.Format) ProviderInfo {
+	switch {
+	case translator.Equivalent(format, translator.FormatClaude):
+		return ProviderInfo{Provider: ProviderAnthropic}
+	case translator.Equivalent(format, translator.FormatOpenAIResponses):
+		return ProviderInfo{Provider: ProviderOpenAIResponses}
+	case translator.Equivalent(format, translator.FormatOpenAIChat), translator.Equivalent(format, translator.FormatOpenAI):
+		return ProviderInfo{Provider: ProviderOpenAIChat}
+	case translator.Equivalent(format, translator.FormatGemini):
+		return ProviderInfo{Provider: ProviderGemini}
+	default:
+		return ProviderInfo{}
 	}
 }

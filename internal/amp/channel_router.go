@@ -82,7 +82,7 @@ type TranslationInfo struct {
 	OriginalRequestBody []byte
 	ConvertedBody       []byte
 	IsStreaming         bool
-	Model               string // originalModel - for response rewriting
+	Model               string // mapped model used for SDK translation
 	UpstreamModel       string // mappedModel - for upstream URL path
 	ResponseParam       *any
 }
@@ -126,6 +126,7 @@ func GetTranslationInfo(ctx context.Context) *TranslationInfo {
 
 // detectIncomingFormat determines the request format based on the request path
 func detectIncomingFormat(path string) translator.Format {
+	path = normalizeProviderPath(path)
 	switch {
 	case strings.Contains(path, "/v1/chat/completions"):
 		return translator.FormatOpenAIChat
@@ -136,7 +137,7 @@ func detectIncomingFormat(path string) translator.Format {
 	case strings.Contains(path, "/v1beta/models/") || strings.Contains(path, "/v1beta1/publishers/google/models/"):
 		return translator.FormatGemini
 	default:
-		return translator.FormatOpenAI // Default to OpenAI format
+		return translator.FormatOpenAIChat
 	}
 }
 
@@ -162,7 +163,7 @@ func channelTypeToFormat(channel *model.Channel) translator.Format {
 
 // needsFormatConversion checks if request/response format conversion is needed
 func needsFormatConversion(incoming, outgoing translator.Format) bool {
-	return incoming != outgoing
+	return !translator.Equivalent(incoming, outgoing)
 }
 
 // getTargetEndpointPath returns the correct endpoint path for the target format
@@ -211,6 +212,7 @@ func ChannelRouterMiddleware() gin.HandlerFunc {
 			c.Next()
 			return
 		}
+		incomingFormat := detectIncomingFormat(c.Request.URL.Path)
 
 		var channel *model.Channel
 		var err error
@@ -221,7 +223,7 @@ func ChannelRouterMiddleware() gin.HandlerFunc {
 			if proxyCfg != nil {
 				groupIDs = proxyCfg.GroupIDs
 			}
-			channel, err = channelService.SelectSpecificChannelForModelWithGroups(preferredChannelID, modelName, groupIDs)
+			channel, err = channelService.SelectSpecificChannelForModelWithGroupsAndFormat(preferredChannelID, modelName, groupIDs, incomingFormat, true)
 			if err != nil {
 				log.Errorf("channel router: failed to select preferred channel %s: %v", preferredChannelID, err)
 				c.Next()
@@ -240,9 +242,9 @@ func ChannelRouterMiddleware() gin.HandlerFunc {
 		}
 
 		if proxyCfg != nil {
-			channel, err = channelService.SelectChannelForModelWithGroups(modelName, proxyCfg.GroupIDs)
+			channel, err = channelService.SelectChannelForModelWithGroupsAndFormat(modelName, proxyCfg.GroupIDs, incomingFormat, true)
 		} else {
-			channel, err = channelService.SelectChannelForModel(modelName)
+			channel, err = channelService.SelectChannelForModelAndFormat(modelName, incomingFormat, true)
 		}
 		if err != nil {
 			log.Errorf("channel router: failed to select channel: %v", err)
@@ -337,15 +339,14 @@ func ChannelProxyHandler() gin.HandlerFunc {
 			}
 		}
 
-		// Detect incoming and outgoing formats - format conversion is NOT supported
+		// Detect incoming and outgoing formats.
 		incomingFormat := detectIncomingFormat(c.Request.URL.Path)
 		outgoingFormat := channelTypeToFormat(channel)
-
-		// Reject if formats don't match (no translation supported)
-		if needsFormatConversion(incomingFormat, outgoingFormat) {
-			log.Warnf("channel proxy: format mismatch - incoming %s, channel expects %s (format conversion not supported)", incomingFormat, outgoingFormat)
+		needsConversion := needsFormatConversion(incomingFormat, outgoingFormat)
+		if needsConversion && !translator.SupportsTranslation(incomingFormat, outgoingFormat) {
+			log.Warnf("channel proxy: unsupported translation pair - incoming %s, channel expects %s", incomingFormat, outgoingFormat)
 			c.JSON(http.StatusBadRequest, gin.H{
-				"error": fmt.Sprintf("format mismatch: request format is %s but channel expects %s. Format conversion is not supported, please use a channel with matching format.", incomingFormat, outgoingFormat),
+				"error": fmt.Sprintf("format mismatch: request format is %s but channel expects %s, and no translator is available for this pair.", incomingFormat, outgoingFormat),
 			})
 			return
 		}
@@ -376,11 +377,21 @@ func ChannelProxyHandler() gin.HandlerFunc {
 				}
 			}
 
+			if needsConversion {
+				translatedBody, translateErr := translator.TranslateRequest(incomingFormat, outgoingFormat, mappedModel, bodyBytes, isStreaming)
+				if translateErr != nil {
+					log.Errorf("channel proxy: request translation failed: %v", translateErr)
+					c.JSON(http.StatusBadRequest, NewStandardError(http.StatusBadRequest, "failed to translate request for upstream channel"))
+					return
+				}
+				convertedBody = translatedBody
+			}
+
 			// Apply outgoing format filters (e.g., Claude system string to array)
-			filteredBody, filterErr := filters.ApplyFilters(outgoingFormat, bodyBytes)
+			filteredBody, filterErr := filters.ApplyFilters(outgoingFormat, convertedBody)
 			if filterErr != nil {
 				log.Warnf("channel proxy: filter application failed: %v, using unfiltered body", filterErr)
-				filteredBody = bodyBytes
+				filteredBody = convertedBody
 			}
 			convertedBody = filteredBody
 
@@ -450,13 +461,13 @@ func ChannelProxyHandler() gin.HandlerFunc {
 		// Store request info in context for response processing
 		var responseParam any
 		translationInfo := &TranslationInfo{
-			NeedsConversion:     false, // No conversion supported
+			NeedsConversion:     needsConversion,
 			IncomingFormat:      incomingFormat,
 			OutgoingFormat:      outgoingFormat,
 			OriginalRequestBody: originalRequestBody,
 			ConvertedBody:       convertedBody,
 			IsStreaming:         isStreaming,
-			Model:               originalModel,
+			Model:               mappedModel,
 			UpstreamModel:       channelCfg.Model,
 			ResponseParam:       &responseParam,
 		}
@@ -740,13 +751,48 @@ func ChannelProxyHandler() gin.HandlerFunc {
 					return nil
 				}
 
-				resp.Body = NewSSETransformWrapper(resp.Body, func(b []byte) []byte {
-					b = TransformResponseJSON(resp.Request.Context(), b, originalModel, mappedModel)
-					// Apply T2S Traditional Chinese conversion on each SSE frame
-					if GetTraditionalChinese(resp.Request.Context()) {
-						b = opencc.ConvertClaudeSSEDataT2S(b)
+				resp.Body = NewSSEJSONTransformWrapper(resp.Body, func(b []byte) [][]byte {
+					payloads := [][]byte{b}
+					if transInfo != nil && transInfo.NeedsConversion {
+						if transInfo.OutgoingFormat == translator.FormatClaude {
+							if toolMap, ok := GetClaudeToolNameMap(resp.Request.Context()); ok && len(toolMap) > 0 {
+								if unprefixed, changed := UnprefixClaudeToolNamesWithMap(b, toolMap); changed {
+									b = unprefixed
+								}
+							}
+						}
+						translatedPayloads, translateErr := translator.TranslateStream(
+							resp.Request.Context(),
+							transInfo.IncomingFormat,
+							transInfo.OutgoingFormat,
+							transInfo.Model,
+							transInfo.OriginalRequestBody,
+							transInfo.ConvertedBody,
+							b,
+							transInfo.ResponseParam,
+						)
+						if translateErr != nil {
+							log.Warnf("channel proxy: failed to translate streaming response frame: %v", translateErr)
+						} else if len(translatedPayloads) > 0 {
+							payloads = make([][]byte, 0, len(translatedPayloads))
+							for _, payload := range translatedPayloads {
+								payloads = append(payloads, []byte(payload))
+							}
+						}
 					}
-					return b
+
+					for i, payload := range payloads {
+						if transInfo != nil && transInfo.NeedsConversion {
+							payload = TransformResponseJSONForFormat(resp.Request.Context(), payload, originalModel, mappedModel, transInfo.IncomingFormat)
+						} else {
+							payload = TransformResponseJSON(resp.Request.Context(), payload, originalModel, mappedModel)
+						}
+						if GetTraditionalChinese(resp.Request.Context()) {
+							payload = opencc.ConvertClaudeSSEDataT2S(payload)
+						}
+						payloads[i] = payload
+					}
+					return payloads
 				})
 
 				// Streaming response handling (existing logic)
@@ -872,23 +918,16 @@ func getEndpointPath(channel *model.Channel, req *http.Request) string {
 		return "/v1/messages"
 
 	case model.ChannelTypeGemini:
-		// When format conversion is needed (e.g., OpenAI request -> Gemini channel),
-		// we need to construct the correct Gemini path with model name
+		// When routing into Gemini, construct the canonical action path using the
+		// upstream model name resolved by the routing/mapping layers.
 		if transInfo != nil && transInfo.NeedsConversion {
-			incomingFormat := transInfo.IncomingFormat
-			// OpenAI/Claude format incoming, need to build Gemini path
-			if incomingFormat == translator.FormatOpenAI || incomingFormat == translator.FormatClaude {
-				modelName := transInfo.UpstreamModel // 使用 UpstreamModel
-				if modelName != "" {
-					// 移除可能存在的 models/ 前缀
-					modelName = strings.TrimPrefix(modelName, "models/")
-					// Gemini uses :streamGenerateContent for streaming, :generateContent for non-streaming
-					action := "generateContent"
-					if transInfo.IsStreaming {
-						action = "streamGenerateContent"
-					}
-					return fmt.Sprintf("/v1beta/models/%s:%s", modelName, action)
+			modelName := strings.TrimPrefix(transInfo.UpstreamModel, "models/")
+			if modelName != "" {
+				action := "generateContent"
+				if transInfo.IsStreaming {
+					action = "streamGenerateContent"
 				}
+				return fmt.Sprintf("/v1beta/models/%s:%s", modelName, action)
 			}
 		}
 
@@ -1160,8 +1199,37 @@ func handleNonStreamingResponse(resp *http.Response, trace *RequestTrace, transI
 		extractTokenUsageFromBody(body, trace, &info)
 	}
 
+	if transInfo != nil && transInfo.NeedsConversion {
+		if transInfo.OutgoingFormat == translator.FormatClaude {
+			if toolMap, ok := GetClaudeToolNameMap(resp.Request.Context()); ok && len(toolMap) > 0 {
+				if unprefixed, changed := UnprefixClaudeToolNamesWithMap(body, toolMap); changed {
+					body = unprefixed
+				}
+			}
+		}
+		translatedBody, translateErr := translator.TranslateNonStream(
+			resp.Request.Context(),
+			transInfo.IncomingFormat,
+			transInfo.OutgoingFormat,
+			transInfo.Model,
+			transInfo.OriginalRequestBody,
+			transInfo.ConvertedBody,
+			body,
+			transInfo.ResponseParam,
+		)
+		if translateErr != nil {
+			log.Errorf("channel proxy: failed to translate non-stream response: %v", translateErr)
+			return translateErr
+		}
+		body = []byte(translatedBody)
+	}
+
 	// Apply response-side transformations without touching user-visible free-form text.
-	body = TransformResponseJSON(resp.Request.Context(), body, originalModel, mappedModel)
+	if transInfo != nil && transInfo.NeedsConversion {
+		body = TransformResponseJSONForFormat(resp.Request.Context(), body, originalModel, mappedModel, transInfo.IncomingFormat)
+	} else {
+		body = TransformResponseJSON(resp.Request.Context(), body, originalModel, mappedModel)
+	}
 
 	// Capture response for logging
 	if trace != nil && IsRequestDetailCaptureEnabled(resp.Request.Context()) {

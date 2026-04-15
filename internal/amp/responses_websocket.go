@@ -13,6 +13,7 @@ import (
 
 	"ampmanager/internal/model"
 	"ampmanager/internal/service"
+	"ampmanager/internal/translator"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
@@ -394,8 +395,9 @@ func prepareResponsesWebsocketTurn(c *gin.Context, session *responsesWebsocketSe
 }
 
 func selectResponsesWebsocketChannel(session *responsesWebsocketSession, proxyCfg *ProxyConfig, result MappingResult, continueWithPinned bool) (*model.Channel, *responsesWebsocketError) {
+	incomingFormat := translator.FormatOpenAIResponses
 	if continueWithPinned && session.pinnedChannelID != "" {
-		channel, err := responsesWebsocketChannelService.SelectSpecificChannelForModelWithGroups(session.pinnedChannelID, result.MappedModel, proxyCfg.GroupIDs)
+		channel, err := responsesWebsocketChannelService.SelectSpecificChannelForModelWithGroupsAndFormat(session.pinnedChannelID, result.MappedModel, proxyCfg.GroupIDs, incomingFormat, false)
 		if err != nil {
 			return nil, &responsesWebsocketError{StatusCode: http.StatusBadGateway, Message: "failed to resolve pinned channel"}
 		}
@@ -403,7 +405,7 @@ func selectResponsesWebsocketChannel(session *responsesWebsocketSession, proxyCf
 	}
 
 	if result.PreferredChannelID != "" {
-		channel, err := responsesWebsocketChannelService.SelectSpecificChannelForModelWithGroups(result.PreferredChannelID, result.MappedModel, proxyCfg.GroupIDs)
+		channel, err := responsesWebsocketChannelService.SelectSpecificChannelForModelWithGroupsAndFormat(result.PreferredChannelID, result.MappedModel, proxyCfg.GroupIDs, incomingFormat, false)
 		if err != nil {
 			return nil, &responsesWebsocketError{StatusCode: http.StatusBadGateway, Message: "failed to resolve preferred channel"}
 		}
@@ -415,9 +417,9 @@ func selectResponsesWebsocketChannel(session *responsesWebsocketSession, proxyCf
 		err     error
 	)
 	if len(proxyCfg.GroupIDs) > 0 {
-		channel, err = responsesWebsocketChannelService.SelectChannelForModelWithGroups(result.MappedModel, proxyCfg.GroupIDs)
+		channel, err = responsesWebsocketChannelService.SelectChannelForModelWithGroupsAndFormat(result.MappedModel, proxyCfg.GroupIDs, incomingFormat, false)
 	} else {
-		channel, err = responsesWebsocketChannelService.SelectChannelForModel(result.MappedModel)
+		channel, err = responsesWebsocketChannelService.SelectChannelForModelAndFormat(result.MappedModel, incomingFormat, false)
 	}
 	if err != nil {
 		return nil, &responsesWebsocketError{StatusCode: http.StatusBadGateway, Message: "failed to select channel"}

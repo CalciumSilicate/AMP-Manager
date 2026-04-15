@@ -13,6 +13,13 @@ async function handleResponse<T>(response: Response): Promise<T> {
 export type ChannelType = 'gemini' | 'claude' | 'openai'
 export type ChannelEndpoint = 'chat_completions' | 'responses' | 'messages' | 'generate_content'
 
+export interface ChannelTranslator {
+  compatible: boolean
+  responses: boolean
+  messages: boolean
+  gemini: boolean
+}
+
 export interface ChannelModel {
   name: string
   alias?: string
@@ -39,6 +46,7 @@ export interface Channel {
   copilotApi: boolean
   codexWebsocketEnabled: boolean
   headers: Record<string, string>
+  translator: ChannelTranslator
   createdAt: string
   updatedAt: string
 }
@@ -62,6 +70,7 @@ export interface ChannelRequest {
   copilotApi?: boolean
   codexWebsocketEnabled?: boolean
   headers?: Record<string, string>
+  translator?: ChannelTranslator
 }
 
 export interface TestChannelResult {

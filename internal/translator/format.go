@@ -14,14 +14,13 @@ func (f Format) String() string {
 }
 
 // Platform returns the platform family of the format.
-// OpenAI, OpenAI-Chat, OpenAI-Responses all belong to "openai" platform.
 func (f Format) Platform() string {
-	switch f {
-	case FormatOpenAI, FormatOpenAIChat, FormatOpenAIResponses:
+	switch canonicalSDKFormat(f) {
+	case canonicalSDKFormat(FormatOpenAIChat), canonicalSDKFormat(FormatOpenAIResponses):
 		return "openai"
-	case FormatClaude:
+	case canonicalSDKFormat(FormatClaude):
 		return "claude"
-	case FormatGemini:
+	case canonicalSDKFormat(FormatGemini):
 		return "gemini"
 	default:
 		return string(f)
@@ -29,8 +28,19 @@ func (f Format) Platform() string {
 }
 
 // IsSamePlatform checks if two formats belong to the same platform.
-// Same-platform format conversion is allowed (e.g., OpenAI Chat ↔ OpenAI Responses).
-// Cross-platform conversion is NOT allowed (e.g., OpenAI ↔ Claude).
 func IsSamePlatform(from, to Format) bool {
 	return from.Platform() == to.Platform()
+}
+
+// Equivalent reports whether two formats are identical after SDK normalization.
+func Equivalent(from, to Format) bool {
+	return canonicalSDKFormat(from) == canonicalSDKFormat(to)
+}
+
+// SupportsTranslation reports whether the SDK can translate a request/response pair.
+func SupportsTranslation(from, to Format) bool {
+	if Equivalent(from, to) {
+		return true
+	}
+	return HasResponseTransformer(from, to)
 }

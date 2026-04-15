@@ -199,16 +199,18 @@ func ApplyModelMappingMiddleware() gin.HandlerFunc {
 			return
 		}
 
+		incomingFormat := detectIncomingFormat(c.Request.URL.Path)
+
 		// Validate explicit channel bindings first so the mapping stays deterministic.
 		if result.PreferredChannelID != "" {
-			channel, err := mappingChannelService.SelectSpecificChannelForModelWithGroups(result.PreferredChannelID, result.MappedModel, cfg.GroupIDs)
+			channel, err := mappingChannelService.SelectSpecificChannelForModelWithGroupsAndFormat(result.PreferredChannelID, result.MappedModel, cfg.GroupIDs, incomingFormat, true)
 			if err != nil || channel == nil {
 				log.Warnf("model mapping: preferred channel '%s' cannot serve model '%s', skipping mapping", result.PreferredChannelID, result.MappedModel)
 				c.Next()
 				return
 			}
 		} else if result.MappedModel != modelName {
-			channel, err := mappingChannelService.SelectChannelForModel(result.MappedModel)
+			channel, err := mappingChannelService.SelectChannelForModelAndFormat(result.MappedModel, incomingFormat, true)
 			if err != nil || channel == nil {
 				log.Warnf("model mapping: target model '%s' has no available channel, skipping mapping", result.MappedModel)
 				c.Next()
