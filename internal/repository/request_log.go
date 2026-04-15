@@ -181,7 +181,6 @@ func (r *RequestLogRepository) List(params ListParams) ([]model.RequestLog, int6
 		       r.provider, r.channel_id, c.name as channel_name, r.endpoint, r.method, r.path, r.status_code, r.latency_ms, r.ttfb_ms,
 		       r.is_streaming, r.input_tokens, r.output_tokens, r.cache_read_input_tokens,
 		       r.cache_creation_input_tokens, r.error_type, r.request_id, r.cost_micros, r.cost_usd, r.pricing_model, r.thinking_level,
-		       r.charged_subscription_micros, r.charged_balance_micros, r.billing_status,
 		       r.downstream_transport, r.upstream_transport, r.transport_fallback_reason,
 		       r.charged_subscription_micros, r.charged_balance_micros, r.billing_status,
 		       %s as output_preview
@@ -893,7 +892,7 @@ func (r *RequestLogRepository) GetByID(id string) (*model.RequestLog, error) {
 		       r.provider, r.channel_id, c.name as channel_name, r.endpoint, r.method, r.path, r.status_code, r.latency_ms, r.ttfb_ms,
 		       r.is_streaming, r.input_tokens, r.output_tokens, r.cache_read_input_tokens,
 		       r.cache_creation_input_tokens, r.error_type, r.request_id, r.cost_micros, r.cost_usd, r.pricing_model, r.thinking_level,
-		       r.downstream_transport, r.upstream_transport, r.transport_fallback_reason
+		       r.downstream_transport, r.upstream_transport, r.transport_fallback_reason,
 		       r.charged_subscription_micros, r.charged_balance_micros, r.billing_status
 		FROM request_logs r
 		LEFT JOIN channels c ON r.channel_id = c.id
@@ -1025,7 +1024,7 @@ func (r *RequestLogRepository) GetByIDWithJoins(id string) (*model.RequestLog, e
 		       r.method, r.path, r.status_code, r.latency_ms, r.ttfb_ms,
 		       r.is_streaming, r.input_tokens, r.output_tokens, r.cache_read_input_tokens,
 		       r.cache_creation_input_tokens, r.error_type, r.request_id, r.cost_micros, r.cost_usd, r.pricing_model, r.thinking_level,
-		       r.downstream_transport, r.upstream_transport, r.transport_fallback_reason
+		       r.downstream_transport, r.upstream_transport, r.transport_fallback_reason,
 		       r.charged_subscription_micros, r.charged_balance_micros, r.billing_status
 		FROM request_logs r
 		LEFT JOIN users u ON r.user_id = u.id

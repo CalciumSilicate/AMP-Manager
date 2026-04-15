@@ -348,7 +348,9 @@ func prepareResponsesWebsocketTurn(c *gin.Context, session *responsesWebsocketSe
 	if errMarshal != nil {
 		return nil, &responsesWebsocketError{StatusCode: http.StatusBadRequest, Message: "failed to normalize request"}
 	}
-	body = stripOpenAIUnsupportedFieldsBytes(body)
+	if strippedBody, modified := stripOpenAIUnsupportedFieldsBytes(body); modified {
+		body = strippedBody
+	}
 
 	continueWithPinned := !rootCreate || strings.TrimSpace(gjson.GetBytes(normalized, "previous_response_id").String()) != ""
 	channel, errSelect := selectResponsesWebsocketChannel(session, proxyCfg, result, continueWithPinned)
@@ -712,20 +714,6 @@ func responsesWebsocketHTTPClient(proxyCfg *ProxyConfig) *http.Client {
 		Transport: transport,
 		Timeout:   0,
 	}
-}
-
-func stripOpenAIUnsupportedFieldsBytes(body []byte) []byte {
-	var payload map[string]interface{}
-	if err := json.Unmarshal(body, &payload); err != nil {
-		return body
-	}
-	delete(payload, "max_output_tokens")
-	delete(payload, "stream_options")
-	updated, err := json.Marshal(payload)
-	if err != nil {
-		return body
-	}
-	return updated
 }
 
 func normalizeResponsesCompletedEvent(payload []byte) []byte {
