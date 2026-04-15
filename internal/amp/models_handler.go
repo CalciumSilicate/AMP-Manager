@@ -1,12 +1,12 @@
 package amp
 
 import (
-	"encoding/json"
 	"net/http"
 	"strings"
 
 	"ampmanager/internal/model"
 	"ampmanager/internal/repository"
+	"ampmanager/internal/service"
 
 	"github.com/gin-gonic/gin"
 	log "github.com/sirupsen/logrus"
@@ -160,8 +160,8 @@ func handleGeminiModels(c *gin.Context) {
 
 // modelMatchesRules checks if a model ID matches any of the channel's model rules
 func modelMatchesRules(modelID string, modelsJSON string) bool {
-	var rules []model.ChannelModel
-	if err := json.Unmarshal([]byte(modelsJSON), &rules); err != nil || len(rules) == 0 {
+	rules, valid := service.GetParsedChannelModels(modelsJSON)
+	if !valid || len(rules) == 0 {
 		return true // no rules = allow all
 	}
 

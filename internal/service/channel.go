@@ -64,6 +64,10 @@ func getParsedModels(modelsJSON string) ([]model.ChannelModel, bool) {
 	return models, entry.valid
 }
 
+func GetParsedChannelModels(modelsJSON string) ([]model.ChannelModel, bool) {
+	return getParsedModels(modelsJSON)
+}
+
 func cloneChannels(channels []*model.Channel) []*model.Channel {
 	if len(channels) == 0 {
 		return nil
