@@ -508,6 +508,32 @@ func TestBillingEstimateMiddleware_LargeBodyDefersJSONParsing(t *testing.T) {
 	}
 }
 
+func TestLookupReservationMaxCompletionTokensCacheInvalidatesWithModelMetadata(t *testing.T) {
+	const modelName = "unit-test-model"
+	original, existed := knownModelMetadata[modelName]
+	if existed {
+		defer func() { knownModelMetadata[modelName] = original }()
+	} else {
+		defer delete(knownModelMetadata, modelName)
+	}
+
+	clearReservationMaxCompletionTokensCache()
+	knownModelMetadata[modelName] = ModelMetadata{ContextLength: 1000, MaxCompletionTokens: 111}
+	if got := lookupReservationMaxCompletionTokens(modelName); got != 111 {
+		t.Fatalf("lookup = %d, want 111", got)
+	}
+
+	knownModelMetadata[modelName] = ModelMetadata{ContextLength: 1000, MaxCompletionTokens: 222}
+	if got := lookupReservationMaxCompletionTokens(modelName); got != 111 {
+		t.Fatalf("cached lookup = %d, want cached 111 before invalidation", got)
+	}
+
+	InvalidateModelMetadataCache()
+	if got := lookupReservationMaxCompletionTokens(modelName); got != 222 {
+		t.Fatalf("lookup after invalidation = %d, want 222", got)
+	}
+}
+
 func TestEnsureRequestPayloadParsesCachedLargeBodyOnDemand(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 

@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"sync"
 	"unicode"
 
 	"ampmanager/internal/billing"
@@ -18,6 +19,8 @@ import (
 
 const defaultReservationMaxOutputTokens = 32768
 const largeEstimateBodyThresholdBytes = 128 * 1024
+
+var reservationMaxCompletionTokensCache sync.Map
 
 type billingEstimateKey struct{}
 
@@ -241,25 +244,48 @@ func lookupReservationMaxCompletionTokens(modelName string) int {
 	if modelName == "" {
 		return 0
 	}
+	if cached, ok := reservationMaxCompletionTokensCache.Load(modelName); ok {
+		if value, ok := cached.(int); ok {
+			return value
+		}
+	}
+
+	result := 0
 	if database.GetDB() != nil {
 		if meta := GetModelMetadata(modelName); meta != nil && meta.MaxCompletionTokens > 0 {
-			return meta.MaxCompletionTokens
+			result = meta.MaxCompletionTokens
+			reservationMaxCompletionTokensCache.Store(modelName, result)
+			return result
 		}
 	}
 	if meta, ok := knownModelMetadata[modelName]; ok && meta.MaxCompletionTokens > 0 {
-		return meta.MaxCompletionTokens
+		result = meta.MaxCompletionTokens
+		reservationMaxCompletionTokensCache.Store(modelName, result)
+		return result
 	}
 	for pattern, meta := range knownModelMetadata {
 		if matchPattern(pattern, modelName) && meta.MaxCompletionTokens > 0 {
-			return meta.MaxCompletionTokens
+			result = meta.MaxCompletionTokens
+			reservationMaxCompletionTokensCache.Store(modelName, result)
+			return result
 		}
 	}
 	for knownModel, meta := range knownModelMetadata {
 		if strings.Contains(knownModel, modelName) && meta.MaxCompletionTokens > 0 {
-			return meta.MaxCompletionTokens
+			result = meta.MaxCompletionTokens
+			reservationMaxCompletionTokensCache.Store(modelName, result)
+			return result
 		}
 	}
+	reservationMaxCompletionTokensCache.Store(modelName, result)
 	return 0
+}
+
+func clearReservationMaxCompletionTokensCache() {
+	reservationMaxCompletionTokensCache.Range(func(key, _ any) bool {
+		reservationMaxCompletionTokensCache.Delete(key)
+		return true
+	})
 }
 
 func extractPositiveInt(payload map[string]interface{}, keys ...string) int {

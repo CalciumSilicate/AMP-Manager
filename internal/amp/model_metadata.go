@@ -131,6 +131,7 @@ func InvalidateModelMetadataCache() {
 	metadataCache.mu.Lock()
 	defer metadataCache.mu.Unlock()
 	metadataCache.loadedAt = time.Time{}
+	clearReservationMaxCompletionTokensCache()
 }
 
 // GetModelMetadata looks up context size for a model name
