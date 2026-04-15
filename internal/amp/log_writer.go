@@ -245,8 +245,14 @@ func (w *LogWriter) UpdateFromTrace(trace *RequestTrace) bool {
 		rateMultiplier = &rm
 	}
 
-	// 同步更新数据库
-	result, err := w.db.Exec(`
+	tx, err := w.db.Begin()
+	if err != nil {
+		log.Errorf("log writer: failed to begin transaction for %s: %v", snapshot.RequestID, err)
+		return false
+	}
+	defer tx.Rollback()
+
+	result, err := tx.Exec(`
 		UPDATE request_logs SET
 			updated_at = ?,
 			status = ?,
@@ -308,7 +314,6 @@ func (w *LogWriter) UpdateFromTrace(trace *RequestTrace) bool {
 		stringPtrIfNonEmpty(snapshot.ResponseText),
 		snapshot.RequestID,
 	)
-
 	if err != nil {
 		log.Errorf("log writer: failed to update entry %s: %v", snapshot.RequestID, err)
 		return false
@@ -316,9 +321,21 @@ func (w *LogWriter) UpdateFromTrace(trace *RequestTrace) bool {
 
 	rowsAffected, _ := result.RowsAffected()
 	if rowsAffected == 0 {
-		// pending 记录不存在，fallback 到 INSERT
 		log.Warnf("log writer: pending record not found for %s, inserting new", snapshot.RequestID)
-		return w.insertComplete(trace)
+		if err := w.insertCompleteTx(tx, snapshot, status, now); err != nil {
+			log.Errorf("log writer: failed to insert fallback entry %s: %v", snapshot.RequestID, err)
+			return false
+		}
+	}
+
+	if err := syncGlobalRequestMetricsTx(tx, snapshot, now); err != nil {
+		log.Errorf("log writer: failed to sync minute metrics for %s: %v", snapshot.RequestID, err)
+		return false
+	}
+
+	if err := tx.Commit(); err != nil {
+		log.Errorf("log writer: failed to commit entry %s: %v", snapshot.RequestID, err)
+		return false
 	}
 
 	log.Debugf("log writer: updated request %s to status %s", snapshot.RequestID, status)
@@ -336,6 +353,31 @@ func (w *LogWriter) insertComplete(trace *RequestTrace) bool {
 	}
 
 	now := time.Now().UTC()
+
+	tx, err := w.db.Begin()
+	if err != nil {
+		log.Errorf("log writer: failed to begin insert transaction: %v", err)
+		return false
+	}
+	defer tx.Rollback()
+
+	if err := w.insertCompleteTx(tx, snapshot, status, now); err != nil {
+		log.Errorf("log writer: failed to insert complete entry: %v", err)
+		return false
+	}
+	if err := syncGlobalRequestMetricsTx(tx, snapshot, now); err != nil {
+		log.Errorf("log writer: failed to sync minute metrics for %s: %v", snapshot.RequestID, err)
+		return false
+	}
+	if err := tx.Commit(); err != nil {
+		log.Errorf("log writer: failed to commit inserted entry: %v", err)
+		return false
+	}
+	realtime.NotifyLogCompleted(snapshot.RequestID)
+	return true
+}
+
+func (w *LogWriter) insertCompleteTx(tx *sql.Tx, snapshot RequestTrace, status LogEntryStatus, now time.Time) error {
 	isStreaming := 0
 	if snapshot.IsStreaming {
 		isStreaming = 1
@@ -396,13 +438,13 @@ func (w *LogWriter) insertComplete(trace *RequestTrace) bool {
 		rateMultiplier = &rm
 	}
 
-	_, err := w.db.Exec(`
+	_, err := tx.Exec(`
 		INSERT INTO request_logs (
 			id, created_at, updated_at, status, user_id, api_key_id, original_model, mapped_model,
 			provider, channel_id, endpoint, method, path, status_code, latency_ms, ttfb_ms,
 			is_streaming, input_tokens, output_tokens, cache_read_input_tokens,
 			cache_creation_input_tokens, error_type, cost_micros, cost_usd, pricing_model,
-			charged_subscription_micros, charged_balance_micros, billing_status, thinking_level, rate_multiplier
+			charged_subscription_micros, charged_balance_micros, billing_status, thinking_level,
 			downstream_transport, upstream_transport, transport_fallback_reason, rate_multiplier
 		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 	`,
@@ -440,13 +482,7 @@ func (w *LogWriter) insertComplete(trace *RequestTrace) bool {
 		transportFallbackReason,
 		rateMultiplier,
 	)
-
-	if err != nil {
-		log.Errorf("log writer: failed to insert complete entry: %v", err)
-		return false
-	}
-	realtime.NotifyLogCompleted(snapshot.RequestID)
-	return true
+	return err
 }
 
 // WriteFromTrace 直接写入完整日志记录（用于非 pending 工作流，如非模型调用请求）

@@ -42,6 +42,8 @@ var migrationTables = []string{
 	"billing_reservations",
 	"billing_projection_events",
 	"request_logs",
+	"global_request_metric_projections",
+	"global_request_minute_metrics",
 	"request_log_details",
 	"system_config",
 	"purchase_products",

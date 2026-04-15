@@ -25,6 +25,13 @@ export interface DashboardDailyTrend {
   requests: number
 }
 
+export interface AdminDashboardThroughputPoint {
+  minute: string
+  qps1m: number
+  rpm5m: number
+  tpm5m: number
+}
+
 export interface DashboardCacheHitRate {
   provider: string
   totalInputTokens: number
@@ -64,6 +71,7 @@ export interface AdminDashboardData {
   month: DashboardPeriodStats
   topModels: DashboardTopModel[]
   dailyTrend: DashboardDailyTrend[]
+  throughputTrend: AdminDashboardThroughputPoint[]
   cacheHitRates: DashboardCacheHitRate[]
 }
 

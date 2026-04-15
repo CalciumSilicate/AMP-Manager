@@ -27,6 +27,12 @@ const trendChartConfig = {
   requests: { label: '请求数', color: 'hsl(var(--chart-1))' },
 } satisfies ChartConfig
 
+const throughputChartConfig = {
+  qps1m: { label: '1 分钟平均 QPS', color: 'hsl(var(--chart-1))' },
+  rpm5m: { label: '5 分钟平均 RPM', color: 'hsl(var(--chart-2))' },
+  tpm5m: { label: '5 分钟平均 TPM', color: 'hsl(var(--chart-3))' },
+} satisfies ChartConfig
+
 const modelChartConfig = {
   requests: { label: '请求数' },
   model1: { label: '模型 1', color: 'hsl(var(--chart-1))' },
@@ -48,6 +54,8 @@ export default function AdminOverview() {
   const [data, setData] = useState<AdminDashboardData | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
+  const [trendView, setTrendView] = useState<'cost' | 'requests'>('cost')
+  const [throughputView, setThroughputView] = useState<'qps1m' | 'rpm5m' | 'tpm5m'>('qps1m')
 
   const loadDashboard = async () => {
     setLoading(true)
@@ -74,6 +82,30 @@ export default function AdminOverview() {
       requests: d.requests,
     }))
   }, [data?.dailyTrend])
+
+  const throughputData = useMemo(() => {
+    if (!data?.throughputTrend?.length) return []
+    return data.throughputTrend.map((point) => {
+      const minute = new Date(point.minute)
+      const label = Number.isNaN(minute.getTime())
+        ? point.minute
+        : minute.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+      const tooltipLabel = Number.isNaN(minute.getTime())
+        ? point.minute
+        : minute.toLocaleString([], {
+            month: '2-digit',
+            day: '2-digit',
+            hour: '2-digit',
+            minute: '2-digit',
+          })
+
+      return {
+        ...point,
+        label,
+        tooltipLabel,
+      }
+    })
+  }, [data?.throughputTrend])
 
   const modelPieData = useMemo(() => {
     if (!data?.topModels?.length) return []
@@ -143,6 +175,38 @@ export default function AdminOverview() {
   const todayCost = parseFloat(data.today.costUsd)
   const weekCost = parseFloat(data.week.costUsd)
   const formatUsd = (value: number, digits: number) => `$${formatDecimal(value, digits)}`
+  const trendViewMeta = {
+    cost: {
+      description: '近 14 天全局成本变化 (USD)',
+      color: 'var(--color-cost)',
+      gradientId: 'adminFillCost',
+    },
+    requests: {
+      description: '近 14 天全局请求数变化',
+      color: 'var(--color-requests)',
+      gradientId: 'adminFillRequests',
+    },
+  } as const
+  const throughputViewMeta = {
+    qps1m: {
+      label: '1 分钟平均 QPS',
+      description: '近 24 小时，每分钟请求数 / 60',
+      digits: 2,
+      unit: 'req/s',
+    },
+    rpm5m: {
+      label: '5 分钟平均 RPM',
+      description: '近 24 小时，5 分钟窗口平均每分钟请求',
+      digits: 2,
+      unit: 'req/min',
+    },
+    tpm5m: {
+      label: '5 分钟平均 TPM',
+      description: '近 24 小时，5 分钟窗口平均每分钟 Tokens',
+      digits: 1,
+      unit: 'tok/min',
+    },
+  } as const
 
   return (
     <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-6">
@@ -292,7 +356,7 @@ export default function AdminOverview() {
         ))}
       </motion.div>
 
-      {/* Cost Area Chart + Requests Bar Chart */}
+      {/* Trend + Throughput */}
       <div className="grid gap-6 lg:grid-cols-2">
         <motion.div
           initial={{ opacity: 0, y: 30, scale: 0.97 }}
@@ -301,16 +365,28 @@ export default function AdminOverview() {
         >
           <Card>
             <CardHeader>
-              <CardTitle className="text-base flex items-center gap-2">
-                <DollarSign className="h-4 w-4 text-emerald-500" />
-                每日成本趋势（全局）
-              </CardTitle>
-              <CardDescription>近 14 天全局成本变化 (USD)</CardDescription>
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <CardTitle className="text-base flex items-center gap-2">
+                    <TrendingUp className="h-4 w-4 text-emerald-500" />
+                    每日趋势（全局）
+                  </CardTitle>
+                  <CardDescription>{trendViewMeta[trendView].description}</CardDescription>
+                </div>
+                <div className="flex items-center gap-1">
+                  <Button size="sm" variant={trendView === 'cost' ? 'default' : 'outline'} onClick={() => setTrendView('cost')}>
+                    成本
+                  </Button>
+                  <Button size="sm" variant={trendView === 'requests' ? 'default' : 'outline'} onClick={() => setTrendView('requests')}>
+                    请求量
+                  </Button>
+                </div>
+              </div>
             </CardHeader>
             <CardContent>
               {trendData.length === 0 ? (
                 <p className="text-center text-muted-foreground py-12">暂无数据</p>
-              ) : (
+              ) : trendView === 'cost' ? (
                 <ChartContainer config={trendChartConfig} className="h-[240px] w-full">
                   <AreaChart accessibilityLayer data={trendData} margin={{ top: 8, right: 12, left: -4, bottom: 0 }}>
                     <defs>
@@ -342,27 +418,6 @@ export default function AdminOverview() {
                     />
                   </AreaChart>
                 </ChartContainer>
-              )}
-            </CardContent>
-          </Card>
-        </motion.div>
-
-        <motion.div
-          initial={{ opacity: 0, y: 30, scale: 0.97 }}
-          animate={{ opacity: 1, y: 0, scale: 1 }}
-          transition={{ type: 'spring', bounce: 0.25, duration: 0.7, delay: 0.28 }}
-        >
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-base flex items-center gap-2">
-                <Activity className="h-4 w-4 text-blue-500" />
-                每日请求量（全局）
-              </CardTitle>
-              <CardDescription>近 14 天全局请求数变化</CardDescription>
-            </CardHeader>
-            <CardContent>
-              {trendData.length === 0 ? (
-                <p className="text-center text-muted-foreground py-12">暂无数据</p>
               ) : (
                 <ChartContainer config={trendChartConfig} className="h-[240px] w-full">
                   <BarChart accessibilityLayer data={trendData} margin={{ top: 8, right: 12, left: -4, bottom: 0 }}>
@@ -378,6 +433,78 @@ export default function AdminOverview() {
                     <ChartTooltip cursor={false} content={<ChartTooltipContent indicator="dot" />} />
                     <Bar dataKey="requests" fill="url(#adminFillRequests)" radius={[6, 6, 0, 0]} maxBarSize={36} />
                   </BarChart>
+                </ChartContainer>
+              )}
+            </CardContent>
+          </Card>
+        </motion.div>
+
+        <motion.div
+          initial={{ opacity: 0, y: 30, scale: 0.97 }}
+          animate={{ opacity: 1, y: 0, scale: 1 }}
+          transition={{ type: 'spring', bounce: 0.25, duration: 0.7, delay: 0.28 }}
+        >
+          <Card>
+            <CardHeader>
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <CardTitle className="text-base flex items-center gap-2">
+                    <Activity className="h-4 w-4 text-blue-500" />
+                    实时吞吐趋势（全局）
+                  </CardTitle>
+                  <CardDescription>{throughputViewMeta[throughputView].description}</CardDescription>
+                </div>
+                <div className="flex items-center gap-1">
+                  <Button size="sm" variant={throughputView === 'qps1m' ? 'default' : 'outline'} onClick={() => setThroughputView('qps1m')}>
+                    1m QPS
+                  </Button>
+                  <Button size="sm" variant={throughputView === 'rpm5m' ? 'default' : 'outline'} onClick={() => setThroughputView('rpm5m')}>
+                    5m RPM
+                  </Button>
+                  <Button size="sm" variant={throughputView === 'tpm5m' ? 'default' : 'outline'} onClick={() => setThroughputView('tpm5m')}>
+                    5m TPM
+                  </Button>
+                </div>
+              </div>
+            </CardHeader>
+            <CardContent>
+              {throughputData.length === 0 ? (
+                <p className="text-center text-muted-foreground py-12">暂无数据</p>
+              ) : (
+                <ChartContainer config={throughputChartConfig} className="h-[240px] w-full">
+                  <AreaChart accessibilityLayer data={throughputData} margin={{ top: 8, right: 12, left: -4, bottom: 0 }}>
+                    <defs>
+                      <linearGradient id="adminFillThroughput" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="5%" stopColor={`var(--color-${throughputView})`} stopOpacity={0.35} />
+                        <stop offset="95%" stopColor={`var(--color-${throughputView})`} stopOpacity={0.02} />
+                      </linearGradient>
+                    </defs>
+                    <CartesianGrid vertical={false} />
+                    <XAxis dataKey="label" tickLine={false} axisLine={false} tickMargin={8} minTickGap={28} />
+                    <YAxis tickLine={false} axisLine={false} tickMargin={4} tickFormatter={(value) => formatDecimal(Number(value), throughputViewMeta[throughputView].digits)} />
+                    <ChartTooltip
+                      cursor={false}
+                      content={
+                        <ChartTooltipContent
+                          indicator="dot"
+                          labelFormatter={(_value, payload) => {
+                            const item = payload?.[0]?.payload as { tooltipLabel?: string } | undefined
+                            return item?.tooltipLabel || ''
+                          }}
+                          formatter={(value) => `${formatDecimal(Number(value), throughputViewMeta[throughputView].digits)} ${throughputViewMeta[throughputView].unit}`}
+                        />
+                      }
+                    />
+                    <Area
+                      type="monotoneX"
+                      dataKey={throughputView}
+                      stroke={`var(--color-${throughputView})`}
+                      strokeWidth={2}
+                      fill="url(#adminFillThroughput)"
+                      dot={false}
+                      activeDot={{ r: 4, strokeWidth: 2 }}
+                    />
+                  </AreaChart>
                 </ChartContainer>
               )}
             </CardContent>

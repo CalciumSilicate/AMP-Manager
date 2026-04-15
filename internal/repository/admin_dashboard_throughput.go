@@ -1,0 +1,269 @@
+package repository
+
+import (
+	"database/sql"
+	"time"
+
+	"ampmanager/internal/database"
+)
+
+const (
+	adminThroughputWindowMinutes = 24 * 60
+	throughputRollingWindowSize  = 5
+)
+
+type DashboardThroughputPoint struct {
+	Minute string
+	QPS1m  float64
+	RPM5m  float64
+	TPM5m  float64
+}
+
+type dashboardMinuteMetricRow struct {
+	MinuteBucket    time.Time
+	RequestCountSum int64
+	InputTokensSum  int64
+	OutputTokensSum int64
+	TotalTokensSum  int64
+}
+
+func adminThroughputWindowBounds(now time.Time) (time.Time, time.Time) {
+	end := now.UTC().Truncate(time.Minute)
+	start := end.Add(-time.Duration(adminThroughputWindowMinutes-1) * time.Minute)
+	return start, end
+}
+
+func fillDashboardMinuteMetrics(start, end time.Time, rows []dashboardMinuteMetricRow) []dashboardMinuteMetricRow {
+	if end.Before(start) {
+		return nil
+	}
+
+	byMinute := make(map[string]dashboardMinuteMetricRow, len(rows))
+	for _, row := range rows {
+		key := row.MinuteBucket.UTC().Format(time.RFC3339)
+		byMinute[key] = row
+	}
+
+	totalMinutes := int(end.Sub(start)/time.Minute) + 1
+	filled := make([]dashboardMinuteMetricRow, 0, totalMinutes)
+	for minute := start.UTC(); !minute.After(end.UTC()); minute = minute.Add(time.Minute) {
+		key := minute.Format(time.RFC3339)
+		if row, ok := byMinute[key]; ok {
+			filled = append(filled, row)
+			continue
+		}
+		filled = append(filled, dashboardMinuteMetricRow{MinuteBucket: minute})
+	}
+	return filled
+}
+
+func buildDashboardThroughputPoints(rows []dashboardMinuteMetricRow) []DashboardThroughputPoint {
+	points := make([]DashboardThroughputPoint, 0, len(rows))
+
+	var requestWindowSum int64
+	var tokenWindowSum int64
+	for index, row := range rows {
+		requestWindowSum += row.RequestCountSum
+		tokenWindowSum += row.TotalTokensSum
+		if index >= throughputRollingWindowSize {
+			requestWindowSum -= rows[index-throughputRollingWindowSize].RequestCountSum
+			tokenWindowSum -= rows[index-throughputRollingWindowSize].TotalTokensSum
+		}
+
+		points = append(points, DashboardThroughputPoint{
+			Minute: row.MinuteBucket.UTC().Format(time.RFC3339),
+			QPS1m:  float64(row.RequestCountSum) / 60.0,
+			RPM5m:  float64(requestWindowSum) / float64(throughputRollingWindowSize),
+			TPM5m:  float64(tokenWindowSum) / float64(throughputRollingWindowSize),
+		})
+	}
+
+	return points
+}
+
+func applyMinuteMetricAggregateDeltaTx(tx *sql.Tx, minuteBucket time.Time, requestDelta, inputDelta, outputDelta, totalDelta int64, now time.Time) error {
+	if minuteBucket.IsZero() {
+		return nil
+	}
+	if requestDelta == 0 && inputDelta == 0 && outputDelta == 0 && totalDelta == 0 {
+		return nil
+	}
+
+	_, err := tx.Exec(`
+		INSERT INTO global_request_minute_metrics (
+			minute_bucket, request_count_sum, input_tokens_sum, output_tokens_sum, total_tokens_sum, updated_at
+		) VALUES (?, ?, ?, ?, ?, ?)
+		ON CONFLICT(minute_bucket) DO UPDATE SET
+			request_count_sum = global_request_minute_metrics.request_count_sum + excluded.request_count_sum,
+			input_tokens_sum = global_request_minute_metrics.input_tokens_sum + excluded.input_tokens_sum,
+			output_tokens_sum = global_request_minute_metrics.output_tokens_sum + excluded.output_tokens_sum,
+			total_tokens_sum = global_request_minute_metrics.total_tokens_sum + excluded.total_tokens_sum,
+			updated_at = excluded.updated_at
+	`,
+		minuteBucket.UTC(),
+		requestDelta,
+		inputDelta,
+		outputDelta,
+		totalDelta,
+		now.UTC(),
+	)
+	if err != nil {
+		return err
+	}
+
+	_, err = tx.Exec(`
+		DELETE FROM global_request_minute_metrics
+		WHERE minute_bucket = ?
+		  AND request_count_sum <= 0
+		  AND input_tokens_sum <= 0
+		  AND output_tokens_sum <= 0
+		  AND total_tokens_sum <= 0
+	`, minuteBucket.UTC())
+	return err
+}
+
+func (r *RequestLogRepository) GetAdminThroughputTrend() ([]DashboardThroughputPoint, error) {
+	start, end := adminThroughputWindowBounds(time.Now().UTC())
+	if err := r.ensureAdminThroughputMetricsWindow(start, end); err != nil {
+		return nil, err
+	}
+
+	rows, err := database.GetDB().Query(`
+		SELECT minute_bucket, request_count_sum, input_tokens_sum, output_tokens_sum, total_tokens_sum
+		FROM global_request_minute_metrics
+		WHERE minute_bucket >= ? AND minute_bucket <= ?
+		ORDER BY minute_bucket ASC
+	`, start.UTC(), end.UTC())
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var metricRows []dashboardMinuteMetricRow
+	for rows.Next() {
+		var row dashboardMinuteMetricRow
+		if err := rows.Scan(
+			&row.MinuteBucket,
+			&row.RequestCountSum,
+			&row.InputTokensSum,
+			&row.OutputTokensSum,
+			&row.TotalTokensSum,
+		); err != nil {
+			return nil, err
+		}
+		metricRows = append(metricRows, row)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	filled := fillDashboardMinuteMetrics(start, end, metricRows)
+	return buildDashboardThroughputPoints(filled), nil
+}
+
+func (r *RequestLogRepository) ensureAdminThroughputMetricsWindow(start, end time.Time) error {
+	var count int64
+	err := database.GetDB().QueryRow(`
+		SELECT COUNT(*)
+		FROM global_request_minute_metrics
+		WHERE minute_bucket >= ? AND minute_bucket <= ?
+	`, start.UTC(), end.UTC()).Scan(&count)
+	if err != nil {
+		return err
+	}
+	if count > 0 {
+		return nil
+	}
+	return r.rebuildAdminThroughputMetricsWindow(start, end)
+}
+
+func (r *RequestLogRepository) rebuildAdminThroughputMetricsWindow(start, end time.Time) error {
+	tx, err := database.GetDB().Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	if _, err := tx.Exec(`
+		DELETE FROM global_request_metric_projections
+		WHERE minute_bucket >= ? AND minute_bucket <= ?
+	`, start.UTC(), end.UTC()); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(`
+		DELETE FROM global_request_minute_metrics
+		WHERE minute_bucket >= ? AND minute_bucket <= ?
+	`, start.UTC(), end.UTC()); err != nil {
+		return err
+	}
+
+	rows, err := tx.Query(`
+		SELECT id, created_at, COALESCE(input_tokens, 0), COALESCE(output_tokens, 0)
+		FROM request_logs
+		WHERE created_at >= ? AND created_at < ? AND status <> 'pending'
+		ORDER BY created_at ASC
+	`, start.UTC(), end.UTC().Add(time.Minute))
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+
+	now := time.Now().UTC()
+	for rows.Next() {
+		var requestID string
+		var createdAt time.Time
+		var inputTokens int64
+		var outputTokens int64
+		if err := rows.Scan(&requestID, &createdAt, &inputTokens, &outputTokens); err != nil {
+			return err
+		}
+
+		projection := &dashboardMinuteMetricRow{
+			MinuteBucket:    createdAt.UTC().Truncate(time.Minute),
+			RequestCountSum: 1,
+			InputTokensSum:  inputTokens,
+			OutputTokensSum: outputTokens,
+			TotalTokensSum:  inputTokens + outputTokens,
+		}
+
+		if err := applyMinuteMetricAggregateDeltaTx(
+			tx,
+			projection.MinuteBucket,
+			projection.RequestCountSum,
+			projection.InputTokensSum,
+			projection.OutputTokensSum,
+			projection.TotalTokensSum,
+			now,
+		); err != nil {
+			return err
+		}
+
+		if _, err := tx.Exec(`
+			INSERT INTO global_request_metric_projections (
+				request_id, minute_bucket, request_count, input_tokens, output_tokens, total_tokens, updated_at
+			) VALUES (?, ?, ?, ?, ?, ?, ?)
+			ON CONFLICT(request_id) DO UPDATE SET
+				minute_bucket = excluded.minute_bucket,
+				request_count = excluded.request_count,
+				input_tokens = excluded.input_tokens,
+				output_tokens = excluded.output_tokens,
+				total_tokens = excluded.total_tokens,
+				updated_at = excluded.updated_at
+		`,
+			requestID,
+			projection.MinuteBucket.UTC(),
+			projection.RequestCountSum,
+			projection.InputTokensSum,
+			projection.OutputTokensSum,
+			projection.TotalTokensSum,
+			now,
+		); err != nil {
+			return err
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
+
+	return tx.Commit()
+}

@@ -272,6 +272,49 @@ func TestListFiltersByStatusCode(t *testing.T) {
 	}
 }
 
+func TestGetAdminThroughputTrendBackfillsFromRequestLogs(t *testing.T) {
+	setupRequestLogTestDB(t)
+
+	now := time.Now().UTC().Truncate(time.Minute)
+	for index := 0; index < throughputRollingWindowSize; index++ {
+		createdAt := now.Add(-time.Duration(throughputRollingWindowSize-1-index) * time.Minute)
+		insertRequestLogWithTokensAndStatus(
+			t,
+			fmt.Sprintf("throughput-%d", index),
+			"user-1",
+			createdAt,
+			60,
+			60,
+			"success",
+		)
+	}
+
+	repo := NewRequestLogRepository()
+	points, err := repo.GetAdminThroughputTrend()
+	if err != nil {
+		t.Fatalf("GetAdminThroughputTrend returned error: %v", err)
+	}
+	if len(points) != adminThroughputWindowMinutes {
+		t.Fatalf("expected %d throughput points, got %d", adminThroughputWindowMinutes, len(points))
+	}
+
+	lastPoint := points[len(points)-1]
+	if lastPoint.Minute != now.Format(time.RFC3339) {
+		t.Fatalf("last throughput minute = %q, want %q", lastPoint.Minute, now.Format(time.RFC3339))
+	}
+	assertFloatEquals(t, lastPoint.QPS1m, 1.0/60.0)
+	assertFloatEquals(t, lastPoint.RPM5m, 1.0)
+	assertFloatEquals(t, lastPoint.TPM5m, 120.0)
+
+	var aggregateCount int64
+	if err := database.GetDB().QueryRow(`SELECT COUNT(*) FROM global_request_minute_metrics`).Scan(&aggregateCount); err != nil {
+		t.Fatalf("query global_request_minute_metrics returned error: %v", err)
+	}
+	if aggregateCount == 0 {
+		t.Fatal("expected global_request_minute_metrics rows after backfill")
+	}
+}
+
 func setupRequestLogTestDB(t *testing.T) {
 	t.Helper()
 
@@ -313,6 +356,21 @@ func insertRequestLogWithStatus(t *testing.T, id, userID string, statusCode int,
 	`, id, createdAt, userID, fmt.Sprintf("key-%s", userID), "gpt-5.4", statusCode)
 	if err != nil {
 		t.Fatalf("insert request log with status failed: %v", err)
+	}
+}
+
+func insertRequestLogWithTokensAndStatus(t *testing.T, id, userID string, createdAt time.Time, inputTokens, outputTokens int, status string) {
+	t.Helper()
+
+	db := database.GetDB()
+	_, err := db.Exec(`
+		INSERT INTO request_logs (
+			id, created_at, user_id, api_key_id, original_model, method, path, status_code, latency_ms,
+			is_streaming, input_tokens, output_tokens, cache_read_input_tokens, cache_creation_input_tokens, status
+		) VALUES (?, ?, ?, ?, ?, 'POST', '/v1/responses', 200, 123, 0, ?, ?, 0, 0, ?)
+	`, id, createdAt, userID, fmt.Sprintf("key-%s", userID), "gpt-5.4", inputTokens, outputTokens, status)
+	if err != nil {
+		t.Fatalf("insert request log with tokens failed: %v", err)
 	}
 }
 

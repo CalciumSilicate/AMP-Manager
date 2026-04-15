@@ -461,7 +461,7 @@ func (h *RequestLogHandler) GetAdminDashboard(c *gin.Context) {
 		return
 	}
 
-	today, week, month, topModels, dailyTrend, err := h.logService.GetAdminDashboardStats()
+	today, week, month, topModels, dailyTrend, throughputTrend, err := h.logService.GetAdminDashboardStats()
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "获取统计数据失败"})
 		return
@@ -498,6 +498,16 @@ func (h *RequestLogHandler) GetAdminDashboard(c *gin.Context) {
 		})
 	}
 
+	throughputList := make([]gin.H, 0, len(throughputTrend))
+	for _, point := range throughputTrend {
+		throughputList = append(throughputList, gin.H{
+			"minute": point.Minute,
+			"qps1m":  point.QPS1m,
+			"rpm5m":  point.RPM5m,
+			"tpm5m":  point.TPM5m,
+		})
+	}
+
 	cacheHitRates, err := h.logService.GetAdminCacheHitRateByProvider()
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "获取缓存命中率失败"})
@@ -522,12 +532,13 @@ func (h *RequestLogHandler) GetAdminDashboard(c *gin.Context) {
 			"totalBalanceUsd":    fmt.Sprintf("%.6f", float64(totalBalance)/1e6),
 			"userCount":          userCount,
 		},
-		"today":         formatPeriod(today),
-		"week":          formatPeriod(week),
-		"month":         formatPeriod(month),
-		"topModels":     topModelsList,
-		"dailyTrend":    trendList,
-		"cacheHitRates": cacheHitRateList,
+		"today":           formatPeriod(today),
+		"week":            formatPeriod(week),
+		"month":           formatPeriod(month),
+		"topModels":       topModelsList,
+		"dailyTrend":      trendList,
+		"throughputTrend": throughputList,
+		"cacheHitRates":   cacheHitRateList,
 	})
 }
 

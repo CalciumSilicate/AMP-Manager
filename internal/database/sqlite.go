@@ -394,6 +394,27 @@ func createTables() error {
 	CREATE INDEX IF NOT EXISTS idx_request_logs_streaming_time ON request_logs(is_streaming, created_at DESC);
 	CREATE INDEX IF NOT EXISTS idx_request_logs_effective_model ON request_logs(COALESCE(mapped_model, original_model));
 
+	CREATE TABLE IF NOT EXISTS global_request_metric_projections (
+		request_id TEXT PRIMARY KEY,
+		minute_bucket DATETIME NOT NULL,
+		request_count BIGINT NOT NULL DEFAULT 0,
+		input_tokens BIGINT NOT NULL DEFAULT 0,
+		output_tokens BIGINT NOT NULL DEFAULT 0,
+		total_tokens BIGINT NOT NULL DEFAULT 0,
+		updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+	);
+	CREATE INDEX IF NOT EXISTS idx_global_request_metric_projections_minute ON global_request_metric_projections(minute_bucket DESC);
+
+	CREATE TABLE IF NOT EXISTS global_request_minute_metrics (
+		minute_bucket DATETIME PRIMARY KEY,
+		request_count_sum BIGINT NOT NULL DEFAULT 0,
+		input_tokens_sum BIGINT NOT NULL DEFAULT 0,
+		output_tokens_sum BIGINT NOT NULL DEFAULT 0,
+		total_tokens_sum BIGINT NOT NULL DEFAULT 0,
+		updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+	);
+	CREATE INDEX IF NOT EXISTS idx_global_request_minute_metrics_minute ON global_request_minute_metrics(minute_bucket DESC);
+
 	CREATE TABLE IF NOT EXISTS model_prices (
 		id TEXT PRIMARY KEY,
 		model TEXT UNIQUE NOT NULL,
@@ -933,6 +954,37 @@ func runMigrations() error {
 		{
 			name: "add_request_logs_transport_fallback_reason",
 			sql:  `ALTER TABLE request_logs ADD COLUMN transport_fallback_reason TEXT`,
+		},
+		{
+			name: "create_global_request_metric_projections_table",
+			sql: `CREATE TABLE IF NOT EXISTS global_request_metric_projections (
+				request_id TEXT PRIMARY KEY,
+				minute_bucket DATETIME NOT NULL,
+				request_count BIGINT NOT NULL DEFAULT 0,
+				input_tokens BIGINT NOT NULL DEFAULT 0,
+				output_tokens BIGINT NOT NULL DEFAULT 0,
+				total_tokens BIGINT NOT NULL DEFAULT 0,
+				updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+			)`,
+		},
+		{
+			name: "create_global_request_metric_projections_indexes",
+			sql:  `CREATE INDEX IF NOT EXISTS idx_global_request_metric_projections_minute ON global_request_metric_projections(minute_bucket DESC)`,
+		},
+		{
+			name: "create_global_request_minute_metrics_table",
+			sql: `CREATE TABLE IF NOT EXISTS global_request_minute_metrics (
+				minute_bucket DATETIME PRIMARY KEY,
+				request_count_sum BIGINT NOT NULL DEFAULT 0,
+				input_tokens_sum BIGINT NOT NULL DEFAULT 0,
+				output_tokens_sum BIGINT NOT NULL DEFAULT 0,
+				total_tokens_sum BIGINT NOT NULL DEFAULT 0,
+				updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+			)`,
+		},
+		{
+			name: "create_global_request_minute_metrics_indexes",
+			sql:  `CREATE INDEX IF NOT EXISTS idx_global_request_minute_metrics_minute ON global_request_minute_metrics(minute_bucket DESC)`,
 		},
 		{
 			name: "add_request_log_details_archive_translated_request_headers",

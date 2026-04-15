@@ -734,7 +734,7 @@ func (r *RequestLogRepository) GetCacheHitRateByProvider(userID string) ([]Dashb
 }
 
 // GetAdminDashboardStats 获取管理员仪表盘统计数据（全局，不按用户过滤）
-func (r *RequestLogRepository) GetAdminDashboardStats() (today, week, month DashboardPeriodStats, topModels []DashboardTopModel, dailyTrend []DashboardDailyTrend, err error) {
+func (r *RequestLogRepository) GetAdminDashboardStats() (today, week, month DashboardPeriodStats, topModels []DashboardTopModel, dailyTrend []DashboardDailyTrend, throughputTrend []DashboardThroughputPoint, err error) {
 	db := database.GetDB()
 	now := time.Now().UTC()
 	todayStart := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, time.UTC)
@@ -821,6 +821,11 @@ func (r *RequestLogRepository) GetAdminDashboardStats() (today, week, month Dash
 	if err == nil {
 		dailyTrend = fillDashboardDailyTrend(trendStart, 14, dailyTrend)
 	}
+	if err != nil {
+		return
+	}
+
+	throughputTrend, err = r.GetAdminThroughputTrend()
 	return
 }
 
