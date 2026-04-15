@@ -390,10 +390,11 @@ func TestEstimateReservationInputTokensForPayloadFallsBackOnLargeBody(t *testing
 	largeText := strings.Repeat("hello world ", largeEstimateBodyThresholdBytes/12+32)
 	raw := []byte(fmt.Sprintf(`{"model":"gpt-4.1","input":[{"role":"user","content":"%s"}],"max_tokens":42}`, largeText))
 
-	tokens, usedFallback := estimateReservationInputTokensForPayload(&RequestPayload{
-		Body: raw,
-		JSON: mustEstimatePayload(t, string(raw)),
-	}, billingRequestOpenAIResponses)
+	tokens, usedFallback := estimateReservationInputTokensForPayload(
+		mustEstimatePayload(t, string(raw)),
+		raw,
+		billingRequestOpenAIResponses,
+	)
 
 	if !usedFallback {
 		t.Fatal("expected large payload to use fallback estimate")
@@ -407,10 +408,7 @@ func TestEstimateReservationInputTokensForPayloadUsesStructuredEstimateForSmallB
 	raw := []byte(`{"model":"gpt-4.1","messages":[{"role":"user","content":"hello world"}],"max_tokens":42}`)
 	payload := mustEstimatePayload(t, string(raw))
 
-	tokens, usedFallback := estimateReservationInputTokensForPayload(&RequestPayload{
-		Body: raw,
-		JSON: payload,
-	}, billingRequestOpenAIChat)
+	tokens, usedFallback := estimateReservationInputTokensForPayload(payload, raw, billingRequestOpenAIChat)
 
 	if usedFallback {
 		t.Fatal("expected small payload to use structured estimate")
@@ -464,6 +462,84 @@ func TestBillingEstimateMiddleware_UsesFallbackEstimateForLargeBody(t *testing.T
 	}
 	if estimate.EstimatedOutputTokens != 42 {
 		t.Fatalf("expected max tokens 42, got %d", estimate.EstimatedOutputTokens)
+	}
+}
+
+func TestBillingEstimateMiddleware_LargeBodyDefersJSONParsing(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	previousRuntime := billingstate.Replace(&billingstate.Runtime{})
+	defer billingstate.Replace(previousRuntime)
+
+	largeText := strings.Repeat("hello world ", largeEstimateBodyThresholdBytes/12+32)
+	raw := fmt.Sprintf(`{"model":"gpt-4.1","input":[{"role":"user","content":"%s"}],"max_tokens":42}`, largeText)
+	var payload *RequestPayload
+
+	router := gin.New()
+	router.Use(func(c *gin.Context) {
+		c.Request = c.Request.WithContext(WithProxyConfig(c.Request.Context(), &ProxyConfig{
+			UserID:         "user-1",
+			RateMultiplier: 1,
+		}))
+		c.Next()
+	})
+	router.Use(BillingEstimateMiddleware())
+	router.POST("/v1/responses", func(c *gin.Context) {
+		payload = GetRequestPayload(c.Request.Context())
+		c.Status(http.StatusNoContent)
+	})
+
+	req := httptest.NewRequest(http.MethodPost, "/v1/responses", strings.NewReader(raw))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("expected status %d, got %d", http.StatusNoContent, rec.Code)
+	}
+	if payload == nil {
+		t.Fatal("expected request payload to be cached")
+	}
+	if payload.JSON != nil {
+		t.Fatal("expected large payload path to defer JSON parsing")
+	}
+	if payload.jsonParsed {
+		t.Fatal("expected large payload path to leave jsonParsed false")
+	}
+}
+
+func TestEnsureRequestPayloadParsesCachedLargeBodyOnDemand(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	largeText := strings.Repeat("hello world ", largeEstimateBodyThresholdBytes/12+32)
+	raw := fmt.Sprintf(`{"model":"gpt-4.1","input":[{"role":"user","content":"%s"}],"max_tokens":42}`, largeText)
+
+	router := gin.New()
+	router.POST("/v1/responses", func(c *gin.Context) {
+		payload, err := ensureRequestBody(c)
+		if err != nil {
+			t.Fatalf("ensureRequestBody returned error: %v", err)
+		}
+		if payload.JSON != nil || payload.jsonParsed {
+			t.Fatalf("expected ensureRequestBody to avoid eager JSON parsing")
+		}
+		payload, err = EnsureRequestPayload(c)
+		if err != nil {
+			t.Fatalf("EnsureRequestPayload returned error: %v", err)
+		}
+		if payload.JSON == nil || !payload.jsonParsed {
+			t.Fatalf("expected EnsureRequestPayload to parse cached body on demand")
+		}
+		c.Status(http.StatusNoContent)
+	})
+
+	req := httptest.NewRequest(http.MethodPost, "/v1/responses", strings.NewReader(raw))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("expected status %d, got %d", http.StatusNoContent, rec.Code)
 	}
 }
 

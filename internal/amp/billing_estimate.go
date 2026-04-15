@@ -13,6 +13,7 @@ import (
 	"ampmanager/internal/database"
 
 	"github.com/gin-gonic/gin"
+	"github.com/tidwall/gjson"
 )
 
 const defaultReservationMaxOutputTokens = 32768
@@ -61,10 +62,20 @@ func BillingEstimateMiddleware() gin.HandlerFunc {
 			return
 		}
 
-		payload, err := EnsureRequestPayload(c)
+		payload, err := ensureRequestBody(c)
 		if err != nil {
 			c.AbortWithStatusJSON(http.StatusInternalServerError, NewStandardError(http.StatusInternalServerError, "failed to read request body"))
 			return
+		}
+
+		payloadJSON := payload.JSON
+		if len(payload.Body) < largeEstimateBodyThresholdBytes {
+			payload, err = EnsureRequestPayload(c)
+			if err != nil {
+				c.AbortWithStatusJSON(http.StatusInternalServerError, NewStandardError(http.StatusInternalServerError, "failed to parse request body"))
+				return
+			}
+			payloadJSON = payload.JSON
 		}
 
 		modelName := ""
@@ -72,18 +83,20 @@ func BillingEstimateMiddleware() gin.HandlerFunc {
 			modelName = mapped
 		} else if original := GetOriginalModel(c); original != "" {
 			modelName = original
-		} else if payload.JSON != nil {
-			if model, ok := payload.JSON["model"].(string); ok {
+		} else if payloadJSON != nil {
+			if model, ok := payloadJSON["model"].(string); ok {
 				modelName = model
 			}
+		} else if len(payload.Body) > 0 {
+			modelName = strings.TrimSpace(gjson.GetBytes(payload.Body, "model").String())
 		}
 		if modelName == "" {
-			modelName = extractModelName(c)
+			modelName = extractModelNameFromPayloadBytes(payload.Body)
 		}
 
 		requestKind := detectBillingRequestKind(c.Request.URL.Path)
-		maxOutputTokens := extractReservationMaxOutputTokens(payload.JSON, modelName)
-		inputTokens, _ := estimateReservationInputTokensForPayload(payload, requestKind)
+		maxOutputTokens := extractReservationMaxOutputTokensForPayload(payloadJSON, payload.Body, modelName)
+		inputTokens, _ := estimateReservationInputTokensForPayload(payloadJSON, payload.Body, requestKind)
 
 		estimate := &BillingEstimate{
 			PricingModel:          modelName,
@@ -130,6 +143,27 @@ func shouldEstimateBilling(ctx context.Context) bool {
 	return cfg.RateMultiplier != 0
 }
 
+func extractReservationMaxOutputTokensForPayload(payload map[string]interface{}, body []byte, modelName string) int {
+	if payload != nil {
+		return extractReservationMaxOutputTokens(payload, modelName)
+	}
+	explicit := extractPositiveIntFromBody(body, "max_output_tokens", "max_completion_tokens", "max_tokens")
+	metaLimit := lookupReservationMaxCompletionTokens(modelName)
+	if explicit > 0 {
+		if metaLimit > 0 && explicit > metaLimit {
+			return metaLimit
+		}
+		return explicit
+	}
+	if metaLimit > 0 {
+		return metaLimit
+	}
+	if strings.HasPrefix(strings.ToLower(modelName), "o") {
+		return 65536
+	}
+	return defaultReservationMaxOutputTokens
+}
+
 func extractReservationMaxOutputTokens(payload map[string]interface{}, modelName string) int {
 	explicit := extractPositiveInt(payload, "max_output_tokens", "max_completion_tokens", "max_tokens")
 	metaLimit := lookupReservationMaxCompletionTokens(modelName)
@@ -150,14 +184,14 @@ func extractReservationMaxOutputTokens(payload map[string]interface{}, modelName
 	return defaultReservationMaxOutputTokens
 }
 
-func estimateReservationInputTokensForPayload(payload *RequestPayload, kind billingRequestKind) (int, bool) {
-	if payload == nil {
+func estimateReservationInputTokensForPayload(payload map[string]interface{}, body []byte, kind billingRequestKind) (int, bool) {
+	if payload == nil && len(body) == 0 {
 		return 0, false
 	}
-	if len(payload.Body) >= largeEstimateBodyThresholdBytes {
-		return approximateBytesTokenCount(payload.Body), true
+	if len(body) >= largeEstimateBodyThresholdBytes {
+		return approximateBytesTokenCount(body), true
 	}
-	return estimateReservationInputTokens(payload.JSON, kind), false
+	return estimateReservationInputTokens(payload, kind), false
 }
 
 func estimateReservationInputTokens(payload map[string]interface{}, kind billingRequestKind) int {
@@ -257,6 +291,29 @@ func extractPositiveInt(payload map[string]interface{}, keys ...string) int {
 		}
 	}
 	return 0
+}
+
+func extractPositiveIntFromBody(body []byte, keys ...string) int {
+	if len(body) == 0 {
+		return 0
+	}
+	for _, key := range keys {
+		value := gjson.GetBytes(body, key)
+		if !value.Exists() {
+			continue
+		}
+		if parsed := int(value.Int()); parsed > 0 {
+			return parsed
+		}
+	}
+	return 0
+}
+
+func extractModelNameFromPayloadBytes(body []byte) string {
+	if len(body) == 0 {
+		return ""
+	}
+	return strings.TrimSpace(gjson.GetBytes(body, "model").String())
 }
 
 type estimateUnits struct {

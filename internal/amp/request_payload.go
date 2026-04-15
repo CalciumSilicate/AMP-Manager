@@ -18,6 +18,7 @@ type requestPayloadKey struct{}
 type RequestPayload struct {
 	Body []byte
 	JSON map[string]interface{}
+	jsonParsed bool
 }
 
 func WithRequestPayload(ctx context.Context, payload *RequestPayload) context.Context {
@@ -33,7 +34,7 @@ func GetRequestPayload(ctx context.Context) *RequestPayload {
 	return nil
 }
 
-func EnsureRequestPayload(c *gin.Context) (*RequestPayload, error) {
+func ensureRequestBody(c *gin.Context) (*RequestPayload, error) {
 	if payload := GetRequestPayload(c.Request.Context()); payload != nil {
 		return payload, nil
 	}
@@ -49,16 +50,28 @@ func EnsureRequestPayload(c *gin.Context) (*RequestPayload, error) {
 		c.Request.ContentLength = int64(len(bodyBytes))
 		c.Request.TransferEncoding = nil
 
-		if strings.Contains(c.GetHeader("Content-Type"), "application/json") && len(bodyBytes) > 0 {
-			var parsed map[string]interface{}
-			if err := json.Unmarshal(bodyBytes, &parsed); err == nil {
-				payload.JSON = parsed
-			}
-		}
 	}
 
 	ctx := WithRequestPayload(c.Request.Context(), payload)
 	c.Request = c.Request.WithContext(ctx)
+	return payload, nil
+}
+
+func EnsureRequestPayload(c *gin.Context) (*RequestPayload, error) {
+	payload, err := ensureRequestBody(c)
+	if err != nil {
+		return nil, err
+	}
+	if payload.jsonParsed {
+		return payload, nil
+	}
+	payload.jsonParsed = true
+	if strings.Contains(c.GetHeader("Content-Type"), "application/json") && len(payload.Body) > 0 {
+		var parsed map[string]interface{}
+		if err := json.Unmarshal(payload.Body, &parsed); err == nil {
+			payload.JSON = parsed
+		}
+	}
 	return payload, nil
 }
 
