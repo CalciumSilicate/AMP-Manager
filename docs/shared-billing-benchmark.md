@@ -114,6 +114,27 @@ JSON 报告：
 - `validation_failures`
 - `project_failures / reclaim_failures / reconcile_failures`
 
+## 汇总已有报告
+
+仓库提供了一个小脚本，可以把单次或矩阵 JSON 报告汇总成 markdown：
+
+```bash
+node scripts/summarize-shared-billing-report.mjs \
+  /path/to/pf-workers-matrix.json \
+  /path/to/pf-batch-matrix.json
+```
+
+写入文件：
+
+```bash
+node scripts/summarize-shared-billing-report.mjs \
+  --output "${TMPDIR:-/tmp}/pf-shared-summary.md" \
+  /path/to/pf-workers-matrix.json \
+  /path/to/pf-batch-matrix.json
+```
+
+适合在跑完多轮 matrix 后，快速形成一份可读摘要。
+
 ## 当前短跑观察
 
 基于当前仓库的短时 shared-billing matrix，`projectorWorkers=1/2/4` 和 `streamBatchSize=50/100/200` 尚未拉开明显差距。这通常说明：
