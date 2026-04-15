@@ -7,6 +7,7 @@ import (
 	"strconv"
 	"strings"
 	"unicode"
+	"unicode/utf8"
 
 	"ampmanager/internal/billing"
 	"ampmanager/internal/billingstate"
@@ -16,6 +17,7 @@ import (
 )
 
 const defaultReservationMaxOutputTokens = 32768
+const largeEstimateBodyThresholdBytes = 128 * 1024
 
 type billingEstimateKey struct{}
 
@@ -82,7 +84,7 @@ func BillingEstimateMiddleware() gin.HandlerFunc {
 
 		requestKind := detectBillingRequestKind(c.Request.URL.Path)
 		maxOutputTokens := extractReservationMaxOutputTokens(payload.JSON, modelName)
-		inputTokens := estimateReservationInputTokens(payload.JSON, requestKind)
+		inputTokens, _ := estimateReservationInputTokensForPayload(payload, requestKind)
 
 		estimate := &BillingEstimate{
 			PricingModel:          modelName,
@@ -149,6 +151,16 @@ func extractReservationMaxOutputTokens(payload map[string]interface{}, modelName
 	return defaultReservationMaxOutputTokens
 }
 
+func estimateReservationInputTokensForPayload(payload *RequestPayload, kind billingRequestKind) (int, bool) {
+	if payload == nil {
+		return 0, false
+	}
+	if len(payload.Body) >= largeEstimateBodyThresholdBytes {
+		return approximateBytesTokenCount(payload.Body), true
+	}
+	return estimateReservationInputTokens(payload.JSON, kind), false
+}
+
 func estimateReservationInputTokens(payload map[string]interface{}, kind billingRequestKind) int {
 	if payload != nil {
 		var units estimateUnits
@@ -170,6 +182,26 @@ func estimateReservationInputTokens(payload map[string]interface{}, kind billing
 	}
 
 	return 0
+}
+
+func approximateBytesTokenCount(body []byte) int {
+	var units estimateUnits
+	for len(body) > 0 {
+		r, size := utf8.DecodeRune(body)
+		body = body[size:]
+		if unicode.IsSpace(r) {
+			continue
+		}
+		switch {
+		case r <= unicode.MaxASCII:
+			units.ascii++
+		case isCJKEstimateRune(r):
+			units.cjk++
+		default:
+			units.unicode++
+		}
+	}
+	return units.tokens()
 }
 
 func detectBillingRequestKind(path string) billingRequestKind {

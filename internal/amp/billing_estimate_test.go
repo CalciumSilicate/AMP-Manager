@@ -3,9 +3,11 @@ package amp
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"ampmanager/internal/billingstate"
@@ -378,6 +380,87 @@ func TestBillingEstimateMiddleware_ReadsBodyWhenReservationMayBeNeeded(t *testin
 	}
 	if estimate.PricingModel != "gpt-4.1" {
 		t.Fatalf("expected pricing model gpt-4.1, got %q", estimate.PricingModel)
+	}
+	if estimate.EstimatedOutputTokens != 42 {
+		t.Fatalf("expected max tokens 42, got %d", estimate.EstimatedOutputTokens)
+	}
+}
+
+func TestEstimateReservationInputTokensForPayloadFallsBackOnLargeBody(t *testing.T) {
+	largeText := strings.Repeat("hello world ", largeEstimateBodyThresholdBytes/12+32)
+	raw := []byte(fmt.Sprintf(`{"model":"gpt-4.1","input":[{"role":"user","content":"%s"}],"max_tokens":42}`, largeText))
+
+	tokens, usedFallback := estimateReservationInputTokensForPayload(&RequestPayload{
+		Body: raw,
+		JSON: mustEstimatePayload(t, string(raw)),
+	}, billingRequestOpenAIResponses)
+
+	if !usedFallback {
+		t.Fatal("expected large payload to use fallback estimate")
+	}
+	if tokens != approximateBytesTokenCount(raw) {
+		t.Fatalf("tokens = %d, want fallback estimate %d", tokens, approximateBytesTokenCount(raw))
+	}
+}
+
+func TestEstimateReservationInputTokensForPayloadUsesStructuredEstimateForSmallBody(t *testing.T) {
+	raw := []byte(`{"model":"gpt-4.1","messages":[{"role":"user","content":"hello world"}],"max_tokens":42}`)
+	payload := mustEstimatePayload(t, string(raw))
+
+	tokens, usedFallback := estimateReservationInputTokensForPayload(&RequestPayload{
+		Body: raw,
+		JSON: payload,
+	}, billingRequestOpenAIChat)
+
+	if usedFallback {
+		t.Fatal("expected small payload to use structured estimate")
+	}
+	want := estimateReservationInputTokens(payload, billingRequestOpenAIChat)
+	if tokens != want {
+		t.Fatalf("tokens = %d, want %d", tokens, want)
+	}
+}
+
+func TestBillingEstimateMiddleware_UsesFallbackEstimateForLargeBody(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	previousRuntime := billingstate.Replace(&billingstate.Runtime{})
+	defer billingstate.Replace(previousRuntime)
+
+	largeText := strings.Repeat("hello world ", largeEstimateBodyThresholdBytes/12+32)
+	raw := fmt.Sprintf(`{"model":"gpt-4.1","input":[{"role":"user","content":"%s"}],"max_tokens":42}`, largeText)
+	body := &trackingReadCloser{Reader: bytes.NewBufferString(raw)}
+	var estimate *BillingEstimate
+
+	router := gin.New()
+	router.Use(func(c *gin.Context) {
+		c.Request = c.Request.WithContext(WithProxyConfig(c.Request.Context(), &ProxyConfig{
+			UserID:         "user-1",
+			RateMultiplier: 1,
+		}))
+		c.Next()
+	})
+	router.Use(BillingEstimateMiddleware())
+	router.POST("/v1/responses", func(c *gin.Context) {
+		estimate = GetBillingEstimate(c.Request.Context())
+		c.Status(http.StatusNoContent)
+	})
+
+	req := httptest.NewRequest(http.MethodPost, "/v1/responses", nil)
+	req.Body = body
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("expected status %d, got %d", http.StatusNoContent, rec.Code)
+	}
+	if estimate == nil {
+		t.Fatal("expected billing estimate to be populated")
+	}
+	want := approximateBytesTokenCount([]byte(raw))
+	if estimate.EstimatedInputTokens != want {
+		t.Fatalf("EstimatedInputTokens = %d, want %d", estimate.EstimatedInputTokens, want)
 	}
 	if estimate.EstimatedOutputTokens != 42 {
 		t.Fatalf("expected max tokens 42, got %d", estimate.EstimatedOutputTokens)
