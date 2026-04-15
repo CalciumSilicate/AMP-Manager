@@ -5,6 +5,7 @@ import (
 	"context"
 	"io"
 	"net/http"
+	"strconv"
 	"strings"
 
 	"github.com/gin-gonic/gin"
@@ -179,6 +180,17 @@ func StoreResponseDetail(requestID string, headers http.Header, body []byte) {
 	store.UpdateResponseData(requestID, headers, body)
 	log.Debugf("request capture: stored response data for %s (headers: %d, body: %d bytes)",
 		requestID, len(headers), len(body))
+}
+
+func StoreErrorResponseDetail(requestID string, statusCode int, body []byte) {
+	if requestID == "" {
+		return
+	}
+	headers := http.Header{
+		"Content-Type":       []string{"application/json"},
+		"X-AMP-Error-Status": []string{strconv.Itoa(statusCode)},
+	}
+	StoreResponseDetail(requestID, headers, body)
 }
 
 // sanitizeHeaders removes sensitive headers for storage

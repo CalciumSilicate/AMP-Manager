@@ -545,7 +545,11 @@ func modifyResponse(resp *http.Response) error {
 func handleErrorResponse(resp *http.Response, ctx *ResponseContext) error {
 	if ctx.Trace != nil {
 		ctx.Trace.SetError("upstream_error")
-		resp.Body = NewLoggingBodyWrapper(resp.Body, ctx.Trace, resp.StatusCode, nil)
+		streamBody := io.ReadCloser(resp.Body)
+		if ctx.RequestID != "" && IsRequestDetailCaptureEnabled(ctx.Ctx) {
+			streamBody = NewResponseCaptureWrapper(streamBody, ctx.RequestID, resp.Header)
+		}
+		resp.Body = NewLoggingBodyWrapper(streamBody, ctx.Trace, resp.StatusCode, nil)
 	}
 	return nil
 }
@@ -558,16 +562,24 @@ func isStreamingResponse(resp *http.Response) bool {
 func errorHandler(rw http.ResponseWriter, req *http.Request, err error) {
 	log.Errorf("amp upstream proxy error for %s %s: %v", req.Method, req.URL.Path, err)
 	// Update error log (pending record was already written in Director)
+	var requestID string
 	if trace := GetRequestTrace(req.Context()); trace != nil {
 		trace.SetError("upstream_request_failed")
 		trace.SetResponse(http.StatusBadGateway)
+		requestID = trace.RequestID
 		if writer := GetLogWriter(); writer != nil {
 			writer.UpdateFromTrace(trace)
 		}
 	}
 	// 使用清理后的错误消息，防止泄露敏感信息
 	safeMsg := SanitizeError(err)
-	WriteErrorResponse(rw, http.StatusBadGateway, "Failed to reach Amp upstream: "+safeMsg)
+	body := BuildErrorResponseBody(http.StatusBadGateway, "Failed to reach Amp upstream: "+safeMsg)
+	if IsRequestDetailCaptureEnabled(req.Context()) && requestID != "" {
+		StoreErrorResponseDetail(requestID, http.StatusBadGateway, body)
+	}
+	rw.Header().Set("Content-Type", "application/json")
+	rw.WriteHeader(http.StatusBadGateway)
+	_, _ = rw.Write(body)
 }
 
 func ProxyHandler(proxy *httputil.ReverseProxy) gin.HandlerFunc {

@@ -709,7 +709,11 @@ func ChannelProxyHandler() gin.HandlerFunc {
 					log.Warnf("channel proxy: upstream returned status %d for %s", resp.StatusCode, sanitizeURL(targetURL))
 					if trace != nil {
 						trace.SetError("upstream_error")
-						resp.Body = NewLoggingBodyWrapper(resp.Body, trace, resp.StatusCode, resp.Request.Context())
+						streamBody := io.ReadCloser(resp.Body)
+						if IsRequestDetailCaptureEnabled(resp.Request.Context()) {
+							streamBody = NewResponseCaptureWrapper(streamBody, trace.RequestID, resp.Header)
+						}
+						resp.Body = NewLoggingBodyWrapper(streamBody, trace, resp.StatusCode, resp.Request.Context())
 					}
 					return nil
 				}
@@ -791,16 +795,24 @@ func ChannelProxyHandler() gin.HandlerFunc {
 			ErrorHandler: func(rw http.ResponseWriter, req *http.Request, err error) {
 				log.Errorf("channel proxy: upstream request failed: %v", err)
 				// Update error log (pending record was already written)
+				var requestID string
 				if trace != nil {
 					trace.SetError("upstream_request_failed")
 					trace.SetResponse(http.StatusBadGateway)
+					requestID = trace.RequestID
 					if writer := GetLogWriter(); writer != nil {
 						writer.UpdateFromTrace(trace)
 					}
 				}
 				// 使用清理后的错误消息，防止泄露敏感信息
 				safeMsg := SanitizeError(err)
-				WriteErrorResponse(rw, http.StatusBadGateway, "Upstream request failed: "+safeMsg)
+				body := BuildErrorResponseBody(http.StatusBadGateway, "Upstream request failed: "+safeMsg)
+				if IsRequestDetailCaptureEnabled(req.Context()) && requestID != "" {
+					StoreErrorResponseDetail(requestID, http.StatusBadGateway, body)
+				}
+				rw.Header().Set("Content-Type", "application/json")
+				rw.WriteHeader(http.StatusBadGateway)
+				_, _ = rw.Write(body)
 			},
 		}
 
