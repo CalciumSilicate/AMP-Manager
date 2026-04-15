@@ -305,10 +305,12 @@ export default function RequestLogs({ isAdmin }: Props) {
                 <CardDescription>共 {total} 条记录</CardDescription>
               </div>
               <div className="flex items-center gap-3">
-                <div className="flex items-center gap-2 border-l pl-3">
-                  <Switch id="auto-refresh" checked={autoRefresh} onCheckedChange={setAutoRefresh} />
-                  <Label htmlFor="auto-refresh" className="text-sm">自动刷新</Label>
-                </div>
+                {isAdmin ? (
+                  <div className="flex items-center gap-2 border-l pl-3">
+                    <Switch id="auto-refresh" checked={autoRefresh} onCheckedChange={setAutoRefresh} />
+                    <Label htmlFor="auto-refresh" className="text-sm">自动刷新</Label>
+                  </div>
+                ) : null}
                 <Button variant="outline" onClick={loadData}>刷新</Button>
               </div>
             </div>
