@@ -166,13 +166,14 @@ type RequestLog struct {
 	TransportFallbackReason  *string          `json:"transportFallbackReason,omitempty"`
 	OutputPreview            *string          `json:"outputPreview,omitempty"` // 响应输出预览（前200字符）
 	// 成本相关字段
-	CostMicros                *int64  `json:"costMicros,omitempty"`   // 成本（微美元，USD * 1e6）
-	CostUsd                   *string `json:"costUsd,omitempty"`      // 成本（USD，用于展示）
-	PricingModel              *string `json:"pricingModel,omitempty"` // 计价模型名
-	BillingStatus             string  `json:"-"`
-	ChargedSubscriptionMicros int64   `json:"-"`
-	ChargedBalanceMicros      int64   `json:"-"`
-	BillingGapMicros          *int64  `json:"-"`
+	CostMicros                *int64   `json:"costMicros,omitempty"`   // 成本（微美元，USD * 1e6）
+	CostUsd                   *string  `json:"costUsd,omitempty"`      // 成本（USD，用于展示）
+	PricingModel              *string  `json:"pricingModel,omitempty"` // 计价模型名
+	RateMultiplier            *float64 `json:"rateMultiplier,omitempty"`
+	BillingStatus             string   `json:"-"`
+	ChargedSubscriptionMicros int64    `json:"-"`
+	ChargedBalanceMicros      int64    `json:"-"`
+	BillingGapMicros          *int64   `json:"-"`
 }
 
 // RequestLogListResponse 请求日志列表响应

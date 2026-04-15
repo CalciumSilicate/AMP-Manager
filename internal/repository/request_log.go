@@ -181,6 +181,7 @@ func (r *RequestLogRepository) List(params ListParams) ([]model.RequestLog, int6
 		       r.provider, r.channel_id, c.name as channel_name, r.endpoint, r.method, r.path, r.status_code, r.latency_ms, r.ttfb_ms,
 		       r.is_streaming, r.input_tokens, r.output_tokens, r.cache_read_input_tokens,
 		       r.cache_creation_input_tokens, r.error_type, r.request_id, r.cost_micros, r.cost_usd, r.pricing_model, r.thinking_level,
+		       r.rate_multiplier,
 		       r.downstream_transport, r.upstream_transport, r.transport_fallback_reason,
 		       r.charged_subscription_micros, r.charged_balance_micros, r.billing_status,
 		       %s as output_preview
@@ -210,6 +211,7 @@ func (r *RequestLogRepository) List(params ListParams) ([]model.RequestLog, int6
 		var isStreaming int
 		var username, apiKeyName, apiKeyPrefix sql.NullString
 		var originalModel, mappedModel, provider, channelID, channelName, endpoint, errorType, requestID, costUsd, pricingModel, thinkingLevel, downstreamTransport, upstreamTransport, transportFallbackReason, outputPreview, billingStatus sql.NullString
+		var rateMultiplier sql.NullFloat64
 		var inputTokens, outputTokens, cacheRead, cacheCreation, costMicros, ttfbMs, chargedSubscriptionMicros, chargedBalanceMicros sql.NullInt64
 
 		err := rows.Scan(
@@ -218,6 +220,7 @@ func (r *RequestLogRepository) List(params ListParams) ([]model.RequestLog, int6
 			&log.Method, &log.Path, &log.StatusCode, &log.LatencyMs, &ttfbMs,
 			&isStreaming, &inputTokens, &outputTokens, &cacheRead, &cacheCreation,
 			&errorType, &requestID, &costMicros, &costUsd, &pricingModel, &thinkingLevel,
+			&rateMultiplier,
 			&downstreamTransport, &upstreamTransport, &transportFallbackReason,
 			&chargedSubscriptionMicros, &chargedBalanceMicros, &billingStatus,
 			&outputPreview,
@@ -305,6 +308,9 @@ func (r *RequestLogRepository) List(params ListParams) ([]model.RequestLog, int6
 		}
 		if pricingModel.Valid {
 			log.PricingModel = &pricingModel.String
+		}
+		if rateMultiplier.Valid {
+			log.RateMultiplier = &rateMultiplier.Float64
 		}
 		if billingStatus.Valid {
 			log.BillingStatus = billingStatus.String
@@ -890,6 +896,7 @@ func (r *RequestLogRepository) GetByID(id string) (*model.RequestLog, error) {
 	var status sql.NullString
 	var isStreaming int
 	var originalModel, mappedModel, provider, channelID, channelName, endpoint, errorType, requestID, costUsd, pricingModel, thinkingLevel, downstreamTransport, upstreamTransport, transportFallbackReason, billingStatus sql.NullString
+	var rateMultiplier sql.NullFloat64
 	var inputTokens, outputTokens, cacheRead, cacheCreation, costMicros, ttfbMs, chargedSubscriptionMicros, chargedBalanceMicros sql.NullInt64
 
 	err := db.QueryRow(`
@@ -897,6 +904,7 @@ func (r *RequestLogRepository) GetByID(id string) (*model.RequestLog, error) {
 		       r.provider, r.channel_id, c.name as channel_name, r.endpoint, r.method, r.path, r.status_code, r.latency_ms, r.ttfb_ms,
 		       r.is_streaming, r.input_tokens, r.output_tokens, r.cache_read_input_tokens,
 		       r.cache_creation_input_tokens, r.error_type, r.request_id, r.cost_micros, r.cost_usd, r.pricing_model, r.thinking_level,
+		       r.rate_multiplier,
 		       r.downstream_transport, r.upstream_transport, r.transport_fallback_reason,
 		       r.charged_subscription_micros, r.charged_balance_micros, r.billing_status
 		FROM request_logs r
@@ -908,6 +916,7 @@ func (r *RequestLogRepository) GetByID(id string) (*model.RequestLog, error) {
 		&log.Method, &log.Path, &log.StatusCode, &log.LatencyMs, &ttfbMs,
 		&isStreaming, &inputTokens, &outputTokens, &cacheRead, &cacheCreation,
 		&errorType, &requestID, &costMicros, &costUsd, &pricingModel, &thinkingLevel,
+		&rateMultiplier,
 		&downstreamTransport, &upstreamTransport, &transportFallbackReason,
 		&chargedSubscriptionMicros, &chargedBalanceMicros, &billingStatus,
 	)
@@ -990,6 +999,9 @@ func (r *RequestLogRepository) GetByID(id string) (*model.RequestLog, error) {
 	if pricingModel.Valid {
 		log.PricingModel = &pricingModel.String
 	}
+	if rateMultiplier.Valid {
+		log.RateMultiplier = &rateMultiplier.Float64
+	}
 	if billingStatus.Valid {
 		log.BillingStatus = billingStatus.String
 	}
@@ -1021,6 +1033,7 @@ func (r *RequestLogRepository) GetByIDWithJoins(id string) (*model.RequestLog, e
 	var isStreaming int
 	var username, apiKeyName, apiKeyPrefix sql.NullString
 	var originalModel, mappedModel, provider, channelID, channelName, endpoint, errorType, requestID, costUsd, pricingModel, thinkingLevel, downstreamTransport, upstreamTransport, transportFallbackReason, billingStatus sql.NullString
+	var rateMultiplier sql.NullFloat64
 	var inputTokens, outputTokens, cacheRead, cacheCreation, costMicros, ttfbMs, chargedSubscriptionMicros, chargedBalanceMicros sql.NullInt64
 
 	err := db.QueryRow(`
@@ -1029,6 +1042,7 @@ func (r *RequestLogRepository) GetByIDWithJoins(id string) (*model.RequestLog, e
 		       r.method, r.path, r.status_code, r.latency_ms, r.ttfb_ms,
 		       r.is_streaming, r.input_tokens, r.output_tokens, r.cache_read_input_tokens,
 		       r.cache_creation_input_tokens, r.error_type, r.request_id, r.cost_micros, r.cost_usd, r.pricing_model, r.thinking_level,
+		       r.rate_multiplier,
 		       r.downstream_transport, r.upstream_transport, r.transport_fallback_reason,
 		       r.charged_subscription_micros, r.charged_balance_micros, r.billing_status
 		FROM request_logs r
@@ -1042,6 +1056,7 @@ func (r *RequestLogRepository) GetByIDWithJoins(id string) (*model.RequestLog, e
 		&l.Method, &l.Path, &l.StatusCode, &l.LatencyMs, &ttfbMs,
 		&isStreaming, &inputTokens, &outputTokens, &cacheRead, &cacheCreation,
 		&errorType, &requestID, &costMicros, &costUsd, &pricingModel, &thinkingLevel,
+		&rateMultiplier,
 		&downstreamTransport, &upstreamTransport, &transportFallbackReason,
 		&chargedSubscriptionMicros, &chargedBalanceMicros, &billingStatus,
 	)
@@ -1131,6 +1146,9 @@ func (r *RequestLogRepository) GetByIDWithJoins(id string) (*model.RequestLog, e
 	}
 	if pricingModel.Valid {
 		l.PricingModel = &pricingModel.String
+	}
+	if rateMultiplier.Valid {
+		l.RateMultiplier = &rateMultiplier.Float64
 	}
 	if billingStatus.Valid {
 		l.BillingStatus = billingStatus.String

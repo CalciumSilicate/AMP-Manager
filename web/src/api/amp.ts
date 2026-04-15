@@ -178,6 +178,7 @@ export interface RequestLog {
   costMicros?: number
   costUsd?: string
   pricingModel?: string
+  rateMultiplier?: number
   thinkingLevel?: string
   downstreamTransport?: string
   upstreamTransport?: string

@@ -23,7 +23,7 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table'
-import { formatDate } from '@/lib/formatters'
+import { formatDateTimeWithSeconds, formatDecimal } from '@/lib/formatters'
 import { Num } from '@/components/Num'
 import { StatusBadge } from '@/components/StatusBadge'
 import { LogDetailModal } from '@/components/LogDetailModal'
@@ -343,18 +343,28 @@ export default function RequestLogs({ isAdmin }: Props) {
                       <TableHead className="text-right">TTFB</TableHead>
                       <TableHead className="text-right">TPS</TableHead>
                       <TableHead className="text-right">用时</TableHead>
-                      <TableHead className="text-right">输入(去缓存)</TableHead>
+                      <TableHead className="text-right">
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <span className="cursor-help underline decoration-dotted underline-offset-4">输入</span>
+                          </TooltipTrigger>
+                          <TooltipContent side="bottom">
+                            <p>这里的输入 Tokens 已扣除缓存读取命中的部分。</p>
+                          </TooltipContent>
+                        </Tooltip>
+                      </TableHead>
                       <TableHead className="text-right">输出</TableHead>
                       <TableHead className="text-right">缓存读</TableHead>
                       <TableHead className="text-right">缓存写</TableHead>
                       <TableHead className="text-right">成本</TableHead>
+                      <TableHead className="text-right">倍率</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody key={tableBodyKey}>
                     {logs.map((log) => (
                       <TableRow key={log.id}>
                         <TableCell className="text-xs text-muted-foreground whitespace-nowrap">
-                          {formatDate(log.createdAt)}
+                          {formatDateTimeWithSeconds(log.createdAt)}
                         </TableCell>
                         {isAdmin && (
                           <TableCell className="text-xs max-w-24">
@@ -456,6 +466,15 @@ export default function RequestLogs({ isAdmin }: Props) {
                         <TableCell className="text-right"><Num value={log.cacheCreationInputTokens} /></TableCell>
                         <TableCell className="text-right text-muted-foreground">
                           {log.costUsd ? `$${log.costUsd}` : '-'}
+                        </TableCell>
+                        <TableCell className="text-right">
+                          {typeof log.rateMultiplier === 'number' ? (
+                            <Badge variant="outline" className="font-mono">
+                              {formatDecimal(log.rateMultiplier, 2)}x
+                            </Badge>
+                          ) : (
+                            <span className="text-muted-foreground">-</span>
+                          )}
                         </TableCell>
                       </TableRow>
                     ))}
