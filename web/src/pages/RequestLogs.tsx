@@ -35,6 +35,41 @@ interface Props {
   isAdmin: boolean
 }
 
+function matchesRequestLogFilters(log: RequestLog, filters: FilterValues) {
+  if (filters.userId && log.userId !== filters.userId) {
+    return false
+  }
+  if (filters.apiKeyId && log.apiKeyId !== filters.apiKeyId) {
+    return false
+  }
+  if (filters.model) {
+    const filterModel = filters.model.toLowerCase()
+    const mappedModel = log.mappedModel?.toLowerCase()
+    const originalModel = log.originalModel?.toLowerCase()
+    if (mappedModel !== filterModel && originalModel !== filterModel) {
+      return false
+    }
+  }
+  if (filters.statuses.length > 0 && !filters.statuses.includes(String(log.statusCode))) {
+    return false
+  }
+  if (filters.from) {
+    const from = new Date(filters.from)
+    const createdAt = new Date(log.createdAt)
+    if (!Number.isNaN(from.getTime()) && !Number.isNaN(createdAt.getTime()) && createdAt < from) {
+      return false
+    }
+  }
+  if (filters.to) {
+    const to = new Date(filters.to)
+    const createdAt = new Date(log.createdAt)
+    if (!Number.isNaN(to.getTime()) && !Number.isNaN(createdAt.getTime()) && createdAt > to) {
+      return false
+    }
+  }
+  return true
+}
+
 function formatTransportLabel(transport?: string) {
   if (!transport) return null
   if (transport.toLowerCase() === 'websocket') return 'WS'
@@ -260,6 +295,7 @@ export default function RequestLogs({ isAdmin }: Props) {
   const logsRef = useRef<RequestLog[]>([])
   const totalRef = useRef(0)
   const knownLogIDsRef = useRef<Set<string>>(new Set())
+  const filtersRef = useRef<FilterValues>({ userId: '', apiKeyId: '', model: '', statuses: [], from: '', to: '' })
   const abortControllerRef = useRef<AbortController | null>(null)
 
   const [selectedLogId, setSelectedLogId] = useState<string | null>(null)
@@ -272,15 +308,7 @@ export default function RequestLogs({ isAdmin }: Props) {
   }, [users])
 
   const deferredLogs = useDeferredValue(logs)
-  const hasActiveFilters = !!(
-    filters.userId ||
-    filters.apiKeyId ||
-    filters.model ||
-    filters.statuses.length > 0 ||
-    filters.from ||
-    filters.to
-  )
-  const liveInsertEnabled = isAdmin && autoRefresh && page === 1 && !hasActiveFilters
+  const liveInsertEnabled = isAdmin && autoRefresh && page === 1
 
   useEffect(() => {
     if (isAdmin) {
@@ -322,6 +350,10 @@ export default function RequestLogs({ isAdmin }: Props) {
   }, [total])
 
   useEffect(() => {
+    filtersRef.current = filters
+  }, [filters])
+
+  useEffect(() => {
     if (liveInsertEnabled) {
       const flushBuf = () => {
         const batch = wsBufRef.current
@@ -331,17 +363,25 @@ export default function RequestLogs({ isAdmin }: Props) {
 
         let next = [...logsRef.current]
         let newCount = 0
+        let removedCount = 0
+        const activeFilters = filtersRef.current
         for (const log of batch) {
+          const matchesFilters = matchesRequestLogFilters(log, activeFilters)
           const idx = next.findIndex(l => l.id === log.id)
           if (idx >= 0) {
-            next[idx] = log
-          } else {
+            if (matchesFilters) {
+              next[idx] = log
+            } else {
+              next.splice(idx, 1)
+              knownLogIDsRef.current.delete(log.id)
+              removedCount++
+            }
+          } else if (matchesFilters) {
             next.unshift(log)
-          }
-
-          if (!knownLogIDsRef.current.has(log.id)) {
-            knownLogIDsRef.current.add(log.id)
-            newCount++
+            if (!knownLogIDsRef.current.has(log.id)) {
+              knownLogIDsRef.current.add(log.id)
+              newCount++
+            }
           }
         }
 
@@ -350,8 +390,8 @@ export default function RequestLogs({ isAdmin }: Props) {
         startTransition(() => {
           setLogs(next)
 
-          if (newCount > 0) {
-            totalRef.current += newCount
+          if (newCount > 0 || removedCount > 0) {
+            totalRef.current += newCount - removedCount
             setTotal(totalRef.current)
           }
         })
