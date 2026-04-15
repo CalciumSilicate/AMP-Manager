@@ -7,7 +7,6 @@ import (
 	"strconv"
 	"strings"
 	"unicode"
-	"unicode/utf8"
 
 	"ampmanager/internal/billing"
 	"ampmanager/internal/billingstate"
@@ -185,23 +184,7 @@ func estimateReservationInputTokens(payload map[string]interface{}, kind billing
 }
 
 func approximateBytesTokenCount(body []byte) int {
-	var units estimateUnits
-	for len(body) > 0 {
-		r, size := utf8.DecodeRune(body)
-		body = body[size:]
-		if unicode.IsSpace(r) {
-			continue
-		}
-		switch {
-		case r <= unicode.MaxASCII:
-			units.ascii++
-		case isCJKEstimateRune(r):
-			units.cjk++
-		default:
-			units.unicode++
-		}
-	}
-	return units.tokens()
+	return approximateTextTokenCount(string(body))
 }
 
 func detectBillingRequestKind(path string) billingRequestKind {
