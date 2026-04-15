@@ -1,4 +1,4 @@
-import { memo, startTransition, useDeferredValue, useState, useEffect, useRef, useMemo, useCallback } from 'react'
+import { Fragment, memo, startTransition, useDeferredValue, useState, useEffect, useRef, useMemo, useCallback } from 'react'
 import {
   getRequestLogs, getAdminRequestLogs, getAdminDistinctModels, getAdminDistinctKeys, getDistinctKeys, getDistinctModels,
   RequestLog, DistinctAPIKey,
@@ -30,6 +30,7 @@ import { LogDetailModal } from '@/components/LogDetailModal'
 import { LogFilterBar, FilterValues, localToISO } from '@/components/LogFilterBar'
 import { motion } from '@/lib/motion'
 import { PageSizeSlider } from '@/components/PageSizeSlider'
+import { cn } from '@/lib/utils'
 
 interface Props {
   isAdmin: boolean
@@ -104,6 +105,51 @@ function formatPricePerMillion(costPerToken?: number) {
   return `$${perMillion.toFixed(4)} / 1M`
 }
 
+function formatMethodLabel(method?: string) {
+  if (!method) return '-'
+  if (method.toLowerCase() === 'websocket') return 'WebSocket'
+  return method.toUpperCase()
+}
+
+function TransportMetaTooltip({
+  method,
+  downstreamTransport,
+  upstreamTransport,
+  transportFallbackReason,
+}: {
+  method?: string
+  downstreamTransport?: string
+  upstreamTransport?: string
+  transportFallbackReason?: string
+}) {
+  const metaItems = [
+    { label: '方法', value: formatMethodLabel(method) },
+    { label: '下游', value: formatTransportLabel(downstreamTransport) || '-' },
+    { label: '上游', value: formatTransportLabel(upstreamTransport) || '-' },
+  ]
+
+  return (
+    <TooltipContent side="bottom" className="max-w-80 border bg-popover px-3 py-2 text-xs text-popover-foreground shadow-md">
+      <div className="space-y-2">
+        <div className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1.5">
+          {metaItems.map((item) => (
+            <Fragment key={item.label}>
+              <span className="text-[11px] font-medium text-foreground/70">{item.label}</span>
+              <span className="text-[11px] font-medium text-foreground">{item.value}</span>
+            </Fragment>
+          ))}
+        </div>
+        {transportFallbackReason ? (
+          <div className="space-y-1 border-t border-border/80 pt-2">
+            <p className="text-[11px] font-medium text-foreground/70">Fallback</p>
+            <p className="break-words text-[11px] leading-relaxed text-foreground">{transportFallbackReason}</p>
+          </div>
+        ) : null}
+      </div>
+    </TooltipContent>
+  )
+}
+
 const RequestLogRow = memo(function RequestLogRow({
   log,
   isAdmin,
@@ -158,42 +204,6 @@ const RequestLogRow = memo(function RequestLogRow({
         {(log.channelName || log.provider) ? (
           <div className="flex flex-wrap items-center gap-1.5">
             <Badge variant="outline" className="text-xs">{log.channelName || log.provider}</Badge>
-            {formatTransportLabel(log.downstreamTransport) && (
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Badge variant="outline" className="cursor-help text-[10px] uppercase tracking-[0.12em] text-muted-foreground">
-                    D {formatTransportLabel(log.downstreamTransport)}
-                  </Badge>
-                </TooltipTrigger>
-                <TooltipContent side="bottom" className="max-w-72 text-xs">
-                  Downstream：AMP Manager 到客户端这一侧的传输方式。
-                </TooltipContent>
-              </Tooltip>
-            )}
-            {formatTransportLabel(log.upstreamTransport) && (
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Badge variant="outline" className="cursor-help text-[10px] uppercase tracking-[0.12em] text-muted-foreground">
-                    U {formatTransportLabel(log.upstreamTransport)}
-                  </Badge>
-                </TooltipTrigger>
-                <TooltipContent side="bottom" className="max-w-72 text-xs">
-                  Upstream：AMP Manager 到上游模型服务这一侧的传输方式。
-                </TooltipContent>
-              </Tooltip>
-            )}
-            {log.transportFallbackReason && (
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Badge variant="secondary" className="cursor-help text-[10px] uppercase tracking-[0.12em]">
-                    Fallback
-                  </Badge>
-                </TooltipTrigger>
-                <TooltipContent side="bottom" className="max-w-72 text-xs">
-                  {log.transportFallbackReason}
-                </TooltipContent>
-              </Tooltip>
-            )}
           </div>
         ) : (
           <span className="text-muted-foreground">-</span>
@@ -207,7 +217,25 @@ const RequestLogRow = memo(function RequestLogRow({
         )}
       </TableCell>
       <TableCell>
-        <Badge variant="outline">{log.method}</Badge>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Badge
+              variant="outline"
+              className={cn(
+                'cursor-help',
+                log.method?.toLowerCase() === 'websocket' ? 'font-medium' : undefined,
+              )}
+            >
+              {formatMethodLabel(log.method)}
+            </Badge>
+          </TooltipTrigger>
+          <TransportMetaTooltip
+            method={log.method}
+            downstreamTransport={log.downstreamTransport}
+            upstreamTransport={log.upstreamTransport}
+            transportFallbackReason={log.transportFallbackReason}
+          />
+        </Tooltip>
       </TableCell>
       <TableCell>
         {isAdmin ? (
@@ -237,26 +265,26 @@ const RequestLogRow = memo(function RequestLogRow({
       <TableCell className="text-right"><Num value={log.cacheCreationInputTokens} /></TableCell>
       <TableCell className="text-right text-muted-foreground">
         {log.costUsd ? (
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <span className="cursor-help underline decoration-dotted underline-offset-4">{`$${log.costUsd}`}</span>
-            </TooltipTrigger>
-            <TooltipContent side="bottom" className="max-w-80 text-xs">
-              <div className="space-y-1.5">
-                <p className="font-medium">计费标准</p>
-                <div className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1">
-                  <span className="text-muted-foreground">输入</span>
-                  <span className="font-mono">{formatPricePerMillion(log.inputCostPerToken)}</span>
-                  <span className="text-muted-foreground">输出</span>
-                  <span className="font-mono">{formatPricePerMillion(log.outputCostPerToken)}</span>
-                  <span className="text-muted-foreground">缓存读</span>
-                  <span className="font-mono">{formatPricePerMillion(log.cacheReadInputPerToken)}</span>
-                  <span className="text-muted-foreground">缓存写</span>
-                  <span className="font-mono">{formatPricePerMillion(log.cacheCreationInputPerToken)}</span>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <span className="cursor-help underline decoration-dotted underline-offset-4">{`$${log.costUsd}`}</span>
+              </TooltipTrigger>
+              <TooltipContent side="bottom" className="max-w-80 border bg-popover px-3 py-2 text-xs text-popover-foreground shadow-md">
+                <div className="space-y-2">
+                  <p className="text-[11px] font-semibold tracking-[0.02em] text-foreground">计费标准</p>
+                  <div className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1.5">
+                    <span className="text-[11px] font-medium text-foreground/70">输入</span>
+                    <span className="font-mono text-[11px] font-medium text-foreground">{formatPricePerMillion(log.inputCostPerToken)}</span>
+                    <span className="text-[11px] font-medium text-foreground/70">输出</span>
+                    <span className="font-mono text-[11px] font-medium text-foreground">{formatPricePerMillion(log.outputCostPerToken)}</span>
+                    <span className="text-[11px] font-medium text-foreground/70">缓存读</span>
+                    <span className="font-mono text-[11px] font-medium text-foreground">{formatPricePerMillion(log.cacheReadInputPerToken)}</span>
+                    <span className="text-[11px] font-medium text-foreground/70">缓存写</span>
+                    <span className="font-mono text-[11px] font-medium text-foreground">{formatPricePerMillion(log.cacheCreationInputPerToken)}</span>
+                  </div>
                 </div>
-              </div>
-            </TooltipContent>
-          </Tooltip>
+              </TooltipContent>
+            </Tooltip>
         ) : '-'}
       </TableCell>
       <TableCell className="text-right">

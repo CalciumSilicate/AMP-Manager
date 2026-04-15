@@ -230,6 +230,29 @@ func TestEnsureResponsesUpstreamConnReadsLargeMessages(t *testing.T) {
 	}
 }
 
+func TestClassifyResponsesUpstreamReadError(t *testing.T) {
+	tests := []struct {
+		name string
+		err  error
+		want string
+	}{
+		{name: "nil", err: nil, want: "ws_read_failed"},
+		{name: "normal", err: websocket.CloseError{Code: websocket.StatusNormalClosure, Reason: "done"}, want: "ws_closed_before_response_completed"},
+		{name: "going away", err: websocket.CloseError{Code: websocket.StatusGoingAway, Reason: "bye"}, want: "ws_closed_before_response_completed"},
+		{name: "too big", err: websocket.CloseError{Code: websocket.StatusMessageTooBig, Reason: "too big"}, want: "ws_message_too_big"},
+		{name: "policy", err: websocket.CloseError{Code: websocket.StatusPolicyViolation, Reason: "policy"}, want: "ws_policy_violation"},
+		{name: "other", err: websocket.CloseError{Code: websocket.StatusUnsupportedData, Reason: "bad"}, want: "ws_read_failed_close_1003"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := classifyResponsesUpstreamReadError(tt.err); got != tt.want {
+				t.Fatalf("classifyResponsesUpstreamReadError() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
 func readResponsesWebsocketEventType(t *testing.T, conn *websocket.Conn) string {
 	t.Helper()
 

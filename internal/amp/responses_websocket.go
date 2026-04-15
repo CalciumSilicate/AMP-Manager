@@ -94,7 +94,11 @@ func ResponsesWebsocketProxyHandler() gin.HandlerFunc {
 					return
 				}
 				log.Debugf("responses websocket: downstream read failed: %v", errRead)
-				_ = conn.Close(websocket.StatusPolicyViolation, "")
+				closeCode := websocket.StatusPolicyViolation
+				if closeStatus == websocket.StatusMessageTooBig {
+					closeCode = websocket.StatusMessageTooBig
+				}
+				_ = conn.Close(closeCode, "")
 				return
 			}
 
@@ -460,7 +464,9 @@ func executeResponsesOverUpstreamWebsocket(ctx context.Context, clientHeaders ht
 	for {
 		_, payload, errRead := conn.Read(ctx)
 		if errRead != nil {
-			return nil, nil, nil, &responsesWebsocketError{StatusCode: http.StatusBadGateway, Message: "ws_read_failed"}
+			message := classifyResponsesUpstreamReadError(errRead)
+			log.Warnf("responses websocket: upstream read failed channel=%s status=%d err=%v", prepared.channel.ID, websocket.CloseStatus(errRead), errRead)
+			return nil, nil, nil, &responsesWebsocketError{StatusCode: http.StatusBadGateway, Message: message}
 		}
 
 		payload = normalizeResponsesCompletedEvent(bytes.TrimSpace(payload))
@@ -726,6 +732,24 @@ func setResponsesWebsocketReadLimit(conn *websocket.Conn) {
 		return
 	}
 	conn.SetReadLimit(responsesWebsocketReadLimit)
+}
+
+func classifyResponsesUpstreamReadError(err error) string {
+	if err == nil {
+		return "ws_read_failed"
+	}
+	switch websocket.CloseStatus(err) {
+	case websocket.StatusNormalClosure, websocket.StatusGoingAway:
+		return "ws_closed_before_response_completed"
+	case websocket.StatusMessageTooBig:
+		return "ws_message_too_big"
+	case websocket.StatusPolicyViolation:
+		return "ws_policy_violation"
+	case -1:
+		return "ws_read_failed"
+	default:
+		return fmt.Sprintf("ws_read_failed_close_%d", websocket.CloseStatus(err))
+	}
 }
 
 func normalizeResponsesCompletedEvent(payload []byte) []byte {
