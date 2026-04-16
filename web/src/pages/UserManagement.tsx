@@ -23,6 +23,7 @@ import {
   deleteAdminUserAPIKey,
   getAdminUserAPIKeys,
   type APIKey,
+  setAdminUserAPIKeyDisabled,
   updateAdminUserAPIKey,
 } from '../api/amp'
 import { Group, listGroups } from '../api/groups'
@@ -78,7 +79,6 @@ import {
   CreditCard,
   Key,
   KeyRound,
-  Save,
   MoreHorizontal,
   Trash2,
   UserPlus,
@@ -117,6 +117,17 @@ function getSubscriptionStatusLabel(status: SubscriptionStatus): string {
   }
 }
 
+function getAPIKeyStatusLabel(status: APIKey['status']): string {
+  switch (status) {
+    case 'disabled':
+      return '已禁用'
+    case 'expired':
+      return '已过期'
+    default:
+      return '生效中'
+  }
+}
+
 export default function UserManagement() {
   const [users, setUsers] = useState<UserInfo[]>([])
   const [groups, setGroups] = useState<Group[]>([])
@@ -145,16 +156,20 @@ export default function UserManagement() {
   const [createPassword, setCreatePassword] = useState('')
   const [creatingUser, setCreatingUser] = useState(false)
   const [selectedUserIds, setSelectedUserIds] = useState<string[]>([])
-  const [concurrencyDrafts, setConcurrencyDrafts] = useState<Record<string, string>>({})
+  const [concurrencyModal, setConcurrencyModal] = useState<{ user: UserInfo; value: string } | null>(null)
+  const [savingConcurrency, setSavingConcurrency] = useState(false)
   const [apiKeysModal, setAPIKeysModal] = useState<{ userId: string; username: string } | null>(null)
   const [userAPIKeys, setUserAPIKeys] = useState<APIKey[]>([])
   const [userAPIKeysLoading, setUserAPIKeysLoading] = useState(false)
   const [editingUserAPIKey, setEditingUserAPIKey] = useState<APIKey | null>(null)
   const [editingUserAPIKeyName, setEditingUserAPIKeyName] = useState('')
+  const [editingUserAPIKeyValue, setEditingUserAPIKeyValue] = useState('')
   const [editingUserAPIKeyExpiresAt, setEditingUserAPIKeyExpiresAt] = useState('')
   const [savingUserAPIKey, setSavingUserAPIKey] = useState(false)
   const [deletingUserAPIKeyId, setDeletingUserAPIKeyId] = useState<string | null>(null)
+  const [togglingUserAPIKeyId, setTogglingUserAPIKeyId] = useState<string | null>(null)
   const [batchOpen, setBatchOpen] = useState(false)
+  const [batchStep, setBatchStep] = useState<'target' | 'changes' | 'preview'>('target')
   const [batchTargetMode, setBatchTargetMode] = useState<UserBatchTargetMode>('selected')
   const [batchFilterKeyword, setBatchFilterKeyword] = useState('')
   const [batchFilterIsAdmin, setBatchFilterIsAdmin] = useState<'all' | 'true' | 'false'>('all')
@@ -228,18 +243,6 @@ export default function UserManagement() {
     fetchGroups()
     fetchPlansList()
   }, [fetchGroups, fetchPlansList])
-
-  useEffect(() => {
-    setConcurrencyDrafts((current) => {
-      const next = { ...current }
-      for (const user of users) {
-        if (!(user.id in next)) {
-          next[user.id] = String(user.concurrencyLimit ?? 0)
-        }
-      }
-      return next
-    })
-  }, [users])
 
   const buildBatchFilters = useCallback((): UserBatchFilter | undefined => {
     const filters: UserBatchFilter = {}
@@ -493,16 +496,22 @@ export default function UserManagement() {
     })
   }
 
-  const handleSaveConcurrency = async (user: UserInfo) => {
-    const draftValue = Number.parseInt(concurrencyDrafts[user.id] ?? String(user.concurrencyLimit ?? 0), 10)
+  const handleSaveConcurrency = async () => {
+    if (!concurrencyModal) return
+
+    const draftValue = Number.parseInt(concurrencyModal.value, 10)
     const nextLimit = Number.isNaN(draftValue) ? 0 : draftValue
 
     try {
-      await setUserConcurrencyLimit(user.id, nextLimit)
+      setSavingConcurrency(true)
+      await setUserConcurrencyLimit(concurrencyModal.user.id, nextLimit)
       showMessage('success', '并发限制已更新')
+      setConcurrencyModal(null)
       await fetchUsers()
     } catch (err) {
       showMessage('error', err instanceof Error ? err.message : '设置并发限制失败')
+    } finally {
+      setSavingConcurrency(false)
     }
   }
 
@@ -519,6 +528,7 @@ export default function UserManagement() {
   const handleOpenEditUserAPIKey = (key: APIKey) => {
     setEditingUserAPIKey(key)
     setEditingUserAPIKeyName(key.name)
+    setEditingUserAPIKeyValue(key.apiKey || '')
     setEditingUserAPIKeyExpiresAt(key.expiresAt || '')
   }
 
@@ -529,6 +539,7 @@ export default function UserManagement() {
       setSavingUserAPIKey(true)
       await updateAdminUserAPIKey(apiKeysModal.userId, editingUserAPIKey.id, {
         name: editingUserAPIKeyName.trim(),
+        apiKey: editingUserAPIKeyValue.trim(),
         ...(editingUserAPIKeyExpiresAt ? { expiresAt: editingUserAPIKeyExpiresAt } : { clearExpiry: true }),
       })
       await loadUserAPIKeys(apiKeysModal.userId)
@@ -538,6 +549,21 @@ export default function UserManagement() {
       showMessage('error', err instanceof Error ? err.message : '更新 API Key 失败')
     } finally {
       setSavingUserAPIKey(false)
+    }
+  }
+
+  const handleToggleUserAPIKeyDisabled = async (key: APIKey) => {
+    if (!apiKeysModal) return
+
+    try {
+      setTogglingUserAPIKeyId(key.id)
+      await setAdminUserAPIKeyDisabled(apiKeysModal.userId, key.id, key.status !== 'disabled')
+      await loadUserAPIKeys(apiKeysModal.userId)
+      showMessage('success', key.status === 'disabled' ? 'API Key 已恢复' : 'API Key 已禁用')
+    } catch (err) {
+      showMessage('error', err instanceof Error ? err.message : '更新 API Key 状态失败')
+    } finally {
+      setTogglingUserAPIKeyId(null)
     }
   }
 
@@ -565,10 +591,30 @@ export default function UserManagement() {
         ...(batchTargetMode === 'selected' ? { selectedUserIds } : { filters: buildBatchFilters() }),
       })
       setBatchPreview(result)
+      return true
     } catch (err) {
       showMessage('error', err instanceof Error ? err.message : '批量预览失败')
+      return false
     } finally {
       setBatchPreviewing(false)
+    }
+  }
+
+  const handleNextBatchStep = async () => {
+    if (batchStep === 'target') {
+      if (batchTargetMode === 'selected' && selectedUserIds.length === 0) {
+        showMessage('error', '请先选择至少一个用户')
+        return
+      }
+      setBatchStep('changes')
+      return
+    }
+
+    if (batchStep === 'changes') {
+      const ok = await handlePreviewBatch()
+      if (ok) {
+        setBatchStep('preview')
+      }
     }
   }
 
@@ -639,6 +685,7 @@ export default function UserManagement() {
       })
       showMessage('success', `已完成批量修改：${result.appliedCount}/${result.matchedCount}`)
       setBatchOpen(false)
+      setBatchStep('target')
       setBatchPreview(null)
       await fetchUsers()
     } catch (err) {
@@ -815,17 +862,14 @@ export default function UserManagement() {
                           />
                         </TableCell>
                         <TableCell>
-                          <div className="flex items-center gap-2">
-                            <Input
-                              value={concurrencyDrafts[user.id] ?? String(user.concurrencyLimit ?? 0)}
-                              onChange={(event) => setConcurrencyDrafts((current) => ({ ...current, [user.id]: event.target.value }))}
-                              className="h-8 w-20"
-                              inputMode="numeric"
-                            />
-                            <Button variant="outline" size="sm" onClick={() => void handleSaveConcurrency(user)}>
-                              <Save className="h-3.5 w-3.5" />
-                            </Button>
-                          </div>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="h-8 min-w-24 justify-between px-2.5 font-mono text-xs"
+                            onClick={() => setConcurrencyModal({ user, value: String(user.concurrencyLimit ?? 0) })}
+                          >
+                            <span>{user.concurrencyLimit > 0 ? user.concurrencyLimit : '不限制'}</span>
+                          </Button>
                         </TableCell>
                         <TableCell>
                           <Switch
@@ -843,10 +887,6 @@ export default function UserManagement() {
                               <CreditCard className="mr-1.5 h-4 w-4" />
                               编辑订阅
                             </Button>
-                            <Button variant="outline" size="sm" onClick={() => void handleOpenUserAPIKeys(user)}>
-                              <Key className="mr-1.5 h-4 w-4" />
-                              API Keys
-                            </Button>
                             <DropdownMenu>
                               <DropdownMenuTrigger asChild>
                                 <Button variant="outline" size="sm">
@@ -854,7 +894,11 @@ export default function UserManagement() {
                                   更多操作
                                 </Button>
                               </DropdownMenuTrigger>
-                              <DropdownMenuContent align="end" className="w-40">
+                              <DropdownMenuContent align="end" className="w-44">
+                                <DropdownMenuItem onClick={() => void handleOpenUserAPIKeys(user)}>
+                                  <Key className="mr-2 h-4 w-4" />
+                                  API Keys
+                                </DropdownMenuItem>
                                 <DropdownMenuItem onClick={() => setTopUpModal({ userId: user.id, username: user.username })}>
                                   <Wallet className="mr-2 h-4 w-4" />
                                   充值
@@ -1173,6 +1217,7 @@ export default function UserManagement() {
           onOpenChange={(open) => {
             setBatchOpen(open)
             if (!open) {
+              setBatchStep('target')
               setBatchPreview(null)
             }
           }}
@@ -1180,285 +1225,316 @@ export default function UserManagement() {
           <DialogContent className="sm:max-w-3xl">
             <DialogHeader>
               <DialogTitle>批量修改用户</DialogTitle>
-              <DialogDescription>可针对已选用户，或按筛选条件匹配到的用户批量修改余额、分组和并发限制。</DialogDescription>
+              <DialogDescription>按步骤完成目标范围、修改项和预览执行，保留现有批量能力。</DialogDescription>
             </DialogHeader>
             <div className="space-y-5 py-4">
-              <div className="grid gap-4 md:grid-cols-2">
-                <div className="space-y-2">
-                  <Label>目标范围</Label>
-                  <Select value={batchTargetMode} onValueChange={(value) => setBatchTargetMode(value as UserBatchTargetMode)}>
-                    <SelectTrigger>
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="selected">已选用户 ({selectedUserIds.length})</SelectItem>
-                      <SelectItem value="filtered">筛选结果</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-                {batchTargetMode === 'filtered' ? (
-                  <div className="space-y-2">
-                    <Label>用户名关键字</Label>
-                    <Input value={batchFilterKeyword} onChange={(event) => setBatchFilterKeyword(event.target.value)} placeholder="留空表示不过滤" />
-                  </div>
-                ) : null}
+              <div className="grid gap-2 rounded-lg border bg-muted/20 px-4 py-3 text-sm md:grid-cols-3">
+                <div className={batchStep === 'target' ? 'font-medium text-foreground' : 'text-muted-foreground'}>1. 目标 / 范围</div>
+                <div className={batchStep === 'changes' ? 'font-medium text-foreground' : 'text-muted-foreground'}>2. 修改项</div>
+                <div className={batchStep === 'preview' ? 'font-medium text-foreground' : 'text-muted-foreground'}>3. 预览 / 执行</div>
               </div>
 
-              {batchTargetMode === 'filtered' ? (
-                <div className="grid gap-4 md:grid-cols-2">
-                  <div className="space-y-2">
-                    <Label>管理员状态</Label>
-                    <Select value={batchFilterIsAdmin} onValueChange={(value) => setBatchFilterIsAdmin(value as 'all' | 'true' | 'false')}>
-                      <SelectTrigger>
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="all">全部</SelectItem>
-                        <SelectItem value="true">仅管理员</SelectItem>
-                        <SelectItem value="false">仅普通用户</SelectItem>
-                      </SelectContent>
-                    </Select>
+              {batchStep === 'target' ? (
+                <>
+                  <div className="grid gap-4 md:grid-cols-2">
+                    <div className="space-y-2">
+                      <Label>目标范围</Label>
+                      <Select value={batchTargetMode} onValueChange={(value) => setBatchTargetMode(value as UserBatchTargetMode)}>
+                        <SelectTrigger>
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="selected">已选用户 ({selectedUserIds.length})</SelectItem>
+                          <SelectItem value="filtered">筛选结果</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    {batchTargetMode === 'filtered' ? (
+                      <div className="space-y-2">
+                        <Label>用户名关键字</Label>
+                        <Input value={batchFilterKeyword} onChange={(event) => setBatchFilterKeyword(event.target.value)} placeholder="留空表示不过滤" />
+                      </div>
+                    ) : null}
                   </div>
-                  <div className="space-y-2">
-                    <Label>分组</Label>
-                    <Select value={batchFilterGroupId} onValueChange={setBatchFilterGroupId}>
-                      <SelectTrigger>
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="all">全部分组</SelectItem>
-                        {groups.map((group) => (
-                          <SelectItem key={group.id} value={group.id}>
-                            {group.name}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  <div className="space-y-2">
-                    <Label>订阅状态</Label>
-                    <Select value={batchFilterSubscriptionStatus} onValueChange={(value) => setBatchFilterSubscriptionStatus(value as SubscriptionStatus | 'all')}>
-                      <SelectTrigger>
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="all">全部状态</SelectItem>
-                        <SelectItem value="active">生效中</SelectItem>
-                        <SelectItem value="paused">已暂停</SelectItem>
-                        <SelectItem value="expired">已过期</SelectItem>
-                        <SelectItem value="cancelled">已取消</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  <div className="space-y-2">
-                    <Label>订阅套餐</Label>
-                    <Select value={batchFilterPlanId} onValueChange={setBatchFilterPlanId}>
-                      <SelectTrigger>
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="all">全部套餐</SelectItem>
-                        {plans.map((plan) => (
-                          <SelectItem key={plan.id} value={plan.id}>
-                            {plan.name}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  <div className="space-y-2">
-                    <Label>余额下限 (USD)</Label>
-                    <Input value={batchFilterBalanceMin} onChange={(event) => setBatchFilterBalanceMin(event.target.value)} type="number" min="0" step="0.01" placeholder="可空" />
-                  </div>
-                  <div className="space-y-2">
-                    <Label>余额上限 (USD)</Label>
-                    <Input value={batchFilterBalanceMax} onChange={(event) => setBatchFilterBalanceMax(event.target.value)} type="number" min="0" step="0.01" placeholder="可空" />
-                  </div>
-                  <div className="space-y-2">
-                    <Label>订阅到期晚于</Label>
-                    <DateTimePicker value={batchFilterExpiresAfter} onChange={setBatchFilterExpiresAfter} />
-                  </div>
-                  <div className="space-y-2">
-                    <Label>订阅到期早于</Label>
-                    <DateTimePicker value={batchFilterExpiresBefore} onChange={setBatchFilterExpiresBefore} />
-                  </div>
-                  <div className="space-y-2">
-                    <Label>额度类型</Label>
-                    <Select value={batchFilterLimitType} onValueChange={(value) => setBatchFilterLimitType(value as LimitType | 'all')}>
-                      <SelectTrigger>
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="all">全部</SelectItem>
-                        {(Object.keys(LIMIT_TYPE_LABELS) as LimitType[]).map((limitType) => (
-                          <SelectItem key={limitType} value={limitType}>
-                            {LIMIT_TYPE_LABELS[limitType]}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  <div className="space-y-2">
-                    <Label>额度下限 (USD)</Label>
-                    <Input value={batchFilterLimitMin} onChange={(event) => setBatchFilterLimitMin(event.target.value)} type="number" min="0" step="0.01" placeholder="例如日额大于 20" />
-                  </div>
-                  <div className="space-y-2">
-                    <Label>额度上限 (USD)</Label>
-                    <Input value={batchFilterLimitMax} onChange={(event) => setBatchFilterLimitMax(event.target.value)} type="number" min="0" step="0.01" placeholder="可空" />
-                  </div>
-                </div>
+
+                  {batchTargetMode === 'filtered' ? (
+                    <div className="grid gap-4 md:grid-cols-2">
+                      <div className="space-y-2">
+                        <Label>管理员状态</Label>
+                        <Select value={batchFilterIsAdmin} onValueChange={(value) => setBatchFilterIsAdmin(value as 'all' | 'true' | 'false')}>
+                          <SelectTrigger>
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="all">全部</SelectItem>
+                            <SelectItem value="true">仅管理员</SelectItem>
+                            <SelectItem value="false">仅普通用户</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      <div className="space-y-2">
+                        <Label>分组</Label>
+                        <Select value={batchFilterGroupId} onValueChange={setBatchFilterGroupId}>
+                          <SelectTrigger>
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="all">全部分组</SelectItem>
+                            {groups.map((group) => (
+                              <SelectItem key={group.id} value={group.id}>
+                                {group.name}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      <div className="space-y-2">
+                        <Label>订阅状态</Label>
+                        <Select value={batchFilterSubscriptionStatus} onValueChange={(value) => setBatchFilterSubscriptionStatus(value as SubscriptionStatus | 'all')}>
+                          <SelectTrigger>
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="all">全部状态</SelectItem>
+                            <SelectItem value="active">生效中</SelectItem>
+                            <SelectItem value="paused">已暂停</SelectItem>
+                            <SelectItem value="expired">已过期</SelectItem>
+                            <SelectItem value="cancelled">已取消</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      <div className="space-y-2">
+                        <Label>订阅套餐</Label>
+                        <Select value={batchFilterPlanId} onValueChange={setBatchFilterPlanId}>
+                          <SelectTrigger>
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="all">全部套餐</SelectItem>
+                            {plans.map((plan) => (
+                              <SelectItem key={plan.id} value={plan.id}>
+                                {plan.name}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      <div className="space-y-2">
+                        <Label>余额下限 (USD)</Label>
+                        <Input value={batchFilterBalanceMin} onChange={(event) => setBatchFilterBalanceMin(event.target.value)} type="number" min="0" step="0.01" placeholder="可空" />
+                      </div>
+                      <div className="space-y-2">
+                        <Label>余额上限 (USD)</Label>
+                        <Input value={batchFilterBalanceMax} onChange={(event) => setBatchFilterBalanceMax(event.target.value)} type="number" min="0" step="0.01" placeholder="可空" />
+                      </div>
+                      <div className="space-y-2">
+                        <Label>订阅到期晚于</Label>
+                        <DateTimePicker value={batchFilterExpiresAfter} onChange={setBatchFilterExpiresAfter} className="w-full justify-between" />
+                      </div>
+                      <div className="space-y-2">
+                        <Label>订阅到期早于</Label>
+                        <DateTimePicker value={batchFilterExpiresBefore} onChange={setBatchFilterExpiresBefore} className="w-full justify-between" />
+                      </div>
+                      <div className="space-y-2">
+                        <Label>额度类型</Label>
+                        <Select value={batchFilterLimitType} onValueChange={(value) => setBatchFilterLimitType(value as LimitType | 'all')}>
+                          <SelectTrigger>
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="all">全部</SelectItem>
+                            {(Object.keys(LIMIT_TYPE_LABELS) as LimitType[]).map((limitType) => (
+                              <SelectItem key={limitType} value={limitType}>
+                                {LIMIT_TYPE_LABELS[limitType]}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      <div className="space-y-2">
+                        <Label>额度下限 (USD)</Label>
+                        <Input value={batchFilterLimitMin} onChange={(event) => setBatchFilterLimitMin(event.target.value)} type="number" min="0" step="0.01" placeholder="例如日额大于 20" />
+                      </div>
+                      <div className="space-y-2">
+                        <Label>额度上限 (USD)</Label>
+                        <Input value={batchFilterLimitMax} onChange={(event) => setBatchFilterLimitMax(event.target.value)} type="number" min="0" step="0.01" placeholder="可空" />
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="rounded-lg border border-dashed px-4 py-4 text-sm text-muted-foreground">
+                      将对当前已选中的 {selectedUserIds.length} 个用户执行后续批量操作。
+                    </div>
+                  )}
+                </>
               ) : null}
 
-              <div className="grid gap-4 md:grid-cols-4">
-                <div className="space-y-2">
-                  <Label>余额变更</Label>
-                  <Select value={batchBalanceMode} onValueChange={(value) => setBatchBalanceMode(value as typeof batchBalanceMode)}>
-                    <SelectTrigger>
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="none">不修改</SelectItem>
-                      <SelectItem value="add">增加</SelectItem>
-                      <SelectItem value="set">设为</SelectItem>
-                      <SelectItem value="subtract">扣减</SelectItem>
-                    </SelectContent>
-                  </Select>
-                  <Input
-                    value={batchBalanceAmount}
-                    onChange={(event) => setBatchBalanceAmount(event.target.value)}
-                    placeholder="USD 金额"
-                    type="number"
-                    min="0"
-                    step="0.01"
-                    disabled={batchBalanceMode === 'none'}
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label>分组变更</Label>
-                  <Select value={batchGroupMode} onValueChange={(value) => setBatchGroupMode(value as typeof batchGroupMode)}>
-                    <SelectTrigger>
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="none">不修改</SelectItem>
-                      <SelectItem value="add">追加分组</SelectItem>
-                      <SelectItem value="set">覆盖分组</SelectItem>
-                      <SelectItem value="remove">移除分组</SelectItem>
-                    </SelectContent>
-                  </Select>
-                  <div className="space-y-2 rounded-lg border px-3 py-3">
-                    {groups.map((group) => (
-                      <label key={group.id} className="flex items-center gap-2 text-sm">
-                        <Checkbox
-                          checked={batchGroupIds.includes(group.id)}
-                          onCheckedChange={(checked) => {
-                            setBatchGroupIds((current) => (
-                              checked ? Array.from(new Set([...current, group.id])) : current.filter((id) => id !== group.id)
-                            ))
-                          }}
-                          disabled={batchGroupMode === 'none'}
-                        />
-                        <span>{group.name}</span>
-                      </label>
-                    ))}
-                    {groups.length === 0 ? <p className="text-xs text-muted-foreground">暂无分组</p> : null}
-                  </div>
-                </div>
-                <div className="space-y-2">
-                  <Label>并发限制</Label>
-                  <Input
-                    value={batchConcurrencyLimit}
-                    onChange={(event) => setBatchConcurrencyLimit(event.target.value)}
-                    inputMode="numeric"
-                    placeholder="留空表示不修改"
-                  />
-                  <p className="text-xs text-muted-foreground">填 0 表示不限制。</p>
-                </div>
-                <div className="space-y-2 md:col-span-2">
-                  <Label>订阅变更</Label>
-                  <div className="space-y-3 rounded-lg border px-3 py-3">
-                    <Select value={batchSubscriptionPlanMode} onValueChange={(value) => setBatchSubscriptionPlanMode(value as typeof batchSubscriptionPlanMode)}>
+              {batchStep === 'changes' ? (
+                <div className="grid gap-4 md:grid-cols-4">
+                  <div className="space-y-2">
+                    <Label>余额变更</Label>
+                    <Select value={batchBalanceMode} onValueChange={(value) => setBatchBalanceMode(value as typeof batchBalanceMode)}>
                       <SelectTrigger>
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
                         <SelectItem value="none">不修改</SelectItem>
-                        <SelectItem value="assign">应用/替换订阅</SelectItem>
-                        <SelectItem value="cancel">取消订阅</SelectItem>
+                        <SelectItem value="add">增加</SelectItem>
+                        <SelectItem value="set">设为</SelectItem>
+                        <SelectItem value="subtract">扣减</SelectItem>
                       </SelectContent>
                     </Select>
-                    {batchSubscriptionPlanMode === 'assign' ? (
-                      <Select value={batchSubscriptionPlanId} onValueChange={setBatchSubscriptionPlanId}>
-                        <SelectTrigger>
-                          <SelectValue placeholder="选择套餐" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {plans.map((plan) => (
-                            <SelectItem key={plan.id} value={plan.id}>
-                              {plan.name}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    ) : null}
-                    <Select value={batchSubscriptionExpiryMode} onValueChange={(value) => setBatchSubscriptionExpiryMode(value as SubscriptionBatchExpiryMode)}>
+                    <Input
+                      value={batchBalanceAmount}
+                      onChange={(event) => setBatchBalanceAmount(event.target.value)}
+                      placeholder="USD 金额"
+                      type="number"
+                      min="0"
+                      step="0.01"
+                      disabled={batchBalanceMode === 'none'}
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label>分组变更</Label>
+                    <Select value={batchGroupMode} onValueChange={(value) => setBatchGroupMode(value as typeof batchGroupMode)}>
                       <SelectTrigger>
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="keep">不改时长</SelectItem>
-                        <SelectItem value="set">设定到期时间</SelectItem>
-                        <SelectItem value="extend_days">续期天数</SelectItem>
-                        <SelectItem value="shorten_days">缩短天数</SelectItem>
+                        <SelectItem value="none">不修改</SelectItem>
+                        <SelectItem value="add">追加分组</SelectItem>
+                        <SelectItem value="set">覆盖分组</SelectItem>
+                        <SelectItem value="remove">移除分组</SelectItem>
                       </SelectContent>
                     </Select>
-                    {batchSubscriptionExpiryMode === 'set' ? (
-                      <DateTimePicker value={batchSubscriptionExpiresAt} onChange={setBatchSubscriptionExpiresAt} />
-                    ) : null}
-                    {batchSubscriptionExpiryMode === 'extend_days' || batchSubscriptionExpiryMode === 'shorten_days' ? (
-                      <Input
-                        value={batchSubscriptionDays}
-                        onChange={(event) => setBatchSubscriptionDays(event.target.value)}
-                        inputMode="numeric"
-                        placeholder="输入天数"
-                      />
-                    ) : null}
-                  </div>
-                </div>
-              </div>
-
-              <div className="rounded-lg border px-4 py-4">
-                <div className="flex items-center justify-between gap-3">
-                  <div>
-                    <p className="font-medium">预览匹配结果</p>
-                    <p className="text-sm text-muted-foreground">先预览再执行，可确认筛选是否正确。</p>
-                  </div>
-                  <Button variant="outline" onClick={() => void handlePreviewBatch()} disabled={batchPreviewing}>
-                    {batchPreviewing ? '预览中...' : '预览'}
-                  </Button>
-                </div>
-                {batchPreview ? (
-                  <div className="mt-4 space-y-3">
-                    <p className="text-sm text-muted-foreground">共匹配 {batchPreview.count} 个用户，以下展示前 {batchPreview.items.length} 个。</p>
-                    <div className="space-y-2">
-                      {batchPreview.items.map((item) => (
-                        <div key={item.id} className="flex items-center justify-between gap-4 rounded-md border px-3 py-2 text-sm">
-                          <span className="font-medium">{item.username}</span>
-                          <span className="text-muted-foreground">{item.isAdmin ? '管理员' : '普通用户'}</span>
-                        </div>
+                    <div className="space-y-2 rounded-lg border px-3 py-3">
+                      {groups.map((group) => (
+                        <label key={group.id} className="flex items-center gap-2 text-sm">
+                          <Checkbox
+                            checked={batchGroupIds.includes(group.id)}
+                            onCheckedChange={(checked) => {
+                              setBatchGroupIds((current) => (
+                                checked ? Array.from(new Set([...current, group.id])) : current.filter((id) => id !== group.id)
+                              ))
+                            }}
+                            disabled={batchGroupMode === 'none'}
+                          />
+                          <span>{group.name}</span>
+                        </label>
                       ))}
+                      {groups.length === 0 ? <p className="text-xs text-muted-foreground">暂无分组</p> : null}
                     </div>
                   </div>
-                ) : null}
-              </div>
+                  <div className="space-y-2">
+                    <Label>并发限制</Label>
+                    <Input
+                      value={batchConcurrencyLimit}
+                      onChange={(event) => setBatchConcurrencyLimit(event.target.value)}
+                      inputMode="numeric"
+                      placeholder="留空表示不修改"
+                    />
+                    <p className="text-xs text-muted-foreground">填 0 表示不限制。</p>
+                  </div>
+                  <div className="space-y-2 md:col-span-2">
+                    <Label>订阅变更</Label>
+                    <div className="space-y-3 rounded-lg border px-3 py-3">
+                      <Select value={batchSubscriptionPlanMode} onValueChange={(value) => setBatchSubscriptionPlanMode(value as typeof batchSubscriptionPlanMode)}>
+                        <SelectTrigger>
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="none">不修改</SelectItem>
+                          <SelectItem value="assign">应用/替换订阅</SelectItem>
+                          <SelectItem value="cancel">取消订阅</SelectItem>
+                        </SelectContent>
+                      </Select>
+                      {batchSubscriptionPlanMode === 'assign' ? (
+                        <Select value={batchSubscriptionPlanId} onValueChange={setBatchSubscriptionPlanId}>
+                          <SelectTrigger>
+                            <SelectValue placeholder="选择套餐" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {plans.map((plan) => (
+                              <SelectItem key={plan.id} value={plan.id}>
+                                {plan.name}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      ) : null}
+                      <Select value={batchSubscriptionExpiryMode} onValueChange={(value) => setBatchSubscriptionExpiryMode(value as SubscriptionBatchExpiryMode)}>
+                        <SelectTrigger>
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="keep">不改时长</SelectItem>
+                          <SelectItem value="set">设定到期时间</SelectItem>
+                          <SelectItem value="extend_days">续期天数</SelectItem>
+                          <SelectItem value="shorten_days">缩短天数</SelectItem>
+                        </SelectContent>
+                      </Select>
+                      {batchSubscriptionExpiryMode === 'set' ? (
+                        <DateTimePicker value={batchSubscriptionExpiresAt} onChange={setBatchSubscriptionExpiresAt} className="w-full justify-between" />
+                      ) : null}
+                      {batchSubscriptionExpiryMode === 'extend_days' || batchSubscriptionExpiryMode === 'shorten_days' ? (
+                        <Input
+                          value={batchSubscriptionDays}
+                          onChange={(event) => setBatchSubscriptionDays(event.target.value)}
+                          inputMode="numeric"
+                          placeholder="输入天数"
+                        />
+                      ) : null}
+                    </div>
+                  </div>
+                </div>
+              ) : null}
+
+              {batchStep === 'preview' ? (
+                <div className="space-y-4 rounded-lg border px-4 py-4">
+                  <div className="flex items-center justify-between gap-3">
+                    <div>
+                      <p className="font-medium">预览匹配结果</p>
+                      <p className="text-sm text-muted-foreground">确认目标用户和修改项后再执行。</p>
+                    </div>
+                    <Button variant="outline" onClick={() => void handlePreviewBatch()} disabled={batchPreviewing}>
+                      {batchPreviewing ? '预览中...' : '刷新预览'}
+                    </Button>
+                  </div>
+                  {batchPreview ? (
+                    <div className="space-y-3">
+                      <p className="text-sm text-muted-foreground">共匹配 {batchPreview.count} 个用户，以下展示前 {batchPreview.items.length} 个。</p>
+                      <div className="space-y-2">
+                        {batchPreview.items.map((item) => (
+                          <div key={item.id} className="flex items-center justify-between gap-4 rounded-md border px-3 py-2 text-sm">
+                            <span className="font-medium">{item.username}</span>
+                            <span className="text-muted-foreground">{item.isAdmin ? '管理员' : '普通用户'}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  ) : (
+                    <p className="text-sm text-muted-foreground">尚未生成预览，请刷新预览后执行。</p>
+                  )}
+                </div>
+              ) : null}
             </div>
             <DialogFooter>
               <Button variant="outline" onClick={() => setBatchOpen(false)}>
                 取消
               </Button>
-              <Button onClick={() => void handleApplyBatch()} disabled={batchApplying}>
-                {batchApplying ? '执行中...' : '确认批量修改'}
-              </Button>
+              {batchStep !== 'target' ? (
+                <Button variant="outline" onClick={() => setBatchStep(batchStep === 'preview' ? 'changes' : 'target')}>
+                  上一步
+                </Button>
+              ) : null}
+              {batchStep === 'preview' ? (
+                <Button onClick={() => void handleApplyBatch()} disabled={batchApplying || !batchPreview}>
+                  {batchApplying ? '执行中...' : '确认批量修改'}
+                </Button>
+              ) : (
+                <Button onClick={() => void handleNextBatchStep()} disabled={batchPreviewing}>
+                  下一步
+                </Button>
+              )}
             </DialogFooter>
           </DialogContent>
         </Dialog>
@@ -1468,7 +1544,7 @@ export default function UserManagement() {
             <DialogHeader>
               <DialogTitle>用户 API Keys</DialogTitle>
               <DialogDescription>
-                管理用户 <span className="font-medium">{apiKeysModal?.username}</span> 的 API Key 名称和到期时间。
+                管理用户 <span className="font-medium">{apiKeysModal?.username}</span> 的 API Key 状态、明文和到期时间。
               </DialogDescription>
             </DialogHeader>
             <div className="py-4">
@@ -1483,12 +1559,19 @@ export default function UserManagement() {
                   {userAPIKeys.map((key) => (
                     <div key={key.id} className="flex flex-wrap items-center justify-between gap-3 rounded-lg border px-4 py-3">
                       <div className="space-y-1">
-                        <p className="font-medium">{key.name}</p>
-                        <p className="text-xs text-muted-foreground">
-                          {key.prefix}... · {key.isActive ? '生效中' : '已过期'} · 到期 {key.expiresAt ? formatDateTime(key.expiresAt) : '永不过期'}
-                        </p>
+                        <div className="flex flex-wrap items-center gap-2">
+                          <p className="font-medium">{key.name}</p>
+                          <Badge variant={key.status === 'active' ? 'default' : 'secondary'}>
+                            {getAPIKeyStatusLabel(key.status)}
+                          </Badge>
+                        </div>
+                        <p className="font-mono text-xs text-muted-foreground">{key.apiKey || `${key.prefix}...`}</p>
+                        <p className="text-xs text-muted-foreground">到期 {key.expiresAt ? formatDateTime(key.expiresAt) : '永不过期'}</p>
                       </div>
                       <div className="flex items-center gap-2">
+                        <Button variant="outline" size="sm" onClick={() => void handleToggleUserAPIKeyDisabled(key)} disabled={togglingUserAPIKeyId === key.id}>
+                          {togglingUserAPIKeyId === key.id ? '处理中...' : key.status === 'disabled' ? '恢复' : '禁用'}
+                        </Button>
                         <Button variant="outline" size="sm" onClick={() => handleOpenEditUserAPIKey(key)}>
                           编辑
                         </Button>
@@ -1517,7 +1600,7 @@ export default function UserManagement() {
           <DialogContent>
             <DialogHeader>
               <DialogTitle>编辑用户 API Key</DialogTitle>
-              <DialogDescription>仅可修改名称和到期时间。</DialogDescription>
+              <DialogDescription>可直接修改明文 Key、名称和到期时间。</DialogDescription>
             </DialogHeader>
             <div className="space-y-4 py-4">
               <div className="space-y-2">
@@ -1525,11 +1608,23 @@ export default function UserManagement() {
                 <Input value={editingUserAPIKeyName} onChange={(event) => setEditingUserAPIKeyName(event.target.value)} />
               </div>
               <div className="space-y-2">
+                <Label>API Key 明文</Label>
+                <Input
+                  value={editingUserAPIKeyValue}
+                  onChange={(event) => setEditingUserAPIKeyValue(event.target.value.trim())}
+                  placeholder="支持 sk- 前缀或纯字母数字"
+                  className="font-mono"
+                  autoComplete="off"
+                />
+                <p className="text-xs text-muted-foreground">修改后会重新校验格式、更新前缀和哈希，并拒绝重复值。</p>
+              </div>
+              <div className="space-y-2">
                 <Label>到期时间</Label>
                 <DateTimePicker
                   value={editingUserAPIKeyExpiresAt}
                   onChange={setEditingUserAPIKeyExpiresAt}
                   placeholder="留空表示永不过期"
+                  className="w-full justify-between"
                 />
               </div>
             </div>
@@ -1537,8 +1632,41 @@ export default function UserManagement() {
               <Button variant="outline" onClick={() => setEditingUserAPIKey(null)}>
                 取消
               </Button>
-              <Button onClick={() => void handleSaveUserAPIKey()} disabled={savingUserAPIKey || !editingUserAPIKeyName.trim()}>
+              <Button
+                onClick={() => void handleSaveUserAPIKey()}
+                disabled={savingUserAPIKey || !editingUserAPIKeyName.trim() || !editingUserAPIKeyValue.trim()}
+              >
                 {savingUserAPIKey ? '保存中...' : '保存'}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+
+        <Dialog open={!!concurrencyModal} onOpenChange={(open) => !open && setConcurrencyModal(null)}>
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>编辑并发限制</DialogTitle>
+              <DialogDescription>
+                用户 <span className="font-medium">{concurrencyModal?.user.username}</span> 的并发限制，填 0 表示不限制。
+              </DialogDescription>
+            </DialogHeader>
+            <div className="space-y-4 py-4">
+              <div className="space-y-2">
+                <Label>并发限制</Label>
+                <Input
+                  value={concurrencyModal?.value || ''}
+                  onChange={(event) => setConcurrencyModal((current) => (current ? { ...current, value: event.target.value } : current))}
+                  inputMode="numeric"
+                  placeholder="0 表示不限制"
+                />
+              </div>
+            </div>
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setConcurrencyModal(null)}>
+                取消
+              </Button>
+              <Button onClick={() => void handleSaveConcurrency()} disabled={savingConcurrency}>
+                {savingConcurrency ? '保存中...' : '保存'}
               </Button>
             </DialogFooter>
           </DialogContent>

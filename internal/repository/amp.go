@@ -183,6 +183,28 @@ func (r *APIKeyRepository) UpdateEditableFields(id, name string, expiresAt *time
 	return err
 }
 
+func (r *APIKeyRepository) UpdateKeyFields(id, name, prefix, keyHash, apiKey string, expiresAt *time.Time) error {
+	db := database.GetDB()
+	_, err := db.Exec(
+		`UPDATE user_api_keys
+		 SET name = ?, prefix = ?, key_hash = ?, api_key = ?, expires_at = ?
+		 WHERE id = ?`,
+		name, prefix, keyHash, apiKey, expiresAt, id,
+	)
+	return err
+}
+
+func (r *APIKeyRepository) SetRevoked(id string, revoked bool) error {
+	db := database.GetDB()
+	if revoked {
+		_, err := db.Exec(`UPDATE user_api_keys SET revoked_at = ? WHERE id = ?`, time.Now().UTC(), id)
+		return err
+	}
+
+	_, err := db.Exec(`UPDATE user_api_keys SET revoked_at = NULL WHERE id = ?`, id)
+	return err
+}
+
 func (r *APIKeyRepository) GetByKeyHash(keyHash string) (*model.UserAPIKey, error) {
 	db := database.GetDB()
 	key := &model.UserAPIKey{}

@@ -239,27 +239,17 @@ func (s *AmpService) TestConnection(userID string) (*model.TestConnectionRespons
 func (s *AmpService) CreateAPIKey(userID string, req *model.CreateAPIKeyRequest) (*model.CreateAPIKeyResponse, error) {
 	rawKey := req.CustomKey
 	if rawKey == "" {
-		keyBytes := make([]byte, 8)
+		keyBytes := make([]byte, 16)
 		if _, err := rand.Read(keyBytes); err != nil {
 			return nil, err
 		}
 		rawKey = "sk-" + hex.EncodeToString(keyBytes)
-	} else if !isValidCustomAPIKey(rawKey) {
-		return nil, ErrInvalidAPIKeyFormat
 	}
 
-	hash := sha256.Sum256([]byte(rawKey))
-	keyHash := hex.EncodeToString(hash[:])
-
-	existing, err := s.apiKeyRepo.GetByKeyHash(keyHash)
+	keyHash, prefix, err := s.prepareAPIKeyValue(rawKey)
 	if err != nil {
 		return nil, err
 	}
-	if existing != nil {
-		return nil, ErrDuplicateAPIKey
-	}
-
-	prefix := rawKey[:8]
 
 	apiKey := &model.UserAPIKey{
 		UserID:    userID,
@@ -296,8 +286,21 @@ func (s *AmpService) UpdateAPIKey(userID, keyID string, req *model.UpdateAPIKeyR
 		expiresAt = nil
 	}
 
-	if err := s.apiKeyRepo.UpdateEditableFields(key.ID, req.Name, expiresAt); err != nil {
-		return nil, err
+	if strings.TrimSpace(req.APIKey) != "" && req.APIKey != key.APIKey {
+		keyHash, prefix, err := s.prepareAPIKeyValue(req.APIKey)
+		if err != nil {
+			return nil, err
+		}
+		if err := s.apiKeyRepo.UpdateKeyFields(key.ID, req.Name, prefix, keyHash, req.APIKey, expiresAt); err != nil {
+			return nil, err
+		}
+		key.APIKey = req.APIKey
+		key.KeyHash = keyHash
+		key.Prefix = prefix
+	} else {
+		if err := s.apiKeyRepo.UpdateEditableFields(key.ID, req.Name, expiresAt); err != nil {
+			return nil, err
+		}
 	}
 
 	key.Name = req.Name
@@ -335,12 +338,29 @@ func (s *AmpService) ListAPIKeys(userID string) ([]*model.APIKeyListItem, error)
 
 	items := make([]*model.APIKeyListItem, 0, len(keys))
 	for _, k := range keys {
-		if k.RevokedAt != nil {
-			continue
-		}
 		items = append(items, buildAPIKeyListItem(k))
 	}
 	return items, nil
+}
+
+func (s *AmpService) SetAPIKeyDisabled(userID, keyID string, disabled bool) (*model.APIKeyListItem, error) {
+	key, err := s.getOwnedAPIKey(userID, keyID)
+	if err != nil {
+		return nil, err
+	}
+
+	if err := s.apiKeyRepo.SetRevoked(key.ID, disabled); err != nil {
+		return nil, err
+	}
+
+	if disabled {
+		now := time.Now().UTC()
+		key.RevokedAt = &now
+	} else {
+		key.RevokedAt = nil
+	}
+
+	return buildAPIKeyListItem(key), nil
 }
 
 func (s *AmpService) DeleteAPIKey(userID, keyID string) error {
@@ -369,7 +389,22 @@ func (s *AmpService) GetAPIKey(userID, keyID string) (*model.APIKeyRevealRespons
 }
 
 func (s *AmpService) ListAPIKeysForAdmin(userID string) ([]*model.APIKeyListItem, error) {
-	return s.ListAPIKeys(userID)
+	keys, err := s.ListAPIKeys(userID)
+	if err != nil {
+		return nil, err
+	}
+
+	for _, key := range keys {
+		full, err := s.apiKeyRepo.GetByID(key.ID)
+		if err != nil {
+			return nil, err
+		}
+		if full != nil {
+			key.APIKey = full.APIKey
+		}
+	}
+
+	return keys, nil
 }
 
 func (s *AmpService) UpdateAPIKeyForAdmin(userID, keyID string, req *model.UpdateAPIKeyRequest) (*model.APIKeyListItem, error) {
@@ -378,6 +413,23 @@ func (s *AmpService) UpdateAPIKeyForAdmin(userID, keyID string, req *model.Updat
 
 func (s *AmpService) DeleteAPIKeyForAdmin(userID, keyID string) error {
 	return s.DeleteAPIKey(userID, keyID)
+}
+
+func (s *AmpService) SetAPIKeyDisabledForAdmin(userID, keyID string, disabled bool) (*model.APIKeyListItem, error) {
+	key, err := s.SetAPIKeyDisabled(userID, keyID, disabled)
+	if err != nil {
+		return nil, err
+	}
+
+	full, err := s.apiKeyRepo.GetByID(key.ID)
+	if err != nil {
+		return nil, err
+	}
+	if full != nil {
+		key.APIKey = full.APIKey
+	}
+
+	return key, nil
 }
 
 func (s *AmpService) GetBootstrap(userID string) (*model.BootstrapResponse, error) {
@@ -428,6 +480,30 @@ func (s *AmpService) ValidateAPIKey(rawKey string) (*model.UserAPIKey, error) {
 	return key, nil
 }
 
+func (s *AmpService) prepareAPIKeyValue(rawKey string) (string, string, error) {
+	if !isValidCustomAPIKey(rawKey) {
+		return "", "", ErrInvalidAPIKeyFormat
+	}
+
+	hash := sha256.Sum256([]byte(rawKey))
+	keyHash := hex.EncodeToString(hash[:])
+
+	existing, err := s.apiKeyRepo.GetByKeyHash(keyHash)
+	if err != nil {
+		return "", "", err
+	}
+	if existing != nil {
+		return "", "", ErrDuplicateAPIKey
+	}
+
+	prefix := rawKey
+	if len(prefix) > 8 {
+		prefix = prefix[:8]
+	}
+
+	return keyHash, prefix, nil
+}
+
 func (s *AmpService) decryptUpstreamAPIKey(storedKey string) string {
 	if storedKey == "" {
 		return ""
@@ -461,8 +537,14 @@ func (s *AmpService) getOwnedAPIKey(userID, keyID string) (*model.UserAPIKey, er
 }
 
 func buildAPIKeyListItem(key *model.UserAPIKey) *model.APIKeyListItem {
-	isActive := key.RevokedAt == nil
-	if key.ExpiresAt != nil && time.Now().After(*key.ExpiresAt) {
+	status := "active"
+	isActive := true
+
+	if key.RevokedAt != nil {
+		status = "disabled"
+		isActive = false
+	} else if key.ExpiresAt != nil && time.Now().After(*key.ExpiresAt) {
+		status = "expired"
 		isActive = false
 	}
 
@@ -474,6 +556,7 @@ func buildAPIKeyListItem(key *model.UserAPIKey) *model.APIKeyListItem {
 		RevokedAt: key.RevokedAt,
 		LastUsed:  key.LastUsed,
 		ExpiresAt: key.ExpiresAt,
+		Status:    status,
 		IsActive:  isActive,
 	}
 }

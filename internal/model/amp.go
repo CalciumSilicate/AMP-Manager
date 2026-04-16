@@ -92,8 +92,13 @@ type CreateAPIKeyRequest struct {
 
 type UpdateAPIKeyRequest struct {
 	Name        string     `json:"name" binding:"required,min=1,max=64"`
+	APIKey      string     `json:"apiKey,omitempty"`
 	ExpiresAt   *time.Time `json:"expiresAt,omitempty"`
 	ClearExpiry bool       `json:"clearExpiry,omitempty"`
+}
+
+type UpdateAPIKeyStatusRequest struct {
+	Disabled bool `json:"disabled"`
 }
 
 type CreateAPIKeyResponse struct {
@@ -119,10 +124,12 @@ type APIKeyListItem struct {
 	ID        string     `json:"id"`
 	Name      string     `json:"name"`
 	Prefix    string     `json:"prefix"`
+	APIKey    string     `json:"apiKey,omitempty"`
 	CreatedAt time.Time  `json:"createdAt"`
 	RevokedAt *time.Time `json:"revokedAt,omitempty"`
 	LastUsed  *time.Time `json:"lastUsedAt,omitempty"`
 	ExpiresAt *time.Time `json:"expiresAt,omitempty"`
+	Status    string     `json:"status"`
 	IsActive  bool       `json:"isActive"`
 }
 
@@ -176,24 +183,24 @@ type RequestLog struct {
 	TransportFallbackReason  *string          `json:"transportFallbackReason,omitempty"`
 	OutputPreview            *string          `json:"outputPreview,omitempty"` // 响应输出预览（前200字符）
 	// 成本相关字段
-	CostMicros                 *int64   `json:"costMicros,omitempty"`   // 成本（微美元，USD * 1e6）
-	CostUsd                    *string  `json:"costUsd,omitempty"`      // 成本（USD，用于展示）
-	PricingModel               *string  `json:"pricingModel,omitempty"` // 计价模型名
-	PricingRuleName            *string  `json:"pricingRuleName,omitempty"`
-	InputCostPerToken          *float64 `json:"inputCostPerToken,omitempty"`
-	OutputCostPerToken         *float64 `json:"outputCostPerToken,omitempty"`
-	CacheReadInputPerToken     *float64 `json:"cacheReadInputPerToken,omitempty"`
-	CacheCreationInputPerToken *float64 `json:"cacheCreationInputPerToken,omitempty"`
-	RateMultiplier             *float64 `json:"rateMultiplier,omitempty"`
-	ChannelRateMultiplier      *float64 `json:"channelRateMultiplier,omitempty"`
-	GroupRateMultiplier        *float64 `json:"groupRateMultiplier,omitempty"`
-	SpecialRateMultiplier      *float64 `json:"specialRateMultiplier,omitempty"`
-	SpecialRateReason          *string  `json:"specialRateReason,omitempty"`
-	ChannelTranslator          *ChannelTranslator `json:"channelTranslator,omitempty"`
-	BillingStatus              string   `json:"-"`
-	ChargedSubscriptionMicros  int64    `json:"-"`
-	ChargedBalanceMicros       int64    `json:"-"`
-	BillingGapMicros           *int64   `json:"-"`
+	CostMicros                 *int64              `json:"costMicros,omitempty"`   // 成本（微美元，USD * 1e6）
+	CostUsd                    *string             `json:"costUsd,omitempty"`      // 成本（USD，用于展示）
+	PricingModel               *string             `json:"pricingModel,omitempty"` // 计价模型名
+	PricingRuleName            *string             `json:"pricingRuleName,omitempty"`
+	InputCostPerToken          *float64            `json:"inputCostPerToken,omitempty"`
+	OutputCostPerToken         *float64            `json:"outputCostPerToken,omitempty"`
+	CacheReadInputPerToken     *float64            `json:"cacheReadInputPerToken,omitempty"`
+	CacheCreationInputPerToken *float64            `json:"cacheCreationInputPerToken,omitempty"`
+	RateMultiplier             *float64            `json:"rateMultiplier,omitempty"`
+	ChannelRateMultiplier      *float64            `json:"channelRateMultiplier,omitempty"`
+	GroupRateMultiplier        *float64            `json:"groupRateMultiplier,omitempty"`
+	SpecialRateMultiplier      *float64            `json:"specialRateMultiplier,omitempty"`
+	SpecialRateReason          *string             `json:"specialRateReason,omitempty"`
+	ChannelTranslator          *ChannelTranslator  `json:"channelTranslator,omitempty"`
+	BillingStatus              string              `json:"-"`
+	ChargedSubscriptionMicros  int64               `json:"-"`
+	ChargedBalanceMicros       int64               `json:"-"`
+	BillingGapMicros           *int64              `json:"-"`
 }
 
 // RequestLogListResponse 请求日志列表响应

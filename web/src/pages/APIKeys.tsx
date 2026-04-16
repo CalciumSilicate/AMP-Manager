@@ -9,6 +9,7 @@ import {
   deleteAPIKey,
   getAPIKey,
   getAPIKeys,
+  setAPIKeyDisabled,
   updateAPIKey,
 } from '../api/amp'
 import { AdminPageShell, AdminSurface } from '@/components/admin/AdminPageShell'
@@ -54,6 +55,10 @@ export default function APIKeys() {
   const [copied, setCopied] = useState<string | null>(null)
   const [revealingId, setRevealingId] = useState<string | null>(null)
   const [deletingId, setDeletingId] = useState<string | null>(null)
+  const [togglingId, setTogglingId] = useState<string | null>(null)
+
+  const apiBaseUrl = `${window.location.origin}/v1`
+  const apiKeyPattern = /^(?:sk-)?[A-Za-z0-9]{16,}$/
 
   useEffect(() => {
     void loadData()
@@ -72,7 +77,7 @@ export default function APIKeys() {
 
   const handleCreate = async () => {
     if (!createName.trim()) return
-    if (customKey && !/^sk-[A-Za-z0-9]{16,}$/.test(customKey) && !/^[A-Za-z0-9]{16,}$/.test(customKey)) {
+    if (customKey && !apiKeyPattern.test(customKey)) {
       setError('自定义 API Key 只能包含字母和数字，且长度至少为 16')
       return
     }
@@ -96,6 +101,20 @@ export default function APIKeys() {
       setError(err instanceof Error ? err.message : '创建失败')
     } finally {
       setCreating(false)
+    }
+  }
+
+  const handleToggleDisabled = async (key: APIKey) => {
+    setTogglingId(key.id)
+    setError('')
+
+    try {
+      await setAPIKeyDisabled(key.id, key.status !== 'disabled')
+      await loadData()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '更新状态失败')
+    } finally {
+      setTogglingId(null)
     }
   }
 
@@ -165,9 +184,25 @@ export default function APIKeys() {
 
   const formatDate = (dateStr?: string | null) => (dateStr ? formatDateTime(dateStr) : '永不过期')
   const formatUsedAt = (dateStr?: string | null) => (dateStr ? formatDateTime(dateStr) : '-')
-  const linuxEnvSnippet = (apiKey: string) => `export AMP_URL="${window.location.origin}"\nexport AMP_API_KEY="${apiKey}"`
-  const powershellSnippet = (apiKey: string) =>
-    `[Environment]::SetEnvironmentVariable("AMP_URL", "${window.location.origin}", "User")\n[Environment]::SetEnvironmentVariable("AMP_API_KEY", "${apiKey}", "User")`
+  const getStatusLabel = (status: APIKey['status']) => {
+    switch (status) {
+      case 'disabled':
+        return '已禁用'
+      case 'expired':
+        return '已过期'
+      default:
+        return '生效中'
+    }
+  }
+
+  const getStatusVariant = (status: APIKey['status']): 'default' | 'secondary' => {
+    switch (status) {
+      case 'active':
+        return 'default'
+      default:
+        return 'secondary'
+    }
+  }
 
   if (loading) {
     return (
@@ -197,15 +232,26 @@ export default function APIKeys() {
               <div className="flex items-center justify-between gap-3">
                 <div className="space-y-1">
                   <p className="text-sm font-semibold text-emerald-700 dark:text-emerald-300">API Key 创建成功</p>
-                  <p className="text-xs text-muted-foreground">明文仍可在列表中查看；建议立即完成复制和环境变量配置。</p>
+                  <p className="text-xs text-muted-foreground">明文仍可在列表中查看；建议立即复制并配置到你的客户端。</p>
                 </div>
                 <Button variant="ghost" size="sm" onClick={() => setNewKey(null)}>
                   关闭
                 </Button>
               </div>
-              <div className="space-y-3">
-                <div className="space-y-2">
-                  <Label>API Key</Label>
+                <div className="space-y-3">
+                  <div className="space-y-2">
+                    <Label>API Base URL</Label>
+                    <div className="flex flex-col gap-2 sm:flex-row">
+                      <code className="min-w-0 flex-1 rounded-md border bg-background px-3 py-2 text-sm font-mono break-all">
+                        {apiBaseUrl}
+                      </code>
+                      <Button size="sm" variant="outline" onClick={() => void copyToClipboard(apiBaseUrl, 'apiBaseUrl')}>
+                        {copied === 'apiBaseUrl' ? '已复制' : '复制'}
+                      </Button>
+                    </div>
+                  </div>
+                  <div className="space-y-2">
+                    <Label>API Key</Label>
                   <div className="flex flex-col gap-2 sm:flex-row">
                     <code className="min-w-0 flex-1 rounded-md border bg-background px-3 py-2 text-sm font-mono break-all">
                       {newKey.apiKey}
@@ -215,25 +261,11 @@ export default function APIKeys() {
                     </Button>
                   </div>
                 </div>
-                <div className="grid gap-3 md:grid-cols-2">
-                  <div className="space-y-2">
-                    <Label>Linux/macOS</Label>
-                    <pre className="overflow-x-auto rounded-md border bg-slate-950 px-3 py-3 text-xs text-slate-100">
-                      <code>{linuxEnvSnippet(newKey.apiKey)}</code>
-                    </pre>
-                    <Button variant="outline" size="sm" onClick={() => void copyToClipboard(linuxEnvSnippet(newKey.apiKey), 'env')}>
-                      {copied === 'env' ? '已复制' : '复制环境变量'}
-                    </Button>
-                  </div>
-                  <div className="space-y-2">
-                    <Label>PowerShell</Label>
-                    <pre className="overflow-x-auto rounded-md border bg-slate-950 px-3 py-3 text-xs text-slate-100">
-                      <code>{powershellSnippet(newKey.apiKey)}</code>
-                    </pre>
-                    <Button variant="outline" size="sm" onClick={() => void copyToClipboard(powershellSnippet(newKey.apiKey), 'ps')}>
-                      {copied === 'ps' ? '已复制' : '复制 PowerShell 命令'}
-                    </Button>
-                  </div>
+                <div className="rounded-lg border px-4 py-3 text-sm">
+                  <p className="text-muted-foreground">连接地址</p>
+                  <p className="mt-1 break-all font-mono text-xs text-foreground">{apiBaseUrl}</p>
+                  <p className="mt-3 text-muted-foreground">认证方式</p>
+                  <p className="mt-1 text-xs">在客户端中使用以上 Base URL，并将当前 API Key 作为 Bearer Token 或 `X-Api-Key` 传入。</p>
                 </div>
               </div>
             </motion.div>
@@ -260,7 +292,7 @@ export default function APIKeys() {
                 <div className="admin-surface-header">
                   <div className="space-y-1">
                     <p className="text-sm font-medium text-foreground">已创建 {keys.length} 个 Key</p>
-                    <p className="admin-inline-note">支持过期时间管理、明文查看和删除操作。</p>
+                    <p className="admin-inline-note">支持禁用/恢复、过期时间管理、明文查看和删除操作。</p>
                   </div>
                 </div>
                 <div className="overflow-hidden rounded-b-lg">
@@ -282,8 +314,8 @@ export default function APIKeys() {
                           <TableCell className="font-medium">{key.name}</TableCell>
                           <TableCell className="font-mono text-muted-foreground">{key.prefix}...</TableCell>
                           <TableCell>
-                            <Badge variant={key.isActive ? 'default' : 'secondary'}>
-                              {key.isActive ? '生效中' : '已过期'}
+                            <Badge variant={getStatusVariant(key.status)}>
+                              {getStatusLabel(key.status)}
                             </Badge>
                           </TableCell>
                           <TableCell>{formatDate(key.expiresAt)}</TableCell>
@@ -293,6 +325,14 @@ export default function APIKeys() {
                             <div className="flex items-center justify-end gap-2">
                               <Button variant="ghost" size="sm" onClick={() => handleOpenEdit(key)}>
                                 编辑
+                              </Button>
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                onClick={() => void handleToggleDisabled(key)}
+                                disabled={togglingId === key.id}
+                              >
+                                {togglingId === key.id ? '处理中...' : key.status === 'disabled' ? '恢复' : '禁用'}
                               </Button>
                               <Button
                                 variant="ghost"
@@ -336,7 +376,7 @@ export default function APIKeys() {
                   id="keyName"
                   value={createName}
                   onChange={(event) => setCreateName(event.target.value)}
-                  placeholder="输入 API Key 名称"
+                  placeholder="例如：开发机 / 本地脚本 / CI"
                 />
               </div>
               <div className="space-y-2">
@@ -350,10 +390,10 @@ export default function APIKeys() {
                   id="customKey"
                   value={customKey}
                   onChange={(event) => setCustomKey(event.target.value.trim())}
-                  placeholder="留空自动生成；或手动填写 sk- 开头的随机 key"
+                  placeholder="留空自动生成 32 位 key core；也可手动填写 sk- 前缀或纯字母数字"
                   autoComplete="off"
                 />
-                <p className="text-xs text-muted-foreground">支持字母数字，可选 `sk-` 前缀。</p>
+                <p className="text-xs text-muted-foreground">支持字母数字，可选 `sk-` 前缀；最少 16 位，推荐使用 32 位以上。</p>
               </div>
               <div className="space-y-2">
                 <Label>到期时间</Label>
@@ -374,7 +414,7 @@ export default function APIKeys() {
               </Button>
               <Button
                 onClick={() => void handleCreate()}
-                disabled={creating || !createName.trim() || !!(customKey && !/^sk-[A-Za-z0-9]{16,}$/.test(customKey) && !/^[A-Za-z0-9]{16,}$/.test(customKey))}
+                disabled={creating || !createName.trim() || !!(customKey && !apiKeyPattern.test(customKey))}
               >
                 {creating ? '创建中...' : '创建'}
               </Button>
@@ -418,6 +458,17 @@ export default function APIKeys() {
             {revealKey ? (
               <div className="space-y-4 py-4">
                 <div className="space-y-2">
+                  <Label>API Base URL</Label>
+                  <div className="flex flex-col gap-2 sm:flex-row">
+                    <code className="min-w-0 flex-1 rounded-md border bg-background px-3 py-2 text-sm font-mono break-all">
+                      {apiBaseUrl}
+                    </code>
+                    <Button size="sm" variant="outline" onClick={() => void copyToClipboard(apiBaseUrl, 'revealBaseUrl')}>
+                      {copied === 'revealBaseUrl' ? '已复制' : '复制'}
+                    </Button>
+                  </div>
+                </div>
+                <div className="space-y-2">
                   <Label>API Key</Label>
                   <div className="flex flex-col gap-2 sm:flex-row">
                     <code className="min-w-0 flex-1 rounded-md border bg-background px-3 py-2 text-sm font-mono break-all">
@@ -438,25 +489,11 @@ export default function APIKeys() {
                     <p className="font-medium">{formatDate(revealKey.expiresAt)}</p>
                   </div>
                 </div>
-                <div className="grid gap-3 md:grid-cols-2">
-                  <div className="space-y-2">
-                    <Label>Linux/macOS</Label>
-                    <pre className="overflow-x-auto rounded-md border bg-slate-950 px-3 py-3 text-xs text-slate-100">
-                      <code>{linuxEnvSnippet(revealKey.apiKey)}</code>
-                    </pre>
-                    <Button variant="outline" size="sm" onClick={() => void copyToClipboard(linuxEnvSnippet(revealKey.apiKey), 'revealEnv')}>
-                      {copied === 'revealEnv' ? '已复制' : '复制环境变量'}
-                    </Button>
-                  </div>
-                  <div className="space-y-2">
-                    <Label>PowerShell</Label>
-                    <pre className="overflow-x-auto rounded-md border bg-slate-950 px-3 py-3 text-xs text-slate-100">
-                      <code>{powershellSnippet(revealKey.apiKey)}</code>
-                    </pre>
-                    <Button variant="outline" size="sm" onClick={() => void copyToClipboard(powershellSnippet(revealKey.apiKey), 'revealPs')}>
-                      {copied === 'revealPs' ? '已复制' : '复制 PowerShell 命令'}
-                    </Button>
-                  </div>
+                <div className="rounded-lg border px-4 py-3 text-sm">
+                  <p className="text-muted-foreground">连接说明</p>
+                  <p className="mt-1 text-xs leading-5">
+                    客户端 Base URL 使用 <span className="font-mono">{apiBaseUrl}</span>，认证时填入当前 API Key 即可。
+                  </p>
                 </div>
               </div>
             ) : null}

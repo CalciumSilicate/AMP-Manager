@@ -135,6 +135,7 @@ func Setup() *gin.Engine {
 				ampGroup.POST("/api-keys", ampHandler.CreateAPIKey)
 				ampGroup.GET("/api-keys/:id", ampHandler.GetAPIKey)
 				ampGroup.PATCH("/api-keys/:id", ampHandler.UpdateAPIKey)
+				ampGroup.PATCH("/api-keys/:id/status", ampHandler.UpdateAPIKeyStatus)
 				ampGroup.DELETE("/api-keys/:id", ampHandler.DeleteAPIKey)
 
 				ampGroup.GET("/bootstrap", ampHandler.GetBootstrap)
@@ -237,6 +238,7 @@ func Setup() *gin.Engine {
 				users.PATCH("/:id/group", userHandler.SetGroup)
 				users.GET("/:id/api-keys", ampHandler.AdminListUserAPIKeys)
 				users.PATCH("/:id/api-keys/:keyId", ampHandler.AdminUpdateUserAPIKey)
+				users.PATCH("/:id/api-keys/:keyId/status", ampHandler.AdminUpdateUserAPIKeyStatus)
 				users.DELETE("/:id/api-keys/:keyId", ampHandler.AdminDeleteUserAPIKey)
 				users.POST("/:id/reset-password", userHandler.ResetPassword)
 				users.POST("/:id/topup", userHandler.TopUp)

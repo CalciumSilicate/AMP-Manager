@@ -59,8 +59,11 @@ export interface APIKey {
   id: string
   name: string
   prefix: string
+  apiKey?: string
   lastUsedAt: string | null
+  revokedAt?: string | null
   expiresAt?: string | null
+  status: 'active' | 'disabled' | 'expired'
   isActive: boolean
   createdAt: string
 }
@@ -135,6 +138,14 @@ export async function updateAPIKey(id: string, data: { name: string; expiresAt?:
   const response = await authFetch(`${API_BASE}/api-keys/${id}`, {
     method: 'PATCH',
     body: JSON.stringify(data),
+  })
+  return handleResponse<APIKey>(response)
+}
+
+export async function setAPIKeyDisabled(id: string, disabled: boolean): Promise<APIKey> {
+  const response = await authFetch(`${API_BASE}/api-keys/${id}/status`, {
+    method: 'PATCH',
+    body: JSON.stringify({ disabled }),
   })
   return handleResponse<APIKey>(response)
 }
@@ -363,10 +374,22 @@ export async function getAdminUserAPIKeys(userId: string): Promise<APIKey[]> {
   return data.apiKeys || []
 }
 
-export async function updateAdminUserAPIKey(userId: string, keyId: string, data: { name: string; expiresAt?: string | null; clearExpiry?: boolean }): Promise<APIKey> {
+export async function updateAdminUserAPIKey(
+  userId: string,
+  keyId: string,
+  data: { name: string; apiKey?: string; expiresAt?: string | null; clearExpiry?: boolean },
+): Promise<APIKey> {
   const response = await authFetch(`${ADMIN_API_BASE}/users/${userId}/api-keys/${keyId}`, {
     method: 'PATCH',
     body: JSON.stringify(data),
+  })
+  return handleResponse<APIKey>(response)
+}
+
+export async function setAdminUserAPIKeyDisabled(userId: string, keyId: string, disabled: boolean): Promise<APIKey> {
+  const response = await authFetch(`${ADMIN_API_BASE}/users/${userId}/api-keys/${keyId}/status`, {
+    method: 'PATCH',
+    body: JSON.stringify({ disabled }),
   })
   return handleResponse<APIKey>(response)
 }

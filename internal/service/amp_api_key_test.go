@@ -78,6 +78,110 @@ func TestUpdateAPIKeyUpdatesNameAndExpiry(t *testing.T) {
 	}
 }
 
+func TestUpdateAPIKeyUpdatesRawKeyAndPrefix(t *testing.T) {
+	setupAmpServiceTestDB(t)
+
+	user := createAmpServiceTestUser(t, "user-update-raw-key")
+	svc := NewAmpService()
+
+	created, err := svc.CreateAPIKey(user.ID, &model.CreateAPIKeyRequest{
+		Name: "before",
+	})
+	if err != nil {
+		t.Fatalf("CreateAPIKey returned error: %v", err)
+	}
+
+	updated, err := svc.UpdateAPIKey(user.ID, created.ID, &model.UpdateAPIKeyRequest{
+		Name:   "after",
+		APIKey: "sk-ABCDEFGH12345678",
+	})
+	if err != nil {
+		t.Fatalf("UpdateAPIKey returned error: %v", err)
+	}
+
+	if updated.Prefix != "sk-ABCDE" {
+		t.Fatalf("expected prefix %q, got %q", "sk-ABCDE", updated.Prefix)
+	}
+
+	revealed, err := svc.GetAPIKey(user.ID, created.ID)
+	if err != nil {
+		t.Fatalf("GetAPIKey returned error: %v", err)
+	}
+	if revealed.APIKey != "sk-ABCDEFGH12345678" {
+		t.Fatalf("expected updated api key, got %q", revealed.APIKey)
+	}
+}
+
+func TestUpdateAPIKeyRejectsDuplicateRawKey(t *testing.T) {
+	setupAmpServiceTestDB(t)
+
+	firstUser := createAmpServiceTestUser(t, "user-dup-a")
+	secondUser := createAmpServiceTestUser(t, "user-dup-b")
+	svc := NewAmpService()
+
+	first, err := svc.CreateAPIKey(firstUser.ID, &model.CreateAPIKeyRequest{
+		Name:      "first",
+		CustomKey: "sk-ABCDEFGH12345678",
+	})
+	if err != nil {
+		t.Fatalf("first CreateAPIKey returned error: %v", err)
+	}
+
+	second, err := svc.CreateAPIKey(secondUser.ID, &model.CreateAPIKeyRequest{
+		Name:      "second",
+		CustomKey: "sk-12345678ABCDEFGH",
+	})
+	if err != nil {
+		t.Fatalf("second CreateAPIKey returned error: %v", err)
+	}
+
+	_, err = svc.UpdateAPIKey(secondUser.ID, second.ID, &model.UpdateAPIKeyRequest{
+		Name:   second.Name,
+		APIKey: "sk-ABCDEFGH12345678",
+	})
+	if !errors.Is(err, ErrDuplicateAPIKey) {
+		t.Fatalf("expected ErrDuplicateAPIKey, got %v", err)
+	}
+
+	revealed, err := svc.GetAPIKey(firstUser.ID, first.ID)
+	if err != nil {
+		t.Fatalf("GetAPIKey returned error: %v", err)
+	}
+	if revealed.APIKey != "sk-ABCDEFGH12345678" {
+		t.Fatalf("expected original api key to remain unchanged, got %q", revealed.APIKey)
+	}
+}
+
+func TestSetAPIKeyDisabledCanRestore(t *testing.T) {
+	setupAmpServiceTestDB(t)
+
+	user := createAmpServiceTestUser(t, "user-disable-key")
+	svc := NewAmpService()
+
+	created, err := svc.CreateAPIKey(user.ID, &model.CreateAPIKeyRequest{
+		Name: "toggle",
+	})
+	if err != nil {
+		t.Fatalf("CreateAPIKey returned error: %v", err)
+	}
+
+	disabled, err := svc.SetAPIKeyDisabled(user.ID, created.ID, true)
+	if err != nil {
+		t.Fatalf("SetAPIKeyDisabled(true) returned error: %v", err)
+	}
+	if disabled.Status != "disabled" || disabled.RevokedAt == nil {
+		t.Fatalf("expected disabled status with revokedAt, got status=%q revokedAt=%v", disabled.Status, disabled.RevokedAt)
+	}
+
+	restored, err := svc.SetAPIKeyDisabled(user.ID, created.ID, false)
+	if err != nil {
+		t.Fatalf("SetAPIKeyDisabled(false) returned error: %v", err)
+	}
+	if restored.Status != "active" || restored.RevokedAt != nil {
+		t.Fatalf("expected active status after restore, got status=%q revokedAt=%v", restored.Status, restored.RevokedAt)
+	}
+}
+
 func setupAmpServiceTestDB(t *testing.T) {
 	t.Helper()
 
