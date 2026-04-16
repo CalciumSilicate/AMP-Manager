@@ -367,10 +367,6 @@ func prepareResponsesWebsocketTurn(c *gin.Context, session *responsesWebsocketSe
 	if errMarshal != nil {
 		return nil, &responsesWebsocketError{StatusCode: http.StatusBadRequest, Message: "failed to normalize request"}
 	}
-	if strippedBody, modified := stripOpenAIUnsupportedFieldsBytes(body); modified {
-		body = strippedBody
-	}
-
 	continueWithPinned := !rootCreate || strings.TrimSpace(gjson.GetBytes(normalized, "previous_response_id").String()) != ""
 	channel, errSelect := selectResponsesWebsocketChannel(session, proxyCfg, result, continueWithPinned)
 	if errSelect != nil {

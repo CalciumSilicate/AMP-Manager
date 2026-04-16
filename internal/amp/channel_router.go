@@ -574,7 +574,7 @@ func ChannelProxyHandler() gin.HandlerFunc {
 				// Spoof User-Agent for OpenAI channels to mimic Codex CLI
 				if channel.Type == model.ChannelTypeOpenAI {
 					req.Header.Set("User-Agent", "codex_exec/0.98.0 (Mac OS 15.1.0; arm64) unknown")
-					rewriteOpenAIRequestBody(req, channel.Endpoint != model.ChannelEndpointResponses)
+					rewriteOpenAIRequestBody(req, channel.Endpoint)
 				}
 
 				simulateClaudeCLI := channel.SimulateCLI && channel.Type == model.ChannelTypeClaude
@@ -1119,7 +1119,7 @@ func mapStainlessArch() string {
 }
 
 // rewriteOpenAIRequestBody applies OpenAI-specific request body rewrites in a single read/modify pass.
-func rewriteOpenAIRequestBody(req *http.Request, injectStreamUsage bool) {
+func rewriteOpenAIRequestBody(req *http.Request, endpoint model.ChannelEndpoint) {
 	if req.Body == nil || req.ContentLength == 0 {
 		return
 	}
@@ -1133,8 +1133,14 @@ func rewriteOpenAIRequestBody(req *http.Request, injectStreamUsage bool) {
 		return
 	}
 
-	modifiedBody, modified := stripOpenAIUnsupportedFieldsBytes(bodyBytes)
-	if injectStreamUsage {
+	var (
+		modifiedBody []byte
+		modified     bool
+	)
+	if endpoint == model.ChannelEndpointResponses {
+		modifiedBody, modified = ensureOpenAIResponsesStreamingBytes(bodyBytes)
+	} else {
+		modifiedBody, modified = stripOpenAIChatUnsupportedFieldsBytes(bodyBytes)
 		if injectedBody, injected := injectOpenAIStreamOptionsBytes(modifiedBody); injected {
 			modifiedBody = injectedBody
 			modified = true
@@ -1147,7 +1153,7 @@ func rewriteOpenAIRequestBody(req *http.Request, injectStreamUsage bool) {
 	restoreRequestBody(req, modifiedBody)
 }
 
-func stripOpenAIUnsupportedFieldsBytes(body []byte) ([]byte, bool) {
+func stripOpenAIChatUnsupportedFieldsBytes(body []byte) ([]byte, bool) {
 	modified := false
 	result := body
 	if gjson.GetBytes(result, "max_output_tokens").Exists() {
@@ -1163,6 +1169,20 @@ func stripOpenAIUnsupportedFieldsBytes(body []byte) ([]byte, bool) {
 		}
 	}
 	return result, modified
+}
+
+func ensureOpenAIResponsesStreamingBytes(body []byte) ([]byte, bool) {
+	stream := gjson.GetBytes(body, "stream")
+	if stream.Exists() && stream.Type == gjson.True && stream.Bool() {
+		return body, false
+	}
+
+	updated, err := sjson.SetBytes(body, "stream", true)
+	if err != nil {
+		return body, false
+	}
+	log.Debugf("channel proxy: forced stream=true for OpenAI responses upstream aggregation")
+	return updated, true
 }
 
 func injectOpenAIStreamOptionsBytes(body []byte) ([]byte, bool) {

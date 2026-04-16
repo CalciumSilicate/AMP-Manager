@@ -11,7 +11,7 @@ import (
 
 func TestStripOpenAIUnsupportedFieldsBytes(t *testing.T) {
 	input := []byte(`{"model":"gpt-4.1","max_output_tokens":128,"stream_options":{"include_usage":true},"stream":true}`)
-	output, modified := stripOpenAIUnsupportedFieldsBytes(input)
+	output, modified := stripOpenAIChatUnsupportedFieldsBytes(input)
 	if !modified {
 		t.Fatal("expected body to be modified")
 	}
@@ -50,7 +50,7 @@ func TestInjectOpenAIStreamOptionsBytesSkipsNonStreaming(t *testing.T) {
 
 func TestRewriteOpenAIRequestBodyCombinesStripAndInject(t *testing.T) {
 	req := newJSONRequestForRewriteTest(`{"model":"gpt-4.1","stream":true,"max_output_tokens":128}`)
-	rewriteOpenAIRequestBody(req, true)
+	rewriteOpenAIRequestBody(req, "chat_completions")
 	body := readRequestBodyForRewriteTest(t, req)
 
 	if gjson.GetBytes(body, "max_output_tokens").Exists() {
@@ -58,6 +58,19 @@ func TestRewriteOpenAIRequestBodyCombinesStripAndInject(t *testing.T) {
 	}
 	if !gjson.GetBytes(body, "stream_options.include_usage").Bool() {
 		t.Fatal("expected include_usage=true to be injected")
+	}
+}
+
+func TestRewriteOpenAIRequestBodyForResponsesForcesStreamingAndKeepsMaxOutputTokens(t *testing.T) {
+	req := newJSONRequestForRewriteTest(`{"model":"gpt-5.4-mini","max_output_tokens":128}`)
+	rewriteOpenAIRequestBody(req, "responses")
+	body := readRequestBodyForRewriteTest(t, req)
+
+	if !gjson.GetBytes(body, "stream").Bool() {
+		t.Fatal("expected responses upstream request to force stream=true")
+	}
+	if got := gjson.GetBytes(body, "max_output_tokens").Int(); got != 128 {
+		t.Fatalf("expected max_output_tokens to be preserved, got %d", got)
 	}
 }
 
