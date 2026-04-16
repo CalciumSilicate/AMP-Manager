@@ -81,6 +81,7 @@ func (c *CostCalculator) Calculate(pricingModel string, usage TokenUsage) CostRe
 
 	priceData := modelPrice.PriceData
 	totalTokens := int64(inputTokens + outputTokens)
+	appliedCustomRule := false
 	if rule, ok := c.store.MatchContextRule(modelPrice.Model, totalTokens); ok {
 		priceData = PriceData{
 			InputMicrosPerMillion:         rule.InputMicrosPerMillion,
@@ -93,8 +94,15 @@ func (c *CostCalculator) Calculate(pricingModel string, usage TokenUsage) CostRe
 			CacheCreationPerToken:         rule.CacheCreationPerToken,
 		}
 		result.PricingRuleName = rule.RuleName
+		appliedCustomRule = true
 	}
-	priceData = effectivePriceDataForUsage(priceData, inputTokens)
+	if !appliedCustomRule {
+		var tierName string
+		priceData, tierName = effectivePriceDataForUsage(priceData, inputTokens)
+		if tierName != "" {
+			result.PricingRuleName = tierName
+		}
+	}
 
 	inputMicros := int64(math.Round(float64(int64(uncachedInputTokens)*priceData.InputMicrosPerMillion) / 1_000_000.0))
 	outputMicros := int64(math.Round(float64(int64(outputTokens)*priceData.OutputMicrosPerMillion) / 1_000_000.0))
@@ -114,23 +122,30 @@ func (c *CostCalculator) Calculate(pricingModel string, usage TokenUsage) CostRe
 	return result
 }
 
-func effectivePriceDataForUsage(priceData PriceData, inputTokens int) PriceData {
+func effectivePriceDataForUsage(priceData PriceData, inputTokens int) (PriceData, string) {
 	if inputTokens <= longContextThresholdTokens {
-		return priceData
+		return priceData, ""
 	}
+	applied := false
 	if priceData.InputMicrosPerMillionAbove272k > 0 {
 		priceData.InputMicrosPerMillion = priceData.InputMicrosPerMillionAbove272k
 		priceData.InputCostPerToken = priceData.InputCostPerTokenAbove272k
+		applied = true
 	}
 	if priceData.OutputMicrosPerMillionAbove272k > 0 {
 		priceData.OutputMicrosPerMillion = priceData.OutputMicrosPerMillionAbove272k
 		priceData.OutputCostPerToken = priceData.OutputCostPerTokenAbove272k
+		applied = true
 	}
 	if priceData.CacheReadMicrosPerMillionAbove272k > 0 {
 		priceData.CacheReadMicrosPerMillion = priceData.CacheReadMicrosPerMillionAbove272k
 		priceData.CacheReadInputPerToken = priceData.CacheReadInputPerTokenAbove272k
+		applied = true
 	}
-	return priceData
+	if applied {
+		return priceData, "272K 以上上下文"
+	}
+	return priceData, ""
 }
 
 // tryFuzzyMatch 尝试模糊匹配模型名

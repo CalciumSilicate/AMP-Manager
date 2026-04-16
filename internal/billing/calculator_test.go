@@ -3,6 +3,8 @@ package billing
 import (
 	"encoding/json"
 	"testing"
+
+	"ampmanager/internal/model"
 )
 
 func TestCalculateSubtractsCacheReadFromInputCost(t *testing.T) {
@@ -95,6 +97,54 @@ func TestCalculateUsesAbove272kPricingWhenContextExceedsThreshold(t *testing.T) 
 	const wantMicros int64 = 1_072_500
 	if result.CostMicros != wantMicros {
 		t.Fatalf("unexpected long-context cost micros: got %d want %d", result.CostMicros, wantMicros)
+	}
+	if result.PricingRuleName != "272K 以上上下文" {
+		t.Fatalf("unexpected long-context pricing rule name: %q", result.PricingRuleName)
+	}
+}
+
+func TestCalculateKeepsContextRulePriorityOverBuiltInLongContextTier(t *testing.T) {
+	store := &PriceStore{
+		prices: map[string]ModelPrice{
+			"gpt-5.4": {
+				Model: "gpt-5.4",
+				PriceData: PriceData{
+					InputCostPerToken:               2.5 / 1_000_000,
+					OutputCostPerToken:              15.0 / 1_000_000,
+					CacheReadInputPerToken:          0.25 / 1_000_000,
+					InputCostPerTokenAbove272k:      5.0 / 1_000_000,
+					OutputCostPerTokenAbove272k:     22.5 / 1_000_000,
+					CacheReadInputPerTokenAbove272k: 0.5 / 1_000_000,
+				},
+			},
+		},
+		contextRules: map[string][]model.ModelPriceContextRule{
+			"gpt-5.4": {
+				{
+					Model:                         "gpt-5.4",
+					RuleName:                      "自定义超长区间",
+					MinTokens:                     272001,
+					InputMicrosPerMillion:         6_000_000,
+					OutputMicrosPerMillion:        30_000_000,
+					CacheReadMicrosPerMillion:     600_000,
+					CacheCreationMicrosPerMillion: 0,
+				},
+			},
+		},
+	}
+
+	calculator := NewCostCalculator(store)
+	result := calculator.Calculate("gpt-5.4", TokenUsage{
+		InputTokens:          300000,
+		OutputTokens:         1000,
+		CacheReadInputTokens: 100000,
+	})
+
+	if result.PricingRuleName != "自定义超长区间" {
+		t.Fatalf("expected custom context rule to win, got %q", result.PricingRuleName)
+	}
+	if result.CostMicros == 1_072_500 {
+		t.Fatalf("expected built-in 272K tier not to override custom context rule")
 	}
 }
 
