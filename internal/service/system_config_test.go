@@ -122,3 +122,76 @@ func TestSystemConfigServiceRequestPayloadLimitDefaultsAndPersistence(t *testing
 		t.Fatalf("reloaded payload limit mismatch: got %+v want %+v", reloadedCfg, updatedCfg)
 	}
 }
+
+func TestSystemConfigServiceErrorRulesDefaultsAndMerge(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "error-rules-test.sqlite")
+	if err := database.Init(dbPath); err != nil {
+		t.Fatalf("database.Init returned error: %v", err)
+	}
+	t.Cleanup(func() {
+		if err := database.CloseAndRelease(); err != nil {
+			t.Fatalf("database.CloseAndRelease returned error: %v", err)
+		}
+	})
+
+	svc := NewSystemConfigService()
+
+	defaultRules, err := svc.GetErrorRules()
+	if err != nil {
+		t.Fatalf("GetErrorRules returned error: %v", err)
+	}
+	if len(defaultRules) == 0 {
+		t.Fatal("expected default error rules")
+	}
+
+	updatedRules, err := svc.SetErrorRules([]model.ErrorRule{
+		{
+			ID:              "builtin-openai-an-error-occurred-responses",
+			Name:            "OpenAI 风格 An Error Occurred（Responses）",
+			BuiltIn:         true,
+			Enabled:         false,
+			RequestType:     model.ErrorRuleRequestTypeResponses,
+			UpstreamStatus:  "200",
+			Pattern:         "An Error Occurred",
+			MatchMode:       model.ErrorRuleMatchModeSubstring,
+			OverrideStatus:  502,
+			OverrideMessage: "已禁用测试",
+		},
+		{
+			ID:              "custom-upstream-503",
+			Name:            "自定义 503",
+			BuiltIn:         false,
+			Enabled:         true,
+			RequestType:     model.ErrorRuleRequestTypeGemini,
+			UpstreamStatus:  "500-599",
+			Pattern:         "backend overloaded",
+			MatchMode:       model.ErrorRuleMatchModeSubstring,
+			OverrideStatus:  503,
+			OverrideMessage: "Gemini 上游过载",
+		},
+	})
+	if err != nil {
+		t.Fatalf("SetErrorRules returned error: %v", err)
+	}
+
+	if len(updatedRules) != len(defaultRules)+1 {
+		t.Fatalf("unexpected merged rules count: got %d want %d", len(updatedRules), len(defaultRules)+1)
+	}
+
+	foundDisabledBuiltIn := false
+	foundCustom := false
+	for _, rule := range updatedRules {
+		if rule.ID == "builtin-openai-an-error-occurred-responses" {
+			foundDisabledBuiltIn = !rule.Enabled && rule.OverrideMessage == "已禁用测试"
+		}
+		if rule.ID == "custom-upstream-503" {
+			foundCustom = !rule.BuiltIn && rule.OverrideStatus == 503
+		}
+	}
+	if !foundDisabledBuiltIn {
+		t.Fatal("expected built-in rule override to persist")
+	}
+	if !foundCustom {
+		t.Fatal("expected custom rule to be merged")
+	}
+}
