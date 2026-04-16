@@ -324,6 +324,7 @@ export async function updateCacheTTLConfig(cacheTTL: string): Promise<{ message:
 export interface SiteConfig {
   siteName: string
   timeZone: string
+  allowAmpProxySettings: boolean
 }
 
 export async function getPublicSiteConfig(): Promise<SiteConfig> {
@@ -348,10 +349,14 @@ export async function getSiteConfig(): Promise<SiteConfig> {
   return res.json()
 }
 
-export async function updateSiteConfig(siteName: string, timeZone: string): Promise<{ message: string; config: SiteConfig }> {
+export async function updateSiteConfig(
+  siteName: string,
+  timeZone: string,
+  allowAmpProxySettings: boolean
+): Promise<{ message: string; config: SiteConfig }> {
   const res = await authFetch(`${API_BASE}/admin/system/site-config`, {
     method: 'PUT',
-    body: JSON.stringify({ siteName, timeZone }),
+    body: JSON.stringify({ siteName, timeZone, allowAmpProxySettings }),
   })
 
   if (!res.ok) {

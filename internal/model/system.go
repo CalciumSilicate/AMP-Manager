@@ -83,14 +83,16 @@ type RequestDetailConfigRequest struct {
 
 // SiteConfigResponse 站点配置响应
 type SiteConfigResponse struct {
-	SiteName string `json:"siteName"`
-	TimeZone string `json:"timeZone"`
+	SiteName              string `json:"siteName"`
+	TimeZone              string `json:"timeZone"`
+	AllowAmpProxySettings bool   `json:"allowAmpProxySettings"`
 }
 
 // SiteConfigRequest 站点配置请求
 type SiteConfigRequest struct {
-	SiteName string `json:"siteName"`
-	TimeZone string `json:"timeZone"`
+	SiteName              string `json:"siteName"`
+	TimeZone              string `json:"timeZone"`
+	AllowAmpProxySettings *bool  `json:"allowAmpProxySettings,omitempty"`
 }
 
 type BillingRuntimeConfigResponse struct {

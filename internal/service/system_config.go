@@ -26,6 +26,7 @@ const (
 	timeoutConfigKey                     = "timeout_config"
 	cacheTTLOverrideKey                  = "cache_ttl_override"
 	siteNameKey                          = "site_name"
+	allowAmpProxySettingsKey             = "allow_amp_proxy_settings"
 	billingRuntimeConfigKey              = "billing_runtime_config"
 	defaultSiteName                      = "AMP Manager"
 	defaultRequestDetailTTLSec           = 120
@@ -36,7 +37,8 @@ const (
 	defaultRequestDetailHighRPMThreshold = 3000
 	defaultRequestDetailHighRPMSamplePct = 10
 	siteTimeZoneKey                      = "site_time_zone"
-	defaultSiteTimeZone                 = "Asia/Shanghai"
+	defaultSiteTimeZone                  = "Asia/Shanghai"
+	defaultAllowAmpProxySettings         = true
 )
 
 type SystemConfigService struct {
@@ -212,6 +214,10 @@ func (s *SystemConfigService) GetSiteConfig() (model.SiteConfigResponse, error) 
 	if err != nil {
 		return model.SiteConfigResponse{}, err
 	}
+	allowAmpProxySettings, err := s.GetAllowAmpProxySettings()
+	if err != nil {
+		return model.SiteConfigResponse{}, err
+	}
 
 	siteName := strings.TrimSpace(siteNameValue)
 	if siteName == "" {
@@ -223,14 +229,22 @@ func (s *SystemConfigService) GetSiteConfig() (model.SiteConfigResponse, error) 
 	}
 
 	return model.SiteConfigResponse{
-		SiteName: siteName,
-		TimeZone: timeZone,
+		SiteName:              siteName,
+		TimeZone:              timeZone,
+		AllowAmpProxySettings: allowAmpProxySettings,
 	}, nil
 }
 
 func (s *SystemConfigService) SetSiteConfig(req model.SiteConfigRequest) (model.SiteConfigResponse, error) {
 	siteName := strings.TrimSpace(req.SiteName)
 	timeZone := strings.TrimSpace(req.TimeZone)
+	allowAmpProxySettings, err := s.GetAllowAmpProxySettings()
+	if err != nil {
+		return model.SiteConfigResponse{}, err
+	}
+	if req.AllowAmpProxySettings != nil {
+		allowAmpProxySettings = *req.AllowAmpProxySettings
+	}
 
 	if timeZone == "" {
 		timeZone = defaultSiteTimeZone
@@ -257,10 +271,33 @@ func (s *SystemConfigService) SetSiteConfig(req model.SiteConfigRequest) (model.
 		}
 	}
 
+	if allowAmpProxySettings == defaultAllowAmpProxySettings {
+		if err := s.repo.Delete(allowAmpProxySettingsKey); err != nil {
+			return model.SiteConfigResponse{}, err
+		}
+	} else {
+		if err := s.repo.Set(allowAmpProxySettingsKey, boolToConfigString(allowAmpProxySettings)); err != nil {
+			return model.SiteConfigResponse{}, err
+		}
+	}
+
 	return model.SiteConfigResponse{
-		SiteName: siteName,
-		TimeZone: timeZone,
+		SiteName:              siteName,
+		TimeZone:              timeZone,
+		AllowAmpProxySettings: allowAmpProxySettings,
 	}, nil
+}
+
+func (s *SystemConfigService) GetAllowAmpProxySettings() (bool, error) {
+	value, err := s.repo.Get(allowAmpProxySettingsKey)
+	if err != nil {
+		return defaultAllowAmpProxySettings, err
+	}
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return defaultAllowAmpProxySettings, nil
+	}
+	return value != "false", nil
 }
 
 func (s *SystemConfigService) GetSiteLocation() (*time.Location, error) {

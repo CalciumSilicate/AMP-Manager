@@ -63,8 +63,10 @@ interface Props {
   isAdmin: boolean
   siteName: string
   siteTimeZone: string
+  allowAmpProxySettings: boolean
   onSiteNameChange: (siteName: string) => void
   onSiteTimeZoneChange: (timeZone: string) => void
+  onAllowAmpProxySettingsChange: (allowed: boolean) => void
   onLogout: () => void
 }
 
@@ -96,8 +98,10 @@ export default function Dashboard({
   isAdmin,
   siteName,
   siteTimeZone,
+  allowAmpProxySettings,
   onSiteNameChange,
   onSiteTimeZoneChange,
+  onAllowAmpProxySettingsChange,
   onLogout,
 }: Props) {
   const [currentPage, setCurrentPage] = useState<Page>('overview')
@@ -106,7 +110,7 @@ export default function Dashboard({
 
   const navItems: { key: Page; label: string; adminOnly?: boolean }[] = [
     { key: 'overview', label: '概览' },
-    { key: 'amp-settings', label: 'Amp 设置' },
+    ...(allowAmpProxySettings ? [{ key: 'amp-settings' as const, label: 'Amp 设置' }] : []),
     { key: 'api-keys', label: 'API Key 管理' },
     { key: 'request-logs', label: '请求日志' },
     { key: 'usage-stats', label: '使用量统计' },
@@ -149,6 +153,12 @@ export default function Dashboard({
     window.addEventListener(DASHBOARD_NAVIGATE_EVENT, handleNavigate)
     return () => window.removeEventListener(DASHBOARD_NAVIGATE_EVENT, handleNavigate)
   }, [visibleNavItems])
+
+  useEffect(() => {
+    if (!allowAmpProxySettings && currentPage === 'amp-settings') {
+      setCurrentPage('overview')
+    }
+  }, [allowAmpProxySettings, currentPage])
 
   const renderNavItem = (item: { key: Page; label: string; adminOnly?: boolean }) => {
     const Icon = navIcons[item.key]
@@ -333,7 +343,7 @@ export default function Dashboard({
                 >
                   {currentPage === 'overview' && <Overview />}
                   {currentPage === 'admin-overview' && isAdmin && <AdminOverview />}
-                  {currentPage === 'amp-settings' && <AmpSettings />}
+                  {currentPage === 'amp-settings' && allowAmpProxySettings && <AmpSettings />}
                   {currentPage === 'api-keys' && <APIKeys />}
                   {currentPage === 'request-logs' && <RequestLogs isAdmin={isAdmin} />}
                   {currentPage === 'usage-stats' && <UsageStats isAdmin={isAdmin} />}
@@ -352,8 +362,10 @@ export default function Dashboard({
                     <SystemSettings
                       siteName={siteName}
                       siteTimeZone={siteTimeZone}
+                      allowAmpProxySettings={allowAmpProxySettings}
                       onSiteNameChange={onSiteNameChange}
                       onSiteTimeZoneChange={onSiteTimeZoneChange}
+                      onAllowAmpProxySettingsChange={onAllowAmpProxySettingsChange}
                     />
                   )}
                 </motion.div>

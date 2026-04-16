@@ -68,11 +68,20 @@ const tabs: { key: SettingsTab; label: string }[] = [
 interface Props {
   siteName: string
   siteTimeZone: string
+  allowAmpProxySettings: boolean
   onSiteNameChange: (siteName: string) => void
   onSiteTimeZoneChange: (timeZone: string) => void
+  onAllowAmpProxySettingsChange: (allowed: boolean) => void
 }
 
-export default function SystemSettings({ siteName, siteTimeZone, onSiteNameChange, onSiteTimeZoneChange }: Props) {
+export default function SystemSettings({
+  siteName,
+  siteTimeZone,
+  allowAmpProxySettings,
+  onSiteNameChange,
+  onSiteTimeZoneChange,
+  onAllowAmpProxySettingsChange,
+}: Props) {
   const [activeTab, setActiveTab] = useState<SettingsTab>('site')
 
   const [backups, setBackups] = useState<Backup[]>([])
@@ -99,6 +108,7 @@ export default function SystemSettings({ siteName, siteTimeZone, onSiteNameChang
   const [cacheTTLLoading, setCacheTTLLoading] = useState(false)
   const [siteNameInput, setSiteNameInput] = useState(siteName)
   const [siteTimeZoneInput, setSiteTimeZoneInput] = useState(siteTimeZone)
+  const [allowAmpProxySettingsInput, setAllowAmpProxySettingsInput] = useState(allowAmpProxySettings)
   const [siteConfigSaving, setSiteConfigSaving] = useState(false)
   const [billingRuntimeConfig, setBillingRuntimeConfig] = useState<BillingRuntimeConfig | null>(null)
   const [billingRuntimeLoading, setBillingRuntimeLoading] = useState(false)
@@ -112,6 +122,10 @@ export default function SystemSettings({ siteName, siteTimeZone, onSiteNameChang
   useEffect(() => {
     setSiteTimeZoneInput(siteTimeZone)
   }, [siteTimeZone])
+
+  useEffect(() => {
+    setAllowAmpProxySettingsInput(allowAmpProxySettings)
+  }, [allowAmpProxySettings])
 
   const showMessage = useCallback((type: 'success' | 'error', text: string) => {
     setMessage({ type, text })
@@ -252,11 +266,13 @@ export default function SystemSettings({ siteName, siteTimeZone, onSiteNameChang
   const handleSaveSiteConfig = async () => {
     setSiteConfigSaving(true)
     try {
-      const result = await updateSiteConfig(siteNameInput, siteTimeZoneInput)
+      const result = await updateSiteConfig(siteNameInput, siteTimeZoneInput, allowAmpProxySettingsInput)
       onSiteNameChange(result.config.siteName)
       onSiteTimeZoneChange(result.config.timeZone)
+      onAllowAmpProxySettingsChange(result.config.allowAmpProxySettings)
       setSiteNameInput(result.config.siteName)
       setSiteTimeZoneInput(result.config.timeZone)
+      setAllowAmpProxySettingsInput(result.config.allowAmpProxySettings)
       showMessage('success', '网站配置已保存')
     } catch (err) {
       showMessage('error', err instanceof Error ? err.message : '保存失败')
@@ -614,6 +630,16 @@ export default function SystemSettings({ siteName, siteTimeZone, onSiteNameChang
                       ))}
                     </SelectContent>
                   </Select>
+                </div>
+                <div className="max-w-xl rounded-lg border p-4">
+                  <div className="flex items-center justify-between gap-4">
+                    <Label htmlFor="allowAmpProxySettings">允许设置 Amp 代理</Label>
+                    <Switch
+                      id="allowAmpProxySettings"
+                      checked={allowAmpProxySettingsInput}
+                      onCheckedChange={setAllowAmpProxySettingsInput}
+                    />
+                  </div>
                 </div>
                 <div className="flex justify-end">
                   <Button onClick={handleSaveSiteConfig} disabled={siteConfigSaving}>
