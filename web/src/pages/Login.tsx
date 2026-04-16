@@ -1,5 +1,7 @@
 import { useState, FormEvent } from 'react'
 import { login, LoginRequest } from '../api/auth'
+import type { Announcement } from '@/api/announcements'
+import { AnnouncementCenter } from '@/components/announcements/AnnouncementCenter'
 import { motion } from '@/lib/motion'
 import { Button } from '@/components/ui/button'
 import {
@@ -17,11 +19,12 @@ import { LogIn, EyeIcon, EyeOffIcon, ShieldCheck, Zap } from 'lucide-react'
 
 interface Props {
   siteName: string
+  announcements: Announcement[]
   onSwitch: () => void
   onSuccess: (username: string, token?: string, isAdmin?: boolean) => void
 }
 
-export default function Login({ siteName, onSwitch, onSuccess }: Props) {
+export default function Login({ siteName, announcements, onSwitch, onSuccess }: Props) {
   const [formData, setFormData] = useState<LoginRequest>({
     username: '',
     password: '',
@@ -86,6 +89,15 @@ export default function Login({ siteName, onSwitch, onSuccess }: Props) {
           <div>
             <CardTitle className="mb-1.5 text-2xl font-bold">欢迎回来</CardTitle>
             <CardDescription className="text-base">登录到 {siteName}</CardDescription>
+          </div>
+          <div className="flex justify-start">
+            <AnnouncementCenter
+              announcements={announcements}
+              triggerLabel="查看公告"
+              triggerVariant="secondary"
+              emptyText="当前没有公开公告"
+              description="以下为未登录也可查看的公开公告。"
+            />
           </div>
         </CardHeader>
 

@@ -77,6 +77,7 @@ func Setup() *gin.Engine {
 	billingSettingHandler := handler.NewBillingSettingHandler()
 	purchaseHandler := handler.NewPurchaseHandler()
 	redeemHandler := handler.NewRedeemHandler()
+	announcementHandler := handler.NewAnnouncementHandler()
 
 	api := r.Group("/api")
 	{
@@ -91,6 +92,7 @@ func Setup() *gin.Engine {
 		public := api.Group("/public")
 		{
 			public.GET("/site-config", systemHandler.GetPublicSiteConfig)
+			public.GET("/announcements", announcementHandler.ListPublic)
 			public.POST("/purchase/alipay/notify", purchaseHandler.AlipayNotify)
 		}
 
@@ -104,16 +106,18 @@ func Setup() *gin.Engine {
 			me.GET("/billing/state", billingSettingHandler.GetBillingState)
 			me.PUT("/billing/priority", billingSettingHandler.UpdateBillingPriority)
 			me.GET("/subscription", billingSettingHandler.GetMySubscription)
+			me.GET("/announcements", announcementHandler.ListForMe)
+			me.POST("/announcements/:id/read", announcementHandler.MarkRead)
 
-				purchase := me.Group("/purchase")
-				{
-					purchase.GET("/products", purchaseHandler.GetCatalog)
-					purchase.GET("/orders", purchaseHandler.ListMyOrders)
-					purchase.POST("/orders", purchaseHandler.CreateOrder)
-					purchase.POST("/balance-topup/orders", purchaseHandler.CreateBalanceTopupOrder)
-					purchase.GET("/orders/:orderNo", purchaseHandler.GetMyOrder)
-					purchase.POST("/orders/:orderNo/refresh", purchaseHandler.RefreshMyOrder)
-				}
+			purchase := me.Group("/purchase")
+			{
+				purchase.GET("/products", purchaseHandler.GetCatalog)
+				purchase.GET("/orders", purchaseHandler.ListMyOrders)
+				purchase.POST("/orders", purchaseHandler.CreateOrder)
+				purchase.POST("/balance-topup/orders", purchaseHandler.CreateBalanceTopupOrder)
+				purchase.GET("/orders/:orderNo", purchaseHandler.GetMyOrder)
+				purchase.POST("/orders/:orderNo/refresh", purchaseHandler.RefreshMyOrder)
+			}
 
 			redeem := me.Group("/redeem")
 			{

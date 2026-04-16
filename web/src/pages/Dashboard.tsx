@@ -1,4 +1,6 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
+import { listMyAnnouncements, markAnnouncementRead, type Announcement } from '@/api/announcements'
+import { AnnouncementCenter, AnnouncementUnreadDialog } from '@/components/announcements/AnnouncementCenter'
 import { motion, AnimatePresence } from '@/lib/motion'
 import Overview from './Overview'
 import AdminOverview from './AdminOverview'
@@ -107,6 +109,10 @@ export default function Dashboard({
   const [currentPage, setCurrentPage] = useState<Page>('overview')
   const [username, setUsername] = useState(initialUsername)
   const [collapsed, setCollapsed] = useState(false)
+  const [announcements, setAnnouncements] = useState<Announcement[]>([])
+  const [announcementBusyId, setAnnouncementBusyId] = useState<string | null>(null)
+  const [announcementBusyAll, setAnnouncementBusyAll] = useState(false)
+  const [showUnreadDialog, setShowUnreadDialog] = useState(false)
 
   const navItems: { key: Page; label: string; adminOnly?: boolean }[] = [
     { key: 'overview', label: '概览' },
@@ -159,6 +165,69 @@ export default function Dashboard({
       setCurrentPage('overview')
     }
   }, [allowAmpProxySettings, currentPage])
+
+  useEffect(() => {
+    let cancelled = false
+
+    listMyAnnouncements()
+      .then((items) => {
+        if (!cancelled) {
+          setAnnouncements(items)
+        }
+      })
+      .catch((error) => {
+        console.error('获取公告失败:', error)
+      })
+
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  const unreadAnnouncements = useMemo(
+    () => announcements.filter((announcement) => !announcement.isRead),
+    [announcements],
+  )
+
+  useEffect(() => {
+    if (unreadAnnouncements.length > 0) {
+      setShowUnreadDialog(true)
+    }
+  }, [unreadAnnouncements.length])
+
+  const handleMarkRead = async (announcement: Announcement) => {
+    setAnnouncementBusyId(announcement.id)
+    try {
+      await markAnnouncementRead(announcement.id)
+      setAnnouncements((prev) =>
+        prev.map((item) =>
+          item.id === announcement.id
+            ? { ...item, isRead: true, readAt: new Date().toISOString() }
+            : item,
+        ),
+      )
+    } catch (error) {
+      console.error('标记公告已读失败:', error)
+    } finally {
+      setAnnouncementBusyId(null)
+    }
+  }
+
+  const handleMarkAllRead = async () => {
+    if (unreadAnnouncements.length === 0) return
+
+    setAnnouncementBusyAll(true)
+    try {
+      await Promise.all(unreadAnnouncements.map((announcement) => markAnnouncementRead(announcement.id)))
+      const readAt = new Date().toISOString()
+      setAnnouncements((prev) => prev.map((item) => (item.isRead ? item : { ...item, isRead: true, readAt })))
+      setShowUnreadDialog(false)
+    } catch (error) {
+      console.error('批量标记公告已读失败:', error)
+    } finally {
+      setAnnouncementBusyAll(false)
+    }
+  }
 
   const renderNavItem = (item: { key: Page; label: string; adminOnly?: boolean }) => {
     const Icon = navIcons[item.key]
@@ -302,6 +371,16 @@ export default function Dashboard({
                 </motion.div>
               </AnimatePresence>
               <div className="flex items-center gap-3">
+                <AnnouncementCenter
+                  announcements={announcements}
+                  unreadCount={unreadAnnouncements.length}
+                  triggerLabel="公告"
+                  description="查看当前账号适用的公告，并可手动标记为已读。"
+                  onMarkRead={handleMarkRead}
+                  onMarkAllRead={handleMarkAllRead}
+                  busyId={announcementBusyId}
+                  busyAll={announcementBusyAll}
+                />
                 <DropdownMenu>
                   <DropdownMenuTrigger asChild>
                     <Button variant="outline" className="gap-2 rounded-full pl-3 pr-4">
@@ -374,6 +453,13 @@ export default function Dashboard({
           </div>
         </div>
       </div>
+      <AnnouncementUnreadDialog
+        announcements={announcements}
+        open={showUnreadDialog}
+        onOpenChange={setShowUnreadDialog}
+        onMarkAllRead={handleMarkAllRead}
+        busy={announcementBusyAll}
+      />
     </TooltipProvider>
   )
 }

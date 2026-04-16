@@ -37,6 +37,7 @@ import {
   BillingRuntimeStats,
 } from '../api/system'
 import { Button } from '@/components/ui/button'
+import { AnnouncementAdminSection } from '@/components/announcements/AnnouncementAdminSection'
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/card'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import {
@@ -56,10 +57,11 @@ import { Progress } from '@/components/ui/progress'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { RefreshCw } from 'lucide-react'
 
-type SettingsTab = 'site' | 'database' | 'retry' | 'monitoring' | 'cache' | 'timeout' | 'billing'
+type SettingsTab = 'site' | 'announcements' | 'database' | 'retry' | 'monitoring' | 'cache' | 'timeout' | 'billing'
 
 const tabs: { key: SettingsTab; label: string }[] = [
   { key: 'site', label: '网站配置' },
+  { key: 'announcements', label: '公告管理' },
   { key: 'database', label: '数据库管理' },
   { key: 'retry', label: '重试策略' },
   { key: 'monitoring', label: '请求监控' },
@@ -747,6 +749,14 @@ export default function SystemSettings({
                 </CardContent>
               </Card>
             </>
+          )}
+
+          {activeTab === 'announcements' && (
+            <Card>
+              <CardContent className="pt-6">
+                <AnnouncementAdminSection onMessage={showMessage} />
+              </CardContent>
+            </Card>
           )}
 
           {activeTab === 'database' && (

@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { motion, AnimatePresence } from '@/lib/motion'
 import { FontLoadCoordinator } from '@/components/font-load-coordinator'
+import { listPublicAnnouncements, type Announcement } from '@/api/announcements'
 import { getPublicSiteConfig } from '@/api/system'
 import { DEFAULT_SITE_TIME_ZONE, setActiveSiteTimeZone } from '@/lib/site-config'
 import Login from './pages/Login'
@@ -18,6 +19,7 @@ function App() {
   const [siteName, setSiteName] = useState('AMP Manager')
   const [siteTimeZone, setSiteTimeZone] = useState(DEFAULT_SITE_TIME_ZONE)
   const [allowAmpProxySettings, setAllowAmpProxySettings] = useState(true)
+  const [publicAnnouncements, setPublicAnnouncements] = useState<Announcement[]>([])
 
   useEffect(() => {
     const token = localStorage.getItem('token')
@@ -45,6 +47,26 @@ function App() {
       })
       .catch(() => {
         // fall back to the default site name
+      })
+
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  useEffect(() => {
+    let cancelled = false
+
+    listPublicAnnouncements()
+      .then((announcements) => {
+        if (!cancelled) {
+          setPublicAnnouncements(announcements)
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setPublicAnnouncements([])
+        }
       })
 
     return () => {
@@ -120,9 +142,19 @@ function App() {
             transition={{ type: 'spring', bounce: 0.25, duration: 0.6 }}
           >
             {page === 'login' ? (
-              <Login siteName={siteName} onSwitch={() => setPage('register')} onSuccess={handleSuccess} />
+              <Login
+                siteName={siteName}
+                announcements={publicAnnouncements}
+                onSwitch={() => setPage('register')}
+                onSuccess={handleSuccess}
+              />
             ) : (
-              <Register siteName={siteName} onSwitch={() => setPage('login')} onSuccess={handleSuccess} />
+              <Register
+                siteName={siteName}
+                announcements={publicAnnouncements}
+                onSwitch={() => setPage('login')}
+                onSuccess={handleSuccess}
+              />
             )}
           </motion.div>
         </AnimatePresence>
