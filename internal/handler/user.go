@@ -205,6 +205,23 @@ func (h *UserHandler) SetAdmin(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"message": "权限设置成功"})
 }
 
+func (h *UserHandler) SetConcurrencyLimit(c *gin.Context) {
+	userID := c.Param("id")
+
+	var req model.UpdateUserConcurrencyLimitRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "请求参数错误"})
+		return
+	}
+
+	if err := h.userService.SetConcurrencyLimit(userID, req.ConcurrencyLimit); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "设置并发限制失败"})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"message": "并发限制已更新"})
+}
+
 func (h *UserHandler) DeleteUser(c *gin.Context) {
 	userID := c.Param("id")
 	currentUserID := middleware.GetUserID(c)
@@ -220,6 +237,38 @@ func (h *UserHandler) DeleteUser(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{"message": "用户已删除"})
+}
+
+func (h *UserHandler) PreviewBatchUpdate(c *gin.Context) {
+	var req model.UserBatchPreviewRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "请求参数错误"})
+		return
+	}
+
+	result, err := h.userService.PreviewBatchUpdate(&req)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, result)
+}
+
+func (h *UserHandler) ApplyBatchUpdate(c *gin.Context) {
+	var req model.UserBatchApplyRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "请求参数错误"})
+		return
+	}
+
+	result, err := h.userService.ApplyBatchUpdate(&req)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, result)
 }
 
 func (h *UserHandler) ResetPassword(c *gin.Context) {

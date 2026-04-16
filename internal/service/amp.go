@@ -285,6 +285,26 @@ func (s *AmpService) CreateAPIKey(userID string, req *model.CreateAPIKeyRequest)
 	}, nil
 }
 
+func (s *AmpService) UpdateAPIKey(userID, keyID string, req *model.UpdateAPIKeyRequest) (*model.APIKeyListItem, error) {
+	key, err := s.getOwnedAPIKey(userID, keyID)
+	if err != nil {
+		return nil, err
+	}
+
+	expiresAt := req.ExpiresAt
+	if req.ClearExpiry {
+		expiresAt = nil
+	}
+
+	if err := s.apiKeyRepo.UpdateEditableFields(key.ID, req.Name, expiresAt); err != nil {
+		return nil, err
+	}
+
+	key.Name = req.Name
+	key.ExpiresAt = expiresAt
+	return buildAPIKeyListItem(key), nil
+}
+
 func isValidCustomAPIKey(value string) bool {
 	core := value
 	if strings.HasPrefix(core, "sk-") {
@@ -318,44 +338,22 @@ func (s *AmpService) ListAPIKeys(userID string) ([]*model.APIKeyListItem, error)
 		if k.RevokedAt != nil {
 			continue
 		}
-		items = append(items, &model.APIKeyListItem{
-			ID:        k.ID,
-			Name:      k.Name,
-			Prefix:    k.Prefix,
-			CreatedAt: k.CreatedAt,
-			RevokedAt: k.RevokedAt,
-			LastUsed:  k.LastUsed,
-			ExpiresAt: k.ExpiresAt,
-			IsActive:  k.RevokedAt == nil,
-		})
+		items = append(items, buildAPIKeyListItem(k))
 	}
 	return items, nil
 }
 
 func (s *AmpService) DeleteAPIKey(userID, keyID string) error {
-	key, err := s.apiKeyRepo.GetByID(keyID)
-	if err != nil {
+	if _, err := s.getOwnedAPIKey(userID, keyID); err != nil {
 		return err
-	}
-	if key == nil {
-		return ErrAPIKeyNotFound
-	}
-	if key.UserID != userID {
-		return ErrNotOwner
 	}
 	return s.apiKeyRepo.Delete(keyID)
 }
 
 func (s *AmpService) GetAPIKey(userID, keyID string) (*model.APIKeyRevealResponse, error) {
-	key, err := s.apiKeyRepo.GetByID(keyID)
+	key, err := s.getOwnedAPIKey(userID, keyID)
 	if err != nil {
 		return nil, err
-	}
-	if key == nil {
-		return nil, ErrAPIKeyNotFound
-	}
-	if key.UserID != userID {
-		return nil, ErrNotOwner
 	}
 	if key.APIKey == "" {
 		return nil, ErrAPIKeyNotRetrievable
@@ -368,6 +366,18 @@ func (s *AmpService) GetAPIKey(userID, keyID string) (*model.APIKeyRevealRespons
 		ExpiresAt: key.ExpiresAt,
 		CreatedAt: key.CreatedAt,
 	}, nil
+}
+
+func (s *AmpService) ListAPIKeysForAdmin(userID string) ([]*model.APIKeyListItem, error) {
+	return s.ListAPIKeys(userID)
+}
+
+func (s *AmpService) UpdateAPIKeyForAdmin(userID, keyID string, req *model.UpdateAPIKeyRequest) (*model.APIKeyListItem, error) {
+	return s.UpdateAPIKey(userID, keyID, req)
+}
+
+func (s *AmpService) DeleteAPIKeyForAdmin(userID, keyID string) error {
+	return s.DeleteAPIKey(userID, keyID)
 }
 
 func (s *AmpService) GetBootstrap(userID string) (*model.BootstrapResponse, error) {
@@ -434,4 +444,36 @@ func (s *AmpService) decryptUpstreamAPIKey(storedKey string) string {
 		return storedKey
 	}
 	return string(decrypted)
+}
+
+func (s *AmpService) getOwnedAPIKey(userID, keyID string) (*model.UserAPIKey, error) {
+	key, err := s.apiKeyRepo.GetByID(keyID)
+	if err != nil {
+		return nil, err
+	}
+	if key == nil {
+		return nil, ErrAPIKeyNotFound
+	}
+	if key.UserID != userID {
+		return nil, ErrNotOwner
+	}
+	return key, nil
+}
+
+func buildAPIKeyListItem(key *model.UserAPIKey) *model.APIKeyListItem {
+	isActive := key.RevokedAt == nil
+	if key.ExpiresAt != nil && time.Now().After(*key.ExpiresAt) {
+		isActive = false
+	}
+
+	return &model.APIKeyListItem{
+		ID:        key.ID,
+		Name:      key.Name,
+		Prefix:    key.Prefix,
+		CreatedAt: key.CreatedAt,
+		RevokedAt: key.RevokedAt,
+		LastUsed:  key.LastUsed,
+		ExpiresAt: key.ExpiresAt,
+		IsActive:  isActive,
+	}
 }

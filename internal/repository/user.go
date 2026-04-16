@@ -29,6 +29,7 @@ type UserRepositoryInterface interface {
 	GetAllUserGroupIDs() (map[string][]string, error)
 	Delete(id string) error
 	GetBalance(userID string) (int64, error)
+	SetBalance(userID string, amountMicros int64) error
 	DeductBalance(userID string, amountMicros int64) error
 	TopUpBalance(userID string, amountMicros int64) error
 	GetTotalBalanceAndUserCount() (int64, int64, error)
@@ -294,6 +295,28 @@ func (r *UserRepository) DeductBalance(userID string, amountMicros int64) error 
 	result, err := db.Exec(
 		`UPDATE users SET balance_micros = CASE WHEN balance_micros >= ? THEN balance_micros - ? ELSE 0 END, updated_at = ? WHERE id = ?`,
 		amountMicros, amountMicros, time.Now().UTC(), userID,
+	)
+	if err != nil {
+		return err
+	}
+	rows, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if rows == 0 {
+		return ErrUserNotFound
+	}
+	return nil
+}
+
+func (r *UserRepository) SetBalance(userID string, amountMicros int64) error {
+	db := database.GetDB()
+	if amountMicros < 0 {
+		amountMicros = 0
+	}
+	result, err := db.Exec(
+		`UPDATE users SET balance_micros = ?, updated_at = ? WHERE id = ?`,
+		amountMicros, time.Now().UTC(), userID,
 	)
 	if err != nil {
 		return err

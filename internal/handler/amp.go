@@ -164,6 +164,39 @@ func (h *AmpHandler) DeleteAPIKey(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"message": "API Key 已删除"})
 }
 
+func (h *AmpHandler) UpdateAPIKey(c *gin.Context) {
+	userID := middleware.GetUserID(c)
+	keyID := c.Param("id")
+
+	var req model.UpdateAPIKeyRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"error":   "请求参数错误",
+			"details": err.Error(),
+		})
+		return
+	}
+
+	key, err := h.ampService.UpdateAPIKey(userID, keyID, &req)
+	if err != nil {
+		status := http.StatusInternalServerError
+		msg := "更新 API Key 失败"
+
+		if errors.Is(err, service.ErrAPIKeyNotFound) {
+			status = http.StatusNotFound
+			msg = err.Error()
+		} else if errors.Is(err, service.ErrNotOwner) {
+			status = http.StatusForbidden
+			msg = err.Error()
+		}
+
+		c.JSON(status, gin.H{"error": msg})
+		return
+	}
+
+	c.JSON(http.StatusOK, key)
+}
+
 func (h *AmpHandler) GetAPIKey(c *gin.Context) {
 	userID := middleware.GetUserID(c)
 	keyID := c.Param("id")
@@ -189,6 +222,70 @@ func (h *AmpHandler) GetAPIKey(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, key)
+}
+
+func (h *AmpHandler) AdminListUserAPIKeys(c *gin.Context) {
+	userID := c.Param("id")
+
+	keys, err := h.ampService.ListAPIKeysForAdmin(userID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "获取 API Key 列表失败"})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"apiKeys": keys})
+}
+
+func (h *AmpHandler) AdminUpdateUserAPIKey(c *gin.Context) {
+	userID := c.Param("id")
+	keyID := c.Param("keyId")
+
+	var req model.UpdateAPIKeyRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"error":   "请求参数错误",
+			"details": err.Error(),
+		})
+		return
+	}
+
+	key, err := h.ampService.UpdateAPIKeyForAdmin(userID, keyID, &req)
+	if err != nil {
+		status := http.StatusInternalServerError
+		msg := "更新 API Key 失败"
+		if errors.Is(err, service.ErrAPIKeyNotFound) {
+			status = http.StatusNotFound
+			msg = err.Error()
+		} else if errors.Is(err, service.ErrNotOwner) {
+			status = http.StatusBadRequest
+			msg = "API Key 不属于当前用户"
+		}
+		c.JSON(status, gin.H{"error": msg})
+		return
+	}
+
+	c.JSON(http.StatusOK, key)
+}
+
+func (h *AmpHandler) AdminDeleteUserAPIKey(c *gin.Context) {
+	userID := c.Param("id")
+	keyID := c.Param("keyId")
+
+	if err := h.ampService.DeleteAPIKeyForAdmin(userID, keyID); err != nil {
+		status := http.StatusInternalServerError
+		msg := "删除 API Key 失败"
+		if errors.Is(err, service.ErrAPIKeyNotFound) {
+			status = http.StatusNotFound
+			msg = err.Error()
+		} else if errors.Is(err, service.ErrNotOwner) {
+			status = http.StatusBadRequest
+			msg = "API Key 不属于当前用户"
+		}
+		c.JSON(status, gin.H{"error": msg})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"message": "API Key 已删除"})
 }
 
 func (h *AmpHandler) GetBootstrap(c *gin.Context) {

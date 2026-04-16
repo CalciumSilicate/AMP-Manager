@@ -1,27 +1,21 @@
 import { useEffect, useState } from 'react'
 
-import { motion, AnimatePresence, tableStaggerContainer, tableRowVariants } from '@/lib/motion'
+import { AnimatePresence, motion, tableRowVariants, tableStaggerContainer } from '@/lib/motion'
 import {
-  getAPIKeys,
+  APIKey,
+  APIKeyRevealResponse,
+  CreateAPIKeyResponse,
   createAPIKeyWithOptions,
   deleteAPIKey,
   getAPIKey,
-  APIKey,
-  CreateAPIKeyResponse,
-  APIKeyRevealResponse,
+  getAPIKeys,
+  updateAPIKey,
 } from '../api/amp'
 import { AdminPageShell, AdminSurface } from '@/components/admin/AdminPageShell'
 import { Alert, AlertDescription } from '@/components/ui/alert'
+import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
-import { Label } from '@/components/ui/label'
-import {
-  Table,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from '@/components/ui/table'
+import { DateTimePicker } from '@/components/ui/datetime-picker'
 import {
   Dialog,
   DialogContent,
@@ -30,7 +24,17 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog'
+import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
+import { Table, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { formatDateTime } from '@/lib/formatters'
+
+function buildRandomSkKey() {
+  const bytes = new Uint8Array(16)
+  crypto.getRandomValues(bytes)
+  const suffix = Array.from(bytes, (byte) => byte.toString(16).padStart(2, '0')).join('')
+  return `sk-${suffix}`
+}
 
 export default function APIKeys() {
   const [keys, setKeys] = useState<APIKey[]>([])
@@ -39,15 +43,20 @@ export default function APIKeys() {
   const [showCreate, setShowCreate] = useState(false)
   const [createName, setCreateName] = useState('')
   const [customKey, setCustomKey] = useState('')
+  const [createExpiresAt, setCreateExpiresAt] = useState('')
   const [creating, setCreating] = useState(false)
   const [newKey, setNewKey] = useState<CreateAPIKeyResponse | null>(null)
   const [revealKey, setRevealKey] = useState<APIKeyRevealResponse | null>(null)
+  const [editingKey, setEditingKey] = useState<APIKey | null>(null)
+  const [editName, setEditName] = useState('')
+  const [editExpiresAt, setEditExpiresAt] = useState('')
+  const [savingEdit, setSavingEdit] = useState(false)
   const [copied, setCopied] = useState<string | null>(null)
   const [revealingId, setRevealingId] = useState<string | null>(null)
   const [deletingId, setDeletingId] = useState<string | null>(null)
 
   useEffect(() => {
-    loadData()
+    void loadData()
   }, [])
 
   const loadData = async () => {
@@ -63,7 +72,7 @@ export default function APIKeys() {
 
   const handleCreate = async () => {
     if (!createName.trim()) return
-    if (customKey && !/^[A-Za-z0-9]{16,}$/.test(customKey)) {
+    if (customKey && !/^sk-[A-Za-z0-9]{16,}$/.test(customKey) && !/^[A-Za-z0-9]{16,}$/.test(customKey)) {
       setError('自定义 API Key 只能包含字母和数字，且长度至少为 16')
       return
     }
@@ -75,12 +84,14 @@ export default function APIKeys() {
       const result = await createAPIKeyWithOptions({
         name: createName.trim(),
         ...(customKey ? { customKey } : {}),
+        ...(createExpiresAt ? { expiresAt: createExpiresAt } : {}),
       })
       setNewKey(result)
       setCreateName('')
       setCustomKey('')
+      setCreateExpiresAt('')
       setShowCreate(false)
-      loadData()
+      await loadData()
     } catch (err) {
       setError(err instanceof Error ? err.message : '创建失败')
     } finally {
@@ -96,7 +107,7 @@ export default function APIKeys() {
 
     try {
       await deleteAPIKey(id)
-      loadData()
+      await loadData()
     } catch (err) {
       setError(err instanceof Error ? err.message : '删除失败')
     } finally {
@@ -118,13 +129,42 @@ export default function APIKeys() {
     }
   }
 
+  const handleOpenEdit = (key: APIKey) => {
+    setEditingKey(key)
+    setEditName(key.name)
+    setEditExpiresAt(key.expiresAt || '')
+  }
+
+  const handleSaveEdit = async () => {
+    if (!editingKey || !editName.trim()) return
+
+    setSavingEdit(true)
+    setError('')
+
+    try {
+      await updateAPIKey(editingKey.id, {
+        name: editName.trim(),
+        ...(editExpiresAt ? { expiresAt: editExpiresAt } : { clearExpiry: true }),
+      })
+      setEditingKey(null)
+      setEditName('')
+      setEditExpiresAt('')
+      await loadData()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '保存失败')
+    } finally {
+      setSavingEdit(false)
+    }
+  }
+
   const copyToClipboard = async (text: string, type: string) => {
     await navigator.clipboard.writeText(text)
     setCopied(type)
     setTimeout(() => setCopied(null), 2000)
   }
 
-  const formatDate = (dateStr: string | null) => (dateStr ? formatDateTime(dateStr) : '-')
+  const formatDate = (dateStr?: string | null) => (dateStr ? formatDateTime(dateStr) : '永不过期')
+  const formatUsedAt = (dateStr?: string | null) => (dateStr ? formatDateTime(dateStr) : '-')
   const linuxEnvSnippet = (apiKey: string) => `export AMP_URL="${window.location.origin}"\nexport AMP_API_KEY="${apiKey}"`
   const powershellSnippet = (apiKey: string) =>
     `[Environment]::SetEnvironmentVariable("AMP_URL", "${window.location.origin}", "User")\n[Environment]::SetEnvironmentVariable("AMP_API_KEY", "${apiKey}", "User")`
@@ -142,11 +182,11 @@ export default function APIKeys() {
       <AdminPageShell
         title="API Key 管理"
         description="管理用于 Amp CLI 认证的 API Key。"
-        width="4xl"
+        width="5xl"
         actions={<Button onClick={() => setShowCreate(true)}>创建 API Key</Button>}
       >
         <AnimatePresence>
-          {newKey && (
+          {newKey ? (
             <motion.div
               initial={{ opacity: 0, y: -20, scale: 0.98 }}
               animate={{ opacity: 1, y: 0, scale: 1 }}
@@ -157,7 +197,7 @@ export default function APIKeys() {
               <div className="flex items-center justify-between gap-3">
                 <div className="space-y-1">
                   <p className="text-sm font-semibold text-emerald-700 dark:text-emerald-300">API Key 创建成功</p>
-                  <p className="text-xs text-muted-foreground">请立即保存，后续仍可在列表中查看。</p>
+                  <p className="text-xs text-muted-foreground">明文仍可在列表中查看；建议立即完成复制和环境变量配置。</p>
                 </div>
                 <Button variant="ghost" size="sm" onClick={() => setNewKey(null)}>
                   关闭
@@ -170,7 +210,7 @@ export default function APIKeys() {
                     <code className="min-w-0 flex-1 rounded-md border bg-background px-3 py-2 text-sm font-mono break-all">
                       {newKey.apiKey}
                     </code>
-                    <Button size="sm" onClick={() => copyToClipboard(newKey.apiKey, 'apiKey')}>
+                    <Button size="sm" onClick={() => void copyToClipboard(newKey.apiKey, 'apiKey')}>
                       {copied === 'apiKey' ? '已复制' : '复制'}
                     </Button>
                   </div>
@@ -181,7 +221,7 @@ export default function APIKeys() {
                     <pre className="overflow-x-auto rounded-md border bg-slate-950 px-3 py-3 text-xs text-slate-100">
                       <code>{linuxEnvSnippet(newKey.apiKey)}</code>
                     </pre>
-                    <Button variant="outline" size="sm" onClick={() => copyToClipboard(linuxEnvSnippet(newKey.apiKey), 'env')}>
+                    <Button variant="outline" size="sm" onClick={() => void copyToClipboard(linuxEnvSnippet(newKey.apiKey), 'env')}>
                       {copied === 'env' ? '已复制' : '复制环境变量'}
                     </Button>
                   </div>
@@ -190,25 +230,25 @@ export default function APIKeys() {
                     <pre className="overflow-x-auto rounded-md border bg-slate-950 px-3 py-3 text-xs text-slate-100">
                       <code>{powershellSnippet(newKey.apiKey)}</code>
                     </pre>
-                    <Button variant="outline" size="sm" onClick={() => copyToClipboard(powershellSnippet(newKey.apiKey), 'ps')}>
+                    <Button variant="outline" size="sm" onClick={() => void copyToClipboard(powershellSnippet(newKey.apiKey), 'ps')}>
                       {copied === 'ps' ? '已复制' : '复制 PowerShell 命令'}
                     </Button>
                   </div>
                 </div>
               </div>
             </motion.div>
-          )}
+          ) : null}
         </AnimatePresence>
 
         <motion.div initial={{ opacity: 0, y: 24 }} animate={{ opacity: 1, y: 0 }} transition={{ type: 'spring', bounce: 0.2, duration: 0.55 }}>
           <AdminSurface>
-            {error && (
+            {error ? (
               <div className="admin-surface-body pb-0">
                 <Alert variant="destructive">
                   <AlertDescription>{error}</AlertDescription>
                 </Alert>
               </div>
-            )}
+            ) : null}
             {keys.length === 0 ? (
               <div className="admin-surface-body">
                 <div className="rounded-md border border-dashed px-4 py-8 text-center text-sm text-muted-foreground">
@@ -220,7 +260,7 @@ export default function APIKeys() {
                 <div className="admin-surface-header">
                   <div className="space-y-1">
                     <p className="text-sm font-medium text-foreground">已创建 {keys.length} 个 Key</p>
-                    <p className="admin-inline-note">支持查看明文与删除操作。</p>
+                    <p className="admin-inline-note">支持过期时间管理、明文查看和删除操作。</p>
                   </div>
                 </div>
                 <div className="overflow-hidden rounded-b-lg">
@@ -229,6 +269,8 @@ export default function APIKeys() {
                       <TableRow>
                         <TableHead>名称</TableHead>
                         <TableHead>Prefix</TableHead>
+                        <TableHead>状态</TableHead>
+                        <TableHead>到期时间</TableHead>
                         <TableHead>最后使用</TableHead>
                         <TableHead>创建时间</TableHead>
                         <TableHead className="text-right">操作</TableHead>
@@ -239,14 +281,23 @@ export default function APIKeys() {
                         <motion.tr key={key.id} variants={tableRowVariants}>
                           <TableCell className="font-medium">{key.name}</TableCell>
                           <TableCell className="font-mono text-muted-foreground">{key.prefix}...</TableCell>
-                          <TableCell>{formatDate(key.lastUsedAt)}</TableCell>
-                          <TableCell>{formatDate(key.createdAt)}</TableCell>
+                          <TableCell>
+                            <Badge variant={key.isActive ? 'default' : 'secondary'}>
+                              {key.isActive ? '生效中' : '已过期'}
+                            </Badge>
+                          </TableCell>
+                          <TableCell>{formatDate(key.expiresAt)}</TableCell>
+                          <TableCell>{formatUsedAt(key.lastUsedAt)}</TableCell>
+                          <TableCell>{formatDateTime(key.createdAt)}</TableCell>
                           <TableCell className="text-right">
                             <div className="flex items-center justify-end gap-2">
+                              <Button variant="ghost" size="sm" onClick={() => handleOpenEdit(key)}>
+                                编辑
+                              </Button>
                               <Button
                                 variant="ghost"
                                 size="sm"
-                                onClick={() => handleReveal(key.id)}
+                                onClick={() => void handleReveal(key.id)}
                                 disabled={revealingId === key.id}
                               >
                                 {revealingId === key.id ? '加载中...' : '查看'}
@@ -255,7 +306,7 @@ export default function APIKeys() {
                                 variant="ghost"
                                 size="sm"
                                 className="text-destructive hover:text-destructive"
-                                onClick={() => handleDelete(key.id, key.name)}
+                                onClick={() => void handleDelete(key.id, key.name)}
                                 disabled={deletingId === key.id}
                               >
                                 {deletingId === key.id ? '删除中...' : '删除'}
@@ -284,20 +335,29 @@ export default function APIKeys() {
                 <Input
                   id="keyName"
                   value={createName}
-                  onChange={(e) => setCreateName(e.target.value)}
+                  onChange={(event) => setCreateName(event.target.value)}
                   placeholder="输入 API Key 名称"
                 />
               </div>
               <div className="space-y-2">
-                <Label htmlFor="customKey">自定义 API Key</Label>
+                <div className="flex items-center justify-between gap-3">
+                  <Label htmlFor="customKey">自定义 API Key</Label>
+                  <Button type="button" variant="outline" size="sm" onClick={() => setCustomKey(buildRandomSkKey())}>
+                    生成随机 sk-Key
+                  </Button>
+                </div>
                 <Input
                   id="customKey"
                   value={customKey}
-                  onChange={(e) => setCustomKey(e.target.value.trim())}
-                  placeholder="留空自动生成；或输入 16 位以上字母数字"
+                  onChange={(event) => setCustomKey(event.target.value.trim())}
+                  placeholder="留空自动生成；或手动填写 sk- 开头的随机 key"
                   autoComplete="off"
                 />
-                <p className="text-xs text-muted-foreground">仅创建时可设置。</p>
+                <p className="text-xs text-muted-foreground">支持字母数字，可选 `sk-` 前缀。</p>
+              </div>
+              <div className="space-y-2">
+                <Label>到期时间</Label>
+                <DateTimePicker value={createExpiresAt} onChange={setCreateExpiresAt} placeholder="留空表示永不过期" />
               </div>
             </div>
             <DialogFooter>
@@ -307,15 +367,43 @@ export default function APIKeys() {
                   setShowCreate(false)
                   setCreateName('')
                   setCustomKey('')
+                  setCreateExpiresAt('')
                 }}
               >
                 取消
               </Button>
               <Button
-                onClick={handleCreate}
-                disabled={creating || !createName.trim() || !!(customKey && !/^[A-Za-z0-9]{16,}$/.test(customKey))}
+                onClick={() => void handleCreate()}
+                disabled={creating || !createName.trim() || !!(customKey && !/^sk-[A-Za-z0-9]{16,}$/.test(customKey) && !/^[A-Za-z0-9]{16,}$/.test(customKey))}
               >
                 {creating ? '创建中...' : '创建'}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+
+        <Dialog open={!!editingKey} onOpenChange={(open) => !open && setEditingKey(null)}>
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>编辑 API Key</DialogTitle>
+              <DialogDescription>仅可修改名称和到期时间。</DialogDescription>
+            </DialogHeader>
+            <div className="space-y-4 py-4">
+              <div className="space-y-2">
+                <Label htmlFor="editKeyName">名称</Label>
+                <Input id="editKeyName" value={editName} onChange={(event) => setEditName(event.target.value)} />
+              </div>
+              <div className="space-y-2">
+                <Label>到期时间</Label>
+                <DateTimePicker value={editExpiresAt} onChange={setEditExpiresAt} placeholder="留空表示永不过期" />
+              </div>
+            </div>
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setEditingKey(null)}>
+                取消
+              </Button>
+              <Button onClick={() => void handleSaveEdit()} disabled={savingEdit || !editName.trim()}>
+                {savingEdit ? '保存中...' : '保存'}
               </Button>
             </DialogFooter>
           </DialogContent>
@@ -327,7 +415,7 @@ export default function APIKeys() {
               <DialogTitle>查看 API Key</DialogTitle>
               <DialogDescription>API Key 明文会显示在此处，请妥善保管。</DialogDescription>
             </DialogHeader>
-            {revealKey && (
+            {revealKey ? (
               <div className="space-y-4 py-4">
                 <div className="space-y-2">
                   <Label>API Key</Label>
@@ -335,9 +423,19 @@ export default function APIKeys() {
                     <code className="min-w-0 flex-1 rounded-md border bg-background px-3 py-2 text-sm font-mono break-all">
                       {revealKey.apiKey}
                     </code>
-                    <Button size="sm" onClick={() => copyToClipboard(revealKey.apiKey, 'revealApiKey')}>
+                    <Button size="sm" onClick={() => void copyToClipboard(revealKey.apiKey, 'revealApiKey')}>
                       {copied === 'revealApiKey' ? '已复制' : '复制'}
                     </Button>
+                  </div>
+                </div>
+                <div className="grid gap-4 text-sm md:grid-cols-2">
+                  <div className="rounded-lg border px-4 py-3">
+                    <p className="text-muted-foreground">名称</p>
+                    <p className="font-medium">{revealKey.name}</p>
+                  </div>
+                  <div className="rounded-lg border px-4 py-3">
+                    <p className="text-muted-foreground">到期时间</p>
+                    <p className="font-medium">{formatDate(revealKey.expiresAt)}</p>
                   </div>
                 </div>
                 <div className="grid gap-3 md:grid-cols-2">
@@ -346,11 +444,7 @@ export default function APIKeys() {
                     <pre className="overflow-x-auto rounded-md border bg-slate-950 px-3 py-3 text-xs text-slate-100">
                       <code>{linuxEnvSnippet(revealKey.apiKey)}</code>
                     </pre>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => copyToClipboard(linuxEnvSnippet(revealKey.apiKey), 'revealEnv')}
-                    >
+                    <Button variant="outline" size="sm" onClick={() => void copyToClipboard(linuxEnvSnippet(revealKey.apiKey), 'revealEnv')}>
                       {copied === 'revealEnv' ? '已复制' : '复制环境变量'}
                     </Button>
                   </div>
@@ -359,17 +453,13 @@ export default function APIKeys() {
                     <pre className="overflow-x-auto rounded-md border bg-slate-950 px-3 py-3 text-xs text-slate-100">
                       <code>{powershellSnippet(revealKey.apiKey)}</code>
                     </pre>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => copyToClipboard(powershellSnippet(revealKey.apiKey), 'revealPs')}
-                    >
+                    <Button variant="outline" size="sm" onClick={() => void copyToClipboard(powershellSnippet(revealKey.apiKey), 'revealPs')}>
                       {copied === 'revealPs' ? '已复制' : '复制 PowerShell 命令'}
                     </Button>
                   </div>
                 </div>
               </div>
-            )}
+            ) : null}
             <DialogFooter>
               <Button onClick={() => setRevealKey(null)}>关闭</Button>
             </DialogFooter>

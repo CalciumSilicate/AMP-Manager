@@ -243,6 +243,11 @@ func (r *APIKeyRepository) UpdateLastUsedThrottled(id string, minInterval time.D
 func (r *APIKeyRepository) HasActiveByUserID(userID string) (bool, error) {
 	db := database.GetDB()
 	var count int
-	err := db.QueryRow(`SELECT COUNT(*) FROM user_api_keys WHERE user_id = ? AND revoked_at IS NULL`, userID).Scan(&count)
+	err := db.QueryRow(
+		`SELECT COUNT(*) FROM user_api_keys
+		 WHERE user_id = ? AND revoked_at IS NULL AND (expires_at IS NULL OR expires_at > ?)`,
+		userID,
+		time.Now().UTC(),
+	).Scan(&count)
 	return count > 0, err
 }

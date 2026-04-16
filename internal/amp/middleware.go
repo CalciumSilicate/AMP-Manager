@@ -13,8 +13,10 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
+	"ampmanager/internal/model"
 	"ampmanager/internal/repository"
 	"ampmanager/internal/service"
 
@@ -295,7 +297,22 @@ func APIKeyAuthMiddleware() gin.HandlerFunc {
 			log.Warnf("amp api key auth: failed to get rate multiplier for user %s: %v", apiKeyRecord.UserID, err)
 		}
 		proxyCfg.RateMultiplier = rateMultiplier
+		proxyCfg.GroupRateMultiplier = rateMultiplier
 		proxyCfg.GroupIDs = groupIDs
+
+		user, err := userRepo.GetByID(apiKeyRecord.UserID)
+		if err != nil {
+			log.Errorf("amp api key auth: failed to load user %s: %v", apiKeyRecord.UserID, err)
+			c.AbortWithStatusJSON(http.StatusInternalServerError, NewStandardError(http.StatusInternalServerError, "internal server error"))
+			return
+		}
+		if user != nil && user.ConcurrencyLimit > 0 {
+			if !userConcurrencyLimiter.TryAcquire(apiKeyRecord.UserID, user.ConcurrencyLimit) {
+				c.AbortWithStatusJSON(http.StatusTooManyRequests, NewStandardError(http.StatusTooManyRequests, "user concurrency limit exceeded"))
+				return
+			}
+			defer userConcurrencyLimiter.Release(apiKeyRecord.UserID)
+		}
 
 		ctx := WithProxyConfig(c.Request.Context(), proxyCfg)
 		c.Request = c.Request.WithContext(ctx)
@@ -464,8 +481,9 @@ func BillingCheckMiddleware() gin.HandlerFunc {
 			return
 		}
 
-		// RateMultiplier == 0 means free, skip billing check
-		if cfg.RateMultiplier == 0 {
+		channelCfg := GetChannelConfig(c)
+		breakdown := computePricingBreakdown(c.Request.Context(), nilIfNilChannelConfig(channelCfg), nil)
+		if breakdown.TotalMultiplier == 0 {
 			c.Next()
 			return
 		}
@@ -497,6 +515,13 @@ func BillingCheckMiddleware() gin.HandlerFunc {
 
 		c.Next()
 	}
+}
+
+func nilIfNilChannelConfig(cfg *ChannelConfig) *model.Channel {
+	if cfg == nil {
+		return nil
+	}
+	return cfg.Channel
 }
 
 func safeEstimateModel(estimate *BillingEstimate) string {

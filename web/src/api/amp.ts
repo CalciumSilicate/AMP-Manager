@@ -60,6 +60,8 @@ export interface APIKey {
   name: string
   prefix: string
   lastUsedAt: string | null
+  expiresAt?: string | null
+  isActive: boolean
   createdAt: string
 }
 
@@ -68,6 +70,7 @@ export interface CreateAPIKeyResponse {
   name: string
   prefix: string
   apiKey: string
+  expiresAt?: string | null
   createdAt: string
   message: string
 }
@@ -77,6 +80,7 @@ export interface APIKeyRevealResponse {
   name: string
   prefix: string
   apiKey: string
+  expiresAt?: string | null
   createdAt: string
 }
 
@@ -119,12 +123,20 @@ export async function createAPIKey(name: string): Promise<CreateAPIKeyResponse> 
   return createAPIKeyWithOptions({ name })
 }
 
-export async function createAPIKeyWithOptions(data: { name: string; customKey?: string }): Promise<CreateAPIKeyResponse> {
+export async function createAPIKeyWithOptions(data: { name: string; customKey?: string; expiresAt?: string | null }): Promise<CreateAPIKeyResponse> {
   const response = await authFetch(`${API_BASE}/api-keys`, {
     method: 'POST',
     body: JSON.stringify(data),
   })
   return handleResponse<CreateAPIKeyResponse>(response)
+}
+
+export async function updateAPIKey(id: string, data: { name: string; expiresAt?: string | null; clearExpiry?: boolean }): Promise<APIKey> {
+  const response = await authFetch(`${API_BASE}/api-keys/${id}`, {
+    method: 'PATCH',
+    body: JSON.stringify(data),
+  })
+  return handleResponse<APIKey>(response)
 }
 
 export async function deleteAPIKey(id: string): Promise<void> {
@@ -332,6 +344,30 @@ export async function getAdminUsageSummary(params: { from?: string; to?: string;
     signal,
   })
   return handleResponse<UsageSummaryResponse>(response)
+}
+
+export async function getAdminUserAPIKeys(userId: string): Promise<APIKey[]> {
+  const response = await authFetch(`${ADMIN_API_BASE}/users/${userId}/api-keys`)
+  const data = await handleResponse<{ apiKeys: APIKey[] }>(response)
+  return data.apiKeys || []
+}
+
+export async function updateAdminUserAPIKey(userId: string, keyId: string, data: { name: string; expiresAt?: string | null; clearExpiry?: boolean }): Promise<APIKey> {
+  const response = await authFetch(`${ADMIN_API_BASE}/users/${userId}/api-keys/${keyId}`, {
+    method: 'PATCH',
+    body: JSON.stringify(data),
+  })
+  return handleResponse<APIKey>(response)
+}
+
+export async function deleteAdminUserAPIKey(userId: string, keyId: string): Promise<void> {
+  const response = await authFetch(`${ADMIN_API_BASE}/users/${userId}/api-keys/${keyId}`, {
+    method: 'DELETE',
+  })
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ error: '删除失败' }))
+    throw new Error(error.error || '删除失败')
+  }
 }
 
 // Request Log Detail API

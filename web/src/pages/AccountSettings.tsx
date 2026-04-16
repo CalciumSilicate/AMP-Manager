@@ -308,16 +308,6 @@ export default function AccountSettings({ username, onUsernameChange }: Props) {
                     <CardDescription>查看余额和充值入口。</CardDescription>
                   </div>
                   <div className="flex flex-wrap gap-2">
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="sm"
-                      onClick={() => setTopupDialogOpen(true)}
-                      disabled={!purchaseCatalog?.balanceTopupEnabled}
-                    >
-                      <CreditCard className="mr-2 h-4 w-4" />
-                      充值余额
-                    </Button>
                     <Button type="button" variant="outline" size="sm" onClick={() => void fetchBalance()} disabled={balanceLoading}>
                       <RefreshCw className={`mr-2 h-4 w-4 ${balanceLoading ? 'animate-spin' : ''}`} />
                       刷新
@@ -343,6 +333,18 @@ export default function AccountSettings({ username, onUsernameChange }: Props) {
                           ? `单价 ¥${(purchaseCatalog.balanceTopupPriceCnyPerUsd || 0).toFixed(2)}/$1`
                           : '充值未开启'}
                       </p>
+                      <div className="pt-2">
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          onClick={() => setTopupDialogOpen(true)}
+                          disabled={!purchaseCatalog?.balanceTopupEnabled}
+                        >
+                          <CreditCard className="mr-2 h-4 w-4" />
+                          充值余额
+                        </Button>
+                      </div>
                     </div>
                     <div className="space-y-3 rounded-lg border p-4">
                       <div className="flex items-center justify-between">

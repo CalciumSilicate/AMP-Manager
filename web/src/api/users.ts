@@ -1,4 +1,5 @@
 import { authFetch } from './client'
+import type { LimitType, SubscriptionStatus } from './subscription'
 
 const API_BASE = '/api'
 
@@ -8,6 +9,7 @@ export interface UserInfo {
   isAdmin: boolean
   balanceMicros: number
   balanceUsd: string
+  concurrencyLimit: number
   groupIds: string[]
   groupNames: string[]
   createdAt: string
@@ -45,6 +47,17 @@ export async function setUserAdmin(userId: string, isAdmin: boolean): Promise<vo
   if (!res.ok) {
     const data = await res.json()
     throw new Error(data.error || '设置权限失败')
+  }
+}
+
+export async function setUserConcurrencyLimit(userId: string, concurrencyLimit: number): Promise<void> {
+  const res = await authFetch(`${API_BASE}/admin/users/${userId}/concurrency`, {
+    method: 'PATCH',
+    body: JSON.stringify({ concurrencyLimit }),
+  })
+  if (!res.ok) {
+    const data = await res.json()
+    throw new Error(data.error || '设置并发限制失败')
   }
 }
 
@@ -121,6 +134,99 @@ export async function topUpUser(userId: string, amountUsd: number): Promise<Bala
   if (!res.ok) {
     const data = await res.json()
     throw new Error(data.error || '充值失败')
+  }
+  return res.json()
+}
+
+export type UserBatchTargetMode = 'selected' | 'filtered'
+export type BalanceBatchChangeMode = 'add' | 'set' | 'subtract'
+export type GroupBatchChangeMode = 'add' | 'set' | 'remove'
+export type SubscriptionBatchPlanMode = 'keep' | 'assign' | 'cancel'
+export type SubscriptionBatchExpiryMode = 'keep' | 'set' | 'extend_days' | 'shorten_days'
+
+export interface UserBatchFilter {
+  keyword?: string
+  isAdmin?: boolean
+  groupIds?: string[]
+  subscriptionStatuses?: SubscriptionStatus[]
+  planIds?: string[]
+  balanceMinMicros?: number
+  balanceMaxMicros?: number
+  subscriptionExpiresAfter?: string
+  subscriptionExpiresBefore?: string
+  limitType?: LimitType
+  limitMinMicros?: number
+  limitMaxMicros?: number
+}
+
+export interface UserBatchPreviewItem {
+  id: string
+  username: string
+  isAdmin: boolean
+  balanceUsd: string
+}
+
+export interface UserBatchPreviewResponse {
+  count: number
+  items: UserBatchPreviewItem[]
+}
+
+export interface UserBatchApplyResponse {
+  matchedCount: number
+  appliedCount: number
+}
+
+export interface UserBatchChangeSet {
+  balance?: {
+    mode: BalanceBatchChangeMode
+    amountMicros: number
+  }
+  groups?: {
+    mode: GroupBatchChangeMode
+    groupIds: string[]
+  }
+  subscription?: {
+    planMode: SubscriptionBatchPlanMode
+    planId?: string
+    expiryMode: SubscriptionBatchExpiryMode
+    expiresAt?: string
+    days?: number
+  }
+  concurrency?: {
+    concurrencyLimit: number
+  }
+}
+
+export interface UserBatchPreviewRequest {
+  targetMode: UserBatchTargetMode
+  selectedUserIds?: string[]
+  filters?: UserBatchFilter
+}
+
+export interface UserBatchApplyRequest extends UserBatchPreviewRequest {
+  changes: UserBatchChangeSet
+}
+
+export async function previewUserBatch(req: UserBatchPreviewRequest): Promise<UserBatchPreviewResponse> {
+  const res = await authFetch(`${API_BASE}/admin/users/batch-preview`, {
+    method: 'POST',
+    body: JSON.stringify(req),
+  })
+  if (!res.ok) {
+    const data = await res.json()
+    throw new Error(data.error || '批量预览失败')
+  }
+  return res.json()
+}
+
+export async function applyUserBatch(req: UserBatchApplyRequest): Promise<UserBatchApplyResponse> {
+  const res = await authFetch(`${API_BASE}/admin/users/batch-apply`, {
+    method: 'POST',
+    body: JSON.stringify(req),
+  })
+  if (!res.ok) {
+    const data = await res.json()
+    throw new Error(data.error || '批量修改失败')
   }
   return res.json()
 }

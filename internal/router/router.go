@@ -191,11 +191,11 @@ func Setup() *gin.Engine {
 				system.POST("/database/migrate", systemHandler.StartDatabaseMigration)
 				system.GET("/database/migrate/:taskID", systemHandler.GetDatabaseMigrationTask)
 
-					// 重试配置
-					system.GET("/retry-config", systemHandler.GetRetryConfig)
-					system.PUT("/retry-config", systemHandler.UpdateRetryConfig)
-					system.GET("/request-payload-limit", systemHandler.GetRequestPayloadLimit)
-					system.PUT("/request-payload-limit", systemHandler.UpdateRequestPayloadLimit)
+				// 重试配置
+				system.GET("/retry-config", systemHandler.GetRetryConfig)
+				system.PUT("/retry-config", systemHandler.UpdateRetryConfig)
+				system.GET("/request-payload-limit", systemHandler.GetRequestPayloadLimit)
+				system.PUT("/request-payload-limit", systemHandler.UpdateRequestPayloadLimit)
 
 				// 请求详情监控配置
 				system.GET("/request-detail-enabled", systemHandler.GetRequestDetailEnabled)
@@ -258,6 +258,14 @@ func Setup() *gin.Engine {
 				}
 			}
 
+			announcements := admin.Group("/announcements")
+			{
+				announcements.GET("", announcementHandler.ListAdmin)
+				announcements.POST("", announcementHandler.Create)
+				announcements.PUT("/:id", announcementHandler.Update)
+				announcements.DELETE("/:id", announcementHandler.Delete)
+			}
+
 			// 管理员日志和使用统计
 			admin.GET("/request-logs", requestLogHandler.AdminListRequestLogs)
 			admin.GET("/request-logs/models", requestLogHandler.AdminGetDistinctModels)
@@ -272,6 +280,8 @@ func Setup() *gin.Engine {
 				prices.GET("", billingHandler.ListPrices)
 				prices.GET("/stats", billingHandler.GetPriceStats)
 				prices.POST("/refresh", billingHandler.RefreshPrices)
+				prices.GET("/context-rules", billingHandler.ListContextRules)
+				prices.PUT("/context-rules", billingHandler.UpdateContextRules)
 			}
 
 			purchase := admin.Group("/purchase")
