@@ -768,7 +768,7 @@ export default function SystemSettings({
               <Card>
                 <CardHeader>
                   <CardTitle>数据库模式</CardTitle>
-                  <CardDescription>查看当前运行数据库、归档方式和可用的导入导出能力</CardDescription>
+                  <CardDescription>数据库模式与当前连接信息。</CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-4">
                   {databaseInfoLoading ? (
@@ -802,11 +802,6 @@ export default function SystemSettings({
                         </div>
                       </div>
 
-                      <Alert>
-                        <AlertDescription>
-                          数据库切换会立即影响当前运行实例；如果之后重启服务，请同步修改环境变量或开发脚本中的数据库配置。
-                        </AlertDescription>
-                      </Alert>
                     </>
                   ) : (
                     <div className="text-center text-muted-foreground py-4">数据库信息加载失败</div>
@@ -818,7 +813,7 @@ export default function SystemSettings({
                 <Card>
                   <CardHeader>
                     <CardTitle>迁移并切换数据库</CardTitle>
-                    <CardDescription>直接在前端触发 SQLite ↔ PostgreSQL 迁移，后端会执行任务并实时回报进度</CardDescription>
+                    <CardDescription>SQLite ↔ PostgreSQL 迁移任务。</CardDescription>
                   </CardHeader>
                   <CardContent className="space-y-4">
                     <div className="grid gap-4 md:grid-cols-2">
@@ -921,7 +916,7 @@ export default function SystemSettings({
                   <CardTitle>{databaseInfo?.currentType === 'postgres' ? 'PostgreSQL dump 导入导出' : '数据库导入导出'}</CardTitle>
                   <CardDescription>
                     {databaseInfo?.currentType === 'postgres'
-                      ? '使用 PostgreSQL dump 导出当前库，或上传 .sql dump 恢复数据库'
+                      ? '导入导出当前数据库。'
                       : '上传、下载和管理 SQLite 数据库文件'}
                   </CardDescription>
                 </CardHeader>
@@ -949,7 +944,7 @@ export default function SystemSettings({
                   </div>
                   <p className="text-sm text-muted-foreground">
                     {databaseInfo?.currentType === 'postgres'
-                      ? '导入前会临时断开当前数据库连接，恢复后自动重新连接。'
+                      ? '支持导入和导出当前数据库。'
                       : '上传新数据库将自动备份当前数据库。更改生效需要重启服务。'}
                   </p>
                 </CardContent>

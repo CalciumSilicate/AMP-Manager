@@ -143,7 +143,7 @@ export function AnnouncementAdminSection({ onMessage }: Props) {
         <div className="flex items-center justify-between gap-4">
           <div>
             <h3 className="text-lg font-semibold">公告管理</h3>
-            <p className="text-sm text-muted-foreground">管理公开、登录用户和新用户公告。新用户当前按注册后 7 天识别。</p>
+            <p className="text-sm text-muted-foreground">管理公开、登录用户和新用户公告。</p>
           </div>
           <Button onClick={openCreate}>新建公告</Button>
         </div>
@@ -221,7 +221,6 @@ export function AnnouncementAdminSection({ onMessage }: Props) {
 
         <Alert>
           <AlertDescription>
-            公开公告会出现在登录/注册页和未登录入口。登录用户会看到适用公告的未读弹窗，并可在顶栏公告中心再次查看。
           </AlertDescription>
         </Alert>
       </div>
