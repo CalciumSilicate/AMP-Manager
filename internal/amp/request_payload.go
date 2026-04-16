@@ -4,20 +4,24 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
+	"strconv"
 	"strings"
 
 	"github.com/gin-gonic/gin"
 )
 
-const maxRequestPayloadBytes = 10 * 1024 * 1024
+const maxRequestPayloadBytes = 128 * 1024 * 1024
+
+var errRequestBodyTooLarge = errors.New("request body too large")
 
 type requestPayloadKey struct{}
 
 type RequestPayload struct {
-	Body []byte
-	JSON map[string]interface{}
+	Body       []byte
+	JSON       map[string]interface{}
 	jsonParsed bool
 }
 
@@ -41,15 +45,12 @@ func ensureRequestBody(c *gin.Context) (*RequestPayload, error) {
 
 	payload := &RequestPayload{}
 	if c.Request.Body != nil {
-		bodyBytes, err := io.ReadAll(io.LimitReader(c.Request.Body, maxRequestPayloadBytes))
+		bodyBytes, err := readRequestBodyWithLimit(c.Request.Body, maxRequestPayloadBytes)
 		if err != nil {
 			return nil, err
 		}
 		payload.Body = bodyBytes
-		c.Request.Body = io.NopCloser(bytes.NewReader(bodyBytes))
-		c.Request.ContentLength = int64(len(bodyBytes))
-		c.Request.TransferEncoding = nil
-
+		restoreRequestBody(c.Request, bodyBytes)
 	}
 
 	ctx := WithRequestPayload(c.Request.Context(), payload)
@@ -76,7 +77,29 @@ func EnsureRequestPayload(c *gin.Context) (*RequestPayload, error) {
 }
 
 func RestoreRequestBody(req *http.Request, body []byte) {
+	restoreRequestBody(req, body)
+}
+
+func restoreRequestBody(req *http.Request, body []byte) {
 	req.Body = io.NopCloser(bytes.NewReader(body))
 	req.ContentLength = int64(len(body))
 	req.TransferEncoding = nil
+	req.Header.Set("Content-Length", strconv.Itoa(len(body)))
+}
+
+func readRequestBodyWithLimit(body io.ReadCloser, limit int64) ([]byte, error) {
+	defer body.Close()
+
+	data, err := io.ReadAll(io.LimitReader(body, limit+1))
+	if err != nil {
+		return nil, err
+	}
+	if int64(len(data)) > limit {
+		return nil, errRequestBodyTooLarge
+	}
+	return data, nil
+}
+
+func isRequestBodyTooLarge(err error) bool {
+	return errors.Is(err, errRequestBodyTooLarge)
 }

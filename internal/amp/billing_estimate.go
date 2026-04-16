@@ -67,6 +67,10 @@ func BillingEstimateMiddleware() gin.HandlerFunc {
 
 		payload, err := ensureRequestBody(c)
 		if err != nil {
+			if isRequestBodyTooLarge(err) {
+				c.AbortWithStatusJSON(http.StatusRequestEntityTooLarge, NewStandardError(http.StatusRequestEntityTooLarge, "request body too large"))
+				return
+			}
 			c.AbortWithStatusJSON(http.StatusInternalServerError, NewStandardError(http.StatusInternalServerError, "failed to read request body"))
 			return
 		}
@@ -75,6 +79,10 @@ func BillingEstimateMiddleware() gin.HandlerFunc {
 		if len(payload.Body) < largeEstimateBodyThresholdBytes {
 			payload, err = EnsureRequestPayload(c)
 			if err != nil {
+				if isRequestBodyTooLarge(err) {
+					c.AbortWithStatusJSON(http.StatusRequestEntityTooLarge, NewStandardError(http.StatusRequestEntityTooLarge, "request body too large"))
+					return
+				}
 				c.AbortWithStatusJSON(http.StatusInternalServerError, NewStandardError(http.StatusInternalServerError, "failed to parse request body"))
 				return
 			}

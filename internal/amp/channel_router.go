@@ -361,6 +361,11 @@ func ChannelProxyHandler() gin.HandlerFunc {
 		if c.Request.Body != nil {
 			requestPayload, err := ensureRequestBody(c)
 			if err != nil {
+				if isRequestBodyTooLarge(err) {
+					log.Warnf("channel proxy: request body too large: %v", err)
+					c.JSON(http.StatusRequestEntityTooLarge, NewStandardError(http.StatusRequestEntityTooLarge, "request body too large"))
+					return
+				}
 				log.Errorf("channel proxy: failed to read request body: %v", err)
 				c.JSON(http.StatusInternalServerError, NewStandardError(http.StatusInternalServerError, "failed to read request body"))
 				return
@@ -1093,11 +1098,10 @@ func rewriteOpenAIRequestBody(req *http.Request, injectStreamUsage bool) {
 		return
 	}
 
-	bodyBytes, err := io.ReadAll(io.LimitReader(req.Body, 10*1024*1024))
+	bodyBytes, err := readRequestBodyWithLimit(req.Body, maxRequestPayloadBytes)
 	if err != nil {
 		return
 	}
-	req.Body.Close()
 
 	modifiedBody, modified := stripOpenAIUnsupportedFieldsBytes(bodyBytes)
 	if injectStreamUsage {
@@ -1107,13 +1111,10 @@ func rewriteOpenAIRequestBody(req *http.Request, injectStreamUsage bool) {
 		}
 	}
 	if !modified {
-		req.Body = io.NopCloser(bytes.NewReader(bodyBytes))
-		req.ContentLength = int64(len(bodyBytes))
+		restoreRequestBody(req, bodyBytes)
 		return
 	}
-	req.Body = io.NopCloser(bytes.NewReader(modifiedBody))
-	req.ContentLength = int64(len(modifiedBody))
-	req.Header.Set("Content-Length", fmt.Sprintf("%d", len(modifiedBody)))
+	restoreRequestBody(req, modifiedBody)
 }
 
 func stripOpenAIUnsupportedFieldsBytes(body []byte) ([]byte, bool) {
