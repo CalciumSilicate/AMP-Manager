@@ -110,3 +110,49 @@ func TestTranslateNonStreamSupportsOpenAIResponsesToChat(t *testing.T) {
 		t.Fatalf("usage.total_tokens = %d, want 27", got)
 	}
 }
+
+func TestTranslateRequestSupportsClaudeToResponses(t *testing.T) {
+	raw := []byte(`{
+		"model":"gpt-5.4-mini",
+		"max_tokens":64,
+		"messages":[{"role":"user","content":"hello from claude"}]
+	}`)
+
+	if !SupportsTranslation(FormatClaude, FormatOpenAIResponses) {
+		t.Fatal("expected claude -> responses to be considered translatable")
+	}
+
+	translated, err := TranslateRequest(FormatClaude, FormatOpenAIResponses, "gpt-5.4-mini", raw, false)
+	if err != nil {
+		t.Fatalf("TranslateRequest returned error: %v", err)
+	}
+	if got := gjson.GetBytes(translated, "input.0.role").String(); got != "user" {
+		t.Fatalf("input.0.role = %q, want user", got)
+	}
+	if got := gjson.GetBytes(translated, "model").String(); got != "gpt-5.4-mini" {
+		t.Fatalf("model = %q, want gpt-5.4-mini", got)
+	}
+}
+
+func TestTranslateRequestSupportsGeminiToResponses(t *testing.T) {
+	raw := []byte(`{
+		"contents":[
+			{"role":"user","parts":[{"text":"hello from gemini"}]}
+		]
+	}`)
+
+	if !SupportsTranslation(FormatGemini, FormatOpenAIResponses) {
+		t.Fatal("expected gemini -> responses to be considered translatable")
+	}
+
+	translated, err := TranslateRequest(FormatGemini, FormatOpenAIResponses, "gpt-5.4-mini", raw, false)
+	if err != nil {
+		t.Fatalf("TranslateRequest returned error: %v", err)
+	}
+	if got := gjson.GetBytes(translated, "input.0.role").String(); got != "user" {
+		t.Fatalf("input.0.role = %q, want user", got)
+	}
+	if got := gjson.GetBytes(translated, "input.0.content.0.text").String(); got != "hello from gemini" {
+		t.Fatalf("input.0.content.0.text = %q, want hello from gemini", got)
+	}
+}

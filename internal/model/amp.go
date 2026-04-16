@@ -164,6 +164,8 @@ type RequestLog struct {
 	ChannelID                *string          `json:"channelId,omitempty"`
 	ChannelName              *string          `json:"channelName,omitempty"`
 	Endpoint                 *string          `json:"endpoint,omitempty"`
+	RequestFormat            *string          `json:"requestFormat,omitempty"`
+	UpstreamFormat           *string          `json:"upstreamFormat,omitempty"`
 	Method                   string           `json:"method"`
 	Path                     string           `json:"path"`
 	StatusCode               int              `json:"statusCode"`
@@ -183,24 +185,32 @@ type RequestLog struct {
 	TransportFallbackReason  *string          `json:"transportFallbackReason,omitempty"`
 	OutputPreview            *string          `json:"outputPreview,omitempty"` // 响应输出预览（前200字符）
 	// 成本相关字段
-	CostMicros                 *int64              `json:"costMicros,omitempty"`   // 成本（微美元，USD * 1e6）
-	CostUsd                    *string             `json:"costUsd,omitempty"`      // 成本（USD，用于展示）
-	PricingModel               *string             `json:"pricingModel,omitempty"` // 计价模型名
-	PricingRuleName            *string             `json:"pricingRuleName,omitempty"`
-	InputCostPerToken          *float64            `json:"inputCostPerToken,omitempty"`
-	OutputCostPerToken         *float64            `json:"outputCostPerToken,omitempty"`
-	CacheReadInputPerToken     *float64            `json:"cacheReadInputPerToken,omitempty"`
-	CacheCreationInputPerToken *float64            `json:"cacheCreationInputPerToken,omitempty"`
-	RateMultiplier             *float64            `json:"rateMultiplier,omitempty"`
-	ChannelRateMultiplier      *float64            `json:"channelRateMultiplier,omitempty"`
-	GroupRateMultiplier        *float64            `json:"groupRateMultiplier,omitempty"`
-	SpecialRateMultiplier      *float64            `json:"specialRateMultiplier,omitempty"`
-	SpecialRateReason          *string             `json:"specialRateReason,omitempty"`
-	ChannelTranslator          *ChannelTranslator  `json:"channelTranslator,omitempty"`
-	BillingStatus              string              `json:"-"`
-	ChargedSubscriptionMicros  int64               `json:"-"`
-	ChargedBalanceMicros       int64               `json:"-"`
-	BillingGapMicros           *int64              `json:"-"`
+	CostMicros                    *int64             `json:"costMicros,omitempty"`   // 成本（微美元，USD * 1e6）
+	CostUsd                       *string            `json:"costUsd,omitempty"`      // 成本（USD，用于展示）
+	PricingModel                  *string            `json:"pricingModel,omitempty"` // 计价模型名
+	PricingRuleName               *string            `json:"pricingRuleName,omitempty"`
+	InputMicrosPerMillion         *int64             `json:"inputMicrosPerMillion,omitempty"`
+	OutputMicrosPerMillion        *int64             `json:"outputMicrosPerMillion,omitempty"`
+	CacheReadMicrosPerMillion     *int64             `json:"cacheReadMicrosPerMillion,omitempty"`
+	CacheCreationMicrosPerMillion *int64             `json:"cacheCreationMicrosPerMillion,omitempty"`
+	InputCostPerToken             *float64           `json:"inputCostPerToken,omitempty"`
+	OutputCostPerToken            *float64           `json:"outputCostPerToken,omitempty"`
+	CacheReadInputPerToken        *float64           `json:"cacheReadInputPerToken,omitempty"`
+	CacheCreationInputPerToken    *float64           `json:"cacheCreationInputPerToken,omitempty"`
+	RateMultiplierPPM             *int64             `json:"rateMultiplierPpm,omitempty"`
+	ChannelRateMultiplierPPM      *int64             `json:"channelRateMultiplierPpm,omitempty"`
+	GroupRateMultiplierPPM        *int64             `json:"groupRateMultiplierPpm,omitempty"`
+	SpecialRateMultiplierPPM      *int64             `json:"specialRateMultiplierPpm,omitempty"`
+	RateMultiplier                *float64           `json:"rateMultiplier,omitempty"`
+	ChannelRateMultiplier         *float64           `json:"channelRateMultiplier,omitempty"`
+	GroupRateMultiplier           *float64           `json:"groupRateMultiplier,omitempty"`
+	SpecialRateMultiplier         *float64           `json:"specialRateMultiplier,omitempty"`
+	SpecialRateReason             *string            `json:"specialRateReason,omitempty"`
+	ChannelTranslator             *ChannelTranslator `json:"channelTranslator,omitempty"`
+	BillingStatus                 string             `json:"-"`
+	ChargedSubscriptionMicros     int64              `json:"-"`
+	ChargedBalanceMicros          int64              `json:"-"`
+	BillingGapMicros              *int64             `json:"-"`
 }
 
 // RequestLogListResponse 请求日志列表响应

@@ -6,20 +6,21 @@ import (
 	"ampmanager/internal/config"
 	"ampmanager/internal/crypto"
 	"ampmanager/internal/model"
+	"ampmanager/internal/precision"
 	"ampmanager/internal/repository"
 
 	log "github.com/sirupsen/logrus"
 )
 
 const (
-	purchaseEnabledKey          = "purchase_enabled"
-	purchaseDebugAutoPaidKey    = "purchase_debug_auto_paid"
-	purchaseAlipayAppIDKey      = "purchase_alipay_app_id"
-	purchaseAlipayPIDKey        = "purchase_alipay_pid"
-	purchaseAlipayEnvKey        = "purchase_alipay_environment"
-	purchaseAlipayNotifyURLKey  = "purchase_alipay_notify_url"
-	purchaseAlipayPublicKeyKey  = "purchase_alipay_public_key"
-	purchaseAlipayPrivateKeyKey = "purchase_alipay_private_key"
+	purchaseEnabledKey           = "purchase_enabled"
+	purchaseDebugAutoPaidKey     = "purchase_debug_auto_paid"
+	purchaseAlipayAppIDKey       = "purchase_alipay_app_id"
+	purchaseAlipayPIDKey         = "purchase_alipay_pid"
+	purchaseAlipayEnvKey         = "purchase_alipay_environment"
+	purchaseAlipayNotifyURLKey   = "purchase_alipay_notify_url"
+	purchaseAlipayPublicKeyKey   = "purchase_alipay_public_key"
+	purchaseAlipayPrivateKeyKey  = "purchase_alipay_private_key"
 	purchaseBalanceTopupPriceKey = "purchase_balance_topup_price_cny_cent_per_usd"
 )
 
@@ -46,11 +47,11 @@ func (s *PurchaseSettingsService) Get() (*model.PurchaseSettings, error) {
 		settings.PurchaseEnabled = value == "true"
 	}
 
-		if value, err := s.repo.Get(purchaseDebugAutoPaidKey); err != nil {
-			return nil, err
-		} else if strings.TrimSpace(value) != "" {
-			settings.DebugAutoPaid = value == "true"
-		}
+	if value, err := s.repo.Get(purchaseDebugAutoPaidKey); err != nil {
+		return nil, err
+	} else if strings.TrimSpace(value) != "" {
+		settings.DebugAutoPaid = value == "true"
+	}
 
 	if value, err := s.repo.Get(purchaseBalanceTopupPriceKey); err != nil {
 		return nil, err
@@ -99,21 +100,27 @@ func (s *PurchaseSettingsService) Update(req *model.PurchaseSettingsRequest) (*m
 	}
 
 	settings := &model.PurchaseSettings{
-		PurchaseEnabled:              req.PurchaseEnabled,
-		DebugAutoPaid:                req.DebugAutoPaid,
-		AlipayAppID:                  strings.TrimSpace(req.AlipayAppID),
-		AlipayPID:                    strings.TrimSpace(req.AlipayPID),
-		AlipayNotifyURL:              strings.TrimSpace(req.AlipayNotifyURL),
-		AlipayPublicKey:              strings.TrimSpace(req.AlipayPublicKey),
-		AlipayEnvironment:            req.AlipayEnvironment,
-		AlipayPrivateKey:             current.AlipayPrivateKey,
+		PurchaseEnabled:                req.PurchaseEnabled,
+		DebugAutoPaid:                  req.DebugAutoPaid,
+		AlipayAppID:                    strings.TrimSpace(req.AlipayAppID),
+		AlipayPID:                      strings.TrimSpace(req.AlipayPID),
+		AlipayNotifyURL:                strings.TrimSpace(req.AlipayNotifyURL),
+		AlipayPublicKey:                strings.TrimSpace(req.AlipayPublicKey),
+		AlipayEnvironment:              req.AlipayEnvironment,
+		AlipayPrivateKey:               current.AlipayPrivateKey,
 		BalanceTopupPriceCnyCentPerUSD: current.BalanceTopupPriceCnyCentPerUSD,
 	}
 	if settings.AlipayEnvironment == "" {
 		settings.AlipayEnvironment = model.AlipayEnvironmentSandbox
 	}
-	if req.BalanceTopupPriceCnyPerUsd != nil && *req.BalanceTopupPriceCnyPerUsd >= 0 {
-		settings.BalanceTopupPriceCnyCentPerUSD = int64(*req.BalanceTopupPriceCnyPerUsd * 100)
+	if req.BalanceTopupPriceCnyPerUsd != nil {
+		cents, err := precision.ParseUSDToCents(*req.BalanceTopupPriceCnyPerUsd)
+		if err != nil {
+			return nil, err
+		}
+		if cents >= 0 {
+			settings.BalanceTopupPriceCnyCentPerUSD = cents
+		}
 	}
 	if privateKey := strings.TrimSpace(req.AlipayPrivateKey); privateKey != "" {
 		settings.AlipayPrivateKey = privateKey
@@ -166,16 +173,17 @@ func (s *PurchaseSettingsService) ToResponse(settings *model.PurchaseSettings) *
 	}
 
 	return &model.PurchaseSettingsResponse{
-		PurchaseEnabled:   settings.PurchaseEnabled,
-		DebugAutoPaid:     settings.DebugAutoPaid,
-		AlipayAppID:       settings.AlipayAppID,
-		AlipayPID:         settings.AlipayPID,
-		AlipayEnvironment: settings.AlipayEnvironment,
-		AlipayNotifyURL:   settings.AlipayNotifyURL,
-		AlipayPublicKey:   settings.AlipayPublicKey,
-		PrivateKeySet:     strings.TrimSpace(settings.AlipayPrivateKey) != "",
-		PaymentConfigured: s.IsAlipayConfigured(settings),
-		BalanceTopupPriceCnyPerUsd: float64(settings.BalanceTopupPriceCnyCentPerUSD) / 100,
+		PurchaseEnabled:                settings.PurchaseEnabled,
+		DebugAutoPaid:                  settings.DebugAutoPaid,
+		AlipayAppID:                    settings.AlipayAppID,
+		AlipayPID:                      settings.AlipayPID,
+		AlipayEnvironment:              settings.AlipayEnvironment,
+		AlipayNotifyURL:                settings.AlipayNotifyURL,
+		AlipayPublicKey:                settings.AlipayPublicKey,
+		PrivateKeySet:                  strings.TrimSpace(settings.AlipayPrivateKey) != "",
+		PaymentConfigured:              s.IsAlipayConfigured(settings),
+		BalanceTopupPriceCnyPerUsd:     float64(settings.BalanceTopupPriceCnyCentPerUSD) / 100,
+		BalanceTopupPriceCnyCentPerUsd: settings.BalanceTopupPriceCnyCentPerUSD,
 	}
 }
 

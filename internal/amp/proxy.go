@@ -23,19 +23,19 @@ import (
 type proxyConfigKey struct{}
 
 type ProxyConfig struct {
-	UserID            string
-	APIKeyID          string
-	UpstreamURL       string
-	UpstreamAPIKey    string
-	ModelMappingsJSON string
-	Enabled           bool   // 启用 AMP 增强功能（模型映射、渠道路由等）
-	WebSearchMode     string // upstream | builtin_free | local_duckduckgo
-	NativeMode        bool
-	ShowBalanceInAd   bool
-	Socks5Proxy       string
-	RateMultiplier    float64
+	UserID              string
+	APIKeyID            string
+	UpstreamURL         string
+	UpstreamAPIKey      string
+	ModelMappingsJSON   string
+	Enabled             bool   // 启用 AMP 增强功能（模型映射、渠道路由等）
+	WebSearchMode       string // upstream | builtin_free | local_duckduckgo
+	NativeMode          bool
+	ShowBalanceInAd     bool
+	Socks5Proxy         string
+	RateMultiplier      float64
 	GroupRateMultiplier float64
-	GroupIDs          []string
+	GroupIDs            []string
 }
 
 func WithProxyConfig(ctx context.Context, cfg *ProxyConfig) context.Context {
@@ -386,7 +386,9 @@ func CreateDynamicReverseProxy() *httputil.ReverseProxy {
 				)
 				trace.SetUpstreamTransport("http")
 				// Set provider info (amp upstream defaults to Anthropic)
-				trace.SetChannel("", string(ProviderAnthropic), cfg.UpstreamURL)
+				trace.SetChannel("", string(ProviderAnthropic), req.URL.Path)
+				incomingFormat := detectIncomingFormat(req.URL.Path)
+				trace.SetFormatConversion(incomingFormat.String(), incomingFormat.String())
 				// Get model info from context if available
 				if modelInfo := GetModelInfo(req.Context()); modelInfo != nil {
 					trace.SetModels(modelInfo.OriginalModel, modelInfo.MappedModel)

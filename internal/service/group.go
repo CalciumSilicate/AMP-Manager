@@ -4,6 +4,7 @@ import (
 	"errors"
 
 	"ampmanager/internal/model"
+	"ampmanager/internal/precision"
 	"ampmanager/internal/repository"
 )
 
@@ -32,13 +33,15 @@ func (s *GroupService) Create(req *model.GroupRequest) (*model.GroupResponse, er
 	}
 
 	group := &model.Group{
-		Name:           req.Name,
-		Description:    req.Description,
-		RateMultiplier: req.RateMultiplier,
+		Name:        req.Name,
+		Description: req.Description,
 	}
-	if group.RateMultiplier == 0 {
-		group.RateMultiplier = 1.0
+	rateMultiplierPPM, err := resolveGroupRateMultiplierPPM(req)
+	if err != nil {
+		return nil, err
 	}
+	group.RateMultiplierPPM = rateMultiplierPPM
+	group.RateMultiplier = precision.MultiplierPPMToFloat64(rateMultiplierPPM)
 
 	if err := s.repo.Create(group); err != nil {
 		return nil, err
@@ -96,10 +99,12 @@ func (s *GroupService) Update(id string, req *model.GroupRequest) (*model.GroupR
 
 	group.Name = req.Name
 	group.Description = req.Description
-	group.RateMultiplier = req.RateMultiplier
-	if group.RateMultiplier == 0 {
-		group.RateMultiplier = 1.0
+	rateMultiplierPPM, err := resolveGroupRateMultiplierPPM(req)
+	if err != nil {
+		return nil, err
 	}
+	group.RateMultiplierPPM = rateMultiplierPPM
+	group.RateMultiplier = precision.MultiplierPPMToFloat64(rateMultiplierPPM)
 
 	if err := s.repo.Update(group); err != nil {
 		return nil, err
@@ -130,13 +135,24 @@ func (s *GroupService) toResponse(group *model.Group) (*model.GroupResponse, err
 	}
 
 	return &model.GroupResponse{
-		ID:             group.ID,
-		Name:           group.Name,
-		Description:    group.Description,
-		RateMultiplier: group.RateMultiplier,
-		UserCount:      userCount,
-		ChannelCount:   channelCount,
-		CreatedAt:      group.CreatedAt,
-		UpdatedAt:      group.UpdatedAt,
+		ID:                group.ID,
+		Name:              group.Name,
+		Description:       group.Description,
+		RateMultiplierPPM: group.RateMultiplierPPM,
+		RateMultiplier:    precision.MultiplierPPMToFloat64(group.RateMultiplierPPM),
+		UserCount:         userCount,
+		ChannelCount:      channelCount,
+		CreatedAt:         group.CreatedAt,
+		UpdatedAt:         group.UpdatedAt,
 	}, nil
+}
+
+func resolveGroupRateMultiplierPPM(req *model.GroupRequest) (int64, error) {
+	if req == nil {
+		return precision.DefaultMultiplierPPM, nil
+	}
+	if req.RateMultiplierPPM != nil && *req.RateMultiplierPPM > 0 {
+		return *req.RateMultiplierPPM, nil
+	}
+	return precision.ParseMultiplierToPPM(req.RateMultiplier)
 }

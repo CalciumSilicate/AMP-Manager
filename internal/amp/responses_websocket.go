@@ -170,13 +170,13 @@ func ResponsesWebsocketProxyHandler() gin.HandlerFunc {
 			if assistantText := extractResponsesCompletedText(completedPayload); assistantText != "" {
 				trace.SetResponseText(assistantText)
 			}
-				if usage, _, ok := (&openAIResponsesParser{}).ConsumeSSE("response.completed", completedPayload); ok && usage != nil {
-					trace.SetUsage(usage.InputTokens, usage.OutputTokens, usage.CacheReadInputTokens, usage.CacheCreationInputTokens)
-				}
-				applyResponsesTraceCost(trace, c.Request.Context())
-				if len(completedPayload) > 0 {
-					StoreResponseDetail(trace.RequestID, sanitizeHeaders(responseHeaders), completedPayload)
-				}
+			if usage, _, ok := (&openAIResponsesParser{}).ConsumeSSE("response.completed", completedPayload); ok && usage != nil {
+				trace.SetUsage(usage.InputTokens, usage.OutputTokens, usage.CacheReadInputTokens, usage.CacheCreationInputTokens)
+			}
+			applyResponsesTraceCost(trace, c.Request.Context())
+			if len(completedPayload) > 0 {
+				StoreResponseDetail(trace.RequestID, sanitizeHeaders(responseHeaders), completedPayload)
+			}
 			if writer := GetLogWriter(); writer != nil {
 				writer.UpdateFromTrace(trace)
 			}
@@ -384,7 +384,8 @@ func prepareResponsesWebsocketTurn(c *gin.Context, session *responsesWebsocketSe
 	}
 
 	trace := NewRequestTrace(uuid.New().String(), proxyCfg.UserID, proxyCfg.APIKeyID, "WEBSOCKET", "/v1/responses")
-	trace.SetChannel(channel.ID, string(channel.Type), channel.BaseURL)
+	trace.SetChannel(channel.ID, string(channel.Type), string(channel.Endpoint))
+	trace.SetFormatConversion(translator.FormatOpenAIResponses.String(), translator.FormatOpenAIResponses.String())
 	trace.SetModels(result.OriginalModel, result.MappedModel)
 	trace.SetStreaming(true)
 	trace.SetDownstreamTransport(responsesWebsocketTransportWS)

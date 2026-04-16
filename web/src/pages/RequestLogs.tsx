@@ -110,6 +110,15 @@ function formatMultiplierValue(value?: number) {
   return `${formatDecimal(value, 2)}x`
 }
 
+function multiplierBadgeClass(value?: number) {
+  if (typeof value !== 'number') return ''
+  if (value >= 10) return 'border-rose-200 bg-rose-50 text-rose-700 hover:bg-rose-100'
+  if (value >= 3) return 'border-amber-200 bg-amber-50 text-amber-700 hover:bg-amber-100'
+  if (value > 1) return 'border-emerald-200 bg-emerald-50 text-emerald-700 hover:bg-emerald-100'
+  if (value === 1) return 'border-slate-200 bg-slate-50 text-slate-700 hover:bg-slate-100'
+  return 'border-violet-200 bg-violet-50 text-violet-700 hover:bg-violet-100'
+}
+
 function buildPricingTitle(log: RequestLog) {
   const modelLabel = log.pricingModel || log.mappedModel || log.originalModel || '模型'
   if (log.pricingRuleName) {
@@ -118,15 +127,27 @@ function buildPricingTitle(log: RequestLog) {
   return `${modelLabel} 计费标准`
 }
 
-function enabledTranslatorLabels(log: RequestLog) {
-  const translator = log.channelTranslator
-  if (!translator) return []
-  return [
-    translator.compatible ? 'Compatible' : null,
-    translator.responses ? 'Responses' : null,
-    translator.messages ? 'Messages' : null,
-    translator.gemini ? 'Gemini' : null,
-  ].filter(Boolean) as string[]
+function formatRequestFormatLabel(format?: string) {
+  switch (format) {
+    case 'openai-chat':
+    case 'openai':
+      return 'Compatible'
+    case 'openai-responses':
+      return 'Responses'
+    case 'claude':
+      return 'Anthropic Messages'
+    case 'gemini':
+      return 'Gemini'
+    default:
+      return format || ''
+  }
+}
+
+function translationPathLabel(log: RequestLog) {
+  if (!log.requestFormat || !log.upstreamFormat || log.requestFormat === log.upstreamFormat) {
+    return null
+  }
+  return `${formatRequestFormatLabel(log.requestFormat)} -> ${formatRequestFormatLabel(log.upstreamFormat)}`
 }
 
 function formatMethodLabel(method?: string) {
@@ -187,7 +208,7 @@ const RequestLogRow = memo(function RequestLogRow({
 }) {
   const userDisplay = log.username || userIdToUsername.get(log.userId) || `${log.userId.slice(0, 8)}...`
   const keyDisplay = log.apiKeyName ? `${log.apiKeyName}${log.apiKeyPrefix ? ` (${log.apiKeyPrefix})` : ''}` : (log.apiKeyPrefix || log.apiKeyId || '-')
-  const translatorLabels = enabledTranslatorLabels(log)
+  const translationPath = translationPathLabel(log)
 
   return (
     <TableRow>
@@ -230,7 +251,15 @@ const RequestLogRow = memo(function RequestLogRow({
           <Tooltip>
             <TooltipTrigger asChild>
               <div className="flex flex-wrap items-center gap-1.5">
-                <Badge variant="outline" className="cursor-help text-xs">{log.channelName || log.provider}</Badge>
+                <Badge
+                  variant="outline"
+                  className={cn(
+                    'cursor-help text-xs',
+                    translationPath ? 'border-sky-300 bg-sky-50 text-sky-700 hover:bg-sky-100' : undefined,
+                  )}
+                >
+                  {log.channelName || log.provider}
+                </Badge>
               </div>
             </TooltipTrigger>
             <TooltipContent side="bottom" className="max-w-80 border bg-popover px-3 py-2 text-xs text-popover-foreground shadow-md">
@@ -238,10 +267,12 @@ const RequestLogRow = memo(function RequestLogRow({
                 <div className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1.5">
                   <span className="text-[11px] font-medium text-foreground/70">渠道</span>
                   <span className="text-[11px] font-medium text-foreground">{log.channelName || log.provider}</span>
-                  <span className="text-[11px] font-medium text-foreground/70">翻译器</span>
-                  <span className="text-[11px] font-medium text-foreground">
-                    {translatorLabels.length > 0 ? translatorLabels.join(' / ') : '无'}
-                  </span>
+                  {translationPath ? (
+                    <>
+                      <span className="text-[11px] font-medium text-foreground/70">翻译</span>
+                      <span className="text-[11px] font-medium text-sky-700">{translationPath}</span>
+                    </>
+                  ) : null}
                 </div>
               </div>
             </TooltipContent>
@@ -330,12 +361,12 @@ const RequestLogRow = memo(function RequestLogRow({
       </TableCell>
       <TableCell className="text-right">
         {typeof log.rateMultiplier === 'number' ? (
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Badge variant="outline" className="cursor-help font-mono">
-                {formatDecimal(log.rateMultiplier, 2)}x
-              </Badge>
-            </TooltipTrigger>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Badge variant="outline" className={cn('cursor-help font-mono', multiplierBadgeClass(log.rateMultiplier))}>
+                  {formatDecimal(log.rateMultiplier, 2)}x
+                </Badge>
+              </TooltipTrigger>
             <TooltipContent side="bottom" className="max-w-80 border bg-popover px-3 py-2 text-xs text-popover-foreground shadow-md">
               <div className="space-y-2">
                 <p className="text-[11px] font-semibold tracking-[0.02em] text-foreground">倍率拆分</p>

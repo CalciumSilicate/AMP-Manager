@@ -8,6 +8,7 @@ import (
 
 	"ampmanager/internal/middleware"
 	"ampmanager/internal/model"
+	"ampmanager/internal/precision"
 	"ampmanager/internal/service"
 
 	"github.com/gin-gonic/gin"
@@ -311,7 +312,11 @@ func (h *UserHandler) TopUp(c *gin.Context) {
 		return
 	}
 
-	amountMicros := int64(req.AmountUsd * 1e6)
+	amountMicros, err := precision.ParseUSDToMicros(req.AmountUsd)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "充值金额格式错误"})
+		return
+	}
 	if amountMicros <= 0 {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "充值金额必须大于0"})
 		return

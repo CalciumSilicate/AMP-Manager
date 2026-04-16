@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"ampmanager/internal/model"
+	"ampmanager/internal/precision"
 	"ampmanager/internal/repository"
 	"ampmanager/internal/service"
 
@@ -297,10 +298,11 @@ func APIKeyAuthMiddleware() gin.HandlerFunc {
 			}
 		}
 
-		rateMultiplier, groupIDs, err := groupRepo.GetMinRateMultiplierByUserID(apiKeyRecord.UserID)
+		rateMultiplierPPM, groupIDs, err := groupRepo.GetMinRateMultiplierByUserID(apiKeyRecord.UserID)
 		if err != nil {
 			log.Warnf("amp api key auth: failed to get rate multiplier for user %s: %v", apiKeyRecord.UserID, err)
 		}
+		rateMultiplier := precision.MultiplierPPMToFloat64(rateMultiplierPPM)
 		proxyCfg.RateMultiplier = rateMultiplier
 		proxyCfg.GroupRateMultiplier = rateMultiplier
 		proxyCfg.GroupIDs = groupIDs

@@ -81,18 +81,22 @@ func (c *CostCalculator) Calculate(pricingModel string, usage TokenUsage) CostRe
 	totalTokens := int64(inputTokens + outputTokens)
 	if rule, ok := c.store.MatchContextRule(modelPrice.Model, totalTokens); ok {
 		priceData = PriceData{
-			InputCostPerToken:      rule.InputCostPerToken,
-			OutputCostPerToken:     rule.OutputCostPerToken,
-			CacheReadInputPerToken: rule.CacheReadInputPerToken,
-			CacheCreationPerToken:  rule.CacheCreationPerToken,
+			InputMicrosPerMillion:         rule.InputMicrosPerMillion,
+			OutputMicrosPerMillion:        rule.OutputMicrosPerMillion,
+			CacheReadMicrosPerMillion:     rule.CacheReadMicrosPerMillion,
+			CacheCreationMicrosPerMillion: rule.CacheCreationMicrosPerMillion,
+			InputCostPerToken:             rule.InputCostPerToken,
+			OutputCostPerToken:            rule.OutputCostPerToken,
+			CacheReadInputPerToken:        rule.CacheReadInputPerToken,
+			CacheCreationPerToken:         rule.CacheCreationPerToken,
 		}
 		result.PricingRuleName = rule.RuleName
 	}
 
-	inputMicros := int64(math.Round(float64(uncachedInputTokens) * priceData.InputCostPerToken * 1e6))
-	outputMicros := int64(math.Round(float64(outputTokens) * priceData.OutputCostPerToken * 1e6))
-	cacheReadMicros := int64(math.Round(float64(cacheReadTokens) * priceData.CacheReadInputPerToken * 1e6))
-	cacheCreateMicros := int64(math.Round(float64(cacheCreationTokens) * priceData.CacheCreationPerToken * 1e6))
+	inputMicros := int64(math.Round(float64(int64(uncachedInputTokens)*priceData.InputMicrosPerMillion) / 1_000_000.0))
+	outputMicros := int64(math.Round(float64(int64(outputTokens)*priceData.OutputMicrosPerMillion) / 1_000_000.0))
+	cacheReadMicros := int64(math.Round(float64(int64(cacheReadTokens)*priceData.CacheReadMicrosPerMillion) / 1_000_000.0))
+	cacheCreateMicros := int64(math.Round(float64(int64(cacheCreationTokens)*priceData.CacheCreationMicrosPerMillion) / 1_000_000.0))
 
 	totalMicros := inputMicros + outputMicros + cacheReadMicros + cacheCreateMicros
 	result.CostMicros = totalMicros

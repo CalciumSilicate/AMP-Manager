@@ -18,6 +18,11 @@ type openAIResponsesToChatState struct {
 	HasToolCallAnnounced      bool
 }
 
+type chainedResponseParams struct {
+	First  any
+	Second any
+}
+
 func registerSupplementalTransforms(registry *Registry) {
 	registry.Register(
 		FormatOpenAIChat,
@@ -28,6 +33,148 @@ func registerSupplementalTransforms(registry *Registry) {
 			NonStream: convertOpenAIResponsesNonStreamToChat,
 		},
 	)
+	registry.Register(
+		FormatClaude,
+		FormatOpenAIResponses,
+		func(modelName string, rawJSON []byte, stream bool) ([]byte, error) {
+			return convertChainedRequestToResponses(registry, FormatClaude, modelName, rawJSON, stream)
+		},
+		ResponseTransform{
+			Stream: func(ctx context.Context, model string, originalRequestRawJSON, requestRawJSON, rawJSON []byte, param *any) ([]string, error) {
+				return chainResponsesStream(registry, ctx, model, originalRequestRawJSON, requestRawJSON, rawJSON, param, FormatClaude)
+			},
+			NonStream: func(ctx context.Context, model string, originalRequestRawJSON, requestRawJSON, rawJSON []byte, param *any) (string, error) {
+				return chainResponsesNonStream(registry, ctx, model, originalRequestRawJSON, requestRawJSON, rawJSON, param, FormatClaude)
+			},
+		},
+	)
+	registry.Register(
+		FormatGemini,
+		FormatOpenAIResponses,
+		func(modelName string, rawJSON []byte, stream bool) ([]byte, error) {
+			return convertChainedRequestToResponses(registry, FormatGemini, modelName, rawJSON, stream)
+		},
+		ResponseTransform{
+			Stream: func(ctx context.Context, model string, originalRequestRawJSON, requestRawJSON, rawJSON []byte, param *any) ([]string, error) {
+				return chainResponsesStream(registry, ctx, model, originalRequestRawJSON, requestRawJSON, rawJSON, param, FormatGemini)
+			},
+			NonStream: func(ctx context.Context, model string, originalRequestRawJSON, requestRawJSON, rawJSON []byte, param *any) (string, error) {
+				return chainResponsesNonStream(registry, ctx, model, originalRequestRawJSON, requestRawJSON, rawJSON, param, FormatGemini)
+			},
+		},
+	)
+}
+
+func convertChainedRequestToResponses(registry *Registry, sourceFormat Format, modelName string, rawJSON []byte, stream bool) ([]byte, error) {
+	chatRequest, err := registry.TranslateRequest(sourceFormat, FormatOpenAIChat, modelName, rawJSON, stream)
+	if err != nil {
+		return nil, err
+	}
+	return registry.TranslateRequest(FormatOpenAIChat, FormatOpenAIResponses, modelName, chatRequest, stream)
+}
+
+func chainResponsesStream(
+	registry *Registry,
+	ctx context.Context,
+	model string,
+	originalRequestRawJSON, requestRawJSON, rawJSON []byte,
+	param *any,
+	targetFormat Format,
+) ([]string, error) {
+	stageParams := getChainedResponseParams(param)
+	chatRequest, err := registry.TranslateRequest(targetFormat, FormatOpenAIChat, model, originalRequestRawJSON, true)
+	if err != nil {
+		return nil, err
+	}
+
+	chatPayloads, err := registry.TranslateStream(
+		ctx,
+		FormatOpenAIChat,
+		FormatOpenAIResponses,
+		model,
+		chatRequest,
+		requestRawJSON,
+		rawJSON,
+		&stageParams.First,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	out := make([]string, 0, len(chatPayloads))
+	for _, chatPayload := range chatPayloads {
+		targetPayloads, targetErr := registry.TranslateStream(
+			ctx,
+			targetFormat,
+			FormatOpenAIChat,
+			model,
+			originalRequestRawJSON,
+			chatRequest,
+			[]byte(chatPayload),
+			&stageParams.Second,
+		)
+		if targetErr != nil {
+			return nil, targetErr
+		}
+		out = append(out, targetPayloads...)
+	}
+	*param = stageParams
+	return out, nil
+}
+
+func chainResponsesNonStream(
+	registry *Registry,
+	ctx context.Context,
+	model string,
+	originalRequestRawJSON, requestRawJSON, rawJSON []byte,
+	param *any,
+	targetFormat Format,
+) (string, error) {
+	stageParams := getChainedResponseParams(param)
+	chatRequest, err := registry.TranslateRequest(targetFormat, FormatOpenAIChat, model, originalRequestRawJSON, false)
+	if err != nil {
+		return "", err
+	}
+	chatPayload, err := registry.TranslateNonStream(
+		ctx,
+		FormatOpenAIChat,
+		FormatOpenAIResponses,
+		model,
+		chatRequest,
+		requestRawJSON,
+		rawJSON,
+		&stageParams.First,
+	)
+	if err != nil {
+		return "", err
+	}
+	targetPayload, err := registry.TranslateNonStream(
+		ctx,
+		targetFormat,
+		FormatOpenAIChat,
+		model,
+		originalRequestRawJSON,
+		chatRequest,
+		[]byte(chatPayload),
+		&stageParams.Second,
+	)
+	if err != nil {
+		return "", err
+	}
+	*param = stageParams
+	return targetPayload, nil
+}
+
+func getChainedResponseParams(param *any) *chainedResponseParams {
+	if param == nil {
+		return &chainedResponseParams{}
+	}
+	if existing, ok := (*param).(*chainedResponseParams); ok && existing != nil {
+		return existing
+	}
+	stageParams := &chainedResponseParams{}
+	*param = stageParams
+	return stageParams
 }
 
 func convertOpenAIChatRequestToResponses(modelName string, rawJSON []byte, stream bool) ([]byte, error) {

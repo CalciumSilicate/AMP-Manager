@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"ampmanager/internal/model"
+	"ampmanager/internal/precision"
 	"ampmanager/internal/repository"
 	internaltranslator "ampmanager/internal/translator"
 	"ampmanager/internal/util"
@@ -277,9 +278,9 @@ func (s *ChannelService) Create(req *model.ChannelRequest) (*model.ChannelRespon
 	if priority < 1 {
 		priority = 100
 	}
-	rateMultiplier := req.RateMultiplier
-	if rateMultiplier <= 0 {
-		rateMultiplier = 1
+	rateMultiplierPPM, err := resolveChannelRateMultiplierPPM(req)
+	if err != nil {
+		return nil, err
 	}
 
 	endpoint := req.Endpoint
@@ -296,7 +297,8 @@ func (s *ChannelService) Create(req *model.ChannelRequest) (*model.ChannelRespon
 		Enabled:               req.Enabled,
 		Weight:                weight,
 		Priority:              priority,
-		RateMultiplier:        rateMultiplier,
+		RateMultiplierPPM:     rateMultiplierPPM,
+		RateMultiplier:        precision.MultiplierPPMToFloat64(rateMultiplierPPM),
 		ModelWhitelist:        req.ModelWhitelist,
 		SimulateCLI:           req.SimulateCLI,
 		SimulateUA:            req.SimulateUA,
@@ -380,9 +382,9 @@ func (s *ChannelService) Update(id string, req *model.ChannelRequest) (*model.Ch
 	if priority < 1 {
 		priority = 100
 	}
-	rateMultiplier := req.RateMultiplier
-	if rateMultiplier <= 0 {
-		rateMultiplier = 1
+	rateMultiplierPPM, err := resolveChannelRateMultiplierPPM(req)
+	if err != nil {
+		return nil, err
 	}
 
 	endpoint := req.Endpoint
@@ -397,7 +399,8 @@ func (s *ChannelService) Update(id string, req *model.ChannelRequest) (*model.Ch
 	existing.Enabled = req.Enabled
 	existing.Weight = weight
 	existing.Priority = priority
-	existing.RateMultiplier = rateMultiplier
+	existing.RateMultiplierPPM = rateMultiplierPPM
+	existing.RateMultiplier = precision.MultiplierPPMToFloat64(rateMultiplierPPM)
 	existing.ModelWhitelist = req.ModelWhitelist
 	existing.SimulateCLI = req.SimulateCLI
 	existing.SimulateUA = req.SimulateUA
@@ -625,11 +628,11 @@ func buildChannelTestPayload(req *model.TestChannelRequest) ([]byte, error) {
 		return json.Marshal(payload)
 	case model.ChannelEndpointMessages:
 		payload := map[string]any{
-			"model":       modelName,
-			"stream":      true,
-			"system":      instructions,
-			"max_tokens":  64,
-			"messages":    []map[string]any{{"role": "user", "content": prompt}},
+			"model":        modelName,
+			"stream":       true,
+			"system":       instructions,
+			"max_tokens":   64,
+			"messages":     []map[string]any{{"role": "user", "content": prompt}},
 			"instructions": instructions,
 		}
 		if effort := strings.TrimSpace(req.ThinkingEffort); effort != "" {
@@ -644,7 +647,7 @@ func buildChannelTestPayload(req *model.TestChannelRequest) ([]byte, error) {
 	case model.ChannelEndpointGenerateContent:
 		payload := map[string]any{
 			"contents": []map[string]any{{
-				"role": "user",
+				"role":  "user",
 				"parts": []map[string]any{{"text": prompt}},
 			}},
 			"system_instruction": map[string]any{
@@ -1135,7 +1138,8 @@ func (s *ChannelService) buildResponse(channel *model.Channel, gids []string, gr
 		Enabled:               channel.Enabled,
 		Weight:                channel.Weight,
 		Priority:              channel.Priority,
-		RateMultiplier:        channel.RateMultiplier,
+		RateMultiplierPPM:     channel.RateMultiplierPPM,
+		RateMultiplier:        precision.MultiplierPPMToFloat64(channel.RateMultiplierPPM),
 		ModelWhitelist:        channel.ModelWhitelist,
 		SimulateCLI:           channel.SimulateCLI,
 		SimulateUA:            channel.SimulateUA,
@@ -1151,4 +1155,14 @@ func (s *ChannelService) buildResponse(channel *model.Channel, gids []string, gr
 		CreatedAt:             channel.CreatedAt,
 		UpdatedAt:             channel.UpdatedAt,
 	}
+}
+
+func resolveChannelRateMultiplierPPM(req *model.ChannelRequest) (int64, error) {
+	if req == nil {
+		return precision.DefaultMultiplierPPM, nil
+	}
+	if req.RateMultiplierPPM != nil && *req.RateMultiplierPPM > 0 {
+		return *req.RateMultiplierPPM, nil
+	}
+	return precision.ParseMultiplierToPPM(req.RateMultiplier)
 }

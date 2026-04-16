@@ -7,6 +7,7 @@ import (
 
 	"ampmanager/internal/database"
 	"ampmanager/internal/model"
+	"ampmanager/internal/precision"
 
 	"github.com/google/uuid"
 )
@@ -40,10 +41,10 @@ func (r *ChannelRepository) Create(channel *model.Channel) error {
 	channel.UpdatedAt = now
 
 	_, err := db.Exec(
-		`INSERT INTO channels (id, type, endpoint, name, base_url, api_key, enabled, weight, priority, rate_multiplier, model_whitelist, simulate_cli, simulate_ua, simulate_system_prompt, traditional_chinese, copilot_api, codex_websocket_enabled, models_json, headers_json, translator_json, created_at, updated_at)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		`INSERT INTO channels (id, type, endpoint, name, base_url, api_key, enabled, weight, priority, rate_multiplier, rate_multiplier_ppm, model_whitelist, simulate_cli, simulate_ua, simulate_system_prompt, traditional_chinese, copilot_api, codex_websocket_enabled, models_json, headers_json, translator_json, created_at, updated_at)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		channel.ID, channel.Type, channel.Endpoint, channel.Name, channel.BaseURL, channel.APIKey,
-		channel.Enabled, channel.Weight, channel.Priority, channel.RateMultiplier, channel.ModelWhitelist, channel.SimulateCLI, channel.SimulateUA, channel.SimulateSystemPrompt, channel.TraditionalChinese, channel.CopilotAPI, channel.CodexWebsocketEnabled, channel.ModelsJSON, channel.HeadersJSON, channel.TranslatorJSON,
+		channel.Enabled, channel.Weight, channel.Priority, channel.RateMultiplier, channel.RateMultiplierPPM, channel.ModelWhitelist, channel.SimulateCLI, channel.SimulateUA, channel.SimulateSystemPrompt, channel.TraditionalChinese, channel.CopilotAPI, channel.CodexWebsocketEnabled, channel.ModelsJSON, channel.HeadersJSON, channel.TranslatorJSON,
 		channel.CreatedAt, channel.UpdatedAt,
 	)
 	return err
@@ -52,14 +53,16 @@ func (r *ChannelRepository) Create(channel *model.Channel) error {
 func (r *ChannelRepository) GetByID(id string) (*model.Channel, error) {
 	db := database.GetDB()
 	channel := &model.Channel{}
+	var rateMultiplier sql.NullFloat64
+	var rateMultiplierPPM sql.NullInt64
 
 	err := db.QueryRow(
-		`SELECT id, type, endpoint, name, base_url, api_key, enabled, weight, priority, rate_multiplier, model_whitelist, simulate_cli, simulate_ua, simulate_system_prompt, traditional_chinese, copilot_api, codex_websocket_enabled, models_json, headers_json, translator_json, created_at, updated_at
+		`SELECT id, type, endpoint, name, base_url, api_key, enabled, weight, priority, rate_multiplier, rate_multiplier_ppm, model_whitelist, simulate_cli, simulate_ua, simulate_system_prompt, traditional_chinese, copilot_api, codex_websocket_enabled, models_json, headers_json, translator_json, created_at, updated_at
 		 FROM channels WHERE id = ?`,
 		id,
 	).Scan(
 		&channel.ID, &channel.Type, &channel.Endpoint, &channel.Name, &channel.BaseURL, &channel.APIKey,
-		&channel.Enabled, &channel.Weight, &channel.Priority, &channel.RateMultiplier, &channel.ModelWhitelist, &channel.SimulateCLI, &channel.SimulateUA, &channel.SimulateSystemPrompt, &channel.TraditionalChinese, &channel.CopilotAPI, &channel.CodexWebsocketEnabled, &channel.ModelsJSON, &channel.HeadersJSON, &channel.TranslatorJSON,
+		&channel.Enabled, &channel.Weight, &channel.Priority, &rateMultiplier, &rateMultiplierPPM, &channel.ModelWhitelist, &channel.SimulateCLI, &channel.SimulateUA, &channel.SimulateSystemPrompt, &channel.TraditionalChinese, &channel.CopilotAPI, &channel.CodexWebsocketEnabled, &channel.ModelsJSON, &channel.HeadersJSON, &channel.TranslatorJSON,
 		&channel.CreatedAt, &channel.UpdatedAt,
 	)
 
@@ -69,13 +72,15 @@ func (r *ChannelRepository) GetByID(id string) (*model.Channel, error) {
 	if err != nil {
 		return nil, err
 	}
+	channel.RateMultiplierPPM = deriveChannelMultiplierPPM(rateMultiplierPPM, rateMultiplier)
+	channel.RateMultiplier = precision.MultiplierPPMToFloat64(channel.RateMultiplierPPM)
 	return channel, nil
 }
 
 func (r *ChannelRepository) List() ([]*model.Channel, error) {
 	db := database.GetDB()
 	rows, err := db.Query(
-		`SELECT id, type, endpoint, name, base_url, api_key, enabled, weight, priority, rate_multiplier, model_whitelist, simulate_cli, simulate_ua, simulate_system_prompt, traditional_chinese, copilot_api, codex_websocket_enabled, models_json, headers_json, translator_json, created_at, updated_at
+		`SELECT id, type, endpoint, name, base_url, api_key, enabled, weight, priority, rate_multiplier, rate_multiplier_ppm, model_whitelist, simulate_cli, simulate_ua, simulate_system_prompt, traditional_chinese, copilot_api, codex_websocket_enabled, models_json, headers_json, translator_json, created_at, updated_at
 		 FROM channels ORDER BY priority ASC, created_at DESC`,
 	)
 	if err != nil {
@@ -86,14 +91,18 @@ func (r *ChannelRepository) List() ([]*model.Channel, error) {
 	var channels []*model.Channel
 	for rows.Next() {
 		channel := &model.Channel{}
+		var rateMultiplier sql.NullFloat64
+		var rateMultiplierPPM sql.NullInt64
 		err := rows.Scan(
 			&channel.ID, &channel.Type, &channel.Endpoint, &channel.Name, &channel.BaseURL, &channel.APIKey,
-			&channel.Enabled, &channel.Weight, &channel.Priority, &channel.RateMultiplier, &channel.ModelWhitelist, &channel.SimulateCLI, &channel.SimulateUA, &channel.SimulateSystemPrompt, &channel.TraditionalChinese, &channel.CopilotAPI, &channel.CodexWebsocketEnabled, &channel.ModelsJSON, &channel.HeadersJSON, &channel.TranslatorJSON,
+			&channel.Enabled, &channel.Weight, &channel.Priority, &rateMultiplier, &rateMultiplierPPM, &channel.ModelWhitelist, &channel.SimulateCLI, &channel.SimulateUA, &channel.SimulateSystemPrompt, &channel.TraditionalChinese, &channel.CopilotAPI, &channel.CodexWebsocketEnabled, &channel.ModelsJSON, &channel.HeadersJSON, &channel.TranslatorJSON,
 			&channel.CreatedAt, &channel.UpdatedAt,
 		)
 		if err != nil {
 			return nil, err
 		}
+		channel.RateMultiplierPPM = deriveChannelMultiplierPPM(rateMultiplierPPM, rateMultiplier)
+		channel.RateMultiplier = precision.MultiplierPPMToFloat64(channel.RateMultiplierPPM)
 		channels = append(channels, channel)
 	}
 	return channels, rows.Err()
@@ -102,7 +111,7 @@ func (r *ChannelRepository) List() ([]*model.Channel, error) {
 func (r *ChannelRepository) ListEnabled() ([]*model.Channel, error) {
 	db := database.GetDB()
 	rows, err := db.Query(
-		`SELECT id, type, endpoint, name, base_url, api_key, enabled, weight, priority, rate_multiplier, model_whitelist, simulate_cli, simulate_ua, simulate_system_prompt, traditional_chinese, copilot_api, codex_websocket_enabled, models_json, headers_json, translator_json, created_at, updated_at
+		`SELECT id, type, endpoint, name, base_url, api_key, enabled, weight, priority, rate_multiplier, rate_multiplier_ppm, model_whitelist, simulate_cli, simulate_ua, simulate_system_prompt, traditional_chinese, copilot_api, codex_websocket_enabled, models_json, headers_json, translator_json, created_at, updated_at
 		 FROM channels WHERE enabled = 1 ORDER BY priority ASC, weight DESC`,
 	)
 	if err != nil {
@@ -113,14 +122,18 @@ func (r *ChannelRepository) ListEnabled() ([]*model.Channel, error) {
 	var channels []*model.Channel
 	for rows.Next() {
 		channel := &model.Channel{}
+		var rateMultiplier sql.NullFloat64
+		var rateMultiplierPPM sql.NullInt64
 		err := rows.Scan(
 			&channel.ID, &channel.Type, &channel.Endpoint, &channel.Name, &channel.BaseURL, &channel.APIKey,
-			&channel.Enabled, &channel.Weight, &channel.Priority, &channel.RateMultiplier, &channel.ModelWhitelist, &channel.SimulateCLI, &channel.SimulateUA, &channel.SimulateSystemPrompt, &channel.TraditionalChinese, &channel.CopilotAPI, &channel.CodexWebsocketEnabled, &channel.ModelsJSON, &channel.HeadersJSON, &channel.TranslatorJSON,
+			&channel.Enabled, &channel.Weight, &channel.Priority, &rateMultiplier, &rateMultiplierPPM, &channel.ModelWhitelist, &channel.SimulateCLI, &channel.SimulateUA, &channel.SimulateSystemPrompt, &channel.TraditionalChinese, &channel.CopilotAPI, &channel.CodexWebsocketEnabled, &channel.ModelsJSON, &channel.HeadersJSON, &channel.TranslatorJSON,
 			&channel.CreatedAt, &channel.UpdatedAt,
 		)
 		if err != nil {
 			return nil, err
 		}
+		channel.RateMultiplierPPM = deriveChannelMultiplierPPM(rateMultiplierPPM, rateMultiplier)
+		channel.RateMultiplier = precision.MultiplierPPMToFloat64(channel.RateMultiplierPPM)
 		channels = append(channels, channel)
 	}
 	return channels, rows.Err()
@@ -131,12 +144,22 @@ func (r *ChannelRepository) Update(channel *model.Channel) error {
 	channel.UpdatedAt = time.Now().UTC()
 
 	_, err := db.Exec(
-		`UPDATE channels SET type = ?, endpoint = ?, name = ?, base_url = ?, api_key = ?, enabled = ?, weight = ?, priority = ?, rate_multiplier = ?, model_whitelist = ?, simulate_cli = ?, simulate_ua = ?, simulate_system_prompt = ?, traditional_chinese = ?, copilot_api = ?, codex_websocket_enabled = ?, models_json = ?, headers_json = ?, translator_json = ?, updated_at = ?
+		`UPDATE channels SET type = ?, endpoint = ?, name = ?, base_url = ?, api_key = ?, enabled = ?, weight = ?, priority = ?, rate_multiplier = ?, rate_multiplier_ppm = ?, model_whitelist = ?, simulate_cli = ?, simulate_ua = ?, simulate_system_prompt = ?, traditional_chinese = ?, copilot_api = ?, codex_websocket_enabled = ?, models_json = ?, headers_json = ?, translator_json = ?, updated_at = ?
 		 WHERE id = ?`,
-		channel.Type, channel.Endpoint, channel.Name, channel.BaseURL, channel.APIKey, channel.Enabled, channel.Weight, channel.Priority, channel.RateMultiplier, channel.ModelWhitelist, channel.SimulateCLI, channel.SimulateUA, channel.SimulateSystemPrompt, channel.TraditionalChinese, channel.CopilotAPI, channel.CodexWebsocketEnabled, channel.ModelsJSON, channel.HeadersJSON, channel.TranslatorJSON, channel.UpdatedAt,
+		channel.Type, channel.Endpoint, channel.Name, channel.BaseURL, channel.APIKey, channel.Enabled, channel.Weight, channel.Priority, channel.RateMultiplier, channel.RateMultiplierPPM, channel.ModelWhitelist, channel.SimulateCLI, channel.SimulateUA, channel.SimulateSystemPrompt, channel.TraditionalChinese, channel.CopilotAPI, channel.CodexWebsocketEnabled, channel.ModelsJSON, channel.HeadersJSON, channel.TranslatorJSON, channel.UpdatedAt,
 		channel.ID,
 	)
 	return err
+}
+
+func deriveChannelMultiplierPPM(ppm sql.NullInt64, legacy sql.NullFloat64) int64 {
+	if ppm.Valid && ppm.Int64 > 0 {
+		return ppm.Int64
+	}
+	if legacy.Valid {
+		return precision.FloatMultiplierToPPM(legacy.Float64)
+	}
+	return precision.DefaultMultiplierPPM
 }
 
 func (r *ChannelRepository) Delete(id string) error {

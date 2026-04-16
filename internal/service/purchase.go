@@ -13,6 +13,7 @@ import (
 
 	"ampmanager/internal/database"
 	"ampmanager/internal/model"
+	"ampmanager/internal/precision"
 	"ampmanager/internal/repository"
 
 	"github.com/google/uuid"
@@ -20,14 +21,14 @@ import (
 )
 
 var (
-	ErrPurchaseDisabled         = errors.New("订阅购买功能未开启")
-	ErrPaymentUnavailable       = errors.New("支付功能暂不可用")
-	ErrPurchaseProductDisabled  = errors.New("该售卖商品已下架")
-	ErrPurchaseOrderNotFound    = errors.New("订单不存在")
-	ErrPurchaseProductHasOrders = errors.New("该商品已有订单，无法删除")
-	ErrDifferentPlanActive      = errors.New("当前账号已有其他生效中的订阅，暂不支持切换购买")
-	ErrPermanentSubscription    = errors.New("当前账号已有永久订阅，无法续费")
-	ErrBalanceTopupUnavailable  = errors.New("余额充值未开启")
+	ErrPurchaseDisabled          = errors.New("订阅购买功能未开启")
+	ErrPaymentUnavailable        = errors.New("支付功能暂不可用")
+	ErrPurchaseProductDisabled   = errors.New("该售卖商品已下架")
+	ErrPurchaseOrderNotFound     = errors.New("订单不存在")
+	ErrPurchaseProductHasOrders  = errors.New("该商品已有订单，无法删除")
+	ErrDifferentPlanActive       = errors.New("当前账号已有其他生效中的订阅，暂不支持切换购买")
+	ErrPermanentSubscription     = errors.New("当前账号已有永久订阅，无法续费")
+	ErrBalanceTopupUnavailable   = errors.New("余额充值未开启")
 	ErrInvalidBalanceTopupAmount = errors.New("充值金额无效")
 )
 
@@ -131,14 +132,15 @@ func (s *PurchaseService) GetCatalog(userID string) (*model.PurchaseCatalogRespo
 	}
 
 	return &model.PurchaseCatalogResponse{
-		PurchaseEnabled:            settings.PurchaseEnabled,
-		DebugAutoPaid:              settings.DebugAutoPaid,
-		PaymentConfigured:          s.settingsSvc.CanCreateOrders(settings),
-		RenewalRule:                "同套餐续期，不同套餐不可购买",
-		CurrentSubscription:        currentSubscription,
-		Products:                   responses,
-		BalanceTopupEnabled:        s.settingsSvc.CanCreateBalanceTopup(settings),
-		BalanceTopupPriceCnyPerUsd: float64(settings.BalanceTopupPriceCnyCentPerUSD) / 100,
+		PurchaseEnabled:                settings.PurchaseEnabled,
+		DebugAutoPaid:                  settings.DebugAutoPaid,
+		PaymentConfigured:              s.settingsSvc.CanCreateOrders(settings),
+		RenewalRule:                    "同套餐续期，不同套餐不可购买",
+		CurrentSubscription:            currentSubscription,
+		Products:                       responses,
+		BalanceTopupEnabled:            s.settingsSvc.CanCreateBalanceTopup(settings),
+		BalanceTopupPriceCnyPerUsd:     float64(settings.BalanceTopupPriceCnyCentPerUSD) / 100,
+		BalanceTopupPriceCnyCentPerUsd: settings.BalanceTopupPriceCnyCentPerUSD,
 	}, nil
 }
 
@@ -304,7 +306,7 @@ func (s *PurchaseService) CreateOrder(ctx context.Context, userID, username, pro
 	return s.GetOrderForUser(userID, order.OrderNo)
 }
 
-func (s *PurchaseService) CreateBalanceTopupOrder(ctx context.Context, userID, username string, amountUsd float64) (*model.PurchaseOrderResponse, error) {
+func (s *PurchaseService) CreateBalanceTopupOrder(ctx context.Context, userID, username string, amountUsd precision.DecimalString) (*model.PurchaseOrderResponse, error) {
 	settings, err := s.settingsSvc.Get()
 	if err != nil {
 		return nil, err
@@ -313,7 +315,10 @@ func (s *PurchaseService) CreateBalanceTopupOrder(ctx context.Context, userID, u
 		return nil, ErrBalanceTopupUnavailable
 	}
 
-	balanceTopupMicros := int64(math.Round(amountUsd * 1_000_000))
+	balanceTopupMicros, err := precision.ParseUSDToMicros(amountUsd)
+	if err != nil {
+		return nil, ErrInvalidBalanceTopupAmount
+	}
 	if balanceTopupMicros <= 0 {
 		return nil, ErrInvalidBalanceTopupAmount
 	}
@@ -351,7 +356,7 @@ func (s *PurchaseService) CreateBalanceTopupOrder(ctx context.Context, userID, u
 	productResp := &model.PurchaseProductResponse{
 		ID:                   balanceTopupProductID,
 		Name:                 "余额充值",
-		Summary:              fmt.Sprintf("$%.2f", amountUsd),
+		Summary:              fmt.Sprintf("$%.2f", float64(balanceTopupMicros)/1e6),
 		SubscriptionPlanID:   balanceTopupPlanID,
 		SubscriptionPlanName: "余额充值",
 		DurationDays:         1,

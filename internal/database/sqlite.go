@@ -245,6 +245,8 @@ func createTables() error {
 		id TEXT PRIMARY KEY,
 		name TEXT UNIQUE NOT NULL,
 		description TEXT NOT NULL DEFAULT '',
+		rate_multiplier REAL NOT NULL DEFAULT 1.0,
+		rate_multiplier_ppm BIGINT NOT NULL DEFAULT 1000000,
 		created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
 		updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
 	);
@@ -300,6 +302,7 @@ func createTables() error {
 		weight INTEGER NOT NULL DEFAULT 1,
 		priority INTEGER NOT NULL DEFAULT 100,
 		rate_multiplier REAL NOT NULL DEFAULT 1.0,
+		rate_multiplier_ppm BIGINT NOT NULL DEFAULT 1000000,
 		codex_websocket_enabled INTEGER NOT NULL DEFAULT 0,
 		models_json TEXT NOT NULL DEFAULT '[]',
 		headers_json TEXT NOT NULL DEFAULT '{}',
@@ -364,6 +367,8 @@ func createTables() error {
 		provider TEXT,
 		channel_id TEXT,
 		endpoint TEXT,
+		request_format TEXT,
+		upstream_format TEXT,
 		method TEXT NOT NULL,
 		path TEXT NOT NULL,
 		status_code INTEGER NOT NULL,
@@ -385,9 +390,13 @@ func createTables() error {
 		transport_fallback_reason TEXT,
 		response_text TEXT,
 		rate_multiplier REAL,
+		rate_multiplier_ppm BIGINT,
 		channel_rate_multiplier REAL,
+		channel_rate_multiplier_ppm BIGINT,
 		group_rate_multiplier REAL,
+		group_rate_multiplier_ppm BIGINT,
 		special_rate_multiplier REAL,
+		special_rate_multiplier_ppm BIGINT,
 		special_rate_reason TEXT,
 		pricing_rule_name TEXT,
 		charged_subscription_micros INTEGER NOT NULL DEFAULT 0,
@@ -443,6 +452,10 @@ func createTables() error {
 		rule_name TEXT NOT NULL,
 		min_tokens BIGINT NOT NULL DEFAULT 0,
 		max_tokens BIGINT,
+		input_micros_per_million BIGINT NOT NULL DEFAULT 0,
+		output_micros_per_million BIGINT NOT NULL DEFAULT 0,
+		cache_read_micros_per_million BIGINT NOT NULL DEFAULT 0,
+		cache_creation_micros_per_million BIGINT NOT NULL DEFAULT 0,
 		input_cost_per_token REAL NOT NULL DEFAULT 0,
 		output_cost_per_token REAL NOT NULL DEFAULT 0,
 		cache_read_input_per_token REAL NOT NULL DEFAULT 0,
@@ -926,6 +939,12 @@ func runMigrations() error {
 			sql:  `ALTER TABLE groups ADD COLUMN rate_multiplier REAL NOT NULL DEFAULT 1.0`,
 		},
 		{
+			name: "add_group_rate_multiplier_ppm",
+			sql: `ALTER TABLE groups ADD COLUMN rate_multiplier_ppm BIGINT NOT NULL DEFAULT 1000000;
+				  UPDATE groups
+				  SET rate_multiplier_ppm = CAST(ROUND(COALESCE(rate_multiplier, 1.0) * 1000000.0) AS INTEGER)`,
+		},
+		{
 			name: "add_user_balance_micros",
 			sql:  `ALTER TABLE users ADD COLUMN balance_micros INTEGER NOT NULL DEFAULT 0`,
 		},
@@ -950,16 +969,50 @@ func runMigrations() error {
 			sql:  `ALTER TABLE channels ADD COLUMN rate_multiplier REAL NOT NULL DEFAULT 1.0`,
 		},
 		{
+			name: "add_channels_rate_multiplier_ppm",
+			sql: `ALTER TABLE channels ADD COLUMN rate_multiplier_ppm BIGINT NOT NULL DEFAULT 1000000;
+				  UPDATE channels
+				  SET rate_multiplier_ppm = CAST(ROUND(COALESCE(rate_multiplier, 1.0) * 1000000.0) AS INTEGER)`,
+		},
+		{
 			name: "add_request_logs_channel_rate_multiplier",
 			sql:  `ALTER TABLE request_logs ADD COLUMN channel_rate_multiplier REAL`,
+		},
+		{
+			name: "add_request_logs_rate_multiplier_ppm",
+			sql: `ALTER TABLE request_logs ADD COLUMN rate_multiplier_ppm BIGINT;
+				  UPDATE request_logs
+				  SET rate_multiplier_ppm = CAST(ROUND(rate_multiplier * 1000000.0) AS INTEGER)
+				  WHERE rate_multiplier IS NOT NULL`,
+		},
+		{
+			name: "add_request_logs_channel_rate_multiplier_ppm",
+			sql: `ALTER TABLE request_logs ADD COLUMN channel_rate_multiplier_ppm BIGINT;
+				  UPDATE request_logs
+				  SET channel_rate_multiplier_ppm = CAST(ROUND(channel_rate_multiplier * 1000000.0) AS INTEGER)
+				  WHERE channel_rate_multiplier IS NOT NULL`,
 		},
 		{
 			name: "add_request_logs_group_rate_multiplier",
 			sql:  `ALTER TABLE request_logs ADD COLUMN group_rate_multiplier REAL`,
 		},
 		{
+			name: "add_request_logs_group_rate_multiplier_ppm",
+			sql: `ALTER TABLE request_logs ADD COLUMN group_rate_multiplier_ppm BIGINT;
+				  UPDATE request_logs
+				  SET group_rate_multiplier_ppm = CAST(ROUND(group_rate_multiplier * 1000000.0) AS INTEGER)
+				  WHERE group_rate_multiplier IS NOT NULL`,
+		},
+		{
 			name: "add_request_logs_special_rate_multiplier",
 			sql:  `ALTER TABLE request_logs ADD COLUMN special_rate_multiplier REAL`,
+		},
+		{
+			name: "add_request_logs_special_rate_multiplier_ppm",
+			sql: `ALTER TABLE request_logs ADD COLUMN special_rate_multiplier_ppm BIGINT;
+				  UPDATE request_logs
+				  SET special_rate_multiplier_ppm = CAST(ROUND(special_rate_multiplier * 1000000.0) AS INTEGER)
+				  WHERE special_rate_multiplier IS NOT NULL`,
 		},
 		{
 			name: "add_request_logs_special_rate_reason",
@@ -1035,8 +1088,16 @@ func runMigrations() error {
 			sql:  `ALTER TABLE request_logs ADD COLUMN transport_fallback_reason TEXT`,
 		},
 		{
+			name: "add_request_logs_request_format",
+			sql:  `ALTER TABLE request_logs ADD COLUMN request_format TEXT`,
+		},
+		{
+			name: "add_request_logs_upstream_format",
+			sql:  `ALTER TABLE request_logs ADD COLUMN upstream_format TEXT`,
+		},
+		{
 			name: "create_global_request_metric_projections_table",
-				sql: `CREATE TABLE IF NOT EXISTS global_request_metric_projections (
+			sql: `CREATE TABLE IF NOT EXISTS global_request_metric_projections (
 					request_id TEXT PRIMARY KEY,
 					minute_bucket DATETIME NOT NULL,
 					request_count BIGINT NOT NULL DEFAULT 0,
@@ -1047,21 +1108,21 @@ func runMigrations() error {
 					ttfb_ms BIGINT NOT NULL DEFAULT 0,
 					updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
 				)`,
-			},
-			{
-				name: "create_global_request_metric_projections_indexes",
-				sql:  `CREATE INDEX IF NOT EXISTS idx_global_request_metric_projections_minute ON global_request_metric_projections(minute_bucket DESC)`,
-			},
-			{
-				name: "add_global_request_metric_projections_latency_ms",
-				sql:  `ALTER TABLE global_request_metric_projections ADD COLUMN latency_ms BIGINT NOT NULL DEFAULT 0`,
-			},
-			{
-				name: "add_global_request_metric_projections_ttfb_ms",
-				sql:  `ALTER TABLE global_request_metric_projections ADD COLUMN ttfb_ms BIGINT NOT NULL DEFAULT 0`,
-			},
-			{
-				name: "create_global_request_minute_metrics_table",
+		},
+		{
+			name: "create_global_request_metric_projections_indexes",
+			sql:  `CREATE INDEX IF NOT EXISTS idx_global_request_metric_projections_minute ON global_request_metric_projections(minute_bucket DESC)`,
+		},
+		{
+			name: "add_global_request_metric_projections_latency_ms",
+			sql:  `ALTER TABLE global_request_metric_projections ADD COLUMN latency_ms BIGINT NOT NULL DEFAULT 0`,
+		},
+		{
+			name: "add_global_request_metric_projections_ttfb_ms",
+			sql:  `ALTER TABLE global_request_metric_projections ADD COLUMN ttfb_ms BIGINT NOT NULL DEFAULT 0`,
+		},
+		{
+			name: "create_global_request_minute_metrics_table",
 			sql: `CREATE TABLE IF NOT EXISTS global_request_minute_metrics (
 				minute_bucket DATETIME PRIMARY KEY,
 				request_count_sum BIGINT NOT NULL DEFAULT 0,
@@ -1288,6 +1349,10 @@ func runMigrations() error {
 				rule_name TEXT NOT NULL,
 				min_tokens BIGINT NOT NULL DEFAULT 0,
 				max_tokens BIGINT,
+				input_micros_per_million BIGINT NOT NULL DEFAULT 0,
+				output_micros_per_million BIGINT NOT NULL DEFAULT 0,
+				cache_read_micros_per_million BIGINT NOT NULL DEFAULT 0,
+				cache_creation_micros_per_million BIGINT NOT NULL DEFAULT 0,
 				input_cost_per_token REAL NOT NULL DEFAULT 0,
 				output_cost_per_token REAL NOT NULL DEFAULT 0,
 				cache_read_input_per_token REAL NOT NULL DEFAULT 0,
@@ -1300,6 +1365,18 @@ func runMigrations() error {
 		{
 			name: "create_model_price_context_rules_indexes",
 			sql:  `CREATE INDEX IF NOT EXISTS idx_model_price_context_rules_model ON model_price_context_rules(model, sort_order ASC, created_at ASC)`,
+		},
+		{
+			name: "add_model_price_context_rules_micros_per_million",
+			sql: `ALTER TABLE model_price_context_rules ADD COLUMN input_micros_per_million BIGINT NOT NULL DEFAULT 0;
+				  ALTER TABLE model_price_context_rules ADD COLUMN output_micros_per_million BIGINT NOT NULL DEFAULT 0;
+				  ALTER TABLE model_price_context_rules ADD COLUMN cache_read_micros_per_million BIGINT NOT NULL DEFAULT 0;
+				  ALTER TABLE model_price_context_rules ADD COLUMN cache_creation_micros_per_million BIGINT NOT NULL DEFAULT 0;
+				  UPDATE model_price_context_rules
+				  SET input_micros_per_million = CAST(ROUND(input_cost_per_token * 1000000000000.0) AS INTEGER),
+				      output_micros_per_million = CAST(ROUND(output_cost_per_token * 1000000000000.0) AS INTEGER),
+				      cache_read_micros_per_million = CAST(ROUND(cache_read_input_per_token * 1000000000000.0) AS INTEGER),
+				      cache_creation_micros_per_million = CAST(ROUND(cache_creation_per_token * 1000000000000.0) AS INTEGER)`,
 		},
 		{
 			name: "create_announcements_table",
@@ -1333,9 +1410,9 @@ func runMigrations() error {
 			name: "create_announcement_reads_indexes",
 			sql:  `CREATE INDEX IF NOT EXISTS idx_announcement_reads_user ON announcement_reads(user_id, read_at DESC)`,
 		},
-			{
-				name: "create_purchase_products_and_orders",
-				sql: `
+		{
+			name: "create_purchase_products_and_orders",
+			sql: `
 				CREATE TABLE IF NOT EXISTS purchase_products (
 					id TEXT PRIMARY KEY,
 					name TEXT NOT NULL,
@@ -1384,17 +1461,17 @@ func runMigrations() error {
 				CREATE INDEX IF NOT EXISTS idx_purchase_orders_product_created ON purchase_orders(product_id, created_at DESC);
 				CREATE INDEX IF NOT EXISTS idx_purchase_orders_trade_no ON purchase_orders(alipay_trade_no)
 				`,
-			},
-			{
-				name: "add_purchase_orders_order_kind",
-				sql:  `ALTER TABLE purchase_orders ADD COLUMN order_kind TEXT NOT NULL DEFAULT 'subscription'`,
-			},
-			{
-				name: "add_purchase_orders_balance_topup_micros",
-				sql:  `ALTER TABLE purchase_orders ADD COLUMN balance_topup_micros BIGINT NOT NULL DEFAULT 0`,
-			},
-			{
-				name: "create_redeem_tables",
+		},
+		{
+			name: "add_purchase_orders_order_kind",
+			sql:  `ALTER TABLE purchase_orders ADD COLUMN order_kind TEXT NOT NULL DEFAULT 'subscription'`,
+		},
+		{
+			name: "add_purchase_orders_balance_topup_micros",
+			sql:  `ALTER TABLE purchase_orders ADD COLUMN balance_topup_micros BIGINT NOT NULL DEFAULT 0`,
+		},
+		{
+			name: "create_redeem_tables",
 			sql: `
 				CREATE TABLE IF NOT EXISTS redeem_campaigns (
 					id TEXT PRIMARY KEY,

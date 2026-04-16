@@ -1,6 +1,10 @@
 package model
 
-import "time"
+import (
+	"time"
+
+	"ampmanager/internal/precision"
+)
 
 type User struct {
 	ID               string    `json:"id"`
@@ -73,7 +77,7 @@ type SetGroupsRequest struct {
 }
 
 type TopUpRequest struct {
-	AmountUsd float64 `json:"amountUsd" binding:"required,gt=0"`
+	AmountUsd precision.DecimalString `json:"amountUsd"`
 }
 
 type UpdateUserConcurrencyLimitRequest struct {

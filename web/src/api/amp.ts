@@ -186,6 +186,8 @@ export interface RequestLog {
   channelName?: string
   channelId?: string
   endpoint?: string
+  requestFormat?: string
+  upstreamFormat?: string
   method: string
   path: string
   statusCode: number

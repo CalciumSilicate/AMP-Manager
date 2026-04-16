@@ -512,7 +512,8 @@ func ChannelProxyHandler() gin.HandlerFunc {
 				)
 				trace.SetUpstreamTransport("http")
 				// Set channel info
-				trace.SetChannel(channel.ID, string(channel.Type), channel.BaseURL)
+				trace.SetChannel(channel.ID, string(channel.Type), string(channel.Endpoint))
+				trace.SetFormatConversion(incomingFormat.String(), outgoingFormat.String())
 				trace.SetModels(originalModel, mappedModel)
 				breakdown := computePricingBreakdown(c.Request.Context(), channel, convertedBody)
 				trace.SetPricingBreakdown(breakdown.GroupMultiplier, breakdown.ChannelMultiplier, breakdown.SpecialMultiplier, breakdown.SpecialReason)

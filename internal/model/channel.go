@@ -1,6 +1,10 @@
 package model
 
-import "time"
+import (
+	"time"
+
+	"ampmanager/internal/precision"
+)
 
 type ChannelType string
 
@@ -36,6 +40,7 @@ type Channel struct {
 	Enabled               bool            `json:"enabled"`
 	Weight                int             `json:"weight"`
 	Priority              int             `json:"priority"`
+	RateMultiplierPPM     int64           `json:"rateMultiplierPpm,omitempty"`
 	RateMultiplier        float64         `json:"rateMultiplier"`
 	ModelWhitelist        bool            `json:"modelWhitelist"`
 	SimulateCLI           bool            `json:"simulateCli"`
@@ -57,26 +62,27 @@ type ChannelModel struct {
 }
 
 type ChannelRequest struct {
-	Type                  ChannelType       `json:"type" binding:"required,oneof=gemini claude openai"`
-	Endpoint              ChannelEndpoint   `json:"endpoint"`
-	Name                  string            `json:"name" binding:"required,min=1,max=64"`
-	BaseURL               string            `json:"baseUrl" binding:"required,url"`
-	APIKey                string            `json:"apiKey,omitempty"`
-	Enabled               bool              `json:"enabled"`
-	Weight                int               `json:"weight"`
-	Priority              int               `json:"priority"`
-	RateMultiplier        float64           `json:"rateMultiplier"`
-	ModelWhitelist        bool              `json:"modelWhitelist"`
-	SimulateCLI           bool              `json:"simulateCli"`
-	SimulateUA            bool              `json:"simulateUa"`
-	SimulateSystemPrompt  bool              `json:"simulateSystemPrompt"`
-	TraditionalChinese    bool              `json:"traditionalChinese"`
-	CopilotAPI            bool              `json:"copilotApi"`
-	CodexWebsocketEnabled bool              `json:"codexWebsocketEnabled"`
-	GroupIDs              []string          `json:"groupIds"`
-	Models                []ChannelModel    `json:"models,omitempty"`
-	Headers               map[string]string `json:"headers,omitempty"`
-	Translator            ChannelTranslator `json:"translator"`
+	Type                  ChannelType             `json:"type" binding:"required,oneof=gemini claude openai"`
+	Endpoint              ChannelEndpoint         `json:"endpoint"`
+	Name                  string                  `json:"name" binding:"required,min=1,max=64"`
+	BaseURL               string                  `json:"baseUrl" binding:"required,url"`
+	APIKey                string                  `json:"apiKey,omitempty"`
+	Enabled               bool                    `json:"enabled"`
+	Weight                int                     `json:"weight"`
+	Priority              int                     `json:"priority"`
+	RateMultiplier        precision.DecimalString `json:"rateMultiplier"`
+	RateMultiplierPPM     *int64                  `json:"rateMultiplierPpm,omitempty"`
+	ModelWhitelist        bool                    `json:"modelWhitelist"`
+	SimulateCLI           bool                    `json:"simulateCli"`
+	SimulateUA            bool                    `json:"simulateUa"`
+	SimulateSystemPrompt  bool                    `json:"simulateSystemPrompt"`
+	TraditionalChinese    bool                    `json:"traditionalChinese"`
+	CopilotAPI            bool                    `json:"copilotApi"`
+	CodexWebsocketEnabled bool                    `json:"codexWebsocketEnabled"`
+	GroupIDs              []string                `json:"groupIds"`
+	Models                []ChannelModel          `json:"models,omitempty"`
+	Headers               map[string]string       `json:"headers,omitempty"`
+	Translator            ChannelTranslator       `json:"translator"`
 }
 
 type ChannelResponse struct {
@@ -89,6 +95,7 @@ type ChannelResponse struct {
 	Enabled               bool              `json:"enabled"`
 	Weight                int               `json:"weight"`
 	Priority              int               `json:"priority"`
+	RateMultiplierPPM     int64             `json:"rateMultiplierPpm,omitempty"`
 	RateMultiplier        float64           `json:"rateMultiplier"`
 	ModelWhitelist        bool              `json:"modelWhitelist"`
 	SimulateCLI           bool              `json:"simulateCli"`

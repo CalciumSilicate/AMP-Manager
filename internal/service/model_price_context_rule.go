@@ -9,6 +9,7 @@ import (
 
 	"ampmanager/internal/billing"
 	"ampmanager/internal/model"
+	"ampmanager/internal/precision"
 
 	"github.com/google/uuid"
 )
@@ -46,20 +47,40 @@ func (s *ModelPriceContextRuleService) Replace(modelName string, reqs []model.Mo
 		if req.MaxTokens != nil && *req.MaxTokens <= req.MinTokens {
 			return nil, fmt.Errorf("规则 %q 的最大 token 必须大于最小 token", ruleName)
 		}
+		inputMicrosPerMillion, err := resolveRuleMicrosPerMillion(req.InputMicrosPerMillion, req.InputCostPerToken)
+		if err != nil {
+			return nil, fmt.Errorf("规则 %q 输入价格无效: %w", ruleName, err)
+		}
+		outputMicrosPerMillion, err := resolveRuleMicrosPerMillion(req.OutputMicrosPerMillion, req.OutputCostPerToken)
+		if err != nil {
+			return nil, fmt.Errorf("规则 %q 输出价格无效: %w", ruleName, err)
+		}
+		cacheReadMicrosPerMillion, err := resolveRuleMicrosPerMillion(req.CacheReadMicrosPerMillion, req.CacheReadInputPerToken)
+		if err != nil {
+			return nil, fmt.Errorf("规则 %q 缓存读价格无效: %w", ruleName, err)
+		}
+		cacheCreationMicrosPerMillion, err := resolveRuleMicrosPerMillion(req.CacheCreationMicrosPerMillion, req.CacheCreationPerToken)
+		if err != nil {
+			return nil, fmt.Errorf("规则 %q 缓存写价格无效: %w", ruleName, err)
+		}
 
 		next = append(next, model.ModelPriceContextRule{
-			ID:                     uuid.New().String(),
-			Model:                  modelName,
-			RuleName:               ruleName,
-			MinTokens:              req.MinTokens,
-			MaxTokens:              req.MaxTokens,
-			InputCostPerToken:      req.InputCostPerToken,
-			OutputCostPerToken:     req.OutputCostPerToken,
-			CacheReadInputPerToken: req.CacheReadInputPerToken,
-			CacheCreationPerToken:  req.CacheCreationPerToken,
-			SortOrder:              idx,
-			CreatedAt:              now,
-			UpdatedAt:              now,
+			ID:                            uuid.New().String(),
+			Model:                         modelName,
+			RuleName:                      ruleName,
+			MinTokens:                     req.MinTokens,
+			MaxTokens:                     req.MaxTokens,
+			InputMicrosPerMillion:         inputMicrosPerMillion,
+			OutputMicrosPerMillion:        outputMicrosPerMillion,
+			CacheReadMicrosPerMillion:     cacheReadMicrosPerMillion,
+			CacheCreationMicrosPerMillion: cacheCreationMicrosPerMillion,
+			InputCostPerToken:             precision.MicrosPerMillionToCostPerToken(inputMicrosPerMillion),
+			OutputCostPerToken:            precision.MicrosPerMillionToCostPerToken(outputMicrosPerMillion),
+			CacheReadInputPerToken:        precision.MicrosPerMillionToCostPerToken(cacheReadMicrosPerMillion),
+			CacheCreationPerToken:         precision.MicrosPerMillionToCostPerToken(cacheCreationMicrosPerMillion),
+			SortOrder:                     idx,
+			CreatedAt:                     now,
+			UpdatedAt:                     now,
 		})
 	}
 
@@ -95,4 +116,14 @@ func (s *ModelPriceContextRuleService) Replace(modelName string, reqs []model.Mo
 		return nil, err
 	}
 	return next, nil
+}
+
+func resolveRuleMicrosPerMillion(ppmValue *int64, legacy precision.DecimalString) (int64, error) {
+	if ppmValue != nil {
+		if *ppmValue < 0 {
+			return 0, fmt.Errorf("value must be non-negative")
+		}
+		return *ppmValue, nil
+	}
+	return precision.ParseUSDPerMillionToMicros(legacy)
 }

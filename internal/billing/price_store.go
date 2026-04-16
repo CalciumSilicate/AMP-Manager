@@ -13,6 +13,7 @@ import (
 
 	"ampmanager/internal/database"
 	"ampmanager/internal/model"
+	"ampmanager/internal/precision"
 
 	"github.com/google/uuid"
 	log "github.com/sirupsen/logrus"
@@ -219,12 +220,12 @@ func (s *PriceStore) FetchFromLiteLLM(ctx context.Context) error {
 			Model:    model,
 			Provider: lp.LiteLLMProvider,
 			Source:   "litellm",
-			PriceData: PriceData{
+			PriceData: normalizePriceData(PriceData{
 				InputCostPerToken:      ptrFloat64(lp.InputCostPerToken),
 				OutputCostPerToken:     ptrFloat64(lp.OutputCostPerToken),
 				CacheReadInputPerToken: ptrFloat64(lp.CacheReadInputTokenCost),
 				CacheCreationPerToken:  ptrFloat64(lp.CacheCreationInputTokenCost),
-			},
+			}),
 			CreatedAt: time.Now(),
 			UpdatedAt: time.Now(),
 		}
@@ -274,7 +275,7 @@ func (s *PriceStore) GetPrice(model string) (PriceData, bool) {
 	defer s.mu.RUnlock()
 
 	if p, ok := s.prices[model]; ok {
-		return p.PriceData, true
+		return normalizePriceData(p.PriceData), true
 	}
 	return PriceData{}, false
 }
@@ -284,6 +285,9 @@ func (s *PriceStore) GetModelPrice(model string) (ModelPrice, bool) {
 	defer s.mu.RUnlock()
 
 	price, ok := s.prices[model]
+	if ok {
+		price.PriceData = normalizePriceData(price.PriceData)
+	}
 	return price, ok
 }
 
@@ -294,7 +298,7 @@ func (s *PriceStore) SetPrice(model, provider string, data PriceData, source str
 		ID:        uuid.New().String(),
 		Model:     model,
 		Provider:  provider,
-		PriceData: data,
+		PriceData: normalizePriceData(data),
 		Source:    source,
 		CreatedAt: now,
 		UpdatedAt: now,
@@ -346,6 +350,7 @@ func (s *PriceStore) LoadFromDB() error {
 			log.Warnf("billing: failed to parse price data for %s: %v", mp.Model, err)
 			continue
 		}
+		mp.PriceData = normalizePriceData(mp.PriceData)
 
 		s.prices[mp.Model] = mp
 	}
@@ -360,7 +365,8 @@ func (s *PriceStore) LoadContextRulesFromDB() error {
 	}
 
 	rows, err := db.Query(`
-		SELECT id, model, rule_name, min_tokens, max_tokens, input_cost_per_token, output_cost_per_token,
+		SELECT id, model, rule_name, min_tokens, max_tokens, input_micros_per_million, output_micros_per_million,
+		       cache_read_micros_per_million, cache_creation_micros_per_million, input_cost_per_token, output_cost_per_token,
 		       cache_read_input_per_token, cache_creation_per_token, sort_order, created_at, updated_at
 		FROM model_price_context_rules
 		ORDER BY model ASC, sort_order ASC, created_at ASC
@@ -380,6 +386,10 @@ func (s *PriceStore) LoadContextRulesFromDB() error {
 			&rule.RuleName,
 			&rule.MinTokens,
 			&maxTokens,
+			&rule.InputMicrosPerMillion,
+			&rule.OutputMicrosPerMillion,
+			&rule.CacheReadMicrosPerMillion,
+			&rule.CacheCreationMicrosPerMillion,
 			&rule.InputCostPerToken,
 			&rule.OutputCostPerToken,
 			&rule.CacheReadInputPerToken,
@@ -393,6 +403,7 @@ func (s *PriceStore) LoadContextRulesFromDB() error {
 		if maxTokens.Valid {
 			rule.MaxTokens = &maxTokens.Int64
 		}
+		syncModelPriceContextRule(&rule)
 		next[rule.Model] = append(next[rule.Model], rule)
 	}
 	if err := rows.Err(); err != nil {
@@ -460,6 +471,7 @@ func (s *PriceStore) saveBatchToDB(prices map[string]ModelPrice) {
 	defer stmt.Close()
 
 	for _, mp := range prices {
+		mp.PriceData = normalizePriceData(mp.PriceData)
 		priceDataJSON, err := json.Marshal(mp.PriceData)
 		if err != nil {
 			log.Warnf("billing: failed to marshal price data for %s: %v", mp.Model, err)
@@ -509,17 +521,23 @@ func (s *PriceStore) ReplaceContextRules(modelName string, rules []model.ModelPr
 	}
 
 	for _, rule := range rules {
+		syncModelPriceContextRule(&rule)
 		if _, err := tx.Exec(`
 			INSERT INTO model_price_context_rules (
-				id, model, rule_name, min_tokens, max_tokens, input_cost_per_token, output_cost_per_token,
+				id, model, rule_name, min_tokens, max_tokens, input_micros_per_million, output_micros_per_million,
+				cache_read_micros_per_million, cache_creation_micros_per_million, input_cost_per_token, output_cost_per_token,
 				cache_read_input_per_token, cache_creation_per_token, sort_order, created_at, updated_at
-			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		`,
 			rule.ID,
 			rule.Model,
 			rule.RuleName,
 			rule.MinTokens,
 			rule.MaxTokens,
+			rule.InputMicrosPerMillion,
+			rule.OutputMicrosPerMillion,
+			rule.CacheReadMicrosPerMillion,
+			rule.CacheCreationMicrosPerMillion,
 			rule.InputCostPerToken,
 			rule.OutputCostPerToken,
 			rule.CacheReadInputPerToken,
@@ -546,6 +564,49 @@ func (s *PriceStore) ReplaceContextRules(modelName string, rules []model.ModelPr
 	}
 	s.mu.Unlock()
 	return nil
+}
+
+func normalizePriceData(data PriceData) PriceData {
+	if data.InputMicrosPerMillion <= 0 && data.InputCostPerToken > 0 {
+		data.InputMicrosPerMillion = precision.CostPerTokenToMicrosPerMillion(data.InputCostPerToken)
+	}
+	if data.OutputMicrosPerMillion <= 0 && data.OutputCostPerToken > 0 {
+		data.OutputMicrosPerMillion = precision.CostPerTokenToMicrosPerMillion(data.OutputCostPerToken)
+	}
+	if data.CacheReadMicrosPerMillion <= 0 && data.CacheReadInputPerToken > 0 {
+		data.CacheReadMicrosPerMillion = precision.CostPerTokenToMicrosPerMillion(data.CacheReadInputPerToken)
+	}
+	if data.CacheCreationMicrosPerMillion <= 0 && data.CacheCreationPerToken > 0 {
+		data.CacheCreationMicrosPerMillion = precision.CostPerTokenToMicrosPerMillion(data.CacheCreationPerToken)
+	}
+
+	data.InputCostPerToken = precision.MicrosPerMillionToCostPerToken(data.InputMicrosPerMillion)
+	data.OutputCostPerToken = precision.MicrosPerMillionToCostPerToken(data.OutputMicrosPerMillion)
+	data.CacheReadInputPerToken = precision.MicrosPerMillionToCostPerToken(data.CacheReadMicrosPerMillion)
+	data.CacheCreationPerToken = precision.MicrosPerMillionToCostPerToken(data.CacheCreationMicrosPerMillion)
+	return data
+}
+
+func syncModelPriceContextRule(rule *model.ModelPriceContextRule) {
+	if rule == nil {
+		return
+	}
+	if rule.InputMicrosPerMillion <= 0 && rule.InputCostPerToken > 0 {
+		rule.InputMicrosPerMillion = precision.CostPerTokenToMicrosPerMillion(rule.InputCostPerToken)
+	}
+	if rule.OutputMicrosPerMillion <= 0 && rule.OutputCostPerToken > 0 {
+		rule.OutputMicrosPerMillion = precision.CostPerTokenToMicrosPerMillion(rule.OutputCostPerToken)
+	}
+	if rule.CacheReadMicrosPerMillion <= 0 && rule.CacheReadInputPerToken > 0 {
+		rule.CacheReadMicrosPerMillion = precision.CostPerTokenToMicrosPerMillion(rule.CacheReadInputPerToken)
+	}
+	if rule.CacheCreationMicrosPerMillion <= 0 && rule.CacheCreationPerToken > 0 {
+		rule.CacheCreationMicrosPerMillion = precision.CostPerTokenToMicrosPerMillion(rule.CacheCreationPerToken)
+	}
+	rule.InputCostPerToken = precision.MicrosPerMillionToCostPerToken(rule.InputMicrosPerMillion)
+	rule.OutputCostPerToken = precision.MicrosPerMillionToCostPerToken(rule.OutputMicrosPerMillion)
+	rule.CacheReadInputPerToken = precision.MicrosPerMillionToCostPerToken(rule.CacheReadMicrosPerMillion)
+	rule.CacheCreationPerToken = precision.MicrosPerMillionToCostPerToken(rule.CacheCreationMicrosPerMillion)
 }
 
 func (s *PriceStore) MatchContextRule(modelName string, totalTokens int64) (*model.ModelPriceContextRule, bool) {

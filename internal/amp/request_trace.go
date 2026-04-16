@@ -27,6 +27,8 @@ type RequestTrace struct {
 	Provider                string
 	ChannelID               string
 	Endpoint                string
+	RequestFormat           string
+	UpstreamFormat          string
 	IsStreaming             bool
 	ThinkingLevel           string
 	DownstreamTransport     string
@@ -45,10 +47,10 @@ type RequestTrace struct {
 	CacheCreationInputTokens *int
 
 	// 成本信息
-	CostMicros       *int64
-	CostUsd          *string
-	PricingModel     *string
-	PricingRuleName  *string
+	CostMicros      *int64
+	CostUsd         *string
+	PricingModel    *string
+	PricingRuleName *string
 
 	// 计费结算结果
 	BillingStatus             *string
@@ -112,6 +114,13 @@ func (t *RequestTrace) SetChannel(channelID, provider, endpoint string) {
 	t.ChannelID = channelID
 	t.Provider = provider
 	t.Endpoint = endpoint
+}
+
+func (t *RequestTrace) SetFormatConversion(requestFormat, upstreamFormat string) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	t.RequestFormat = requestFormat
+	t.UpstreamFormat = upstreamFormat
 }
 
 // SetStreaming 设置是否流式
@@ -293,6 +302,8 @@ func (t *RequestTrace) Clone() RequestTrace {
 		Provider:                  t.Provider,
 		ChannelID:                 t.ChannelID,
 		Endpoint:                  t.Endpoint,
+		RequestFormat:             t.RequestFormat,
+		UpstreamFormat:            t.UpstreamFormat,
 		IsStreaming:               t.IsStreaming,
 		ThinkingLevel:             t.ThinkingLevel,
 		DownstreamTransport:       t.DownstreamTransport,
