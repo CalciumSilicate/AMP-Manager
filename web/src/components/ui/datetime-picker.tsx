@@ -145,8 +145,20 @@ export function DateTimePicker({ value, onChange, placeholder = '选择时间', 
     onChange(buildValue(now.getFullYear(), now.getMonth(), now.getDate(), h, m))
   }
 
-  const handleClear = (e: React.MouseEvent) => {
+  const handleClearPointerDown = (e: React.PointerEvent<HTMLButtonElement>) => {
+    e.preventDefault()
     e.stopPropagation()
+  }
+
+  const handleClearMouseDown = (e: React.MouseEvent<HTMLButtonElement>) => {
+    e.preventDefault()
+    e.stopPropagation()
+  }
+
+  const handleClear = (e: React.MouseEvent<HTMLButtonElement>) => {
+    e.preventDefault()
+    e.stopPropagation()
+    setOpen(false)
     onChange('')
     setHour('00')
     setMinute('00')
@@ -160,27 +172,36 @@ export function DateTimePicker({ value, onChange, placeholder = '选择时间', 
 
   return (
     <Popover open={open} onOpenChange={setOpen}>
-      <PopoverTrigger asChild>
-        <Button
-          variant="outline"
-          className={cn(
-            'w-[200px] h-9 justify-start text-left font-normal gap-2',
-            !value && 'text-muted-foreground',
-            className
-          )}
-        >
-          <Calendar className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
-          <span className="truncate text-xs">
-            {displayValue || placeholder}
-          </span>
-          {value && (
-            <X
-              className="h-3 w-3 ml-auto text-muted-foreground hover:text-foreground shrink-0 cursor-pointer"
-              onClick={handleClear}
-            />
-          )}
-        </Button>
-      </PopoverTrigger>
+      <div className="relative inline-flex">
+        <PopoverTrigger asChild>
+          <Button
+            type="button"
+            variant="outline"
+            className={cn(
+              'h-9 w-[200px] justify-start gap-2 pr-8 text-left font-normal',
+              !value && 'text-muted-foreground',
+              className
+            )}
+          >
+            <Calendar className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+            <span className="truncate text-xs">
+              {displayValue || placeholder}
+            </span>
+          </Button>
+        </PopoverTrigger>
+        {value && (
+          <button
+            type="button"
+            aria-label="清空时间"
+            className="absolute right-2 top-1/2 inline-flex h-4 w-4 -translate-y-1/2 items-center justify-center text-muted-foreground transition-colors hover:text-foreground"
+            onPointerDown={handleClearPointerDown}
+            onMouseDown={handleClearMouseDown}
+            onClick={handleClear}
+          >
+            <X className="h-3 w-3" />
+          </button>
+        )}
+      </div>
       <PopoverContent className="w-[280px] p-0" align="start">
         <div className="p-3">
           {/* Month/Year Header */}
