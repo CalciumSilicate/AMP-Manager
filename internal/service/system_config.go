@@ -23,6 +23,7 @@ const (
 	requestDetailHighRPMModeKey          = "request_detail_high_rpm_mode"
 	requestDetailHighRPMThresholdKey     = "request_detail_high_rpm_threshold"
 	requestDetailHighRPMSamplePctKey     = "request_detail_high_rpm_sample_percent"
+	requestPayloadMaxBytesKey            = "request_payload_max_bytes"
 	timeoutConfigKey                     = "timeout_config"
 	cacheTTLOverrideKey                  = "cache_ttl_override"
 	siteNameKey                          = "site_name"
@@ -36,6 +37,7 @@ const (
 	defaultRequestDetailHighRPMMode      = "full"
 	defaultRequestDetailHighRPMThreshold = 3000
 	defaultRequestDetailHighRPMSamplePct = 10
+	defaultRequestPayloadMaxBytes        = 128 * 1024 * 1024
 	siteTimeZoneKey                      = "site_time_zone"
 	defaultSiteTimeZone                  = "Asia/Shanghai"
 	defaultAllowAmpProxySettings         = true
@@ -124,6 +126,38 @@ func (s *SystemConfigService) GetRequestDetailConfig() (model.RequestDetailConfi
 	}
 
 	return normalizeRequestDetailConfigResponse(resp), nil
+}
+
+func (s *SystemConfigService) GetRequestPayloadLimit() (model.RequestPayloadLimitResponse, error) {
+	value, err := s.repo.Get(requestPayloadMaxBytesKey)
+	if err != nil {
+		return model.RequestPayloadLimitResponse{}, err
+	}
+	if strings.TrimSpace(value) == "" {
+		return model.RequestPayloadLimitResponse{MaxBytes: defaultRequestPayloadMaxBytes}, nil
+	}
+	parsed, err := parsePositiveInt64(value)
+	if err != nil || parsed <= 0 {
+		return model.RequestPayloadLimitResponse{MaxBytes: defaultRequestPayloadMaxBytes}, nil
+	}
+	return model.RequestPayloadLimitResponse{MaxBytes: parsed}, nil
+}
+
+func (s *SystemConfigService) SetRequestPayloadLimit(req model.RequestPayloadLimitRequest) (model.RequestPayloadLimitResponse, error) {
+	maxBytes := req.MaxBytes
+	if maxBytes <= 0 {
+		maxBytes = defaultRequestPayloadMaxBytes
+	}
+	if maxBytes == defaultRequestPayloadMaxBytes {
+		if err := s.repo.Delete(requestPayloadMaxBytesKey); err != nil {
+			return model.RequestPayloadLimitResponse{}, err
+		}
+		return model.RequestPayloadLimitResponse{MaxBytes: defaultRequestPayloadMaxBytes}, nil
+	}
+	if err := s.repo.Set(requestPayloadMaxBytesKey, formatInt64(maxBytes)); err != nil {
+		return model.RequestPayloadLimitResponse{}, err
+	}
+	return model.RequestPayloadLimitResponse{MaxBytes: maxBytes}, nil
 }
 
 func (s *SystemConfigService) SetRequestDetailConfig(req model.RequestDetailConfigResponse) error {

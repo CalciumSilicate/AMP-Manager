@@ -30,6 +30,14 @@ type RetryConfigRequest struct {
 	RetryOnEmptyBody  bool  `json:"retryOnEmptyBody"`
 }
 
+type RequestPayloadLimitResponse struct {
+	MaxBytes int64 `json:"maxBytes"`
+}
+
+type RequestPayloadLimitRequest struct {
+	MaxBytes int64 `json:"maxBytes"`
+}
+
 // SystemConfig 系统配置存储
 type SystemConfig struct {
 	Key       string    `json:"key"`

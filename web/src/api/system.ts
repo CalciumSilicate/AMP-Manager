@@ -176,6 +176,35 @@ export async function getRetryConfig(): Promise<RetryConfig> {
   return res.json()
 }
 
+export interface RequestPayloadLimitConfig {
+  maxBytes: number
+}
+
+export async function getRequestPayloadLimit(): Promise<RequestPayloadLimitConfig> {
+  const res = await authFetch(`${API_BASE}/admin/system/request-payload-limit`)
+
+  if (!res.ok) {
+    const data = await res.json()
+    throw new Error(data.error || '获取配置失败')
+  }
+
+  return res.json()
+}
+
+export async function updateRequestPayloadLimit(config: RequestPayloadLimitConfig): Promise<{ message: string; config: RequestPayloadLimitConfig }> {
+  const res = await authFetch(`${API_BASE}/admin/system/request-payload-limit`, {
+    method: 'PUT',
+    body: JSON.stringify(config),
+  })
+
+  if (!res.ok) {
+    const data = await res.json()
+    throw new Error(data.error || '更新配置失败')
+  }
+
+  return res.json()
+}
+
 // 更新重试配置
 export async function updateRetryConfig(config: RetryConfig): Promise<{ message: string; config: RetryConfig }> {
   const res = await authFetch(`${API_BASE}/admin/system/retry-config`, {

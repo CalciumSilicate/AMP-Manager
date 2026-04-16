@@ -9,13 +9,19 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"sync/atomic"
 
 	"github.com/gin-gonic/gin"
 )
 
-const maxRequestPayloadBytes = 128 * 1024 * 1024
+const defaultMaxRequestPayloadBytes int64 = 128 * 1024 * 1024
 
 var errRequestBodyTooLarge = errors.New("request body too large")
+var requestPayloadLimitBytes atomic.Int64
+
+func init() {
+	requestPayloadLimitBytes.Store(defaultMaxRequestPayloadBytes)
+}
 
 type requestPayloadKey struct{}
 
@@ -45,7 +51,7 @@ func ensureRequestBody(c *gin.Context) (*RequestPayload, error) {
 
 	payload := &RequestPayload{}
 	if c.Request.Body != nil {
-		bodyBytes, err := readRequestBodyWithLimit(c.Request.Body, maxRequestPayloadBytes)
+		bodyBytes, err := readRequestBodyWithLimit(c.Request.Body, GetRequestPayloadLimitBytes())
 		if err != nil {
 			return nil, err
 		}
@@ -56,6 +62,21 @@ func ensureRequestBody(c *gin.Context) (*RequestPayload, error) {
 	ctx := WithRequestPayload(c.Request.Context(), payload)
 	c.Request = c.Request.WithContext(ctx)
 	return payload, nil
+}
+
+func GetRequestPayloadLimitBytes() int64 {
+	limit := requestPayloadLimitBytes.Load()
+	if limit <= 0 {
+		return defaultMaxRequestPayloadBytes
+	}
+	return limit
+}
+
+func UpdateRequestPayloadLimitBytes(limit int64) {
+	if limit <= 0 {
+		limit = defaultMaxRequestPayloadBytes
+	}
+	requestPayloadLimitBytes.Store(limit)
 }
 
 func EnsureRequestPayload(c *gin.Context) (*RequestPayload, error) {

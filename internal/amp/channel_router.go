@@ -1098,7 +1098,7 @@ func rewriteOpenAIRequestBody(req *http.Request, injectStreamUsage bool) {
 		return
 	}
 
-	bodyBytes, err := readRequestBodyWithLimit(req.Body, maxRequestPayloadBytes)
+	bodyBytes, err := readRequestBodyWithLimit(req.Body, GetRequestPayloadLimitBytes())
 	if err != nil {
 		return
 	}

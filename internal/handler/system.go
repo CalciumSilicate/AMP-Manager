@@ -296,6 +296,36 @@ func (h *SystemHandler) UpdateRetryConfig(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"message": "配置已更新", "config": resp})
 }
 
+func (h *SystemHandler) GetRequestPayloadLimit(c *gin.Context) {
+	resp, err := service.NewSystemConfigService().GetRequestPayloadLimit()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "获取配置失败"})
+		return
+	}
+	c.JSON(http.StatusOK, resp)
+}
+
+func (h *SystemHandler) UpdateRequestPayloadLimit(c *gin.Context) {
+	var req model.RequestPayloadLimitRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "参数错误"})
+		return
+	}
+	if req.MaxBytes < 1024*1024 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "maxBytes 必须 >= 1048576"})
+		return
+	}
+
+	resp, err := service.NewSystemConfigService().SetRequestPayloadLimit(req)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "保存配置失败"})
+		return
+	}
+
+	amp.UpdateRequestPayloadLimitBytes(resp.MaxBytes)
+	c.JSON(http.StatusOK, gin.H{"message": "配置已更新", "config": resp})
+}
+
 func (h *SystemHandler) GetBillingRuntimeConfig(c *gin.Context) {
 	resp, err := service.NewSystemConfigService().GetBillingRuntimeConfig()
 	if err != nil {

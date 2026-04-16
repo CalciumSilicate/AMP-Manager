@@ -191,9 +191,11 @@ func Setup() *gin.Engine {
 				system.POST("/database/migrate", systemHandler.StartDatabaseMigration)
 				system.GET("/database/migrate/:taskID", systemHandler.GetDatabaseMigrationTask)
 
-				// 重试配置
-				system.GET("/retry-config", systemHandler.GetRetryConfig)
-				system.PUT("/retry-config", systemHandler.UpdateRetryConfig)
+					// 重试配置
+					system.GET("/retry-config", systemHandler.GetRetryConfig)
+					system.PUT("/retry-config", systemHandler.UpdateRetryConfig)
+					system.GET("/request-payload-limit", systemHandler.GetRequestPayloadLimit)
+					system.PUT("/request-payload-limit", systemHandler.UpdateRequestPayloadLimit)
 
 				// 请求详情监控配置
 				system.GET("/request-detail-enabled", systemHandler.GetRequestDetailEnabled)

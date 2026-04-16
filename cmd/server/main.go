@@ -100,6 +100,10 @@ func main() {
 		})
 	}
 
+	if payloadLimitCfg, err := sysConfigService.GetRequestPayloadLimit(); err == nil {
+		amp.UpdateRequestPayloadLimitBytes(payloadLimitCfg.MaxBytes)
+	}
+
 	// 加载缓存 TTL 配置
 	if cacheTTL, err := sysConfigService.GetCacheTTLOverride(); err == nil && cacheTTL != "" {
 		filters.SetCacheTTLOverride(cacheTTL)

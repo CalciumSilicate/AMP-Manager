@@ -19,6 +19,8 @@ import {
   getRetryConfig,
   updateRetryConfig,
   RetryConfig,
+  getRequestPayloadLimit,
+  updateRequestPayloadLimit,
   getRequestDetailConfig,
   updateRequestDetailConfig,
   RequestDetailConfig,
@@ -100,6 +102,8 @@ export default function SystemSettings({
   const fileInputRef = useRef<HTMLInputElement>(null)
   const [retryConfig, setRetryConfig] = useState<RetryConfig | null>(null)
   const [retryLoading, setRetryLoading] = useState(false)
+  const [requestPayloadLimitMB, setRequestPayloadLimitMB] = useState(128)
+  const [requestPayloadLimitSaving, setRequestPayloadLimitSaving] = useState(false)
   const [requestDetailConfig, setRequestDetailConfig] = useState<RequestDetailConfig | null>(null)
   const [requestDetailLoading, setRequestDetailLoading] = useState(false)
   const [requestDetailLoadError, setRequestDetailLoadError] = useState<string | null>(null)
@@ -175,6 +179,15 @@ export default function SystemSettings({
     }
   }, [])
 
+  const fetchRequestPayloadLimit = useCallback(async () => {
+    try {
+      const data = await getRequestPayloadLimit()
+      setRequestPayloadLimitMB(Math.max(1, Math.round(data.maxBytes / 1024 / 1024)))
+    } catch (err) {
+      console.error('获取请求体上限失败:', err)
+    }
+  }, [])
+
   const fetchRequestDetailConfig = useCallback(async () => {
     setRequestDetailLoading(true)
     setRequestDetailLoadError(null)
@@ -247,6 +260,7 @@ export default function SystemSettings({
   useEffect(() => {
     fetchDatabaseInfo()
     fetchRetryConfig()
+    fetchRequestPayloadLimit()
     fetchRequestDetailConfig()
     fetchTimeoutConfig()
     fetchCacheTTLConfig()
@@ -259,6 +273,7 @@ export default function SystemSettings({
     fetchBillingRuntimeStats,
     fetchCacheTTLConfig,
     fetchDatabaseInfo,
+    fetchRequestPayloadLimit,
     fetchRequestDetailConfig,
     fetchRetryConfig,
     fetchTimeoutConfig,
@@ -401,6 +416,20 @@ export default function SystemSettings({
   const handleRetryConfigChange = (key: keyof RetryConfig, value: boolean | number) => {
     if (retryConfig) {
       setRetryConfig({ ...retryConfig, [key]: value })
+    }
+  }
+
+  const handleSaveRequestPayloadLimit = async () => {
+    const nextMB = Math.max(1, Math.round(requestPayloadLimitMB))
+    setRequestPayloadLimitSaving(true)
+    try {
+      await updateRequestPayloadLimit({ maxBytes: nextMB * 1024 * 1024 })
+      setRequestPayloadLimitMB(nextMB)
+      showMessage('success', '请求体上限已更新')
+    } catch (err) {
+      showMessage('error', err instanceof Error ? err.message : '保存失败')
+    } finally {
+      setRequestPayloadLimitSaving(false)
     }
   }
 
@@ -1065,6 +1094,25 @@ export default function SystemSettings({
                           checked={retryConfig.respectRetryAfter}
                           onCheckedChange={(checked) => handleRetryConfigChange('respectRetryAfter', checked)}
                         />
+                      </div>
+                    </div>
+
+                    <div className="rounded-lg border p-4">
+                      <div className="grid gap-4 md:grid-cols-[minmax(0,220px)_auto] md:items-end">
+                        <div className="space-y-2">
+                          <Label>请求体上限 (MiB)</Label>
+                          <Input
+                            type="number"
+                            min={1}
+                            value={requestPayloadLimitMB}
+                            onChange={(e) => setRequestPayloadLimitMB(parseInt(e.target.value) || 1)}
+                          />
+                        </div>
+                        <div className="flex justify-start md:justify-end">
+                          <Button onClick={handleSaveRequestPayloadLimit} disabled={requestPayloadLimitSaving}>
+                            {requestPayloadLimitSaving ? '保存中...' : '保存上限'}
+                          </Button>
+                        </div>
                       </div>
                     </div>
 
