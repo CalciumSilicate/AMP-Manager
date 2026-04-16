@@ -41,6 +41,32 @@ export interface ModelPrice {
   updatedAt: string
 }
 
+export interface ModelPriceContextRule {
+  id: string
+  model: string
+  ruleName: string
+  minTokens: number
+  maxTokens?: number | null
+  inputCostPerToken: number
+  outputCostPerToken: number
+  cacheReadInputPerToken: number
+  cacheCreationPerToken: number
+  sortOrder: number
+  createdAt: string
+  updatedAt: string
+}
+
+export interface ModelPriceContextRuleRequest {
+  ruleName: string
+  minTokens: number
+  maxTokens?: number | null
+  inputCostPerToken: number
+  outputCostPerToken: number
+  cacheReadInputPerToken: number
+  cacheCreationPerToken: number
+  sortOrder: number
+}
+
 export interface PriceListResponse {
   items: ModelPrice[]
   total: number
@@ -66,6 +92,17 @@ export async function getPriceStats(): Promise<PriceStats> {
 export async function refreshPrices(): Promise<{ message: string; modelCount: number; fetchedAt: string }> {
   return fetchJson(`${API_BASE}/admin/prices/refresh`, {
     method: 'POST',
+  })
+}
+
+export async function listPriceContextRules(model: string): Promise<{ items: ModelPriceContextRule[] }> {
+  return fetchJson<{ items: ModelPriceContextRule[] }>(`${API_BASE}/admin/prices/context-rules?model=${encodeURIComponent(model)}`)
+}
+
+export async function updatePriceContextRules(model: string, rules: ModelPriceContextRuleRequest[]): Promise<{ items: ModelPriceContextRule[] }> {
+  return fetchJson<{ items: ModelPriceContextRule[] }>(`${API_BASE}/admin/prices/context-rules?model=${encodeURIComponent(model)}`, {
+    method: 'PUT',
+    body: JSON.stringify({ rules }),
   })
 }
 

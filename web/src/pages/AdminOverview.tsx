@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { getAdminDashboard, AdminDashboardData, DashboardCacheHitRate } from '@/api/dashboard'
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
@@ -31,6 +31,7 @@ const throughputChartConfig = {
   qps1m: { label: '1 分钟平均 QPS', color: 'hsl(var(--chart-1))' },
   rpm5m: { label: '5 分钟平均 RPM', color: 'hsl(var(--chart-2))' },
   tpm5m: { label: '5 分钟平均 TPM', color: 'hsl(var(--chart-3))' },
+  concurrency1m: { label: '1 分钟并发量', color: 'hsl(var(--chart-4))' },
 } satisfies ChartConfig
 
 const timingChartConfig = {
@@ -62,24 +63,25 @@ export default function AdminOverview() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [trendView, setTrendView] = useState<'cost' | 'requests'>('cost')
-  const [throughputView, setThroughputView] = useState<'qps1m' | 'rpm5m' | 'tpm5m' | 'ttfb' | 'duration'>('qps1m')
+  const [throughputView, setThroughputView] = useState<'qps1m' | 'rpm5m' | 'tpm5m' | 'concurrency1m' | 'ttfb' | 'duration'>('qps1m')
+  const [throughputWindow, setThroughputWindow] = useState<'1h' | '3h' | '6h' | '12h' | '24h' | '3d'>('24h')
 
-  const loadDashboard = async () => {
+  const loadDashboard = useCallback(async () => {
     setLoading(true)
     setError('')
     try {
-      const result = await getAdminDashboard()
+      const result = await getAdminDashboard(throughputWindow)
       setData(result)
     } catch (err) {
       setError(err instanceof Error ? err.message : '加载失败')
     } finally {
       setLoading(false)
     }
-  }
+  }, [throughputWindow])
 
   useEffect(() => {
-    loadDashboard()
-  }, [])
+    void loadDashboard()
+  }, [loadDashboard])
 
   const trendData = useMemo(() => {
     if (!data?.dailyTrend?.length) return []
@@ -245,35 +247,47 @@ export default function AdminOverview() {
   const throughputViewMeta = {
     qps1m: {
       label: '1 分钟平均 QPS',
-      description: '近 24 小时，每分钟请求数 / 60',
+      description: '按当前窗口统计，每分钟请求数 / 60',
       digits: 2,
       unit: 'req/s',
     },
     rpm5m: {
       label: '5 分钟平均 RPM',
-      description: '近 24 小时，5 分钟窗口平均每分钟请求',
+      description: '按当前窗口统计，5 分钟窗口平均每分钟请求',
       digits: 2,
       unit: 'req/min',
     },
     tpm5m: {
       label: '5 分钟平均 TPM',
-      description: '近 24 小时，5 分钟窗口平均每分钟 Tokens',
+      description: '按当前窗口统计，5 分钟窗口平均每分钟 Tokens',
       digits: 1,
       unit: 'tok/min',
     },
+    concurrency1m: {
+      label: '1 分钟并发量',
+      description: '按当前窗口统计，每分钟活跃中的请求数',
+      digits: 0,
+      unit: 'req',
+    },
     ttfb: {
       label: 'TTFB',
-      description: '近 24 小时，按 5 分钟聚合的 TTFB 分布',
+      description: '按当前窗口统计，按 5 分钟聚合的 TTFB 分布',
       digits: 1,
       unit: 'ms',
     },
     duration: {
       label: 'Duration',
-      description: '近 24 小时，按 5 分钟聚合的总耗时分布',
+      description: '按当前窗口统计，按 5 分钟聚合的总耗时分布',
       digits: 1,
       unit: 'ms',
     },
   } as const
+  const throughputWindowOrder: Array<'1h' | '3h' | '6h' | '12h' | '24h' | '3d'> = ['1h', '3h', '6h', '12h', '24h', '3d']
+  const cycleThroughputWindow = () => {
+    const currentIndex = throughputWindowOrder.indexOf(throughputWindow)
+    const nextIndex = (currentIndex + 1) % throughputWindowOrder.length
+    setThroughputWindow(throughputWindowOrder[nextIndex])
+  }
 
   const timingData = throughputView === 'ttfb' ? ttfbData : durationData
 
@@ -524,6 +538,9 @@ export default function AdminOverview() {
                   <CardDescription>{throughputViewMeta[throughputView].description}</CardDescription>
                 </div>
                 <div className="flex items-center gap-1">
+                  <Button size="sm" variant="outline" onClick={cycleThroughputWindow}>
+                    {throughputWindow}
+                  </Button>
                   <Button size="sm" variant={throughputView === 'qps1m' ? 'default' : 'outline'} onClick={() => setThroughputView('qps1m')}>
                     1m QPS
                   </Button>
@@ -532,6 +549,9 @@ export default function AdminOverview() {
                   </Button>
                   <Button size="sm" variant={throughputView === 'tpm5m' ? 'default' : 'outline'} onClick={() => setThroughputView('tpm5m')}>
                     5m TPM
+                  </Button>
+                  <Button size="sm" variant={throughputView === 'concurrency1m' ? 'default' : 'outline'} onClick={() => setThroughputView('concurrency1m')}>
+                    1m 并发
                   </Button>
                   <Button size="sm" variant={throughputView === 'ttfb' ? 'default' : 'outline'} onClick={() => setThroughputView('ttfb')}>
                     TTFB

@@ -35,6 +35,7 @@ export interface Channel {
   enabled: boolean
   weight: number
   priority: number
+  rateMultiplier: number
   groupIds: string[]
   groupNames: string[]
   models: ChannelModel[]
@@ -60,6 +61,7 @@ export interface ChannelRequest {
   enabled: boolean
   weight: number
   priority: number
+  rateMultiplier: number
   groupIds?: string[]
   models?: ChannelModel[]
   modelWhitelist?: boolean

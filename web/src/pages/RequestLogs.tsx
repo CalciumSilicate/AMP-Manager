@@ -105,6 +105,30 @@ function formatPricePerMillion(costPerToken?: number) {
   return `$${perMillion.toFixed(4)} / 1M`
 }
 
+function formatMultiplierValue(value?: number) {
+  if (typeof value !== 'number') return '-'
+  return `${formatDecimal(value, 2)}x`
+}
+
+function buildPricingTitle(log: RequestLog) {
+  const modelLabel = log.pricingModel || log.mappedModel || log.originalModel || '模型'
+  if (log.pricingRuleName) {
+    return `${modelLabel}（${log.pricingRuleName}）计费标准`
+  }
+  return `${modelLabel} 计费标准`
+}
+
+function enabledTranslatorLabels(log: RequestLog) {
+  const translator = log.channelTranslator
+  if (!translator) return []
+  return [
+    translator.compatible ? 'Compatible' : null,
+    translator.responses ? 'Responses' : null,
+    translator.messages ? 'Messages' : null,
+    translator.gemini ? 'Gemini' : null,
+  ].filter(Boolean) as string[]
+}
+
 function formatMethodLabel(method?: string) {
   if (!method) return '-'
   if (method.toLowerCase() === 'websocket') return 'WebSocket'
@@ -163,6 +187,7 @@ const RequestLogRow = memo(function RequestLogRow({
 }) {
   const userDisplay = log.username || userIdToUsername.get(log.userId) || `${log.userId.slice(0, 8)}...`
   const keyDisplay = log.apiKeyName ? `${log.apiKeyName}${log.apiKeyPrefix ? ` (${log.apiKeyPrefix})` : ''}` : (log.apiKeyPrefix || log.apiKeyId || '-')
+  const translatorLabels = enabledTranslatorLabels(log)
 
   return (
     <TableRow>
@@ -202,9 +227,25 @@ const RequestLogRow = memo(function RequestLogRow({
       </TableCell>
       <TableCell>
         {(log.channelName || log.provider) ? (
-          <div className="flex flex-wrap items-center gap-1.5">
-            <Badge variant="outline" className="text-xs">{log.channelName || log.provider}</Badge>
-          </div>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <div className="flex flex-wrap items-center gap-1.5">
+                <Badge variant="outline" className="cursor-help text-xs">{log.channelName || log.provider}</Badge>
+              </div>
+            </TooltipTrigger>
+            <TooltipContent side="bottom" className="max-w-80 border bg-popover px-3 py-2 text-xs text-popover-foreground shadow-md">
+              <div className="space-y-2">
+                <div className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1.5">
+                  <span className="text-[11px] font-medium text-foreground/70">渠道</span>
+                  <span className="text-[11px] font-medium text-foreground">{log.channelName || log.provider}</span>
+                  <span className="text-[11px] font-medium text-foreground/70">翻译器</span>
+                  <span className="text-[11px] font-medium text-foreground">
+                    {translatorLabels.length > 0 ? translatorLabels.join(' / ') : '无'}
+                  </span>
+                </div>
+              </div>
+            </TooltipContent>
+          </Tooltip>
         ) : (
           <span className="text-muted-foreground">-</span>
         )}
@@ -271,7 +312,7 @@ const RequestLogRow = memo(function RequestLogRow({
               </TooltipTrigger>
               <TooltipContent side="bottom" className="max-w-80 border bg-popover px-3 py-2 text-xs text-popover-foreground shadow-md">
                 <div className="space-y-2">
-                  <p className="text-[11px] font-semibold tracking-[0.02em] text-foreground">计费标准</p>
+                  <p className="break-words text-[11px] font-semibold tracking-[0.02em] text-foreground">{buildPricingTitle(log)}</p>
                   <div className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1.5">
                     <span className="text-[11px] font-medium text-foreground/70">输入</span>
                     <span className="font-mono text-[11px] font-medium text-foreground">{formatPricePerMillion(log.inputCostPerToken)}</span>
@@ -289,9 +330,32 @@ const RequestLogRow = memo(function RequestLogRow({
       </TableCell>
       <TableCell className="text-right">
         {typeof log.rateMultiplier === 'number' ? (
-          <Badge variant="outline" className="font-mono">
-            {formatDecimal(log.rateMultiplier, 2)}x
-          </Badge>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Badge variant="outline" className="cursor-help font-mono">
+                {formatDecimal(log.rateMultiplier, 2)}x
+              </Badge>
+            </TooltipTrigger>
+            <TooltipContent side="bottom" className="max-w-80 border bg-popover px-3 py-2 text-xs text-popover-foreground shadow-md">
+              <div className="space-y-2">
+                <p className="text-[11px] font-semibold tracking-[0.02em] text-foreground">倍率拆分</p>
+                <div className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1.5">
+                  <span className="text-[11px] font-medium text-foreground/70">渠道倍率</span>
+                  <span className="font-mono text-[11px] font-medium text-foreground">{formatMultiplierValue(log.channelRateMultiplier)}</span>
+                  <span className="text-[11px] font-medium text-foreground/70">分组倍率</span>
+                  <span className="font-mono text-[11px] font-medium text-foreground">{formatMultiplierValue(log.groupRateMultiplier)}</span>
+                  <span className="text-[11px] font-medium text-foreground/70">特殊计费</span>
+                  <span className="font-mono text-[11px] font-medium text-foreground">
+                    {log.specialRateReason
+                      ? `${log.specialRateReason} ${formatMultiplierValue(log.specialRateMultiplier)}`
+                      : formatMultiplierValue(log.specialRateMultiplier)}
+                  </span>
+                  <span className="text-[11px] font-medium text-foreground/70">总倍率</span>
+                  <span className="font-mono text-[11px] font-medium text-foreground">{formatMultiplierValue(log.rateMultiplier)}</span>
+                </div>
+              </div>
+            </TooltipContent>
+          </Tooltip>
         ) : (
           <span className="text-muted-foreground">-</span>
         )}

@@ -312,6 +312,18 @@ export function ChannelFormDialog({
             />
           </div>
 
+          <div className="space-y-2 col-span-2">
+            <Label>倍率</Label>
+            <Input
+              type="number"
+              min={0}
+              step="0.01"
+              value={formData.rateMultiplier ?? 1}
+              onChange={(e) => setFormData(prev => ({ ...prev, rateMultiplier: Number.parseFloat(e.target.value) || 0 }))}
+            />
+            <p className="text-xs text-muted-foreground">总倍率会与用户分组倍率和特殊计费倍率连乘。</p>
+          </div>
+
           {/* 启用开关 */}
           <SwitchRow
             label="启用渠道"

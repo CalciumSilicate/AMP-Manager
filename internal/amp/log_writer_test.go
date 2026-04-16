@@ -28,7 +28,7 @@ func TestLogWriterUpdateFromTraceWritesBillingResult(t *testing.T) {
 	outputTokens := 8
 	trace.SetUsage(&inputTokens, &outputTokens, nil, nil)
 	trace.SetResponse(200)
-	trace.SetCost(130, "0.000130", "gpt-4.1-mini")
+	trace.SetCost(130, "0.000130", "gpt-4.1-mini", "")
 	trace.SetBillingResult(&service.RequestBillingResult{
 		Status:                    "overuse",
 		ChargedSubscriptionMicros: 100,

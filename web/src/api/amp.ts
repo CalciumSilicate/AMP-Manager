@@ -190,11 +190,22 @@ export interface RequestLog {
   costMicros?: number
   costUsd?: string
   pricingModel?: string
+  pricingRuleName?: string
   inputCostPerToken?: number
   outputCostPerToken?: number
   cacheReadInputPerToken?: number
   cacheCreationInputPerToken?: number
   rateMultiplier?: number
+  channelRateMultiplier?: number
+  groupRateMultiplier?: number
+  specialRateMultiplier?: number
+  specialRateReason?: string
+  channelTranslator?: {
+    compatible: boolean
+    responses: boolean
+    messages: boolean
+    gemini: boolean
+  }
   thinkingLevel?: string
   downstreamTransport?: string
   upstreamTransport?: string

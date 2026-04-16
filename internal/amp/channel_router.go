@@ -514,6 +514,8 @@ func ChannelProxyHandler() gin.HandlerFunc {
 				// Set channel info
 				trace.SetChannel(channel.ID, string(channel.Type), channel.BaseURL)
 				trace.SetModels(originalModel, mappedModel)
+				breakdown := computePricingBreakdown(c.Request.Context(), channel, convertedBody)
+				trace.SetPricingBreakdown(breakdown.GroupMultiplier, breakdown.ChannelMultiplier, breakdown.SpecialMultiplier, breakdown.SpecialReason)
 				// Set thinking level if applied
 				if thinkingLevel := GetThinkingLevel(c); thinkingLevel != "" {
 					trace.SetThinkingLevel(thinkingLevel)
@@ -1265,16 +1267,15 @@ func handleNonStreamingResponse(resp *http.Response, trace *RequestTrace, transI
 					proxyCfg := GetProxyConfig(resp.Request.Context())
 					multiplier := 1.0
 					if proxyCfg != nil {
-						multiplier = proxyCfg.RateMultiplier
-						trace.RateMultiplier = multiplier
+						multiplier = traceMultiplier(trace)
 					}
 
 					if multiplier == 0 {
-						trace.SetCost(costResult.CostMicros, costResult.CostUsd, costResult.PricingModel)
+						trace.SetCost(costResult.CostMicros, costResult.CostUsd, costResult.PricingModel, costResult.PricingRuleName)
 					} else {
 						adjustedCostMicros := int64(float64(costResult.CostMicros) * multiplier)
 						adjustedCostUsd := fmt.Sprintf("%.6f", float64(adjustedCostMicros)/1e6)
-						trace.SetCost(adjustedCostMicros, adjustedCostUsd, costResult.PricingModel)
+						trace.SetCost(adjustedCostMicros, adjustedCostUsd, costResult.PricingModel, costResult.PricingRuleName)
 
 						if proxyCfg != nil && adjustedCostMicros > 0 {
 							billingSvc := service.NewBillingService()

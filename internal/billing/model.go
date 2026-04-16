@@ -37,5 +37,6 @@ type CostResult struct {
 	CostMicros   int64  // 微美元 (USD * 1e6)
 	CostUsd      string // USD 字符串（用于展示）
 	PricingModel string // 使用的计价模型名
+	PricingRuleName string
 	PriceFound   bool   // 是否找到价格
 }

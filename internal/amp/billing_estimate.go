@@ -125,11 +125,19 @@ func BillingEstimateMiddleware() gin.HandlerFunc {
 			)
 			if cost.PriceFound {
 				estimate.EstimatedCostMicros = cost.CostMicros
-				if cfg := GetProxyConfig(c.Request.Context()); cfg != nil {
-					if cfg.RateMultiplier == 0 {
+				if channelCfg := GetChannelConfig(c); channelCfg != nil {
+					breakdown := computePricingBreakdown(c.Request.Context(), channelCfg.Channel, payload.Body)
+					if breakdown.TotalMultiplier == 0 {
 						estimate.EstimatedCostMicros = 0
-					} else if cfg.RateMultiplier > 0 {
-						estimate.EstimatedCostMicros = int64(float64(cost.CostMicros) * cfg.RateMultiplier)
+					} else {
+						estimate.EstimatedCostMicros = int64(float64(cost.CostMicros) * breakdown.TotalMultiplier)
+					}
+				} else if cfg := GetProxyConfig(c.Request.Context()); cfg != nil {
+					groupMultiplier := resolveGroupMultiplier(cfg)
+					if groupMultiplier == 0 {
+						estimate.EstimatedCostMicros = 0
+					} else if groupMultiplier > 0 {
+						estimate.EstimatedCostMicros = int64(float64(cost.CostMicros) * groupMultiplier)
 					}
 				}
 			}
@@ -151,7 +159,7 @@ func shouldEstimateBilling(ctx context.Context) bool {
 		return false
 	}
 
-	return cfg.RateMultiplier != 0
+	return resolveGroupMultiplier(cfg) != 0
 }
 
 func extractReservationMaxOutputTokensForPayload(payload map[string]interface{}, body []byte, modelName string) int {

@@ -317,7 +317,7 @@ func TestGetAdminThroughputTrendBackfillsFromRequestLogs(t *testing.T) {
 	}
 
 	repo := NewRequestLogRepository()
-	points, err := repo.GetAdminThroughputTrend()
+	points, err := repo.GetAdminThroughputTrend("24h")
 	if err != nil {
 		t.Fatalf("GetAdminThroughputTrend returned error: %v", err)
 	}

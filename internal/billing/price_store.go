@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"ampmanager/internal/database"
+	"ampmanager/internal/model"
 
 	"github.com/google/uuid"
 	log "github.com/sirupsen/logrus"
@@ -66,11 +67,12 @@ type LiteLLMPricing struct {
 
 // PriceStore 管理模型价格表
 type PriceStore struct {
-	mu        sync.RWMutex
-	prices    map[string]ModelPrice // model -> price
-	etag      string                // HTTP ETag 用于缓存协商
-	fetchedAt time.Time             // 上次成功获取时间
-	stopChan  chan struct{}
+	mu           sync.RWMutex
+	prices       map[string]ModelPrice // model -> price
+	contextRules map[string][]model.ModelPriceContextRule
+	etag         string    // HTTP ETag 用于缓存协商
+	fetchedAt    time.Time // 上次成功获取时间
+	stopChan     chan struct{}
 }
 
 var (
@@ -83,13 +85,17 @@ var (
 func InitPriceStore() {
 	priceStoreOnce.Do(func() {
 		globalPriceStore = &PriceStore{
-			prices:   make(map[string]ModelPrice),
-			stopChan: make(chan struct{}),
+			prices:       make(map[string]ModelPrice),
+			contextRules: make(map[string][]model.ModelPriceContextRule),
+			stopChan:     make(chan struct{}),
 		}
 
 		// 先从数据库加载（冷启动时使用缓存）
 		if err := globalPriceStore.LoadFromDB(); err != nil {
 			log.Warnf("billing: failed to load prices from DB: %v", err)
+		}
+		if err := globalPriceStore.LoadContextRulesFromDB(); err != nil {
+			log.Warnf("billing: failed to load context rules from DB: %v", err)
 		}
 
 		// 如果数据库为空，初始化内置价格作为 seed
@@ -273,6 +279,14 @@ func (s *PriceStore) GetPrice(model string) (PriceData, bool) {
 	return PriceData{}, false
 }
 
+func (s *PriceStore) GetModelPrice(model string) (ModelPrice, bool) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	price, ok := s.prices[model]
+	return price, ok
+}
+
 // SetPrice 设置模型价格
 func (s *PriceStore) SetPrice(model, provider string, data PriceData, source string) error {
 	now := time.Now()
@@ -337,6 +351,58 @@ func (s *PriceStore) LoadFromDB() error {
 	}
 
 	return rows.Err()
+}
+
+func (s *PriceStore) LoadContextRulesFromDB() error {
+	db := database.GetDB()
+	if db == nil {
+		return nil
+	}
+
+	rows, err := db.Query(`
+		SELECT id, model, rule_name, min_tokens, max_tokens, input_cost_per_token, output_cost_per_token,
+		       cache_read_input_per_token, cache_creation_per_token, sort_order, created_at, updated_at
+		FROM model_price_context_rules
+		ORDER BY model ASC, sort_order ASC, created_at ASC
+	`)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+
+	next := make(map[string][]model.ModelPriceContextRule)
+	for rows.Next() {
+		var rule model.ModelPriceContextRule
+		var maxTokens sql.NullInt64
+		if err := rows.Scan(
+			&rule.ID,
+			&rule.Model,
+			&rule.RuleName,
+			&rule.MinTokens,
+			&maxTokens,
+			&rule.InputCostPerToken,
+			&rule.OutputCostPerToken,
+			&rule.CacheReadInputPerToken,
+			&rule.CacheCreationPerToken,
+			&rule.SortOrder,
+			&rule.CreatedAt,
+			&rule.UpdatedAt,
+		); err != nil {
+			return err
+		}
+		if maxTokens.Valid {
+			rule.MaxTokens = &maxTokens.Int64
+		}
+		next[rule.Model] = append(next[rule.Model], rule)
+	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
+
+	s.mu.Lock()
+	s.contextRules = next
+	s.mu.Unlock()
+	return nil
 }
 
 // saveToDB 保存单个价格记录到数据库
@@ -411,6 +477,105 @@ func (s *PriceStore) saveBatchToDB(prices map[string]ModelPrice) {
 	}
 
 	log.Debugf("billing: saved %d prices to database", len(prices))
+}
+
+func (s *PriceStore) ListContextRules(modelName string) []model.ModelPriceContextRule {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	rules := s.contextRules[modelName]
+	if len(rules) == 0 {
+		return []model.ModelPriceContextRule{}
+	}
+	cloned := make([]model.ModelPriceContextRule, len(rules))
+	copy(cloned, rules)
+	return cloned
+}
+
+func (s *PriceStore) ReplaceContextRules(modelName string, rules []model.ModelPriceContextRule) error {
+	db := database.GetDB()
+	if db == nil {
+		return nil
+	}
+
+	tx, err := db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	if _, err := tx.Exec(`DELETE FROM model_price_context_rules WHERE model = ?`, modelName); err != nil {
+		return err
+	}
+
+	for _, rule := range rules {
+		if _, err := tx.Exec(`
+			INSERT INTO model_price_context_rules (
+				id, model, rule_name, min_tokens, max_tokens, input_cost_per_token, output_cost_per_token,
+				cache_read_input_per_token, cache_creation_per_token, sort_order, created_at, updated_at
+			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		`,
+			rule.ID,
+			rule.Model,
+			rule.RuleName,
+			rule.MinTokens,
+			rule.MaxTokens,
+			rule.InputCostPerToken,
+			rule.OutputCostPerToken,
+			rule.CacheReadInputPerToken,
+			rule.CacheCreationPerToken,
+			rule.SortOrder,
+			rule.CreatedAt,
+			rule.UpdatedAt,
+		); err != nil {
+			return err
+		}
+	}
+
+	if err := tx.Commit(); err != nil {
+		return err
+	}
+
+	next := make([]model.ModelPriceContextRule, len(rules))
+	copy(next, rules)
+	s.mu.Lock()
+	if len(next) == 0 {
+		delete(s.contextRules, modelName)
+	} else {
+		s.contextRules[modelName] = next
+	}
+	s.mu.Unlock()
+	return nil
+}
+
+func (s *PriceStore) MatchContextRule(modelName string, totalTokens int64) (*model.ModelPriceContextRule, bool) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	for _, rule := range s.contextRules[modelName] {
+		if totalTokens < rule.MinTokens {
+			continue
+		}
+		if rule.MaxTokens != nil && totalTokens >= *rule.MaxTokens {
+			continue
+		}
+		matched := rule
+		return &matched, true
+	}
+	return nil, false
+}
+
+func (s *PriceStore) FindContextRuleByName(modelName, ruleName string) (*model.ModelPriceContextRule, bool) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	for _, rule := range s.contextRules[modelName] {
+		if rule.RuleName == ruleName {
+			matched := rule
+			return &matched, true
+		}
+	}
+	return nil, false
 }
 
 // seedBuiltinPrices 初始化内置价格表（作为 fallback）

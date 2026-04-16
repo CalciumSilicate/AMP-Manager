@@ -58,7 +58,7 @@ export function ChannelTable({
             <TableHead>类型</TableHead>
             <TableHead>Base URL</TableHead>
             <TableHead>状态</TableHead>
-            <TableHead>优先级/权重</TableHead>
+            <TableHead>优先级/权重/倍率</TableHead>
             <TableHead>更新时间</TableHead>
             <TableHead className="text-right">操作</TableHead>
           </TableRow>
@@ -95,7 +95,7 @@ export function ChannelTable({
                   </span>
                 </div>
               </TableCell>
-              <TableCell>{channel.priority} / {channel.weight}</TableCell>
+              <TableCell>{channel.priority} / {channel.weight} / {channel.rateMultiplier}x</TableCell>
               <TableCell>{formatDate(channel.updatedAt)}</TableCell>
               <TableCell className="text-right space-x-2">
                 <Button variant="ghost" size="sm" onClick={() => onTest(channel)}>

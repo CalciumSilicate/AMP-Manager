@@ -138,9 +138,9 @@ func registerAmpProxyAPI(engine *gin.Engine, proxyHandler, channelHandler, model
 	api.Use(APIKeyAuthMiddleware())
 	api.Use(rateLimiter.RateLimitByAPIKey())
 	api.Use(NativeModeSkipMiddleware(ApplyModelMappingMiddleware()))
+	api.Use(NativeModeSkipMiddleware(ChannelRouterMiddleware()))
 	api.Use(NativeModeSkipMiddleware(BillingEstimateMiddleware()))
 	api.Use(NativeModeSkipMiddleware(BillingCheckMiddleware()))
-	api.Use(NativeModeSkipMiddleware(ChannelRouterMiddleware()))
 	api.Use(NativeModeSkipMiddleware(RequestCaptureMiddleware()))
 
 	api.Any("/internal", ProxyDisabledSkipMiddleware(BalanceAdMiddleware()), ProxyDisabledSkipMiddleware(DebugInternalAPIMiddleware()), ProxyDisabledSkipMiddleware(WebSearchStrategyMiddleware()), proxyHandler)
@@ -153,9 +153,9 @@ func registerAmpProxyAPI(engine *gin.Engine, proxyHandler, channelHandler, model
 	v1.Use(APIKeyAuthMiddleware())
 	v1.Use(rateLimiter.RateLimitByAPIKey())
 	v1.Use(NativeModeSkipMiddleware(ApplyModelMappingMiddleware()))
+	v1.Use(NativeModeSkipMiddleware(ChannelRouterMiddleware()))
 	v1.Use(NativeModeSkipMiddleware(BillingEstimateMiddleware()))
 	v1.Use(NativeModeSkipMiddleware(BillingCheckMiddleware()))
-	v1.Use(NativeModeSkipMiddleware(ChannelRouterMiddleware()))
 	v1.Use(NativeModeSkipMiddleware(RequestCaptureMiddleware()))
 
 	v1.POST("/chat/completions", createRoutingHandler(proxyHandler, channelHandler))
@@ -168,9 +168,9 @@ func registerAmpProxyAPI(engine *gin.Engine, proxyHandler, channelHandler, model
 	v1beta.Use(APIKeyAuthMiddleware())
 	v1beta.Use(rateLimiter.RateLimitByAPIKey())
 	v1beta.Use(NativeModeSkipMiddleware(ApplyModelMappingMiddleware()))
+	v1beta.Use(NativeModeSkipMiddleware(ChannelRouterMiddleware()))
 	v1beta.Use(NativeModeSkipMiddleware(BillingEstimateMiddleware()))
 	v1beta.Use(NativeModeSkipMiddleware(BillingCheckMiddleware()))
-	v1beta.Use(NativeModeSkipMiddleware(ChannelRouterMiddleware()))
 	v1beta.Use(NativeModeSkipMiddleware(RequestCaptureMiddleware()))
 
 	v1beta.POST("/models/*action", createRoutingHandler(proxyHandler, channelHandler))

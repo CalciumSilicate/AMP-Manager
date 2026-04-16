@@ -54,10 +54,15 @@ type LogEntry struct {
 	UpstreamTransport        *string
 	TransportFallbackReason  *string
 	// 成本相关
-	CostMicros     *int64
-	CostUsd        *string
-	PricingModel   *string
-	RateMultiplier *float64
+	CostMicros            *int64
+	CostUsd               *string
+	PricingModel          *string
+	PricingRuleName       *string
+	RateMultiplier        *float64
+	ChannelRateMultiplier *float64
+	GroupRateMultiplier   *float64
+	SpecialRateMultiplier *float64
+	SpecialRateReason     *string
 }
 
 // LogWriter 异步批量日志写入器
@@ -188,7 +193,7 @@ func (w *LogWriter) UpdateFromTrace(trace *RequestTrace) bool {
 	}
 
 	// 构建可选字段
-	var originalModel, mappedModel, provider, channelID, endpoint, errorType, pricingModel, costUsd, billingStatus *string
+	var originalModel, mappedModel, provider, channelID, endpoint, errorType, pricingModel, pricingRuleName, costUsd, billingStatus, specialRateReason *string
 	var chargedSubscriptionMicros, chargedBalanceMicros *int64
 	if snapshot.OriginalModel != "" {
 		originalModel = &snapshot.OriginalModel
@@ -210,6 +215,9 @@ func (w *LogWriter) UpdateFromTrace(trace *RequestTrace) bool {
 	}
 	if snapshot.PricingModel != nil {
 		pricingModel = snapshot.PricingModel
+	}
+	if snapshot.PricingRuleName != nil {
+		pricingRuleName = snapshot.PricingRuleName
 	}
 	if snapshot.CostUsd != nil {
 		costUsd = snapshot.CostUsd
@@ -238,11 +246,29 @@ func (w *LogWriter) UpdateFromTrace(trace *RequestTrace) bool {
 	if snapshot.TransportFallbackReason != "" {
 		transportFallbackReason = &snapshot.TransportFallbackReason
 	}
+	if snapshot.SpecialRateReason != "" {
+		specialRateReason = &snapshot.SpecialRateReason
+	}
 
 	var rateMultiplier *float64
 	if snapshot.RateMultiplier != 0 {
 		rm := snapshot.RateMultiplier
 		rateMultiplier = &rm
+	}
+	var channelRateMultiplier *float64
+	if snapshot.ChannelRateMultiplier != 0 {
+		rm := snapshot.ChannelRateMultiplier
+		channelRateMultiplier = &rm
+	}
+	var groupRateMultiplier *float64
+	if snapshot.GroupRateMultiplier != 0 {
+		rm := snapshot.GroupRateMultiplier
+		groupRateMultiplier = &rm
+	}
+	var specialRateMultiplier *float64
+	if snapshot.SpecialRateMultiplier != 0 {
+		rm := snapshot.SpecialRateMultiplier
+		specialRateMultiplier = &rm
 	}
 
 	tx, err := w.db.Begin()
@@ -273,6 +299,7 @@ func (w *LogWriter) UpdateFromTrace(trace *RequestTrace) bool {
 			cost_micros = ?,
 			cost_usd = ?,
 			pricing_model = ?,
+			pricing_rule_name = COALESCE(?, pricing_rule_name),
 			charged_subscription_micros = COALESCE(?, charged_subscription_micros),
 			charged_balance_micros = COALESCE(?, charged_balance_micros),
 			billing_status = COALESCE(?, billing_status),
@@ -281,6 +308,10 @@ func (w *LogWriter) UpdateFromTrace(trace *RequestTrace) bool {
 			upstream_transport = COALESCE(?, upstream_transport),
 			transport_fallback_reason = COALESCE(?, transport_fallback_reason),
 			rate_multiplier = COALESCE(?, rate_multiplier),
+			channel_rate_multiplier = COALESCE(?, channel_rate_multiplier),
+			group_rate_multiplier = COALESCE(?, group_rate_multiplier),
+			special_rate_multiplier = COALESCE(?, special_rate_multiplier),
+			special_rate_reason = COALESCE(?, special_rate_reason),
 			response_text = COALESCE(?, response_text)
 		WHERE id = ?
 	`,
@@ -303,6 +334,7 @@ func (w *LogWriter) UpdateFromTrace(trace *RequestTrace) bool {
 		snapshot.CostMicros,
 		costUsd,
 		pricingModel,
+		pricingRuleName,
 		chargedSubscriptionMicros,
 		chargedBalanceMicros,
 		billingStatus,
@@ -311,6 +343,10 @@ func (w *LogWriter) UpdateFromTrace(trace *RequestTrace) bool {
 		upstreamTransport,
 		transportFallbackReason,
 		rateMultiplier,
+		channelRateMultiplier,
+		groupRateMultiplier,
+		specialRateMultiplier,
+		specialRateReason,
 		stringPtrIfNonEmpty(snapshot.ResponseText),
 		snapshot.RequestID,
 	)
@@ -383,7 +419,7 @@ func (w *LogWriter) insertCompleteTx(tx *sql.Tx, snapshot RequestTrace, status L
 		isStreaming = 1
 	}
 
-	var originalModel, mappedModel, provider, channelID, endpoint, errorType, pricingModel, costUsd, billingStatus *string
+	var originalModel, mappedModel, provider, channelID, endpoint, errorType, pricingModel, pricingRuleName, costUsd, billingStatus, specialRateReason *string
 	var chargedSubscriptionMicros, chargedBalanceMicros *int64
 	if snapshot.OriginalModel != "" {
 		originalModel = &snapshot.OriginalModel
@@ -405,6 +441,9 @@ func (w *LogWriter) insertCompleteTx(tx *sql.Tx, snapshot RequestTrace, status L
 	}
 	if snapshot.PricingModel != nil {
 		pricingModel = snapshot.PricingModel
+	}
+	if snapshot.PricingRuleName != nil {
+		pricingRuleName = snapshot.PricingRuleName
 	}
 	if snapshot.CostUsd != nil {
 		costUsd = snapshot.CostUsd
@@ -432,10 +471,28 @@ func (w *LogWriter) insertCompleteTx(tx *sql.Tx, snapshot RequestTrace, status L
 	if snapshot.TransportFallbackReason != "" {
 		transportFallbackReason = &snapshot.TransportFallbackReason
 	}
+	if snapshot.SpecialRateReason != "" {
+		specialRateReason = &snapshot.SpecialRateReason
+	}
 	var rateMultiplier *float64
 	if snapshot.RateMultiplier != 0 {
 		rm := snapshot.RateMultiplier
 		rateMultiplier = &rm
+	}
+	var channelRateMultiplier *float64
+	if snapshot.ChannelRateMultiplier != 0 {
+		rm := snapshot.ChannelRateMultiplier
+		channelRateMultiplier = &rm
+	}
+	var groupRateMultiplier *float64
+	if snapshot.GroupRateMultiplier != 0 {
+		rm := snapshot.GroupRateMultiplier
+		groupRateMultiplier = &rm
+	}
+	var specialRateMultiplier *float64
+	if snapshot.SpecialRateMultiplier != 0 {
+		rm := snapshot.SpecialRateMultiplier
+		specialRateMultiplier = &rm
 	}
 
 	_, err := tx.Exec(`
@@ -443,10 +500,11 @@ func (w *LogWriter) insertCompleteTx(tx *sql.Tx, snapshot RequestTrace, status L
 			id, created_at, updated_at, status, user_id, api_key_id, original_model, mapped_model,
 			provider, channel_id, endpoint, method, path, status_code, latency_ms, ttfb_ms,
 			is_streaming, input_tokens, output_tokens, cache_read_input_tokens,
-			cache_creation_input_tokens, error_type, cost_micros, cost_usd, pricing_model,
+			cache_creation_input_tokens, error_type, cost_micros, cost_usd, pricing_model, pricing_rule_name,
 			charged_subscription_micros, charged_balance_micros, billing_status, thinking_level,
-			downstream_transport, upstream_transport, transport_fallback_reason, rate_multiplier
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+			downstream_transport, upstream_transport, transport_fallback_reason, rate_multiplier,
+			channel_rate_multiplier, group_rate_multiplier, special_rate_multiplier, special_rate_reason
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 	`,
 		snapshot.RequestID,
 		snapshot.StartTime.UTC(),
@@ -473,6 +531,7 @@ func (w *LogWriter) insertCompleteTx(tx *sql.Tx, snapshot RequestTrace, status L
 		snapshot.CostMicros,
 		costUsd,
 		pricingModel,
+		pricingRuleName,
 		chargedSubscriptionMicros,
 		chargedBalanceMicros,
 		billingStatus,
@@ -481,6 +540,10 @@ func (w *LogWriter) insertCompleteTx(tx *sql.Tx, snapshot RequestTrace, status L
 		upstreamTransport,
 		transportFallbackReason,
 		rateMultiplier,
+		channelRateMultiplier,
+		groupRateMultiplier,
+		specialRateMultiplier,
+		specialRateReason,
 	)
 	return err
 }
@@ -682,17 +745,14 @@ func (w *LoggingBodyWrapper) Close() error {
 						if w.ctx != nil {
 							proxyCfg = GetProxyConfig(w.ctx)
 						}
-						if proxyCfg != nil {
-							multiplier = proxyCfg.RateMultiplier
-							w.trace.RateMultiplier = multiplier
-						}
+						multiplier = traceMultiplier(w.trace)
 
 						if multiplier == 0 {
-							w.trace.SetCost(costResult.CostMicros, costResult.CostUsd, costResult.PricingModel)
+							w.trace.SetCost(costResult.CostMicros, costResult.CostUsd, costResult.PricingModel, costResult.PricingRuleName)
 						} else {
 							adjustedCostMicros := int64(float64(costResult.CostMicros) * multiplier)
 							adjustedCostUsd := fmt.Sprintf("%.6f", float64(adjustedCostMicros)/1e6)
-							w.trace.SetCost(adjustedCostMicros, adjustedCostUsd, costResult.PricingModel)
+							w.trace.SetCost(adjustedCostMicros, adjustedCostUsd, costResult.PricingModel, costResult.PricingRuleName)
 
 							if proxyCfg != nil && adjustedCostMicros > 0 {
 								billingSvc := service.NewBillingService()

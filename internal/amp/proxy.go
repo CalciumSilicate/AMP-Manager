@@ -34,6 +34,7 @@ type ProxyConfig struct {
 	ShowBalanceInAd   bool
 	Socks5Proxy       string
 	RateMultiplier    float64
+	GroupRateMultiplier float64
 	GroupIDs          []string
 }
 

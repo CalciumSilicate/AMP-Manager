@@ -319,7 +319,7 @@ func prepareResponsesWebsocketTurn(c *gin.Context, session *responsesWebsocketSe
 		return nil, &responsesWebsocketError{StatusCode: http.StatusBadRequest, Message: "responses websocket is not available in native mode"}
 	}
 
-	if proxyCfg.RateMultiplier != 0 {
+	if resolveGroupMultiplier(proxyCfg) != 0 {
 		canStart, err := responsesWebsocketBillingService.CanStartRequest(proxyCfg.UserID)
 		if err != nil {
 			return nil, &responsesWebsocketError{StatusCode: http.StatusInternalServerError, Message: "billing check failed"}
@@ -388,6 +388,8 @@ func prepareResponsesWebsocketTurn(c *gin.Context, session *responsesWebsocketSe
 	trace.SetModels(result.OriginalModel, result.MappedModel)
 	trace.SetStreaming(true)
 	trace.SetDownstreamTransport(responsesWebsocketTransportWS)
+	breakdown := computePricingBreakdown(c.Request.Context(), channel, body)
+	trace.SetPricingBreakdown(breakdown.GroupMultiplier, breakdown.ChannelMultiplier, breakdown.SpecialMultiplier, breakdown.SpecialReason)
 	if channel.CodexWebsocketEnabled {
 		trace.SetUpstreamTransport(responsesWebsocketTransportWS)
 	} else {
@@ -689,20 +691,16 @@ func applyResponsesTraceCost(trace *RequestTrace, ctx context.Context) {
 	}
 
 	proxyCfg := GetProxyConfig(ctx)
-	multiplier := 1.0
-	if proxyCfg != nil {
-		multiplier = proxyCfg.RateMultiplier
-		trace.RateMultiplier = multiplier
-	}
+	multiplier := traceMultiplier(trace)
 
 	if multiplier == 0 {
-		trace.SetCost(costResult.CostMicros, costResult.CostUsd, costResult.PricingModel)
+		trace.SetCost(costResult.CostMicros, costResult.CostUsd, costResult.PricingModel, costResult.PricingRuleName)
 		return
 	}
 
 	adjustedCostMicros := int64(float64(costResult.CostMicros) * multiplier)
 	adjustedCostUsd := fmt.Sprintf("%.6f", float64(adjustedCostMicros)/1e6)
-	trace.SetCost(adjustedCostMicros, adjustedCostUsd, costResult.PricingModel)
+	trace.SetCost(adjustedCostMicros, adjustedCostUsd, costResult.PricingModel, costResult.PricingRuleName)
 
 	if proxyCfg != nil && adjustedCostMicros > 0 {
 		billingSvc := service.NewBillingService()

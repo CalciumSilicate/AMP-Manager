@@ -30,6 +30,7 @@ export interface AdminDashboardThroughputPoint {
   qps1m: number
   rpm5m: number
   tpm5m: number
+  concurrency1m: number
 }
 
 export interface AdminDashboardTimingPoint {
@@ -80,14 +81,15 @@ export interface AdminDashboardData {
   month: DashboardPeriodStats
   topModels: DashboardTopModel[]
   dailyTrend: DashboardDailyTrend[]
+  throughputWindow: string
   throughputTrend: AdminDashboardThroughputPoint[]
   ttfbTrend: AdminDashboardTimingPoint[]
   durationTrend: AdminDashboardTimingPoint[]
   cacheHitRates: DashboardCacheHitRate[]
 }
 
-export async function getAdminDashboard(): Promise<AdminDashboardData> {
-  const res = await authFetch(`${API_BASE}/admin/dashboard`)
+export async function getAdminDashboard(throughputWindow = '24h'): Promise<AdminDashboardData> {
+  const res = await authFetch(`${API_BASE}/admin/dashboard?throughputWindow=${encodeURIComponent(throughputWindow)}`)
   if (!res.ok) throw new Error('获取管理员仪表盘数据失败')
   return res.json()
 }

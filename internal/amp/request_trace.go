@@ -45,9 +45,10 @@ type RequestTrace struct {
 	CacheCreationInputTokens *int
 
 	// 成本信息
-	CostMicros   *int64
-	CostUsd      *string
-	PricingModel *string
+	CostMicros       *int64
+	CostUsd          *string
+	PricingModel     *string
+	PricingRuleName  *string
 
 	// 计费结算结果
 	BillingStatus             *string
@@ -55,7 +56,11 @@ type RequestTrace struct {
 	ChargedBalanceMicros      *int64
 
 	// 倍率信息
-	RateMultiplier float64
+	RateMultiplier        float64
+	ChannelRateMultiplier float64
+	GroupRateMultiplier   float64
+	SpecialRateMultiplier float64
+	SpecialRateReason     string
 
 	// 错误信息
 	ErrorType string
@@ -211,12 +216,27 @@ func copyIntPtr(p *int) *int {
 }
 
 // SetCost 设置成本信息
-func (t *RequestTrace) SetCost(costMicros int64, costUsd, pricingModel string) {
+func (t *RequestTrace) SetCost(costMicros int64, costUsd, pricingModel, pricingRuleName string) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	t.CostMicros = &costMicros
 	t.CostUsd = &costUsd
 	t.PricingModel = &pricingModel
+	if pricingRuleName != "" {
+		t.PricingRuleName = &pricingRuleName
+	} else {
+		t.PricingRuleName = nil
+	}
+}
+
+func (t *RequestTrace) SetPricingBreakdown(groupMultiplier, channelMultiplier, specialMultiplier float64, specialReason string) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	t.GroupRateMultiplier = groupMultiplier
+	t.ChannelRateMultiplier = channelMultiplier
+	t.SpecialRateMultiplier = specialMultiplier
+	t.SpecialRateReason = specialReason
+	t.RateMultiplier = groupMultiplier * channelMultiplier * specialMultiplier
 }
 
 // SetBillingResult 设置计费结算结果，供最终 request_logs 单次落库使用。
@@ -288,10 +308,15 @@ func (t *RequestTrace) Clone() RequestTrace {
 		CostMicros:                copyInt64Ptr(t.CostMicros),
 		CostUsd:                   copyStringPtr(t.CostUsd),
 		PricingModel:              copyStringPtr(t.PricingModel),
+		PricingRuleName:           copyStringPtr(t.PricingRuleName),
 		BillingStatus:             copyStringPtr(t.BillingStatus),
 		ChargedSubscriptionMicros: copyInt64Ptr(t.ChargedSubscriptionMicros),
 		ChargedBalanceMicros:      copyInt64Ptr(t.ChargedBalanceMicros),
 		RateMultiplier:            t.RateMultiplier,
+		ChannelRateMultiplier:     t.ChannelRateMultiplier,
+		GroupRateMultiplier:       t.GroupRateMultiplier,
+		SpecialRateMultiplier:     t.SpecialRateMultiplier,
+		SpecialRateReason:         t.SpecialRateReason,
 		ErrorType:                 t.ErrorType,
 		ResponseText:              t.ResponseText,
 	}

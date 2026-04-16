@@ -134,8 +134,8 @@ func (s *RequestLogService) GetCacheHitRateByProvider(userID string) ([]reposito
 }
 
 // GetAdminDashboardStats 获取管理员仪表盘统计数据
-func (s *RequestLogService) GetAdminDashboardStats() (today, week, month repository.DashboardPeriodStats, topModels []repository.DashboardTopModel, dailyTrend []repository.DashboardDailyTrend, throughputTrend []repository.DashboardThroughputPoint, ttfbTrend []repository.DashboardTimingPoint, durationTrend []repository.DashboardTimingPoint, err error) {
-	return s.repo.GetAdminDashboardStats()
+func (s *RequestLogService) GetAdminDashboardStats(windowKey string) (today, week, month repository.DashboardPeriodStats, topModels []repository.DashboardTopModel, dailyTrend []repository.DashboardDailyTrend, throughputTrend []repository.DashboardThroughputPoint, ttfbTrend []repository.DashboardTimingPoint, durationTrend []repository.DashboardTimingPoint, err error) {
+	return s.repo.GetAdminDashboardStats(windowKey)
 }
 
 // GetAdminCacheHitRateByProvider 管理员全局缓存命中率

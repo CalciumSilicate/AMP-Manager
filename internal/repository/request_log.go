@@ -2,6 +2,7 @@ package repository
 
 import (
 	"database/sql"
+	"encoding/json"
 	"fmt"
 	"strings"
 	"time"
@@ -122,11 +123,32 @@ func enrichRequestLogPricing(log *model.RequestLog) {
 	if !found {
 		return
 	}
+	if log.PricingRuleName != nil && strings.TrimSpace(*log.PricingRuleName) != "" {
+		if rule, ok := store.FindContextRuleByName(pricingModel, strings.TrimSpace(*log.PricingRuleName)); ok {
+			priceData = billing.PriceData{
+				InputCostPerToken:      rule.InputCostPerToken,
+				OutputCostPerToken:     rule.OutputCostPerToken,
+				CacheReadInputPerToken: rule.CacheReadInputPerToken,
+				CacheCreationPerToken:  rule.CacheCreationPerToken,
+			}
+		}
+	}
 
 	log.InputCostPerToken = &priceData.InputCostPerToken
 	log.OutputCostPerToken = &priceData.OutputCostPerToken
 	log.CacheReadInputPerToken = &priceData.CacheReadInputPerToken
 	log.CacheCreationInputPerToken = &priceData.CacheCreationPerToken
+}
+
+func parseRequestLogTranslator(raw string) *model.ChannelTranslator {
+	if strings.TrimSpace(raw) == "" {
+		return nil
+	}
+	var translatorCfg model.ChannelTranslator
+	if err := json.Unmarshal([]byte(raw), &translatorCfg); err != nil {
+		return nil
+	}
+	return &translatorCfg
 }
 
 // ListParams 查询参数
@@ -218,8 +240,8 @@ func (r *RequestLogRepository) List(params ListParams) ([]model.RequestLog, int6
 		SELECT r.id, r.created_at, r.updated_at, r.status, r.user_id, u.username, r.api_key_id, k.name as api_key_name, k.prefix as api_key_prefix, r.original_model, r.mapped_model,
 		       r.provider, r.channel_id, c.name as channel_name, r.endpoint, r.method, r.path, r.status_code, r.latency_ms, r.ttfb_ms,
 		       r.is_streaming, r.input_tokens, r.output_tokens, r.cache_read_input_tokens,
-		       r.cache_creation_input_tokens, r.error_type, r.request_id, r.cost_micros, r.cost_usd, r.pricing_model, r.thinking_level,
-		       r.rate_multiplier,
+		       r.cache_creation_input_tokens, r.error_type, r.request_id, r.cost_micros, r.cost_usd, r.pricing_model, r.pricing_rule_name, r.thinking_level,
+		       r.rate_multiplier, r.channel_rate_multiplier, r.group_rate_multiplier, r.special_rate_multiplier, r.special_rate_reason, c.translator_json,
 		       r.downstream_transport, r.upstream_transport, r.transport_fallback_reason,
 		       r.charged_subscription_micros, r.charged_balance_micros, r.billing_status,
 		       %s as output_preview
@@ -248,8 +270,8 @@ func (r *RequestLogRepository) List(params ListParams) ([]model.RequestLog, int6
 		var status sql.NullString
 		var isStreaming int
 		var username, apiKeyName, apiKeyPrefix sql.NullString
-		var originalModel, mappedModel, provider, channelID, channelName, endpoint, errorType, requestID, costUsd, pricingModel, thinkingLevel, downstreamTransport, upstreamTransport, transportFallbackReason, outputPreview, billingStatus sql.NullString
-		var rateMultiplier sql.NullFloat64
+		var originalModel, mappedModel, provider, channelID, channelName, endpoint, errorType, requestID, costUsd, pricingModel, pricingRuleName, thinkingLevel, downstreamTransport, upstreamTransport, transportFallbackReason, outputPreview, billingStatus, specialRateReason, translatorJSON sql.NullString
+		var rateMultiplier, channelRateMultiplier, groupRateMultiplier, specialRateMultiplier sql.NullFloat64
 		var inputTokens, outputTokens, cacheRead, cacheCreation, costMicros, ttfbMs, chargedSubscriptionMicros, chargedBalanceMicros sql.NullInt64
 
 		err := rows.Scan(
@@ -257,8 +279,8 @@ func (r *RequestLogRepository) List(params ListParams) ([]model.RequestLog, int6
 			&originalModel, &mappedModel, &provider, &channelID, &channelName, &endpoint,
 			&log.Method, &log.Path, &log.StatusCode, &log.LatencyMs, &ttfbMs,
 			&isStreaming, &inputTokens, &outputTokens, &cacheRead, &cacheCreation,
-			&errorType, &requestID, &costMicros, &costUsd, &pricingModel, &thinkingLevel,
-			&rateMultiplier,
+			&errorType, &requestID, &costMicros, &costUsd, &pricingModel, &pricingRuleName, &thinkingLevel,
+			&rateMultiplier, &channelRateMultiplier, &groupRateMultiplier, &specialRateMultiplier, &specialRateReason, &translatorJSON,
 			&downstreamTransport, &upstreamTransport, &transportFallbackReason,
 			&chargedSubscriptionMicros, &chargedBalanceMicros, &billingStatus,
 			&outputPreview,
@@ -347,8 +369,26 @@ func (r *RequestLogRepository) List(params ListParams) ([]model.RequestLog, int6
 		if pricingModel.Valid {
 			log.PricingModel = &pricingModel.String
 		}
+		if pricingRuleName.Valid {
+			log.PricingRuleName = &pricingRuleName.String
+		}
 		if rateMultiplier.Valid {
 			log.RateMultiplier = &rateMultiplier.Float64
+		}
+		if channelRateMultiplier.Valid {
+			log.ChannelRateMultiplier = &channelRateMultiplier.Float64
+		}
+		if groupRateMultiplier.Valid {
+			log.GroupRateMultiplier = &groupRateMultiplier.Float64
+		}
+		if specialRateMultiplier.Valid {
+			log.SpecialRateMultiplier = &specialRateMultiplier.Float64
+		}
+		if specialRateReason.Valid {
+			log.SpecialRateReason = &specialRateReason.String
+		}
+		if translatorJSON.Valid {
+			log.ChannelTranslator = parseRequestLogTranslator(translatorJSON.String)
 		}
 		if billingStatus.Valid {
 			log.BillingStatus = billingStatus.String
@@ -779,7 +819,7 @@ func (r *RequestLogRepository) GetCacheHitRateByProvider(userID string) ([]Dashb
 }
 
 // GetAdminDashboardStats 获取管理员仪表盘统计数据（全局，不按用户过滤）
-func (r *RequestLogRepository) GetAdminDashboardStats() (today, week, month DashboardPeriodStats, topModels []DashboardTopModel, dailyTrend []DashboardDailyTrend, throughputTrend []DashboardThroughputPoint, ttfbTrend []DashboardTimingPoint, durationTrend []DashboardTimingPoint, err error) {
+func (r *RequestLogRepository) GetAdminDashboardStats(windowKey string) (today, week, month DashboardPeriodStats, topModels []DashboardTopModel, dailyTrend []DashboardDailyTrend, throughputTrend []DashboardThroughputPoint, ttfbTrend []DashboardTimingPoint, durationTrend []DashboardTimingPoint, err error) {
 	db := database.GetDB()
 	now := time.Now().UTC()
 	todayStart := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, time.UTC)
@@ -870,11 +910,11 @@ func (r *RequestLogRepository) GetAdminDashboardStats() (today, week, month Dash
 		return
 	}
 
-	throughputTrend, err = r.GetAdminThroughputTrend()
+	throughputTrend, err = r.GetAdminThroughputTrend(windowKey)
 	if err != nil {
 		return
 	}
-	ttfbTrend, durationTrend, err = r.GetAdminTimingTrend()
+	ttfbTrend, durationTrend, err = r.GetAdminTimingTrend(windowKey)
 	return
 }
 
@@ -938,16 +978,16 @@ func (r *RequestLogRepository) GetByID(id string) (*model.RequestLog, error) {
 	var updatedAt sql.NullTime
 	var status sql.NullString
 	var isStreaming int
-	var originalModel, mappedModel, provider, channelID, channelName, endpoint, errorType, requestID, costUsd, pricingModel, thinkingLevel, downstreamTransport, upstreamTransport, transportFallbackReason, billingStatus sql.NullString
-	var rateMultiplier sql.NullFloat64
+	var originalModel, mappedModel, provider, channelID, channelName, endpoint, errorType, requestID, costUsd, pricingModel, pricingRuleName, thinkingLevel, downstreamTransport, upstreamTransport, transportFallbackReason, billingStatus, specialRateReason, translatorJSON sql.NullString
+	var rateMultiplier, channelRateMultiplier, groupRateMultiplier, specialRateMultiplier sql.NullFloat64
 	var inputTokens, outputTokens, cacheRead, cacheCreation, costMicros, ttfbMs, chargedSubscriptionMicros, chargedBalanceMicros sql.NullInt64
 
 	err := db.QueryRow(`
 		SELECT r.id, r.created_at, r.updated_at, r.status, r.user_id, r.api_key_id, r.original_model, r.mapped_model,
 		       r.provider, r.channel_id, c.name as channel_name, r.endpoint, r.method, r.path, r.status_code, r.latency_ms, r.ttfb_ms,
 		       r.is_streaming, r.input_tokens, r.output_tokens, r.cache_read_input_tokens,
-		       r.cache_creation_input_tokens, r.error_type, r.request_id, r.cost_micros, r.cost_usd, r.pricing_model, r.thinking_level,
-		       r.rate_multiplier,
+		       r.cache_creation_input_tokens, r.error_type, r.request_id, r.cost_micros, r.cost_usd, r.pricing_model, r.pricing_rule_name, r.thinking_level,
+		       r.rate_multiplier, r.channel_rate_multiplier, r.group_rate_multiplier, r.special_rate_multiplier, r.special_rate_reason, c.translator_json,
 		       r.downstream_transport, r.upstream_transport, r.transport_fallback_reason,
 		       r.charged_subscription_micros, r.charged_balance_micros, r.billing_status
 		FROM request_logs r
@@ -958,8 +998,8 @@ func (r *RequestLogRepository) GetByID(id string) (*model.RequestLog, error) {
 		&originalModel, &mappedModel, &provider, &channelID, &channelName, &endpoint,
 		&log.Method, &log.Path, &log.StatusCode, &log.LatencyMs, &ttfbMs,
 		&isStreaming, &inputTokens, &outputTokens, &cacheRead, &cacheCreation,
-		&errorType, &requestID, &costMicros, &costUsd, &pricingModel, &thinkingLevel,
-		&rateMultiplier,
+		&errorType, &requestID, &costMicros, &costUsd, &pricingModel, &pricingRuleName, &thinkingLevel,
+		&rateMultiplier, &channelRateMultiplier, &groupRateMultiplier, &specialRateMultiplier, &specialRateReason, &translatorJSON,
 		&downstreamTransport, &upstreamTransport, &transportFallbackReason,
 		&chargedSubscriptionMicros, &chargedBalanceMicros, &billingStatus,
 	)
@@ -1042,8 +1082,26 @@ func (r *RequestLogRepository) GetByID(id string) (*model.RequestLog, error) {
 	if pricingModel.Valid {
 		log.PricingModel = &pricingModel.String
 	}
+	if pricingRuleName.Valid {
+		log.PricingRuleName = &pricingRuleName.String
+	}
 	if rateMultiplier.Valid {
 		log.RateMultiplier = &rateMultiplier.Float64
+	}
+	if channelRateMultiplier.Valid {
+		log.ChannelRateMultiplier = &channelRateMultiplier.Float64
+	}
+	if groupRateMultiplier.Valid {
+		log.GroupRateMultiplier = &groupRateMultiplier.Float64
+	}
+	if specialRateMultiplier.Valid {
+		log.SpecialRateMultiplier = &specialRateMultiplier.Float64
+	}
+	if specialRateReason.Valid {
+		log.SpecialRateReason = &specialRateReason.String
+	}
+	if translatorJSON.Valid {
+		log.ChannelTranslator = parseRequestLogTranslator(translatorJSON.String)
 	}
 	if billingStatus.Valid {
 		log.BillingStatus = billingStatus.String
@@ -1076,8 +1134,8 @@ func (r *RequestLogRepository) GetByIDWithJoins(id string) (*model.RequestLog, e
 	var status sql.NullString
 	var isStreaming int
 	var username, apiKeyName, apiKeyPrefix sql.NullString
-	var originalModel, mappedModel, provider, channelID, channelName, endpoint, errorType, requestID, costUsd, pricingModel, thinkingLevel, downstreamTransport, upstreamTransport, transportFallbackReason, billingStatus sql.NullString
-	var rateMultiplier sql.NullFloat64
+	var originalModel, mappedModel, provider, channelID, channelName, endpoint, errorType, requestID, costUsd, pricingModel, pricingRuleName, thinkingLevel, downstreamTransport, upstreamTransport, transportFallbackReason, billingStatus, specialRateReason, translatorJSON sql.NullString
+	var rateMultiplier, channelRateMultiplier, groupRateMultiplier, specialRateMultiplier sql.NullFloat64
 	var inputTokens, outputTokens, cacheRead, cacheCreation, costMicros, ttfbMs, chargedSubscriptionMicros, chargedBalanceMicros sql.NullInt64
 
 	err := db.QueryRow(`
@@ -1085,8 +1143,8 @@ func (r *RequestLogRepository) GetByIDWithJoins(id string) (*model.RequestLog, e
 		       r.original_model, r.mapped_model, r.provider, r.channel_id, c.name, r.endpoint,
 		       r.method, r.path, r.status_code, r.latency_ms, r.ttfb_ms,
 		       r.is_streaming, r.input_tokens, r.output_tokens, r.cache_read_input_tokens,
-		       r.cache_creation_input_tokens, r.error_type, r.request_id, r.cost_micros, r.cost_usd, r.pricing_model, r.thinking_level,
-		       r.rate_multiplier,
+		       r.cache_creation_input_tokens, r.error_type, r.request_id, r.cost_micros, r.cost_usd, r.pricing_model, r.pricing_rule_name, r.thinking_level,
+		       r.rate_multiplier, r.channel_rate_multiplier, r.group_rate_multiplier, r.special_rate_multiplier, r.special_rate_reason, c.translator_json,
 		       r.downstream_transport, r.upstream_transport, r.transport_fallback_reason,
 		       r.charged_subscription_micros, r.charged_balance_micros, r.billing_status
 		FROM request_logs r
@@ -1099,8 +1157,8 @@ func (r *RequestLogRepository) GetByIDWithJoins(id string) (*model.RequestLog, e
 		&originalModel, &mappedModel, &provider, &channelID, &channelName, &endpoint,
 		&l.Method, &l.Path, &l.StatusCode, &l.LatencyMs, &ttfbMs,
 		&isStreaming, &inputTokens, &outputTokens, &cacheRead, &cacheCreation,
-		&errorType, &requestID, &costMicros, &costUsd, &pricingModel, &thinkingLevel,
-		&rateMultiplier,
+		&errorType, &requestID, &costMicros, &costUsd, &pricingModel, &pricingRuleName, &thinkingLevel,
+		&rateMultiplier, &channelRateMultiplier, &groupRateMultiplier, &specialRateMultiplier, &specialRateReason, &translatorJSON,
 		&downstreamTransport, &upstreamTransport, &transportFallbackReason,
 		&chargedSubscriptionMicros, &chargedBalanceMicros, &billingStatus,
 	)
@@ -1191,8 +1249,26 @@ func (r *RequestLogRepository) GetByIDWithJoins(id string) (*model.RequestLog, e
 	if pricingModel.Valid {
 		l.PricingModel = &pricingModel.String
 	}
+	if pricingRuleName.Valid {
+		l.PricingRuleName = &pricingRuleName.String
+	}
 	if rateMultiplier.Valid {
 		l.RateMultiplier = &rateMultiplier.Float64
+	}
+	if channelRateMultiplier.Valid {
+		l.ChannelRateMultiplier = &channelRateMultiplier.Float64
+	}
+	if groupRateMultiplier.Valid {
+		l.GroupRateMultiplier = &groupRateMultiplier.Float64
+	}
+	if specialRateMultiplier.Valid {
+		l.SpecialRateMultiplier = &specialRateMultiplier.Float64
+	}
+	if specialRateReason.Valid {
+		l.SpecialRateReason = &specialRateReason.String
+	}
+	if translatorJSON.Valid {
+		l.ChannelTranslator = parseRequestLogTranslator(translatorJSON.String)
 	}
 	if billingStatus.Valid {
 		l.BillingStatus = billingStatus.String

@@ -482,6 +482,7 @@ func (h *RequestLogHandler) GetDashboard(c *gin.Context) {
 
 // GetAdminDashboard 获取管理员仪表盘数据（全局汇总）
 func (h *RequestLogHandler) GetAdminDashboard(c *gin.Context) {
+	windowKey := strings.TrimSpace(c.DefaultQuery("throughputWindow", "24h"))
 	userService := service.NewUserService()
 	totalBalance, userCount, err := userService.GetTotalBalanceAndUserCount()
 	if err != nil {
@@ -489,7 +490,7 @@ func (h *RequestLogHandler) GetAdminDashboard(c *gin.Context) {
 		return
 	}
 
-	today, week, month, topModels, dailyTrend, throughputTrend, ttfbTrend, durationTrend, err := h.logService.GetAdminDashboardStats()
+	today, week, month, topModels, dailyTrend, throughputTrend, ttfbTrend, durationTrend, err := h.logService.GetAdminDashboardStats(windowKey)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "获取统计数据失败"})
 		return
@@ -529,10 +530,11 @@ func (h *RequestLogHandler) GetAdminDashboard(c *gin.Context) {
 	throughputList := make([]gin.H, 0, len(throughputTrend))
 	for _, point := range throughputTrend {
 		throughputList = append(throughputList, gin.H{
-			"minute": point.Minute,
-			"qps1m":  point.QPS1m,
-			"rpm5m":  point.RPM5m,
-			"tpm5m":  point.TPM5m,
+			"minute":        point.Minute,
+			"qps1m":         point.QPS1m,
+			"rpm5m":         point.RPM5m,
+			"tpm5m":         point.TPM5m,
+			"concurrency1m": point.Concurrency1m,
 		})
 	}
 
@@ -580,6 +582,7 @@ func (h *RequestLogHandler) GetAdminDashboard(c *gin.Context) {
 			"month":           formatPeriod(month),
 			"topModels":       topModelsList,
 			"dailyTrend":      trendList,
+			"throughputWindow": windowKey,
 			"throughputTrend": throughputList,
 			"ttfbTrend":       formatTimingTrend(ttfbTrend),
 			"durationTrend":   formatTimingTrend(durationTrend),

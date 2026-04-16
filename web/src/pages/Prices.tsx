@@ -1,6 +1,15 @@
 import { useState, useEffect, useMemo, useCallback, KeyboardEvent } from 'react'
 import { motion, tableStaggerContainer, tableRowVariants } from '@/lib/motion'
-import { listPrices, getPriceStats, refreshPrices, ModelPrice, PriceStats } from '../api/billing'
+import {
+  listPrices,
+  getPriceStats,
+  refreshPrices,
+  listPriceContextRules,
+  updatePriceContextRules,
+  ModelPrice,
+  ModelPriceContextRuleRequest,
+  PriceStats,
+} from '../api/billing'
 import { Button } from '@/components/ui/button'
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
@@ -13,6 +22,14 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table'
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog'
 import { PageSizeSlider } from '@/components/PageSizeSlider'
 
 function formatPrice(costPerToken: number): string {
@@ -38,6 +55,28 @@ const providerVariants: Record<string, 'default' | 'secondary' | 'destructive' |
 
 const MESSAGE_AUTO_DISMISS_DELAY = 5000
 
+interface EditableContextRule {
+  id: string
+  ruleName: string
+  minTokens: string
+  maxTokens: string
+  inputPerMillion: string
+  outputPerMillion: string
+  cacheReadPerMillion: string
+  cacheCreationPerMillion: string
+}
+
+function toPerMillionString(costPerToken: number): string {
+  if (!costPerToken) return ''
+  return (costPerToken * 1_000_000).toString()
+}
+
+function fromPerMillionString(value: string): number {
+  const parsed = Number.parseFloat(value || '0')
+  if (Number.isNaN(parsed) || parsed < 0) return 0
+  return parsed / 1_000_000
+}
+
 export default function PricesPage() {
   const [prices, setPrices] = useState<ModelPrice[]>([])
   const [stats, setStats] = useState<PriceStats | null>(null)
@@ -49,6 +88,10 @@ export default function PricesPage() {
   const [providerFilter, setProviderFilter] = useState<string>('')
   const [page, setPage] = useState(1)
   const [pageSize, setPageSize] = useState(20)
+  const [rulesDialogModel, setRulesDialogModel] = useState<ModelPrice | null>(null)
+  const [contextRules, setContextRules] = useState<EditableContextRule[]>([])
+  const [rulesLoading, setRulesLoading] = useState(false)
+  const [rulesSaving, setRulesSaving] = useState(false)
 
   const loadData = useCallback(async (signal?: AbortSignal) => {
     try {
@@ -151,6 +194,75 @@ export default function PricesPage() {
   const handlePageSizeChange = (newSize: number) => {
     setPageSize(newSize)
     setPage(1)
+  }
+
+  const openRulesDialog = async (price: ModelPrice) => {
+    setRulesDialogModel(price)
+    setRulesLoading(true)
+    setContextRules([])
+    try {
+      const result = await listPriceContextRules(price.model)
+      setContextRules((result.items || []).map((rule) => ({
+        id: rule.id,
+        ruleName: rule.ruleName,
+        minTokens: String(rule.minTokens),
+        maxTokens: rule.maxTokens ? String(rule.maxTokens) : '',
+        inputPerMillion: toPerMillionString(rule.inputCostPerToken),
+        outputPerMillion: toPerMillionString(rule.outputCostPerToken),
+        cacheReadPerMillion: toPerMillionString(rule.cacheReadInputPerToken),
+        cacheCreationPerMillion: toPerMillionString(rule.cacheCreationPerToken),
+      })))
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '加载上下文规则失败')
+    } finally {
+      setRulesLoading(false)
+    }
+  }
+
+  const addContextRule = () => {
+    setContextRules((prev) => [...prev, {
+      id: crypto.randomUUID(),
+      ruleName: '',
+      minTokens: '',
+      maxTokens: '',
+      inputPerMillion: '',
+      outputPerMillion: '',
+      cacheReadPerMillion: '',
+      cacheCreationPerMillion: '',
+    }])
+  }
+
+  const updateContextRule = (id: string, field: keyof EditableContextRule, value: string) => {
+    setContextRules((prev) => prev.map((rule) => rule.id === id ? { ...rule, [field]: value } : rule))
+  }
+
+  const removeContextRule = (id: string) => {
+    setContextRules((prev) => prev.filter((rule) => rule.id !== id))
+  }
+
+  const handleSaveContextRules = async () => {
+    if (!rulesDialogModel) return
+    setRulesSaving(true)
+    try {
+      const payload: ModelPriceContextRuleRequest[] = contextRules.map((rule, index) => ({
+        ruleName: rule.ruleName.trim(),
+        minTokens: Number.parseInt(rule.minTokens || '0', 10) || 0,
+        maxTokens: rule.maxTokens.trim() ? Number.parseInt(rule.maxTokens, 10) : undefined,
+        inputCostPerToken: fromPerMillionString(rule.inputPerMillion),
+        outputCostPerToken: fromPerMillionString(rule.outputPerMillion),
+        cacheReadInputPerToken: fromPerMillionString(rule.cacheReadPerMillion),
+        cacheCreationPerToken: fromPerMillionString(rule.cacheCreationPerMillion),
+        sortOrder: index,
+      }))
+      await updatePriceContextRules(rulesDialogModel.model, payload)
+      setSuccess(`已更新 ${rulesDialogModel.model} 的上下文规则`)
+      setRulesDialogModel(null)
+      setContextRules([])
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '保存上下文规则失败')
+    } finally {
+      setRulesSaving(false)
+    }
   }
 
   if (loading) {
@@ -329,6 +441,7 @@ export default function PricesPage() {
                         <TableHead className="text-right">缓存读取</TableHead>
                         <TableHead className="text-right">缓存创建</TableHead>
                         <TableHead>来源</TableHead>
+                        <TableHead className="text-right">操作</TableHead>
                       </TableRow>
                     </TableHeader>
                     <motion.tbody variants={tableStaggerContainer} initial="hidden" animate="visible" key={`${page}-${pageSize}-${searchTerm}-${providerFilter}`}>
@@ -359,6 +472,11 @@ export default function PricesPage() {
                               {price.source}
                             </Badge>
                           </TableCell>
+                          <TableCell className="text-right">
+                            <Button variant="outline" size="sm" onClick={() => void openRulesDialog(price)}>
+                              编辑
+                            </Button>
+                          </TableCell>
                         </motion.tr>
                       ))}
                     </motion.tbody>
@@ -386,6 +504,57 @@ export default function PricesPage() {
           </CardContent>
         </Card>
       </motion.div>
+
+      <Dialog
+        open={!!rulesDialogModel}
+        onOpenChange={(open) => {
+          if (!open) {
+            setRulesDialogModel(null)
+            setContextRules([])
+          }
+        }}
+      >
+        <DialogContent className="max-w-5xl">
+          <DialogHeader>
+            <DialogTitle>编辑上下文规则</DialogTitle>
+            <DialogDescription>{rulesDialogModel?.model || '-'} 达到指定上下文区间后，将按规则价格计费；未命中规则时回退默认价格。</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3 py-2">
+            <div className="flex items-center justify-between">
+              <p className="text-sm text-muted-foreground">区间采用 [最小值, 最大值)；最大值留空表示无上限。</p>
+              <Button variant="outline" size="sm" onClick={addContextRule}>添加规则</Button>
+            </div>
+            {rulesLoading ? (
+              <div className="py-8 text-center text-muted-foreground">加载中...</div>
+            ) : contextRules.length === 0 ? (
+              <div className="rounded-md border border-dashed px-4 py-8 text-center text-sm text-muted-foreground">
+                暂无上下文规则
+              </div>
+            ) : (
+              <div className="space-y-3">
+                {contextRules.map((rule) => (
+                  <div key={rule.id} className="grid gap-3 rounded-lg border border-border/70 p-4 md:grid-cols-4">
+                    <Input value={rule.ruleName} onChange={(e) => updateContextRule(rule.id, 'ruleName', e.target.value)} placeholder="规则名，例如 长上下文" />
+                    <Input value={rule.minTokens} onChange={(e) => updateContextRule(rule.id, 'minTokens', e.target.value.replace(/\D/g, ''))} placeholder="最小 tokens" />
+                    <Input value={rule.maxTokens} onChange={(e) => updateContextRule(rule.id, 'maxTokens', e.target.value.replace(/\D/g, ''))} placeholder="最大 tokens（可空）" />
+                    <Button variant="ghost" size="sm" className="justify-self-end" onClick={() => removeContextRule(rule.id)}>删除</Button>
+                    <Input value={rule.inputPerMillion} onChange={(e) => updateContextRule(rule.id, 'inputPerMillion', e.target.value)} placeholder="输入 $/1M" />
+                    <Input value={rule.outputPerMillion} onChange={(e) => updateContextRule(rule.id, 'outputPerMillion', e.target.value)} placeholder="输出 $/1M" />
+                    <Input value={rule.cacheReadPerMillion} onChange={(e) => updateContextRule(rule.id, 'cacheReadPerMillion', e.target.value)} placeholder="缓存读 $/1M" />
+                    <Input value={rule.cacheCreationPerMillion} onChange={(e) => updateContextRule(rule.id, 'cacheCreationPerMillion', e.target.value)} placeholder="缓存写 $/1M" />
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setRulesDialogModel(null)}>取消</Button>
+            <Button onClick={() => void handleSaveContextRules()} disabled={rulesSaving}>
+              {rulesSaving ? '保存中...' : '保存规则'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </motion.div>
   )
 }

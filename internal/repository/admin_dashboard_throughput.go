@@ -14,11 +14,21 @@ const (
 	throughputRollingWindowSize  = 5
 )
 
+var adminThroughputWindowKeyMinutes = map[string]int{
+	"1h":  60,
+	"3h":  180,
+	"6h":  360,
+	"12h": 720,
+	"24h": 24 * 60,
+	"3d":  3 * 24 * 60,
+}
+
 type DashboardThroughputPoint struct {
-	Minute string
-	QPS1m  float64
-	RPM5m  float64
-	TPM5m  float64
+	Minute        string
+	QPS1m         float64
+	RPM5m         float64
+	TPM5m         float64
+	Concurrency1m int64
 }
 
 type DashboardTimingPoint struct {
@@ -46,9 +56,13 @@ type dashboardTimingProjectionRow struct {
 	TTFBMs       int64
 }
 
-func adminThroughputWindowBounds(now time.Time) (time.Time, time.Time) {
+func adminThroughputWindowBounds(now time.Time, windowKey string) (time.Time, time.Time) {
+	windowMinutes, ok := adminThroughputWindowKeyMinutes[windowKey]
+	if !ok || windowMinutes <= 0 {
+		windowMinutes = adminThroughputWindowMinutes
+	}
 	end := now.UTC().Truncate(time.Minute)
-	start := end.Add(-time.Duration(adminThroughputWindowMinutes-1) * time.Minute)
+	start := end.Add(-time.Duration(windowMinutes-1) * time.Minute)
 	return start, end
 }
 
@@ -76,7 +90,7 @@ func fillDashboardMinuteMetrics(start, end time.Time, rows []dashboardMinuteMetr
 	return filled
 }
 
-func buildDashboardThroughputPoints(rows []dashboardMinuteMetricRow) []DashboardThroughputPoint {
+func buildDashboardThroughputPoints(rows []dashboardMinuteMetricRow, concurrencyByMinute map[string]int64) []DashboardThroughputPoint {
 	points := make([]DashboardThroughputPoint, 0, len(rows))
 
 	var requestWindowSum int64
@@ -90,10 +104,11 @@ func buildDashboardThroughputPoints(rows []dashboardMinuteMetricRow) []Dashboard
 		}
 
 		points = append(points, DashboardThroughputPoint{
-			Minute: row.MinuteBucket.UTC().Format(time.RFC3339),
-			QPS1m:  float64(row.RequestCountSum) / 60.0,
-			RPM5m:  float64(requestWindowSum) / float64(throughputRollingWindowSize),
-			TPM5m:  float64(tokenWindowSum) / float64(throughputRollingWindowSize),
+			Minute:        row.MinuteBucket.UTC().Format(time.RFC3339),
+			QPS1m:         float64(row.RequestCountSum) / 60.0,
+			RPM5m:         float64(requestWindowSum) / float64(throughputRollingWindowSize),
+			TPM5m:         float64(tokenWindowSum) / float64(throughputRollingWindowSize),
+			Concurrency1m: concurrencyByMinute[row.MinuteBucket.UTC().Format(time.RFC3339)],
 		})
 	}
 
@@ -185,8 +200,8 @@ func applyMinuteMetricAggregateDeltaTx(tx *sql.Tx, minuteBucket time.Time, reque
 	return err
 }
 
-func (r *RequestLogRepository) GetAdminThroughputTrend() ([]DashboardThroughputPoint, error) {
-	start, end := adminThroughputWindowBounds(time.Now().UTC())
+func (r *RequestLogRepository) GetAdminThroughputTrend(windowKey string) ([]DashboardThroughputPoint, error) {
+	start, end := adminThroughputWindowBounds(time.Now().UTC(), windowKey)
 	if err := r.ensureAdminThroughputMetricsWindow(start, end); err != nil {
 		return nil, err
 	}
@@ -221,11 +236,15 @@ func (r *RequestLogRepository) GetAdminThroughputTrend() ([]DashboardThroughputP
 	}
 
 	filled := fillDashboardMinuteMetrics(start, end, metricRows)
-	return buildDashboardThroughputPoints(filled), nil
+	concurrencyByMinute, err := r.getAdminConcurrencyByMinute(start, end)
+	if err != nil {
+		return nil, err
+	}
+	return buildDashboardThroughputPoints(filled, concurrencyByMinute), nil
 }
 
-func (r *RequestLogRepository) GetAdminTimingTrend() (ttfbTrend []DashboardTimingPoint, durationTrend []DashboardTimingPoint, err error) {
-	startMinute, endMinute := adminThroughputWindowBounds(time.Now().UTC())
+func (r *RequestLogRepository) GetAdminTimingTrend(windowKey string) (ttfbTrend []DashboardTimingPoint, durationTrend []DashboardTimingPoint, err error) {
+	startMinute, endMinute := adminThroughputWindowBounds(time.Now().UTC(), windowKey)
 	if err = r.ensureAdminThroughputMetricsWindow(startMinute, endMinute); err != nil {
 		return nil, nil, err
 	}
@@ -263,6 +282,69 @@ func (r *RequestLogRepository) GetAdminTimingTrend() (ttfbTrend []DashboardTimin
 	startBucket := timingBucketStart(startMinute)
 	endBucket := timingBucketStart(endMinute)
 	return buildDashboardTimingPoints(startBucket, endBucket, ttfbByBucket), buildDashboardTimingPoints(startBucket, endBucket, durationByBucket), nil
+}
+
+func (r *RequestLogRepository) getAdminConcurrencyByMinute(start, end time.Time) (map[string]int64, error) {
+	rows, err := database.GetDB().Query(`
+		SELECT created_at, latency_ms
+		FROM request_logs
+		WHERE created_at >= ? AND created_at <= ? AND status <> 'pending' AND latency_ms > 0
+		ORDER BY created_at ASC
+	`, start.Add(-24*time.Hour).UTC(), end.Add(time.Minute).UTC())
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	totalMinutes := int(end.Sub(start)/time.Minute) + 1
+	diff := make([]int64, totalMinutes+1)
+
+	for rows.Next() {
+		var createdAt time.Time
+		var latencyMs int64
+		if err := rows.Scan(&createdAt, &latencyMs); err != nil {
+			return nil, err
+		}
+		startTime := createdAt.UTC()
+		endTime := startTime.Add(time.Duration(latencyMs) * time.Millisecond)
+		if endTime.Before(start) || startTime.After(end.Add(time.Minute)) {
+			continue
+		}
+
+		startBucket := startTime.Truncate(time.Minute)
+		endBucket := endTime.Truncate(time.Minute)
+		if startBucket.Before(start) {
+			startBucket = start
+		}
+		if endBucket.After(end) {
+			endBucket = end
+		}
+
+		startIdx := int(startBucket.Sub(start) / time.Minute)
+		endIdx := int(endBucket.Sub(start) / time.Minute)
+		if startIdx < 0 {
+			startIdx = 0
+		}
+		if endIdx >= totalMinutes {
+			endIdx = totalMinutes - 1
+		}
+		diff[startIdx]++
+		if endIdx+1 < len(diff) {
+			diff[endIdx+1]--
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	result := make(map[string]int64, totalMinutes)
+	current := int64(0)
+	for idx := 0; idx < totalMinutes; idx++ {
+		current += diff[idx]
+		minute := start.Add(time.Duration(idx) * time.Minute).UTC().Format(time.RFC3339)
+		result[minute] = current
+	}
+	return result, nil
 }
 
 func (r *RequestLogRepository) ensureAdminThroughputMetricsWindow(start, end time.Time) error {

@@ -4,6 +4,8 @@ import (
 	"net/http"
 
 	"ampmanager/internal/billing"
+	"ampmanager/internal/model"
+	"ampmanager/internal/service"
 
 	"github.com/gin-gonic/gin"
 )
@@ -80,4 +82,40 @@ func (h *BillingHandler) RefreshPrices(c *gin.Context) {
 		"modelCount": count,
 		"fetchedAt":  fetchedAt,
 	})
+}
+
+func (h *BillingHandler) ListContextRules(c *gin.Context) {
+	modelName := c.Query("model")
+	if modelName == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "缺少 model 参数"})
+		return
+	}
+
+	rules, err := service.NewModelPriceContextRuleService().List(modelName)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"items": rules})
+}
+
+func (h *BillingHandler) UpdateContextRules(c *gin.Context) {
+	modelName := c.Query("model")
+	if modelName == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "缺少 model 参数"})
+		return
+	}
+
+	var req model.UpdateModelPriceContextRulesRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "请求参数错误"})
+		return
+	}
+
+	rules, err := service.NewModelPriceContextRuleService().Replace(modelName, req.Rules)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"items": rules})
 }

@@ -40,10 +40,10 @@ func (c *CostCalculator) Calculate(pricingModel string, usage TokenUsage) CostRe
 	}
 
 	// 查找价格
-	priceData, found := c.store.GetPrice(pricingModel)
+	modelPrice, found := c.store.GetModelPrice(pricingModel)
 	if !found {
 		// 尝试模糊匹配（移除版本后缀）
-		priceData, found = c.tryFuzzyMatch(pricingModel)
+		modelPrice, found = c.tryFuzzyMatch(pricingModel)
 		if !found {
 			log.Debugf("billing: price not found for model %s", pricingModel)
 			return result
@@ -51,6 +51,7 @@ func (c *CostCalculator) Calculate(pricingModel string, usage TokenUsage) CostRe
 	}
 
 	result.PriceFound = true
+	result.PricingModel = modelPrice.Model
 
 	// 防御性处理：负数 token 归零
 	inputTokens := usage.InputTokens
@@ -76,6 +77,18 @@ func (c *CostCalculator) Calculate(pricingModel string, usage TokenUsage) CostRe
 		uncachedInputTokens = 0
 	}
 
+	priceData := modelPrice.PriceData
+	totalTokens := int64(inputTokens + outputTokens)
+	if rule, ok := c.store.MatchContextRule(modelPrice.Model, totalTokens); ok {
+		priceData = PriceData{
+			InputCostPerToken:      rule.InputCostPerToken,
+			OutputCostPerToken:     rule.OutputCostPerToken,
+			CacheReadInputPerToken: rule.CacheReadInputPerToken,
+			CacheCreationPerToken:  rule.CacheCreationPerToken,
+		}
+		result.PricingRuleName = rule.RuleName
+	}
+
 	inputMicros := int64(math.Round(float64(uncachedInputTokens) * priceData.InputCostPerToken * 1e6))
 	outputMicros := int64(math.Round(float64(outputTokens) * priceData.OutputCostPerToken * 1e6))
 	cacheReadMicros := int64(math.Round(float64(cacheReadTokens) * priceData.CacheReadInputPerToken * 1e6))
@@ -95,7 +108,7 @@ func (c *CostCalculator) Calculate(pricingModel string, usage TokenUsage) CostRe
 }
 
 // tryFuzzyMatch 尝试模糊匹配模型名
-func (c *CostCalculator) tryFuzzyMatch(model string) (PriceData, bool) {
+func (c *CostCalculator) tryFuzzyMatch(model string) (ModelPrice, bool) {
 	// 常见的模型名变体匹配规则
 	// 例如: claude-sonnet-4-20250514 -> claude-sonnet-4-20250514
 	// 例如: claude-3-5-sonnet-latest -> claude-3-5-sonnet-20241022
@@ -123,7 +136,7 @@ func (c *CostCalculator) tryFuzzyMatch(model string) (PriceData, bool) {
 	}
 
 	if len(candidates) == 0 {
-		return PriceData{}, false
+		return ModelPrice{}, false
 	}
 
 	// 多个候选时按版本日期选择最新
@@ -135,7 +148,7 @@ func (c *CostCalculator) tryFuzzyMatch(model string) (PriceData, bool) {
 		})
 	}
 
-	return candidates[0].PriceData, true
+	return candidates[0], true
 }
 
 // extractModelSeries 提取模型系列名
