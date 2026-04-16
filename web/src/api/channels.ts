@@ -77,6 +77,16 @@ export interface TestChannelResult {
   success: boolean
   message: string
   latencyMs?: number
+  ttfbMs?: number
+  statusCode?: number
+}
+
+export interface TestChannelRequest {
+  format: ChannelEndpoint
+  model: string
+  prompt: string
+  instructions: string
+  thinkingEffort?: string
 }
 
 export async function listChannels(): Promise<Channel[]> {
@@ -127,9 +137,10 @@ export async function setChannelEnabled(id: string, enabled: boolean): Promise<v
   }
 }
 
-export async function testChannel(id: string): Promise<TestChannelResult> {
+export async function testChannel(id: string, data: TestChannelRequest): Promise<TestChannelResult> {
   const response = await authFetch(`${API_BASE}/${id}/test`, {
     method: 'POST',
+    body: JSON.stringify(data),
   })
   return handleResponse<TestChannelResult>(response)
 }

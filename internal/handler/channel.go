@@ -133,7 +133,13 @@ func (h *ChannelHandler) SetEnabled(c *gin.Context) {
 func (h *ChannelHandler) TestConnection(c *gin.Context) {
 	id := c.Param("id")
 
-	result, err := h.channelService.TestConnection(id)
+	var req model.TestChannelRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "请求参数错误"})
+		return
+	}
+
+	result, err := h.channelService.TestConnection(id, &req)
 	if err != nil {
 		if errors.Is(err, service.ErrChannelNotFound) {
 			c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})

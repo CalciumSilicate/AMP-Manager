@@ -1,25 +1,50 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 
 import { motion } from '@/lib/motion'
 import {
-  listChannels,
+  Channel,
+  ChannelEndpoint,
+  ChannelRequest,
+  TestChannelRequest,
+  TestChannelResult,
   createChannel,
-  updateChannel,
   deleteChannel,
+  listChannels,
   setChannelEnabled,
   testChannel,
-  Channel,
-  ChannelRequest,
-  TestChannelResult,
+  updateChannel,
 } from '../api/channels'
-import { listGroups, Group } from '../api/groups'
+import { Group, listGroups } from '../api/groups'
 import { fetchChannelModels } from '../api/models'
 import { AdminPageShell, AdminSurface } from '@/components/admin/AdminPageShell'
-import { Alert, AlertDescription } from '@/components/ui/alert'
-import { Button } from '@/components/ui/button'
-import { ChannelTable } from '@/components/channels/ChannelTable'
 import { ChannelFormDialog } from '@/components/channels/ChannelFormDialog'
-import { TestResultsDisplay } from '@/components/channels/TestResultsDisplay'
+import { ChannelTable } from '@/components/channels/ChannelTable'
+import { Alert, AlertDescription } from '@/components/ui/alert'
+import { Badge } from '@/components/ui/badge'
+import { Button } from '@/components/ui/button'
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
+import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import { Textarea } from '@/components/ui/textarea'
+
+const TEST_FORMAT_OPTIONS: { value: ChannelEndpoint; label: string }[] = [
+  { value: 'chat_completions', label: 'Chat Completions' },
+  { value: 'responses', label: 'Responses' },
+  { value: 'messages', label: 'Messages' },
+  { value: 'generate_content', label: 'Generate Content' },
+]
+
+function createDefaultTestRequest(channel: Channel | null): TestChannelRequest {
+  const firstModel = channel?.models?.[0]?.name || ''
+  return {
+    format: channel?.endpoint || 'chat_completions',
+    model: firstModel,
+    prompt: '输出 ok。',
+    instructions: '请用一句话完成响应。',
+    thinkingEffort: '',
+  }
+}
 
 export default function Channels() {
   const [channels, setChannels] = useState<Channel[]>([])
@@ -27,10 +52,16 @@ export default function Channels() {
   const [error, setError] = useState('')
   const [showForm, setShowForm] = useState(false)
   const [editingChannel, setEditingChannel] = useState<Channel | null>(null)
-  const [testResults, setTestResults] = useState<Record<string, TestChannelResult>>({})
   const [fetchingModels, setFetchingModels] = useState<Record<string, boolean>>({})
   const [modelCounts, setModelCounts] = useState<Record<string, number>>({})
   const [groups, setGroups] = useState<Group[]>([])
+  const [saving, setSaving] = useState(false)
+
+  const [testDialogChannel, setTestDialogChannel] = useState<Channel | null>(null)
+  const [testRequest, setTestRequest] = useState<TestChannelRequest>(createDefaultTestRequest(null))
+  const [customModel, setCustomModel] = useState('')
+  const [testing, setTesting] = useState(false)
+  const [testResult, setTestResult] = useState<TestChannelResult | null>(null)
 
   const [formData, setFormData] = useState<ChannelRequest>({
     type: 'openai',
@@ -58,11 +89,10 @@ export default function Channels() {
       gemini: false,
     },
   })
-  const [saving, setSaving] = useState(false)
 
   useEffect(() => {
-    loadChannels()
-    loadGroups()
+    void loadChannels()
+    void loadGroups()
   }, [])
 
   const loadChannels = async () => {
@@ -168,7 +198,7 @@ export default function Channels() {
         await createChannel(formData)
       }
       setShowForm(false)
-      loadChannels()
+      await loadChannels()
     } catch (err) {
       setError(err instanceof Error ? err.message : '保存失败')
     } finally {
@@ -181,7 +211,7 @@ export default function Channels() {
 
     try {
       await deleteChannel(id)
-      loadChannels()
+      await loadChannels()
     } catch (err) {
       setError(err instanceof Error ? err.message : '删除失败')
     }
@@ -190,21 +220,44 @@ export default function Channels() {
   const handleToggleEnabled = async (id: string, enabled: boolean) => {
     try {
       await setChannelEnabled(id, enabled)
-      loadChannels()
+      await loadChannels()
     } catch (err) {
       setError(err instanceof Error ? err.message : '更新失败')
     }
   }
 
-  const handleTest = async (id: string) => {
+  const openTestDialog = (channel: Channel) => {
+    setTestDialogChannel(channel)
+    setTestRequest(createDefaultTestRequest(channel))
+    setCustomModel('')
+    setTestResult(null)
+  }
+
+  const handleTest = async () => {
+    if (!testDialogChannel) return
+    const model = customModel.trim() || testRequest.model.trim()
+    if (!model || !testRequest.prompt.trim() || !testRequest.instructions.trim()) {
+      setTestResult({ success: false, message: '模型、提示词和 instructions 不能为空' })
+      return
+    }
+
+    setTesting(true)
     try {
-      const result = await testChannel(id)
-      setTestResults((prev) => ({ ...prev, [id]: result }))
+      const result = await testChannel(testDialogChannel.id, {
+        ...testRequest,
+        model,
+        prompt: testRequest.prompt.trim(),
+        instructions: testRequest.instructions.trim(),
+        thinkingEffort: testRequest.thinkingEffort?.trim() || undefined,
+      })
+      setTestResult(result)
     } catch (err) {
-      setTestResults((prev) => ({
-        ...prev,
-        [id]: { success: false, message: err instanceof Error ? err.message : '测试失败' },
-      }))
+      setTestResult({
+        success: false,
+        message: err instanceof Error ? err.message : '测试失败',
+      })
+    } finally {
+      setTesting(false)
     }
   }
 
@@ -219,6 +272,8 @@ export default function Channels() {
       setFetchingModels((prev) => ({ ...prev, [id]: false }))
     }
   }
+
+  const availableModels = useMemo(() => testDialogChannel?.models || [], [testDialogChannel])
 
   if (loading) {
     return (
@@ -258,18 +313,16 @@ export default function Channels() {
               ) : (
                 <ChannelTable
                   channels={channels}
-                  testResults={testResults}
+                  testResults={{}}
                   fetchingModels={fetchingModels}
                   modelCounts={modelCounts}
                   onToggleEnabled={handleToggleEnabled}
-                  onTest={handleTest}
+                  onTest={openTestDialog}
                   onFetchModels={handleFetchModels}
                   onEdit={handleEdit}
                   onDelete={handleDelete}
                 />
               )}
-
-              <TestResultsDisplay testResults={testResults} channels={channels} />
             </div>
           </AdminSurface>
         </motion.div>
@@ -284,6 +337,116 @@ export default function Channels() {
           saving={saving}
           groups={groups}
         />
+
+        <Dialog open={!!testDialogChannel} onOpenChange={(open) => !open && setTestDialogChannel(null)}>
+          <DialogContent className="sm:max-w-2xl">
+            <DialogHeader>
+              <DialogTitle>测试渠道</DialogTitle>
+              <DialogDescription>{testDialogChannel?.name || '-'}</DialogDescription>
+            </DialogHeader>
+            <div className="grid gap-4 py-2 sm:grid-cols-2">
+              <div className="space-y-2">
+                <Label>接口制式</Label>
+                <Select
+                  value={testRequest.format}
+                  onValueChange={(value: ChannelEndpoint) => setTestRequest((current) => ({ ...current, format: value }))}
+                >
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {TEST_FORMAT_OPTIONS.map((option) => (
+                      <SelectItem key={option.value} value={option.value}>
+                        {option.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="space-y-2">
+                <Label>模型</Label>
+                <Select
+                  value={testRequest.model}
+                  onValueChange={(value) => setTestRequest((current) => ({ ...current, model: value }))}
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="从列表选择" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {availableModels.length === 0 ? (
+                      <SelectItem value="__empty__" disabled>无可选模型</SelectItem>
+                    ) : (
+                      availableModels.map((model) => (
+                        <SelectItem key={`${model.name}:${model.alias || ''}`} value={model.name}>
+                          {model.alias ? `${model.alias} -> ${model.name}` : model.name}
+                        </SelectItem>
+                      ))
+                    )}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="space-y-2 sm:col-span-2">
+                <Label htmlFor="customModel">自定义模型</Label>
+                <Input
+                  id="customModel"
+                  value={customModel}
+                  onChange={(event) => setCustomModel(event.target.value)}
+                  placeholder="留空则使用上方选择"
+                />
+              </div>
+
+              <div className="space-y-2 sm:col-span-2">
+                <Label htmlFor="instructions">instructions</Label>
+                <Input
+                  id="instructions"
+                  value={testRequest.instructions}
+                  onChange={(event) => setTestRequest((current) => ({ ...current, instructions: event.target.value }))}
+                />
+              </div>
+
+              <div className="space-y-2 sm:col-span-2">
+                <Label htmlFor="prompt">提示词</Label>
+                <Textarea
+                  id="prompt"
+                  value={testRequest.prompt}
+                  onChange={(event) => setTestRequest((current) => ({ ...current, prompt: event.target.value }))}
+                  className="min-h-[120px]"
+                />
+              </div>
+
+              <div className="space-y-2 sm:col-span-2">
+                <Label htmlFor="thinkingEffort">思维强度</Label>
+                <Input
+                  id="thinkingEffort"
+                  value={testRequest.thinkingEffort || ''}
+                  onChange={(event) => setTestRequest((current) => ({ ...current, thinkingEffort: event.target.value }))}
+                  placeholder="可选，例如 low / medium / high"
+                />
+              </div>
+            </div>
+
+            {testResult ? (
+              <Alert variant={testResult.success ? 'default' : 'destructive'}>
+                <AlertDescription className="flex flex-wrap items-center justify-between gap-3">
+                  <span>{testResult.message}</span>
+                  <div className="flex items-center gap-2">
+                    {typeof testResult.statusCode === 'number' ? <Badge variant="outline">HTTP {testResult.statusCode}</Badge> : null}
+                    {typeof testResult.ttfbMs === 'number' ? <Badge variant="outline">TTFB {testResult.ttfbMs}ms</Badge> : null}
+                  </div>
+                </AlertDescription>
+              </Alert>
+            ) : null}
+
+            <DialogFooter>
+              <Button type="button" variant="outline" onClick={() => setTestDialogChannel(null)}>关闭</Button>
+              <Button type="button" onClick={() => void handleTest()} disabled={testing}>
+                {testing ? '测试中...' : '开始测试'}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
       </AdminPageShell>
     </motion.div>
   )

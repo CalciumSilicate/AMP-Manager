@@ -1,9 +1,11 @@
 package service
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"reflect"
 	"sort"
@@ -15,6 +17,7 @@ import (
 	"ampmanager/internal/model"
 	"ampmanager/internal/repository"
 	internaltranslator "ampmanager/internal/translator"
+	"ampmanager/internal/util"
 )
 
 var (
@@ -440,7 +443,7 @@ func (s *ChannelService) SetEnabled(id string, enabled bool) error {
 	return nil
 }
 
-func (s *ChannelService) TestConnection(id string) (*model.TestChannelResponse, error) {
+func (s *ChannelService) TestConnection(id string, req *model.TestChannelRequest) (*model.TestChannelResponse, error) {
 	channel, err := s.repo.GetByID(id)
 	if err != nil {
 		return nil, err
@@ -449,21 +452,44 @@ func (s *ChannelService) TestConnection(id string) (*model.TestChannelResponse, 
 		return nil, ErrChannelNotFound
 	}
 
-	client := &http.Client{Timeout: 10 * time.Second}
-	var testURL string
-
-	switch channel.Type {
-	case model.ChannelTypeOpenAI:
-		testURL = channel.BaseURL + "/v1/models"
-	case model.ChannelTypeClaude:
-		testURL = channel.BaseURL + "/v1/models"
-	case model.ChannelTypeGemini:
-		testURL = channel.BaseURL + "/v1beta/models"
-	default:
-		testURL = channel.BaseURL
+	testPayload, err := buildChannelTestPayload(req)
+	if err != nil {
+		return &model.TestChannelResponse{
+			Success: false,
+			Message: err.Error(),
+		}, nil
 	}
 
-	req, err := http.NewRequest("GET", testURL, nil)
+	incomingFormat := channelEndpointToFormat(req.Format)
+	outgoingFormat := channelNativeFormat(channel)
+	if !s.channelSupportsRequestFormat(channel, incomingFormat, true) {
+		return &model.TestChannelResponse{
+			Success: false,
+			Message: "当前渠道不支持该接口制式",
+		}, nil
+	}
+
+	upstreamPayload := testPayload
+	if !internaltranslator.Equivalent(incomingFormat, outgoingFormat) {
+		translated, err := internaltranslator.TranslateRequest(incomingFormat, outgoingFormat, strings.TrimSpace(req.Model), testPayload, true)
+		if err != nil {
+			return &model.TestChannelResponse{
+				Success: false,
+				Message: fmt.Sprintf("转换测试请求失败: %v", err),
+			}, nil
+		}
+		upstreamPayload = translated
+	}
+
+	targetURL, err := buildChannelTestURL(channel, strings.TrimSpace(req.Model))
+	if err != nil {
+		return &model.TestChannelResponse{
+			Success: false,
+			Message: fmt.Sprintf("构造测试地址失败: %v", err),
+		}, nil
+	}
+
+	httpReq, err := http.NewRequest("POST", targetURL, bytes.NewReader(upstreamPayload))
 	if err != nil {
 		return &model.TestChannelResponse{
 			Success: false,
@@ -471,53 +497,200 @@ func (s *ChannelService) TestConnection(id string) (*model.TestChannelResponse, 
 		}, nil
 	}
 
+	httpReq.Header.Set("Content-Type", "application/json")
+	httpReq.Header.Set("Accept", "text/event-stream")
+
 	switch channel.Type {
 	case model.ChannelTypeOpenAI:
-		req.Header.Set("Authorization", "Bearer "+channel.APIKey)
+		httpReq.Header.Set("Authorization", "Bearer "+channel.APIKey)
 	case model.ChannelTypeClaude:
-		req.Header.Set("x-api-key", channel.APIKey)
-		req.Header.Set("anthropic-version", "2023-06-01")
+		httpReq.Header.Set("x-api-key", channel.APIKey)
+		httpReq.Header.Set("anthropic-version", "2023-06-01")
+		httpReq.Header.Set("Accept", "text/event-stream")
 	case model.ChannelTypeGemini:
-		q := req.URL.Query()
-		q.Set("key", channel.APIKey)
-		req.URL.RawQuery = q.Encode()
-		req.Header.Set("x-goog-api-key", channel.APIKey)
+		httpReq.Header.Set("x-goog-api-key", channel.APIKey)
 	}
 
+	if headers, ok := getParsedHeaders(channel.HeadersJSON); ok {
+		for key, value := range headers {
+			if strings.TrimSpace(key) != "" {
+				httpReq.Header.Set(key, value)
+			}
+		}
+	}
+
+	client := &http.Client{Timeout: 45 * time.Second}
 	start := time.Now()
-	resp, err := client.Do(req)
-	latency := time.Since(start).Milliseconds()
+	resp, err := client.Do(httpReq)
+	ttfb := time.Since(start).Milliseconds()
 
 	if err != nil {
 		return &model.TestChannelResponse{
 			Success:   false,
 			Message:   fmt.Sprintf("连接失败: %v", err),
-			LatencyMs: latency,
+			LatencyMs: ttfb,
+			TTFBMs:    ttfb,
 		}, nil
 	}
 	defer resp.Body.Close()
 
-	if resp.StatusCode >= 200 && resp.StatusCode < 300 {
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		snippet, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
 		return &model.TestChannelResponse{
-			Success:   true,
-			Message:   fmt.Sprintf("连接成功 (HTTP %d)", resp.StatusCode),
-			LatencyMs: latency,
+			Success:    false,
+			Message:    buildChannelTestFailureMessage(resp.StatusCode, string(snippet)),
+			LatencyMs:  ttfb,
+			TTFBMs:     ttfb,
+			StatusCode: resp.StatusCode,
 		}, nil
 	}
 
-	if resp.StatusCode == 401 || resp.StatusCode == 403 {
+	firstByte := make([]byte, 1)
+	if _, err := resp.Body.Read(firstByte); err != nil {
+		if errors.Is(err, io.EOF) {
+			return &model.TestChannelResponse{
+				Success:    false,
+				Message:    "连接成功，但未收到首包",
+				LatencyMs:  ttfb,
+				TTFBMs:     ttfb,
+				StatusCode: resp.StatusCode,
+			}, nil
+		}
 		return &model.TestChannelResponse{
-			Success:   false,
-			Message:   fmt.Sprintf("认证失败 (HTTP %d)", resp.StatusCode),
-			LatencyMs: latency,
+			Success:    false,
+			Message:    fmt.Sprintf("读取首包失败: %v", err),
+			LatencyMs:  ttfb,
+			TTFBMs:     ttfb,
+			StatusCode: resp.StatusCode,
 		}, nil
 	}
 
 	return &model.TestChannelResponse{
-		Success:   false,
-		Message:   fmt.Sprintf("请求失败: HTTP %d", resp.StatusCode),
-		LatencyMs: latency,
+		Success:    true,
+		Message:    fmt.Sprintf("已收到首包并断开 (HTTP %d)", resp.StatusCode),
+		LatencyMs:  ttfb,
+		TTFBMs:     ttfb,
+		StatusCode: resp.StatusCode,
 	}, nil
+}
+
+func channelEndpointToFormat(endpoint model.ChannelEndpoint) internaltranslator.Format {
+	switch endpoint {
+	case model.ChannelEndpointResponses:
+		return internaltranslator.FormatOpenAIResponses
+	case model.ChannelEndpointMessages:
+		return internaltranslator.FormatClaude
+	case model.ChannelEndpointGenerateContent:
+		return internaltranslator.FormatGemini
+	default:
+		return internaltranslator.FormatOpenAIChat
+	}
+}
+
+func buildChannelTestPayload(req *model.TestChannelRequest) ([]byte, error) {
+	modelName := strings.TrimSpace(req.Model)
+	prompt := strings.TrimSpace(req.Prompt)
+	instructions := strings.TrimSpace(req.Instructions)
+	if modelName == "" || prompt == "" || instructions == "" {
+		return nil, errors.New("模型、提示词和 instructions 不能为空")
+	}
+
+	switch req.Format {
+	case model.ChannelEndpointResponses:
+		payload := map[string]any{
+			"model":        modelName,
+			"stream":       true,
+			"instructions": instructions,
+			"input": []map[string]any{{
+				"role": "user",
+				"content": []map[string]any{{
+					"type": "input_text",
+					"text": prompt,
+				}},
+			}},
+		}
+		if effort := strings.TrimSpace(req.ThinkingEffort); effort != "" {
+			payload["reasoning"] = map[string]any{"effort": effort}
+		}
+		return json.Marshal(payload)
+	case model.ChannelEndpointMessages:
+		payload := map[string]any{
+			"model":       modelName,
+			"stream":      true,
+			"system":      instructions,
+			"max_tokens":  64,
+			"messages":    []map[string]any{{"role": "user", "content": prompt}},
+			"instructions": instructions,
+		}
+		if effort := strings.TrimSpace(req.ThinkingEffort); effort != "" {
+			if budget, ok := util.ThinkingEffortToBudget(modelName, effort); ok {
+				payload["thinking"] = map[string]any{
+					"type":          "enabled",
+					"budget_tokens": budget,
+				}
+			}
+		}
+		return json.Marshal(payload)
+	case model.ChannelEndpointGenerateContent:
+		payload := map[string]any{
+			"contents": []map[string]any{{
+				"role": "user",
+				"parts": []map[string]any{{"text": prompt}},
+			}},
+			"system_instruction": map[string]any{
+				"parts": []map[string]any{{"text": instructions}},
+			},
+			"instructions": instructions,
+		}
+		return json.Marshal(payload)
+	default:
+		payload := map[string]any{
+			"model":  modelName,
+			"stream": true,
+			"messages": []map[string]any{
+				{"role": "system", "content": instructions},
+				{"role": "user", "content": prompt},
+			},
+			"instructions": instructions,
+		}
+		if effort := strings.TrimSpace(req.ThinkingEffort); effort != "" {
+			payload["reasoning_effort"] = effort
+		}
+		return json.Marshal(payload)
+	}
+}
+
+func buildChannelTestURL(channel *model.Channel, modelName string) (string, error) {
+	baseURL := strings.TrimSuffix(channel.BaseURL, "/")
+	switch channel.Type {
+	case model.ChannelTypeClaude:
+		return baseURL + "/v1/messages?beta=true", nil
+	case model.ChannelTypeGemini:
+		action := "streamGenerateContent"
+		trimmedModel := strings.TrimPrefix(strings.TrimSpace(modelName), "models/")
+		if trimmedModel == "" {
+			return "", errors.New("Gemini 测试需要模型名称")
+		}
+		return fmt.Sprintf("%s/v1beta/models/%s:%s?alt=sse&key=%s", baseURL, trimmedModel, action, channel.APIKey), nil
+	case model.ChannelTypeOpenAI:
+		if channel.Endpoint == model.ChannelEndpointResponses {
+			return baseURL + "/v1/responses", nil
+		}
+		return baseURL + "/v1/chat/completions", nil
+	default:
+		return baseURL, nil
+	}
+}
+
+func buildChannelTestFailureMessage(statusCode int, body string) string {
+	snippet := strings.TrimSpace(body)
+	if snippet == "" {
+		return fmt.Sprintf("请求失败: HTTP %d", statusCode)
+	}
+	if len(snippet) > 160 {
+		snippet = snippet[:160]
+	}
+	return fmt.Sprintf("请求失败: HTTP %d - %s", statusCode, snippet)
 }
 
 func (s *ChannelService) SelectChannelForModel(modelName string) (*model.Channel, error) {

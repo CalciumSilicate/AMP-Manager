@@ -18,7 +18,7 @@ export interface ChannelTableProps {
   fetchingModels: Record<string, boolean>
   modelCounts: Record<string, number>
   onToggleEnabled: (id: string, enabled: boolean) => void
-  onTest: (id: string) => void
+  onTest: (channel: Channel) => void
   onFetchModels: (id: string) => void
   onEdit: (channel: Channel) => void
   onDelete: (id: string, name: string) => void
@@ -98,7 +98,7 @@ export function ChannelTable({
               <TableCell>{channel.priority} / {channel.weight}</TableCell>
               <TableCell>{formatDate(channel.updatedAt)}</TableCell>
               <TableCell className="text-right space-x-2">
-                <Button variant="ghost" size="sm" onClick={() => onTest(channel.id)}>
+                <Button variant="ghost" size="sm" onClick={() => onTest(channel)}>
                   测试
                 </Button>
                 <Button

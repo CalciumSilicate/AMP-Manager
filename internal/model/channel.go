@@ -104,9 +104,19 @@ type ChannelResponse struct {
 }
 
 type TestChannelResponse struct {
-	Success   bool   `json:"success"`
-	Message   string `json:"message"`
-	LatencyMs int64  `json:"latencyMs,omitempty"`
+	Success    bool   `json:"success"`
+	Message    string `json:"message"`
+	LatencyMs  int64  `json:"latencyMs,omitempty"`
+	TTFBMs     int64  `json:"ttfbMs,omitempty"`
+	StatusCode int    `json:"statusCode,omitempty"`
+}
+
+type TestChannelRequest struct {
+	Format         ChannelEndpoint `json:"format" binding:"required,oneof=chat_completions responses messages generate_content"`
+	Model          string          `json:"model" binding:"required"`
+	Prompt         string          `json:"prompt" binding:"required"`
+	Instructions   string          `json:"instructions" binding:"required"`
+	ThinkingEffort string          `json:"thinkingEffort,omitempty"`
 }
 
 type ChannelModel2 struct {
