@@ -22,6 +22,7 @@ type ListRequestLogsParams struct {
 	UserID      string
 	APIKeyID    string
 	Model       string
+	Channel     string
 	StatusCodes []int
 	IsStreaming *bool
 	From        *time.Time
@@ -36,6 +37,7 @@ func (s *RequestLogService) List(params ListRequestLogsParams) (*model.RequestLo
 		UserID:      params.UserID,
 		APIKeyID:    params.APIKeyID,
 		Model:       params.Model,
+		Channel:     params.Channel,
 		StatusCodes: params.StatusCodes,
 		IsStreaming: params.IsStreaming,
 		From:        params.From,
@@ -87,6 +89,7 @@ func (s *RequestLogService) ListAdmin(params ListRequestLogsParams) (*model.Requ
 		UserID:      params.UserID, // UserID 可为空
 		APIKeyID:    params.APIKeyID,
 		Model:       params.Model,
+		Channel:     params.Channel,
 		StatusCodes: params.StatusCodes,
 		IsStreaming: params.IsStreaming,
 		From:        params.From,

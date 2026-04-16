@@ -22,7 +22,7 @@ import { getPlans, type SubscriptionPlanResponse } from '@/api/subscription'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -158,10 +158,6 @@ export default function RedeemManagement() {
     username: '',
   })
   const [togglingCodeId, setTogglingCodeId] = useState<string | null>(null)
-
-  const enabledCampaigns = campaigns.filter((item) => item.enabled).length
-  const sharedCampaigns = campaigns.filter((item) => item.codeMode === 'shared').length
-  const singleUseCampaigns = campaigns.filter((item) => item.codeMode === 'single_use').length
 
   useEffect(() => {
     void loadAll()
@@ -346,7 +342,7 @@ export default function RedeemManagement() {
     <>
       <TabbedSettingsPage
         title="兑换码管理"
-        description="管理活动、批次、兑换码明细与兑换记录。"
+        description="管理活动、批次、兑换码明细与兑换记录"
         tabs={tabs}
         activeTab={activeTab}
         onTabChange={setActiveTab}
@@ -370,7 +366,6 @@ export default function RedeemManagement() {
               <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                 <div className="space-y-1">
                   <CardTitle>活动</CardTitle>
-                  <CardDescription>共享码和单次码共用一套奖励配置，活动负责定义规则和限制。</CardDescription>
                 </div>
                 <div className="flex flex-wrap gap-2">
                   <Button type="button" variant="outline" size="sm" onClick={() => void loadAll()}>
@@ -385,37 +380,6 @@ export default function RedeemManagement() {
               </div>
             </CardHeader>
             <CardContent className="space-y-4">
-              <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-                <div className="space-y-2 rounded-lg border p-4">
-                  <div className="flex items-center justify-between">
-                    <span className="text-sm text-muted-foreground">活动总数</span>
-                    <Badge variant="outline">{campaigns.length}</Badge>
-                  </div>
-                  <p className="text-sm text-muted-foreground">共享码与单次码统一管理。</p>
-                </div>
-                <div className="space-y-2 rounded-lg border p-4">
-                  <div className="flex items-center justify-between">
-                    <span className="text-sm text-muted-foreground">启用中</span>
-                    <Badge>{enabledCampaigns}</Badge>
-                  </div>
-                  <p className="text-sm text-muted-foreground">当前对用户开放兑换的活动数量。</p>
-                </div>
-                <div className="space-y-2 rounded-lg border p-4">
-                  <div className="flex items-center justify-between">
-                    <span className="text-sm text-muted-foreground">共享码</span>
-                    <Badge variant="outline">{sharedCampaigns}</Badge>
-                  </div>
-                  <p className="text-sm text-muted-foreground">共享码活动支持重复发码但可限制用户次数。</p>
-                </div>
-                <div className="space-y-2 rounded-lg border p-4">
-                  <div className="flex items-center justify-between">
-                    <span className="text-sm text-muted-foreground">单次码</span>
-                    <Badge variant="outline">{singleUseCampaigns}</Badge>
-                  </div>
-                  <p className="text-sm text-muted-foreground">单次码活动支持批量生成和导出。</p>
-                </div>
-              </div>
-
               <div className="overflow-x-auto rounded-lg border">
                 <Table>
                   <TableHeader>
@@ -496,7 +460,6 @@ export default function RedeemManagement() {
               <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                 <div className="space-y-1">
                   <CardTitle>批次</CardTitle>
-                  <CardDescription>单次码批量生成与导出都挂在批次层级上。</CardDescription>
                 </div>
                 <Button type="button" variant="outline" size="sm" onClick={() => void loadAll()}>
                   <RefreshCw className="mr-2 h-4 w-4" />
@@ -566,7 +529,6 @@ export default function RedeemManagement() {
               <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                 <div className="space-y-1">
                   <CardTitle>兑换码明细</CardTitle>
-                  <CardDescription>支持筛选、搜索和启停管理，已用尽的兑换码只保留结果状态。</CardDescription>
                 </div>
                 <Button type="button" variant="outline" size="sm" onClick={() => void refreshCodes()}>
                   <RefreshCw className="mr-2 h-4 w-4" />
@@ -652,7 +614,6 @@ export default function RedeemManagement() {
               <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                 <div className="space-y-1">
                   <CardTitle>兑换记录</CardTitle>
-                  <CardDescription>包含成功与拒绝记录，可按活动、结果和用户名过滤。</CardDescription>
                 </div>
                 <Button type="button" variant="outline" size="sm" onClick={() => void refreshRedemptions()}>
                   <RefreshCw className="mr-2 h-4 w-4" />

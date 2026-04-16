@@ -20,14 +20,15 @@ import {
 import { getPlans, type SubscriptionPlanResponse } from '@/api/subscription'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
-import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Switch } from '@/components/ui/switch'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { Textarea } from '@/components/ui/textarea'
+import { TablePagination } from '@/components/TablePagination'
 import { TabbedSettingsPage, type TabbedSettingsPageTab } from '@/components/layout/TabbedSettingsPage'
 import { CreditCard, Pencil, Plus, RefreshCw, Trash2 } from 'lucide-react'
 
@@ -144,6 +145,7 @@ export default function PaidSubscriptions() {
   const [productDialogOpen, setProductDialogOpen] = useState(false)
   const [editingProduct, setEditingProduct] = useState<PurchaseProduct | null>(null)
   const [productForm, setProductForm] = useState<PurchaseProductRequest>(initialProductForm())
+  const [productPriceInput, setProductPriceInput] = useState('0.00')
   const [savingProduct, setSavingProduct] = useState(false)
 
   const [orderFilters, setOrderFilters] = useState({
@@ -153,14 +155,14 @@ export default function PaidSubscriptions() {
     productId: 'all',
   })
   const [refreshingOrderNo, setRefreshingOrderNo] = useState<string | null>(null)
+  const [ordersPage, setOrdersPage] = useState(1)
+  const [ordersPageSize, setOrdersPageSize] = useState(20)
 
   useEffect(() => {
     void loadBase()
   }, [])
 
-  const enabledProducts = products.filter((item) => item.enabled).length
   const pendingOrders = orders.filter((item) => item.paymentStatus === 'pending').length
-  const recommendedProducts = products.filter((item) => item.isRecommended).length
 
   const loadBase = async () => {
     setLoading(true)
@@ -245,6 +247,7 @@ export default function PaidSubscriptions() {
       ...initialProductForm(),
       subscriptionPlanId: plans.find((plan) => plan.enabled)?.id || plans[0]?.id || '',
     })
+    setProductPriceInput('0.00')
     setProductDialogOpen(true)
   }
 
@@ -260,6 +263,7 @@ export default function PaidSubscriptions() {
       sortOrder: product.sortOrder,
       enabled: product.enabled,
     })
+    setProductPriceInput((product.priceCnyCent / 100).toFixed(2))
     setProductDialogOpen(true)
   }
 
@@ -268,18 +272,24 @@ export default function PaidSubscriptions() {
       showMessage('error', '请选择套餐')
       return
     }
-    if (productForm.priceCnyCent <= 0) {
+    const priceYuan = Number.parseFloat(productPriceInput)
+    if (Number.isNaN(priceYuan) || priceYuan <= 0) {
       showMessage('error', '售价必须大于 0')
       return
+    }
+
+    const payload: PurchaseProductRequest = {
+      ...productForm,
+      priceCnyCent: Math.round(priceYuan * 100),
     }
 
     setSavingProduct(true)
     try {
       if (editingProduct) {
-        await updatePurchaseProduct(editingProduct.id, productForm)
+        await updatePurchaseProduct(editingProduct.id, payload)
         showMessage('success', '商品已更新')
       } else {
-        await createPurchaseProduct(productForm)
+        await createPurchaseProduct(payload)
         showMessage('success', '商品已创建')
       }
       setProductDialogOpen(false)
@@ -323,6 +333,7 @@ export default function PaidSubscriptions() {
       productId: orderFilters.productId === 'all' ? '' : orderFilters.productId,
       limit: 100,
     })
+    setOrdersPage(1)
   }
 
   const handleRefreshOrder = async (orderNo: string) => {
@@ -346,11 +357,15 @@ export default function PaidSubscriptions() {
     )
   }
 
+  const ordersTotalPages = Math.max(1, Math.ceil(orders.length / ordersPageSize))
+  const currentOrdersPage = Math.min(ordersPage, ordersTotalPages)
+  const visibleOrders = orders.slice((currentOrdersPage - 1) * ordersPageSize, currentOrdersPage * ordersPageSize)
+
   return (
     <>
       <TabbedSettingsPage
         title="付费订阅"
-        description="管理售卖商品、订单履约和支付设置。"
+        description="管理售卖商品、订单履约和支付设置"
         tabs={tabs}
         activeTab={activeTab}
         onTabChange={setActiveTab}
@@ -363,14 +378,13 @@ export default function PaidSubscriptions() {
               <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                 <div className="space-y-1">
                   <CardTitle>售卖商品</CardTitle>
-                  <CardDescription>商品是面向用户的购买入口，重点呈现绑定套餐、排序和推荐状态。</CardDescription>
                 </div>
                 <div className="flex flex-wrap gap-2">
-                  <Button type="button" variant="outline" size="sm" onClick={() => void loadBase()}>
+                  <Button type="button" variant="outline" size="sm" className="min-w-24" onClick={() => void loadBase()}>
                     <RefreshCw className="mr-2 h-4 w-4" />
                     刷新
                   </Button>
-                  <Button type="button" onClick={openCreateProduct}>
+                  <Button type="button" size="sm" className="min-w-24" onClick={openCreateProduct}>
                     <Plus className="mr-2 h-4 w-4" />
                     新建商品
                   </Button>
@@ -378,37 +392,6 @@ export default function PaidSubscriptions() {
               </div>
             </CardHeader>
             <CardContent className="space-y-4">
-              <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-                <div className="space-y-2 rounded-lg border p-4">
-                  <div className="flex items-center justify-between">
-                    <span className="text-sm text-muted-foreground">商品总数</span>
-                    <Badge variant="outline">{products.length}</Badge>
-                  </div>
-                  <p className="text-sm text-muted-foreground">当前列表里的全部售卖商品。</p>
-                </div>
-                <div className="space-y-2 rounded-lg border p-4">
-                  <div className="flex items-center justify-between">
-                    <span className="text-sm text-muted-foreground">已上架</span>
-                    <Badge>{enabledProducts}</Badge>
-                  </div>
-                  <p className="text-sm text-muted-foreground">用户当前可见并可下单的商品数量。</p>
-                </div>
-                <div className="space-y-2 rounded-lg border p-4">
-                  <div className="flex items-center justify-between">
-                    <span className="text-sm text-muted-foreground">推荐商品</span>
-                    <Badge variant="outline">{recommendedProducts}</Badge>
-                  </div>
-                  <p className="text-sm text-muted-foreground">推荐商品会固定靠前展示。</p>
-                </div>
-                <div className="space-y-2 rounded-lg border p-4">
-                  <div className="flex items-center justify-between">
-                    <span className="text-sm text-muted-foreground">可用套餐</span>
-                    <Badge variant="outline">{plans.filter((plan) => plan.enabled).length}</Badge>
-                  </div>
-                  <p className="text-sm text-muted-foreground">新建商品时可绑定的启用套餐数量。</p>
-                </div>
-              </div>
-
               <div className="overflow-x-auto rounded-lg border">
                 {products.length === 0 ? (
                   <div className="px-5 py-10 text-sm text-muted-foreground">暂无商品。</div>
@@ -481,7 +464,6 @@ export default function PaidSubscriptions() {
               <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                 <div className="space-y-1">
                   <CardTitle>订单</CardTitle>
-                  <CardDescription>最近 100 条订单保留完整支付和发放状态，筛选与列表分成两个层次。</CardDescription>
                 </div>
                 <div className="flex flex-wrap gap-2">
                   <Badge variant="outline">待支付 {pendingOrders}</Badge>
@@ -541,70 +523,82 @@ export default function PaidSubscriptions() {
                 {orders.length === 0 ? (
                   <div className="px-5 py-10 text-sm text-muted-foreground">暂无订单。</div>
                 ) : (
-                  <Table>
-                    <TableHeader>
-                      <TableRow>
-                        <TableHead>订单</TableHead>
-                        <TableHead>用户</TableHead>
-                        <TableHead>商品</TableHead>
-                        <TableHead>金额</TableHead>
-                        <TableHead>支付</TableHead>
-                        <TableHead>发放</TableHead>
-                        <TableHead>时间</TableHead>
-                        <TableHead className="text-right">操作</TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {orders.map((order) => (
-                        <TableRow key={order.id}>
-                          <TableCell>
-                            <div>
-                              <p className="font-mono text-xs">{order.orderNo}</p>
-                              {order.alipayTradeNo && <p className="mt-1 text-xs text-muted-foreground">{order.alipayTradeNo}</p>}
-                            </div>
-                          </TableCell>
-                          <TableCell>{order.username || '-'}</TableCell>
-                          <TableCell>
-                            <div>
-                              <p className="font-medium">{order.productName}</p>
-                              <p className="text-xs text-muted-foreground">{order.subscriptionPlanName}</p>
-                            </div>
-                          </TableCell>
-                          <TableCell>{formatCNY(order.amountCnyCent)}</TableCell>
-                          <TableCell>
-                            <Badge variant="outline" className={paymentTone(order.paymentStatus)}>
-                              {paymentLabel(order.paymentStatus)}
-                            </Badge>
-                          </TableCell>
-                          <TableCell>
-                            <Badge variant="outline" className={fulfillmentTone(order)}>
-                              {fulfillmentLabel(order)}
-                            </Badge>
-                          </TableCell>
-                          <TableCell className="text-xs text-muted-foreground">{formatDateTime(order.createdAt)}</TableCell>
-                          <TableCell className="text-right">
-                            <div className="flex justify-end gap-2">
-                              {order.canRefresh && (
-                                <Button
-                                  type="button"
-                                  size="sm"
-                                  variant="outline"
-                                  onClick={() => void handleRefreshOrder(order.orderNo)}
-                                  disabled={refreshingOrderNo === order.orderNo}
-                                >
-                                  <RefreshCw className={`mr-2 h-4 w-4 ${refreshingOrderNo === order.orderNo ? 'animate-spin' : ''}`} />
-                                  刷新
-                                </Button>
-                              )}
-                            </div>
-                            {order.failureReason && (
-                              <p className="mt-2 text-xs text-rose-600">{order.failureReason}</p>
-                            )}
-                          </TableCell>
+                  <div className="px-6 pb-6">
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead>订单</TableHead>
+                          <TableHead>用户</TableHead>
+                          <TableHead>商品</TableHead>
+                          <TableHead>金额</TableHead>
+                          <TableHead>支付</TableHead>
+                          <TableHead>发放</TableHead>
+                          <TableHead>时间</TableHead>
+                          <TableHead className="text-right">操作</TableHead>
                         </TableRow>
-                      ))}
-                    </TableBody>
-                  </Table>
+                      </TableHeader>
+                      <TableBody>
+                        {visibleOrders.map((order) => (
+                          <TableRow key={order.id}>
+                            <TableCell>
+                              <div>
+                                <p className="font-mono text-xs">{order.orderNo}</p>
+                                {order.alipayTradeNo && <p className="mt-1 text-xs text-muted-foreground">{order.alipayTradeNo}</p>}
+                              </div>
+                            </TableCell>
+                            <TableCell>{order.username || '-'}</TableCell>
+                            <TableCell>
+                              <div>
+                                <p className="font-medium">{order.productName}</p>
+                                <p className="text-xs text-muted-foreground">{order.subscriptionPlanName}</p>
+                              </div>
+                            </TableCell>
+                            <TableCell>{formatCNY(order.amountCnyCent)}</TableCell>
+                            <TableCell>
+                              <Badge variant="outline" className={paymentTone(order.paymentStatus)}>
+                                {paymentLabel(order.paymentStatus)}
+                              </Badge>
+                            </TableCell>
+                            <TableCell>
+                              <Badge variant="outline" className={fulfillmentTone(order)}>
+                                {fulfillmentLabel(order)}
+                              </Badge>
+                            </TableCell>
+                            <TableCell className="text-xs text-muted-foreground">{formatDateTime(order.createdAt)}</TableCell>
+                            <TableCell className="text-right">
+                              <div className="flex justify-end gap-2">
+                                {order.canRefresh && (
+                                  <Button
+                                    type="button"
+                                    size="sm"
+                                    variant="outline"
+                                    onClick={() => void handleRefreshOrder(order.orderNo)}
+                                    disabled={refreshingOrderNo === order.orderNo}
+                                  >
+                                    <RefreshCw className={`mr-2 h-4 w-4 ${refreshingOrderNo === order.orderNo ? 'animate-spin' : ''}`} />
+                                    刷新
+                                  </Button>
+                                )}
+                              </div>
+                              {order.failureReason && (
+                                <p className="mt-2 text-xs text-rose-600">{order.failureReason}</p>
+                              )}
+                            </TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                    <TablePagination
+                      page={currentOrdersPage}
+                      pageSize={ordersPageSize}
+                      total={orders.length}
+                      onPageChange={setOrdersPage}
+                      onPageSizeChange={(nextPageSize) => {
+                        setOrdersPageSize(nextPageSize)
+                        setOrdersPage(1)
+                      }}
+                    />
+                  </div>
                 )}
               </div>
             </CardContent>
@@ -617,7 +611,6 @@ export default function PaidSubscriptions() {
               <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                 <div className="space-y-1">
                   <CardTitle>支付设置</CardTitle>
-                  <CardDescription>管理支付开关、支付宝参数和私钥占位策略。</CardDescription>
                 </div>
                 <div className="flex flex-wrap gap-2">
                   <Badge variant="outline" className={settings?.paymentConfigured ? 'border-emerald-200 bg-emerald-50 text-emerald-700' : 'border-slate-200 bg-slate-100 text-slate-600'}>
@@ -631,47 +624,11 @@ export default function PaidSubscriptions() {
               </div>
             </CardHeader>
             <CardContent className="space-y-6">
-              <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-                <div className="space-y-2 rounded-lg border p-4">
-                  <div className="flex items-center justify-between">
-                    <span className="text-sm text-muted-foreground">支付开关</span>
-                    <Badge variant={settingsDraft.purchaseEnabled ? 'default' : 'secondary'}>
-                      {settingsDraft.purchaseEnabled ? '开启' : '关闭'}
-                    </Badge>
-                  </div>
-                  <p className="text-sm text-muted-foreground">关闭后用户不可创建订单。</p>
-                </div>
-                <div className="space-y-2 rounded-lg border p-4">
-                  <div className="flex items-center justify-between">
-                    <span className="text-sm text-muted-foreground">DEBUG</span>
-                    <Badge variant={settingsDraft.debugAutoPaid ? 'default' : 'secondary'}>
-                      {settingsDraft.debugAutoPaid ? '自动支付' : '真实扫码'}
-                    </Badge>
-                  </div>
-                  <p className="text-sm text-muted-foreground">本地验证完整履约链路时可直接入账。</p>
-                </div>
-                <div className="space-y-2 rounded-lg border p-4">
-                  <div className="flex items-center justify-between">
-                    <span className="text-sm text-muted-foreground">待支付订单</span>
-                    <Badge variant="outline">{pendingOrders}</Badge>
-                  </div>
-                  <p className="text-sm text-muted-foreground">当前最近订单中的待支付数量。</p>
-                </div>
-                <div className="space-y-2 rounded-lg border p-4">
-                  <div className="flex items-center justify-between">
-                    <span className="text-sm text-muted-foreground">应用私钥</span>
-                    <Badge variant="outline">{settings?.privateKeySet ? '已设置' : '未设置'}</Badge>
-                  </div>
-                  <p className="text-sm text-muted-foreground">保存时私钥不回显，留空表示保持现有私钥。</p>
-                </div>
-              </div>
-
               <div className="grid gap-5 lg:grid-cols-2">
                 <div className="space-y-4">
                   <div className="flex items-center justify-between border-b border-border/70 pb-3">
                     <div>
                       <p className="text-sm font-medium">支付功能</p>
-                      <p className="text-xs text-muted-foreground">关闭后用户不可下单。</p>
                     </div>
                     <Switch
                       checked={settingsDraft.purchaseEnabled}
@@ -681,7 +638,6 @@ export default function PaidSubscriptions() {
                   <div className="flex items-center justify-between border-b border-border/70 pb-3">
                     <div>
                       <p className="text-sm font-medium">DEBUG 自动支付</p>
-                      <p className="text-xs text-muted-foreground">本地验证完整履约链路。</p>
                     </div>
                     <Switch
                       checked={settingsDraft.debugAutoPaid}
@@ -765,8 +721,7 @@ export default function PaidSubscriptions() {
                 </div>
               </div>
 
-              <div className="flex flex-col gap-3 border-t border-border/70 pt-4 sm:flex-row sm:items-center sm:justify-between">
-                <div className="text-xs text-muted-foreground">真实支付和 DEBUG 共用同一套订单与发放逻辑。</div>
+              <div className="flex justify-end border-t border-border/70 pt-4">
                 <Button type="button" onClick={handleSaveSettings} disabled={savingSettings}>
                   {savingSettings ? <RefreshCw className="mr-2 h-4 w-4 animate-spin" /> : <CreditCard className="mr-2 h-4 w-4" />}
                   保存设置
@@ -778,11 +733,10 @@ export default function PaidSubscriptions() {
       </TabbedSettingsPage>
 
       <Dialog open={productDialogOpen} onOpenChange={setProductDialogOpen}>
-        <DialogContent className="max-w-2xl border-border/80">
-          <DialogHeader>
-            <DialogTitle className="text-xl">{editingProduct ? '编辑商品' : '新建商品'}</DialogTitle>
-            <DialogDescription>商品只负责售价和时长，额度仍由套餐定义。</DialogDescription>
-          </DialogHeader>
+      <DialogContent className="max-w-2xl border-border/80">
+        <DialogHeader>
+          <DialogTitle className="text-xl">{editingProduct ? '编辑商品' : '新建商品'}</DialogTitle>
+        </DialogHeader>
 
           <div className="grid gap-4 py-2 lg:grid-cols-2">
             <div className="space-y-2 lg:col-span-2">
@@ -830,14 +784,16 @@ export default function PaidSubscriptions() {
               />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="priceCnyCent">售价 (分)</Label>
+              <Label htmlFor="priceCnyCent">售价</Label>
               <Input
                 id="priceCnyCent"
                 type="number"
-                min="1"
-                value={productForm.priceCnyCent}
-                onChange={(event) => setProductForm((current) => ({ ...current, priceCnyCent: Number(event.target.value || 0) }))}
+                min="0.01"
+                step="0.01"
+                value={productPriceInput}
+                onChange={(event) => setProductPriceInput(event.target.value)}
               />
+              <p className="text-xs text-muted-foreground">单位：元，支持两位小数</p>
             </div>
             <div className="space-y-2">
               <Label htmlFor="sortOrder">排序</Label>

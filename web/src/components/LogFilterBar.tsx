@@ -4,6 +4,7 @@ import { UserInfo } from '@/api/users'
 import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Label } from '@/components/ui/label'
+import { Input } from '@/components/ui/input'
 import { DateTimePicker } from '@/components/ui/datetime-picker'
 import { SearchableSelect, SelectOption } from '@/components/SearchableSelect'
 import { SearchableMultiSelect, MultiSelectOption } from '@/components/SearchableMultiSelect'
@@ -13,6 +14,7 @@ export interface FilterValues {
   userId: string
   apiKeyId: string
   model: string
+  channel: string
   statuses: string[]
   from: string
   to: string
@@ -123,7 +125,7 @@ export function LogFilterBar({ isAdmin, users, keys, models, values, onChange, s
 
   const handleClearAll = () => {
     setActivePreset('custom')
-    onChange({ userId: '', apiKeyId: '', model: '', statuses: [], from: '', to: '' })
+    onChange({ userId: '', apiKeyId: '', model: '', channel: '', statuses: [], from: '', to: '' })
   }
 
   const handleUserChange = (userId: string) => {
@@ -134,7 +136,7 @@ export function LogFilterBar({ isAdmin, users, keys, models, values, onChange, s
   const keyOptions: SelectOption[] = keys.map(k => ({ value: k.id, label: `${k.name} (${k.prefix})`, keywords: [k.prefix] }))
   const modelOptions: SelectOption[] = models.map(m => ({ value: m, label: m }))
 
-  const hasAnyFilter = values.userId || values.apiKeyId || values.model || values.statuses.length > 0 || values.from || values.to
+  const hasAnyFilter = values.userId || values.apiKeyId || values.model || values.channel || values.statuses.length > 0 || values.from || values.to
 
   return (
     <motion.div
@@ -182,6 +184,16 @@ export function LogFilterBar({ isAdmin, users, keys, models, values, onChange, s
                 searchPlaceholder="搜索模型..."
                 allLabel="所有模型"
                 className="w-48"
+              />
+            </div>
+
+            <div className="flex items-center gap-2">
+              <Label className="text-sm text-muted-foreground whitespace-nowrap">渠道</Label>
+              <Input
+                value={values.channel}
+                onChange={(event) => update({ channel: event.target.value })}
+                placeholder="搜索渠道..."
+                className="h-9 w-48"
               />
             </div>
 

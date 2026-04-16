@@ -259,6 +259,14 @@ export function ChannelFormDialog({
             />
           </div>
 
+          {/* 启用开关 */}
+          <SwitchRow
+            label="启用渠道"
+            hint="启用后此渠道参与路由。"
+            checked={formData.enabled}
+            onCheckedChange={(checked) => setFormData(prev => ({ ...prev, enabled: checked }))}
+          />
+
           {/* 分组 */}
           <div className="space-y-2 col-span-2">
             <Label>分组</Label>
@@ -290,49 +298,38 @@ export function ChannelFormDialog({
             </div>
           </div>
 
-          {/* 权重 */}
-          <div className="space-y-2">
-            <Label>权重</Label>
-            <Input
-              type="number"
-              min={1}
-              value={formData.weight}
-              onChange={(e) => setFormData(prev => ({ ...prev, weight: parseInt(e.target.value) || 1 }))}
-            />
+          <div className="col-span-2 grid gap-4 md:grid-cols-3">
+            <div className="space-y-2">
+              <Label>权重</Label>
+              <Input
+                type="number"
+                min={1}
+                value={formData.weight}
+                onChange={(e) => setFormData(prev => ({ ...prev, weight: parseInt(e.target.value) || 1 }))}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label>优先级</Label>
+              <Input
+                type="number"
+                min={0}
+                value={formData.priority}
+                onChange={(e) => setFormData(prev => ({ ...prev, priority: parseInt(e.target.value) || 0 }))}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label>倍率</Label>
+              <Input
+                type="number"
+                min={0}
+                step="0.01"
+                value={formData.rateMultiplier ?? 1}
+                onChange={(e) => setFormData(prev => ({ ...prev, rateMultiplier: Number.parseFloat(e.target.value) || 0 }))}
+              />
+            </div>
           </div>
 
-          {/* 优先级 */}
-          <div className="space-y-2">
-            <Label>优先级</Label>
-            <Input
-              type="number"
-              min={0}
-              value={formData.priority}
-              onChange={(e) => setFormData(prev => ({ ...prev, priority: parseInt(e.target.value) || 0 }))}
-            />
-          </div>
-
-          <div className="space-y-2 col-span-2">
-            <Label>倍率</Label>
-            <Input
-              type="number"
-              min={0}
-              step="0.01"
-              value={formData.rateMultiplier ?? 1}
-              onChange={(e) => setFormData(prev => ({ ...prev, rateMultiplier: Number.parseFloat(e.target.value) || 0 }))}
-            />
-            <p className="text-xs text-muted-foreground">总倍率会与用户分组倍率和特殊计费倍率连乘。</p>
-          </div>
-
-          {/* 启用开关 */}
-          <SwitchRow
-            label="启用渠道"
-            hint="启用后此渠道参与路由。"
-            checked={formData.enabled}
-            onCheckedChange={(checked) => setFormData(prev => ({ ...prev, enabled: checked }))}
-          />
-
-          <div className="col-span-2 rounded-lg border border-border/70 p-4">
+          <div className="col-span-2 border-t border-border/70 pt-4">
             <div className="space-y-1">
               <Label>翻译器</Label>
               <p className="text-xs text-muted-foreground">

@@ -150,7 +150,7 @@ export default function ModelMetadataPage() {
     <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
       <AdminPageShell
         title="模型元数据管理"
-        description="维护模型显示名、上下文长度和最大输出限制。"
+        description="维护模型显示名、上下文长度和最大输出限制"
         actions={<Button onClick={handleCreate}>添加模型元数据</Button>}
       >
         <motion.div initial={{ opacity: 0, y: 24 }} animate={{ opacity: 1, y: 0 }} transition={{ type: 'spring', bounce: 0.2, duration: 0.55 }}>
@@ -171,10 +171,10 @@ export default function ModelMetadataPage() {
             ) : (
               <>
                 <div className="admin-surface-header">
-                  <div className="space-y-1">
-                    <p className="text-sm font-medium text-foreground">{metadata.length} 条规则</p>
-                    <p className="admin-inline-note">使用前缀匹配覆盖模型默认参数。</p>
-                  </div>
+                <div className="space-y-1">
+                  <p className="text-sm font-medium text-foreground">{metadata.length} 条规则</p>
+                  <p className="admin-inline-note">使用前缀匹配覆盖模型默认参数</p>
+                </div>
                 </div>
                 <div className="overflow-x-auto">
                   <Table>
@@ -229,7 +229,7 @@ export default function ModelMetadataPage() {
           <DialogContent className="sm:max-w-[600px]">
             <DialogHeader>
               <DialogTitle>{editingItem ? '编辑模型元数据' : '添加模型元数据'}</DialogTitle>
-              <DialogDescription>配置模型匹配规则和关键参数。</DialogDescription>
+              <DialogDescription>配置模型匹配规则和关键参数</DialogDescription>
             </DialogHeader>
             <div className="grid grid-cols-2 gap-4 py-4">
               <div className="space-y-2">
@@ -240,7 +240,7 @@ export default function ModelMetadataPage() {
                   onChange={(e) => setFormData((prev) => ({ ...prev, modelPattern: e.target.value }))}
                   placeholder="例如 claude-sonnet"
                 />
-                <p className="text-xs text-muted-foreground">前缀匹配。</p>
+                <p className="text-xs text-muted-foreground">前缀匹配</p>
               </div>
               <div className="space-y-2">
                 <Label htmlFor="displayName">显示名称</Label>
@@ -260,7 +260,6 @@ export default function ModelMetadataPage() {
                   value={formData.contextLength}
                   onChange={(e) => setFormData((prev) => ({ ...prev, contextLength: parseInt(e.target.value) || 0 }))}
                 />
-                <p className="text-xs text-muted-foreground">当前 {formatTokenCount(formData.contextLength)}。</p>
               </div>
               <div className="space-y-2">
                 <Label htmlFor="maxCompletionTokens">最大输出</Label>
@@ -273,7 +272,6 @@ export default function ModelMetadataPage() {
                     setFormData((prev) => ({ ...prev, maxCompletionTokens: parseInt(e.target.value) || 0 }))
                   }
                 />
-                <p className="text-xs text-muted-foreground">当前 {formatTokenCount(formData.maxCompletionTokens)}。</p>
               </div>
               <div className="col-span-2 space-y-2">
                 <Label htmlFor="provider">提供商</Label>

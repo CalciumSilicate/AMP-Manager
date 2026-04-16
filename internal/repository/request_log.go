@@ -169,6 +169,7 @@ type ListParams struct {
 	UserID      string
 	APIKeyID    string
 	Model       string
+	Channel     string
 	StatusCodes []int
 	IsStreaming *bool
 	From        *time.Time
@@ -196,6 +197,11 @@ func (r *RequestLogRepository) List(params ListParams) ([]model.RequestLog, int6
 	if params.Model != "" {
 		conditions = append(conditions, "(r.original_model = ? OR r.mapped_model = ?)")
 		args = append(args, params.Model, params.Model)
+	}
+	if params.Channel != "" {
+		pattern := "%" + strings.ToLower(params.Channel) + "%"
+		conditions = append(conditions, "(LOWER(COALESCE(r.provider, '')) LIKE ? OR EXISTS (SELECT 1 FROM channels c2 WHERE c2.id = r.channel_id AND LOWER(c2.name) LIKE ?))")
+		args = append(args, pattern, pattern)
 	}
 	if len(params.StatusCodes) > 0 {
 		placeholders := strings.TrimRight(strings.Repeat("?,", len(params.StatusCodes)), ",")

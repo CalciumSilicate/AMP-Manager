@@ -116,6 +116,34 @@ export default function Channels() {
     }
   }
 
+  const buildChannelPayload = (channel: Channel, overrides: Partial<ChannelRequest> = {}): ChannelRequest => ({
+    type: channel.type,
+    endpoint: channel.endpoint,
+    name: channel.name,
+    baseUrl: channel.baseUrl,
+    enabled: channel.enabled,
+    weight: channel.weight,
+    priority: channel.priority,
+    rateMultiplier: channel.rateMultiplier,
+    groupIds: channel.groupIds || [],
+    models: channel.models,
+    modelWhitelist: channel.modelWhitelist || false,
+    simulateCli: channel.simulateCli || false,
+    simulateUa: channel.simulateUa || false,
+    simulateSystemPrompt: channel.simulateSystemPrompt || false,
+    traditionalChinese: channel.traditionalChinese || false,
+    copilotApi: channel.copilotApi || false,
+    codexWebsocketEnabled: channel.codexWebsocketEnabled || false,
+    headers: channel.headers,
+    translator: channel.translator || {
+      compatible: false,
+      responses: false,
+      messages: false,
+      gemini: false,
+    },
+    ...overrides,
+  })
+
   const handleCreate = () => {
     setEditingChannel(null)
     setFormData({
@@ -229,6 +257,19 @@ export default function Channels() {
     }
   }
 
+  const handleQuickUpdate = async (
+    channel: Channel,
+    field: 'priority' | 'weight' | 'rateMultiplier',
+    value: number,
+  ) => {
+    try {
+      await updateChannel(channel.id, buildChannelPayload(channel, { [field]: value }))
+      await loadChannels()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '更新失败')
+    }
+  }
+
   const openTestDialog = (channel: Channel) => {
     setTestDialogChannel(channel)
     setTestRequest(createDefaultTestRequest(channel))
@@ -290,7 +331,7 @@ export default function Channels() {
     <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
       <AdminPageShell
         title="渠道管理"
-        description="管理渠道配置、模型抓取与路由优先级。"
+        description="管理渠道配置、模型抓取与路由优先级"
         actions={<Button onClick={handleCreate}>添加渠道</Button>}
       >
         {error && (
@@ -304,7 +345,7 @@ export default function Channels() {
             <div className="admin-surface-header">
               <div className="space-y-1">
                 <p className="text-sm font-medium text-foreground">{channels.length} 个渠道</p>
-                <p className="admin-inline-note">默认按模型匹配、优先级和权重进行路由。</p>
+                <p className="admin-inline-note">默认按模型匹配、优先级和权重进行路由</p>
               </div>
             </div>
 
@@ -320,6 +361,7 @@ export default function Channels() {
                   fetchingModels={fetchingModels}
                   modelCounts={modelCounts}
                   onToggleEnabled={handleToggleEnabled}
+                  onQuickUpdate={handleQuickUpdate}
                   onTest={openTestDialog}
                   onFetchModels={handleFetchModels}
                   onEdit={handleEdit}

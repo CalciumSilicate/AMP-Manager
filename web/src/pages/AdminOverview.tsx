@@ -4,6 +4,7 @@ import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/com
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Num } from '@/components/Num'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { formatDecimal, formatGroupedNumericString } from '@/lib/formatters'
 import { motion, staggerContainer, staggerItem } from '@/lib/motion'
 import {
@@ -63,7 +64,7 @@ export default function AdminOverview() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [trendView, setTrendView] = useState<'cost' | 'requests'>('cost')
-  const [throughputView, setThroughputView] = useState<'qps1m' | 'rpm5m' | 'tpm5m' | 'concurrency1m' | 'ttfb' | 'duration'>('qps1m')
+  const [throughputView, setThroughputView] = useState<'qps1m' | 'rpm5m' | 'tpm5m' | 'concurrency1m' | 'ttfb' | 'duration'>('rpm5m')
   const [throughputWindow, setThroughputWindow] = useState<'1h' | '3h' | '6h' | '12h' | '24h' | '3d'>('1h')
 
   const loadDashboard = useCallback(async () => {
@@ -541,24 +542,19 @@ export default function AdminOverview() {
                   <Button size="sm" variant="outline" onClick={cycleThroughputWindow}>
                     {throughputWindow}
                   </Button>
-                  <Button size="sm" variant={throughputView === 'qps1m' ? 'default' : 'outline'} onClick={() => setThroughputView('qps1m')}>
-                    1m QPS
-                  </Button>
-                  <Button size="sm" variant={throughputView === 'rpm5m' ? 'default' : 'outline'} onClick={() => setThroughputView('rpm5m')}>
-                    5m RPM
-                  </Button>
-                  <Button size="sm" variant={throughputView === 'tpm5m' ? 'default' : 'outline'} onClick={() => setThroughputView('tpm5m')}>
-                    5m TPM
-                  </Button>
-                  <Button size="sm" variant={throughputView === 'concurrency1m' ? 'default' : 'outline'} onClick={() => setThroughputView('concurrency1m')}>
-                    1m 并发
-                  </Button>
-                  <Button size="sm" variant={throughputView === 'ttfb' ? 'default' : 'outline'} onClick={() => setThroughputView('ttfb')}>
-                    TTFB
-                  </Button>
-                  <Button size="sm" variant={throughputView === 'duration' ? 'default' : 'outline'} onClick={() => setThroughputView('duration')}>
-                    Duration
-                  </Button>
+                  <Select value={throughputView} onValueChange={(value) => setThroughputView(value as typeof throughputView)}>
+                    <SelectTrigger className="h-9 w-[140px]">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="rpm5m">5m RPM</SelectItem>
+                      <SelectItem value="qps1m">1m QPS</SelectItem>
+                      <SelectItem value="tpm5m">5m TPM</SelectItem>
+                      <SelectItem value="concurrency1m">1m 并发</SelectItem>
+                      <SelectItem value="ttfb">TTFB</SelectItem>
+                      <SelectItem value="duration">Duration</SelectItem>
+                    </SelectContent>
+                  </Select>
                 </div>
               </div>
             </CardHeader>

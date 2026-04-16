@@ -4,6 +4,7 @@ import { listMyRedeemRecords, redeemCode, type RedeemRedemption, type RedeemResu
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
+import { TablePagination } from '@/components/TablePagination'
 import { Input } from '@/components/ui/input'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { formatDateTime, formatDecimal } from '@/lib/formatters'
@@ -72,6 +73,8 @@ export function RedeemRecordTable({
 }) {
   const [items, setItems] = useState<RedeemRedemption[]>([])
   const [loading, setLoading] = useState(true)
+  const [page, setPage] = useState(1)
+  const [pageSize, setPageSize] = useState(10)
 
   useEffect(() => {
     let cancelled = false
@@ -98,6 +101,10 @@ export function RedeemRecordTable({
     }
   }, [refreshKey])
 
+  useEffect(() => {
+    setPage(1)
+  }, [refreshKey])
+
   if (loading) {
     return (
       <div className="flex h-24 items-center justify-center">
@@ -110,47 +117,63 @@ export function RedeemRecordTable({
     return <div className="py-8 text-center text-sm text-muted-foreground">暂无兑换记录。</div>
   }
 
+  const totalPages = Math.max(1, Math.ceil(items.length / pageSize))
+  const currentPage = Math.min(page, totalPages)
+  const visibleItems = items.slice((currentPage - 1) * pageSize, currentPage * pageSize)
+
   return (
-    <Table>
-      <TableHeader>
-        <TableRow>
-          <TableHead>时间</TableHead>
-          <TableHead>活动</TableHead>
-          <TableHead>兑换码</TableHead>
-          {!compact ? <TableHead>奖励</TableHead> : null}
-          <TableHead>结果</TableHead>
-          <TableHead>说明</TableHead>
-        </TableRow>
-      </TableHeader>
-      <TableBody>
-        {items.map((item) => (
-          <TableRow key={item.id}>
-            <TableCell className="text-muted-foreground">{formatDateTime(item.createdAt)}</TableCell>
-            <TableCell>{item.campaignName || '-'}</TableCell>
-            <TableCell className="font-mono text-xs">{item.codeMask || '-'}</TableCell>
-            {!compact ? (
-              <TableCell className="text-sm text-muted-foreground">
-                <div>{item.subscriptionPlanName ? `${item.subscriptionPlanName} ${item.subscriptionDurationDays}天` : '-'}</div>
-                {item.balanceMicros > 0 ? <div>{microsToUsd(item.balanceMicros)}</div> : null}
-              </TableCell>
-            ) : null}
-            <TableCell>
-              <Badge variant={item.status === 'success' ? 'default' : 'secondary'}>
-                {item.status === 'success' ? '成功' : '拒绝'}
-              </Badge>
-            </TableCell>
-            <TableCell className="text-sm text-muted-foreground">
-              {item.status === 'success'
-                ? item.grantedExpiresAt
-                  ? `到期 ${formatDateTime(item.grantedExpiresAt)}`
-                  : item.balanceAfterMicros > 0
-                    ? `余额 ${microsToUsd(item.balanceAfterMicros)}`
-                    : '-'
-                : item.failureReason || '-'}
-            </TableCell>
+    <div>
+      <Table>
+        <TableHeader>
+          <TableRow>
+            <TableHead>时间</TableHead>
+            <TableHead>活动</TableHead>
+            <TableHead>兑换码</TableHead>
+            {!compact ? <TableHead>奖励</TableHead> : null}
+            <TableHead>结果</TableHead>
+            <TableHead>说明</TableHead>
           </TableRow>
-        ))}
-      </TableBody>
-    </Table>
+        </TableHeader>
+        <TableBody>
+          {visibleItems.map((item) => (
+            <TableRow key={item.id}>
+              <TableCell className="text-muted-foreground">{formatDateTime(item.createdAt)}</TableCell>
+              <TableCell>{item.campaignName || '-'}</TableCell>
+              <TableCell className="font-mono text-xs">{item.codeMask || '-'}</TableCell>
+              {!compact ? (
+                <TableCell className="text-sm text-muted-foreground">
+                  <div>{item.subscriptionPlanName ? `${item.subscriptionPlanName} ${item.subscriptionDurationDays}天` : '-'}</div>
+                  {item.balanceMicros > 0 ? <div>{microsToUsd(item.balanceMicros)}</div> : null}
+                </TableCell>
+              ) : null}
+              <TableCell>
+                <Badge variant={item.status === 'success' ? 'default' : 'secondary'}>
+                  {item.status === 'success' ? '成功' : '拒绝'}
+                </Badge>
+              </TableCell>
+              <TableCell className="text-sm text-muted-foreground">
+                {item.status === 'success'
+                  ? item.grantedExpiresAt
+                    ? `到期 ${formatDateTime(item.grantedExpiresAt)}`
+                    : item.balanceAfterMicros > 0
+                      ? `余额 ${microsToUsd(item.balanceAfterMicros)}`
+                      : '-'
+                  : item.failureReason || '-'}
+              </TableCell>
+            </TableRow>
+          ))}
+        </TableBody>
+      </Table>
+      <TablePagination
+        page={currentPage}
+        pageSize={pageSize}
+        total={items.length}
+        onPageChange={setPage}
+        onPageSizeChange={(nextPageSize) => {
+          setPageSize(nextPageSize)
+          setPage(1)
+        }}
+      />
+    </div>
   )
 }

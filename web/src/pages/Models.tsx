@@ -91,7 +91,7 @@ export default function Models({ isAdmin }: Props) {
     <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
       <AdminPageShell
         title="可用模型"
-        description="按渠道类型查看当前可用模型。"
+        description="按渠道类型查看当前可用模型"
         actions={
           isAdmin ? (
             <Button onClick={handleFetchAll} disabled={fetching}>

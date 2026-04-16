@@ -78,6 +78,9 @@ func (h *RequestLogHandler) ListRequestLogs(c *gin.Context) {
 	if model := c.Query("model"); model != "" {
 		params.Model = model
 	}
+	if channel := c.Query("channel"); channel != "" {
+		params.Channel = channel
+	}
 	if rawStatuses := c.QueryArray("status"); len(rawStatuses) > 0 {
 		statusCodes, err := parseStatusCodes(rawStatuses)
 		if err != nil {
@@ -222,6 +225,9 @@ func (h *RequestLogHandler) AdminListRequestLogs(c *gin.Context) {
 	}
 	if model := c.Query("model"); model != "" {
 		params.Model = model
+	}
+	if channel := c.Query("channel"); channel != "" {
+		params.Channel = channel
 	}
 	if rawStatuses := c.QueryArray("status"); len(rawStatuses) > 0 {
 		statusCodes, err := parseStatusCodes(rawStatuses)

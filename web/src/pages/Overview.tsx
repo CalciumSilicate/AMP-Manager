@@ -165,7 +165,7 @@ export default function Overview() {
   const balanceUsd = parseFloat(data.balance.balanceUsd)
   const todayCost = parseFloat(data.today.costUsd)
   const weekCost = parseFloat(data.week.costUsd)
-  const concurrencyDisplay = `${data.balance.currentConcurrency} / ${data.balance.concurrencyLimit > 0 ? data.balance.concurrencyLimit : '∞'}`
+  const concurrencyDisplay = `并发 ${data.balance.currentConcurrency} / ${data.balance.concurrencyLimit > 0 ? data.balance.concurrencyLimit : '∞'}`
   const formatUsd = (value: number, digits: number) => `$${formatDecimal(value, digits)}`
   const formatWindowUsd = (micros: number) => formatDecimal(micros / 1e6, 2)
   const getWindowMeta = (windowMode: string, limitType: string, windowStart: string, windowEnd: string) => {
@@ -218,9 +218,6 @@ export default function Overview() {
                 {formatUsd(balanceUsd, 2)}
               </CardTitle>
             </CardHeader>
-            <CardContent className="pt-0">
-              <p className="text-xs text-muted-foreground">当前并发 / 最大并发</p>
-            </CardContent>
           </Card>
         </motion.div>
 
@@ -334,7 +331,6 @@ export default function Overview() {
                     <CreditCard className="h-4 w-4" />
                     计费状态
                   </CardTitle>
-                  <CardDescription>订阅与余额使用情况</CardDescription>
                 </div>
                 {billingLoading ? (
                   <div className="h-9 w-40 rounded-md loading-shimmer" />
@@ -451,9 +447,7 @@ export default function Overview() {
                             <Badge variant={billingState.subscription.status === 'active' ? 'default' : 'secondary'}>
                               {billingState.subscription.status === 'active' ? '生效中' : billingState.subscription.status}
                             </Badge>
-                          ) : (
-                            <Badge variant="outline">未订阅</Badge>
-                          )}
+                          ) : null}
                         </div>
                         <div className="flex items-center gap-2">
                           <Shield className="h-4 w-4 text-purple-500" />
@@ -466,7 +460,7 @@ export default function Overview() {
                             ? `到期 ${formatDateTimeWithSeconds(billingState.subscription.expiresAt)}`
                             : billingState.subscription
                               ? '永不过期'
-                              : '联系管理员分配订阅'}
+                              : '-'}
                         </p>
                       </div>
                     </div>

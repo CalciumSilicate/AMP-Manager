@@ -216,7 +216,7 @@ export default function APIKeys() {
     <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
       <AdminPageShell
         title="API Key 管理"
-        description="管理用于 Amp CLI 认证的 API Key。"
+        description="管理用于认证的 API Key"
         width="5xl"
         actions={<Button onClick={() => setShowCreate(true)}>创建 API Key</Button>}
       >
@@ -397,7 +397,7 @@ export default function APIKeys() {
               </div>
               <div className="space-y-2">
                 <Label>到期时间</Label>
-                <DateTimePicker value={createExpiresAt} onChange={setCreateExpiresAt} placeholder="留空表示永不过期" />
+                <DateTimePicker value={createExpiresAt} onChange={setCreateExpiresAt} placeholder="留空表示永不过期" className="w-full justify-between text-right" />
               </div>
             </div>
             <DialogFooter>
@@ -435,7 +435,7 @@ export default function APIKeys() {
               </div>
               <div className="space-y-2">
                 <Label>到期时间</Label>
-                <DateTimePicker value={editExpiresAt} onChange={setEditExpiresAt} placeholder="留空表示永不过期" />
+                <DateTimePicker value={editExpiresAt} onChange={setEditExpiresAt} placeholder="留空表示永不过期" className="w-full justify-between text-right" />
               </div>
             </div>
             <DialogFooter>

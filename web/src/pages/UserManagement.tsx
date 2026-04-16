@@ -706,7 +706,7 @@ export default function UserManagement() {
     <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
       <AdminPageShell
         title="用户列表"
-        description="管理用户权限、余额、分组、并发限制与订阅。"
+        description="管理用户权限、余额、分组、并发限制与订阅"
         width="7xl"
         actions={(
           <div className="flex flex-wrap items-center gap-2">
@@ -748,14 +748,19 @@ export default function UserManagement() {
         >
           <AdminSurface>
             <div className={fetching ? 'admin-surface-body opacity-60 transition-opacity' : 'admin-surface-body transition-opacity'}>
-              <div className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-dashed px-4 py-3 text-sm">
-                <div className="text-muted-foreground">
-                  已选中 <span className="font-medium text-foreground">{selectedUserIds.length}</span> 个用户，
-                  当前页选中 <span className="font-medium text-foreground">{currentPageSelectedCount}</span> 个。
-                </div>
-                <Button variant="outline" size="sm" onClick={() => setSelectedUserIds([])} disabled={selectedUserIds.length === 0}>
-                  清空选择
-                </Button>
+              <div className="mb-4 space-y-3">
+                {selectedUserIds.length > 0 ? (
+                  <div className="flex flex-wrap items-center justify-between gap-3 text-sm">
+                    <div className="text-muted-foreground">
+                      已选中 <span className="font-medium text-foreground">{selectedUserIds.length}</span> 个用户，
+                      当前页选中 <span className="font-medium text-foreground">{currentPageSelectedCount}</span> 个
+                    </div>
+                    <Button variant="outline" size="sm" onClick={() => setSelectedUserIds([])}>
+                      清空选择
+                    </Button>
+                  </div>
+                ) : null}
+                <div className="border-b" />
               </div>
               <Table>
                 <TableHeader>

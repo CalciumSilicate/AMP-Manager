@@ -18,7 +18,6 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group'
-import { navigateDashboard } from '@/lib/dashboard-navigation'
 import { formatDateTime, formatDecimal } from '@/lib/formatters'
 import { AnimatePresence, motion } from '@/lib/motion'
 import { ArrowRightLeft, CreditCard, QrCode, RefreshCw, Shield } from 'lucide-react'
@@ -51,10 +50,6 @@ const WINDOW_MODE_LABELS: Record<string, string> = {
 
 function formatBalance(micros: number): string {
   return `$${formatDecimal(micros / 1e6, 6)}`
-}
-
-function formatPrimarySource(source: 'subscription' | 'balance'): string {
-  return source === 'subscription' ? '订阅优先' : '余额优先'
 }
 
 function formatSubscriptionStatus(status: string): string {
@@ -301,26 +296,26 @@ export default function AccountSettings({ username, onUsernameChange }: Props) {
         >
           {activeTab === 'balance' && (
             <>
-            <Card>
-              <CardHeader>
-                <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-                  <div className="space-y-1">
-                    <CardTitle>账户余额</CardTitle>
-                    <CardDescription>查看余额和充值入口。</CardDescription>
+            <div className="grid gap-4 lg:grid-cols-2">
+              <Card>
+                <CardHeader>
+                  <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                    <div className="space-y-1">
+                      <CardTitle>账户余额</CardTitle>
+                      <CardDescription>查看余额和充值入口</CardDescription>
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                      <Button type="button" variant="outline" size="sm" onClick={() => void fetchBalance()} disabled={balanceLoading}>
+                        <RefreshCw className={`mr-2 h-4 w-4 ${balanceLoading ? 'animate-spin' : ''}`} />
+                        刷新
+                      </Button>
+                    </div>
                   </div>
-                  <div className="flex flex-wrap gap-2">
-                    <Button type="button" variant="outline" size="sm" onClick={() => void fetchBalance()} disabled={balanceLoading}>
-                      <RefreshCw className={`mr-2 h-4 w-4 ${balanceLoading ? 'animate-spin' : ''}`} />
-                      刷新
-                    </Button>
-                  </div>
-                </div>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                {balanceLoading ? (
-                  <div className="py-4 text-center text-muted-foreground">加载中...</div>
-                ) : (
-                  <div className="grid gap-4 md:grid-cols-2">
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  {balanceLoading ? (
+                    <div className="py-4 text-center text-muted-foreground">加载中...</div>
+                  ) : (
                     <div className="space-y-2 rounded-lg border p-4">
                       <div className="flex items-center justify-between">
                         <span className="text-sm text-muted-foreground">当前余额</span>
@@ -347,43 +342,22 @@ export default function AccountSettings({ username, onUsernameChange }: Props) {
                         </Button>
                       </div>
                     </div>
-                    <div className="space-y-3 rounded-lg border p-4">
-                      <div className="flex items-center justify-between">
-                        <span className="text-sm text-muted-foreground">后续操作</span>
-                        <Badge variant="outline">快捷入口</Badge>
-                      </div>
-                      <p className="text-sm text-muted-foreground">需要购买或续费时，直接跳转到购买订阅页面。</p>
-                      <div className="flex flex-wrap gap-2">
-                        <Button type="button" variant="outline" size="sm" onClick={() => navigateDashboard('purchase-center')}>
-                          <CreditCard className="mr-2 h-4 w-4" />
-                          购买订阅
-                        </Button>
-                      </div>
-                    </div>
-                  </div>
-                )}
-              </CardContent>
-            </Card>
+                  )}
+                </CardContent>
+              </Card>
 
-            <Card>
-              <CardHeader>
-                <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+              <Card>
+                <CardHeader>
                   <div className="space-y-1">
                     <CardTitle>当前订阅</CardTitle>
-                    <CardDescription>查看套餐状态、窗口额度和当前的使用区间。</CardDescription>
+                    <CardDescription>查看套餐状态、窗口额度和当前的使用区间</CardDescription>
                   </div>
-                  <Button type="button" variant="outline" size="sm" onClick={() => navigateDashboard('purchase-center')}>
-                    <CreditCard className="mr-2 h-4 w-4" />
-                    购买续费
-                  </Button>
-                </div>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                {billingLoading && !billingState ? (
-                  <div className="py-4 text-center text-muted-foreground">加载中...</div>
-                ) : billingState?.subscription ? (
-                  <>
-                    <div className="grid gap-4 md:grid-cols-2">
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  {billingLoading && !billingState ? (
+                    <div className="py-4 text-center text-muted-foreground">加载中...</div>
+                  ) : billingState?.subscription ? (
+                    <>
                       <div className="space-y-2 rounded-lg border p-4">
                         <div className="flex items-center justify-between">
                           <span className="text-sm text-muted-foreground">套餐</span>
@@ -398,58 +372,47 @@ export default function AccountSettings({ username, onUsernameChange }: Props) {
                             : '永久有效'}
                         </p>
                       </div>
-                      <div className="space-y-2 rounded-lg border p-4">
-                        <div className="flex items-center justify-between">
-                          <span className="text-sm text-muted-foreground">窗口数量</span>
-                          <Badge variant="outline">{billingState.windows?.length || 0}</Badge>
-                        </div>
-                        <p className="text-sm text-muted-foreground">
-                          生效时间 {formatDateTime(billingState.subscription.startsAt)}
-                        </p>
-                        <p className="text-sm text-muted-foreground">窗口会按照订阅计划限制自动刷新或滚动结算。</p>
-                      </div>
-                    </div>
 
-                    {billingState.windows?.length ? (
-                      <div className="overflow-hidden rounded-lg border">
-                        <div className="divide-y">
-                          {billingState.windows.map((item) => (
-                            <div
-                              key={`${item.limitType}-${item.windowMode}`}
-                              className="grid gap-2 px-4 py-3 md:grid-cols-[0.8fr_1.4fr_0.8fr] md:items-center"
-                            >
-                              <div>
-                                <p className="font-medium">{LIMIT_TYPE_LABELS[item.limitType] || item.limitType}</p>
-                                <p className="text-xs text-muted-foreground">{WINDOW_MODE_LABELS[item.windowMode] || item.windowMode}</p>
+                      {billingState.windows?.length ? (
+                        <div className="overflow-hidden rounded-lg border">
+                          <div className="divide-y">
+                            {billingState.windows.map((item) => (
+                              <div
+                                key={`${item.limitType}-${item.windowMode}`}
+                                className="grid gap-2 px-4 py-3 md:grid-cols-[0.8fr_1.4fr_0.8fr] md:items-center"
+                              >
+                                <div>
+                                  <p className="font-medium">{LIMIT_TYPE_LABELS[item.limitType] || item.limitType}</p>
+                                  <p className="text-xs text-muted-foreground">{WINDOW_MODE_LABELS[item.windowMode] || item.windowMode}</p>
+                                </div>
+                                <p className="font-mono text-xs text-muted-foreground">
+                                  已用 ${formatDecimal(item.usedMicros / 1e6, 2)} / 剩余 ${formatDecimal(item.leftMicros / 1e6, 2)} / 限额 ${formatDecimal(item.limitMicros / 1e6, 2)}
+                                </p>
+                                <p className="text-xs text-muted-foreground md:text-right">
+                                  {formatDateTime(item.windowStart)} - {formatDateTime(item.windowEnd)}
+                                </p>
                               </div>
-                              <p className="font-mono text-xs text-muted-foreground">
-                                已用 ${formatDecimal(item.usedMicros / 1e6, 2)} / 剩余 ${formatDecimal(item.leftMicros / 1e6, 2)} / 限额 ${formatDecimal(item.limitMicros / 1e6, 2)}
-                              </p>
-                              <p className="text-xs text-muted-foreground md:text-right">
-                                {formatDateTime(item.windowStart)} - {formatDateTime(item.windowEnd)}
-                              </p>
-                            </div>
-                          ))}
+                            ))}
+                          </div>
                         </div>
-                      </div>
-                    ) : (
-                      <div className="rounded-lg border border-dashed px-5 py-8 text-center text-sm text-muted-foreground">
-                        当前订阅暂未返回额度窗口信息。
-                      </div>
-                    )}
-                  </>
-                ) : (
-                  <div className="rounded-lg border border-dashed px-5 py-8 text-center text-sm text-muted-foreground">
-                    暂无生效中的订阅。
-                  </div>
-                )}
-              </CardContent>
-            </Card>
+                      ) : (
+                        <div className="rounded-lg border border-dashed px-5 py-8 text-center text-sm text-muted-foreground">
+                          当前订阅暂未返回额度窗口信息
+                        </div>
+                      )}
+                    </>
+                  ) : (
+                    <div className="rounded-lg border border-dashed px-5 py-8 text-center text-sm text-muted-foreground">
+                      暂无生效中的订阅
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+            </div>
 
             <Card>
               <CardHeader>
                 <CardTitle>兑换码</CardTitle>
-                <CardDescription>保持单一输入路径，成功后立即刷新余额和订阅状态。</CardDescription>
               </CardHeader>
               <CardContent>
                 <RedeemQuickEntry
@@ -464,7 +427,6 @@ export default function AccountSettings({ username, onUsernameChange }: Props) {
             <Card>
               <CardHeader>
                 <CardTitle>最近兑换记录</CardTitle>
-                <CardDescription>把历史记录作为结果面板，和上方兑换操作分层。</CardDescription>
               </CardHeader>
               <CardContent>
                 <RedeemRecordTable compact refreshKey={redeemRefreshKey} />
@@ -480,7 +442,6 @@ export default function AccountSettings({ username, onUsernameChange }: Props) {
                   <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                     <div className="space-y-1">
                       <CardTitle>扣费顺序</CardTitle>
-                      <CardDescription>控制订阅额度与余额的优先级，修改后立即生效。</CardDescription>
                     </div>
                     <Button type="button" variant="outline" size="sm" onClick={() => void fetchBillingState()} disabled={billingLoading}>
                       <RefreshCw className={`mr-2 h-4 w-4 ${billingLoading ? 'animate-spin' : ''}`} />
@@ -493,27 +454,6 @@ export default function AccountSettings({ username, onUsernameChange }: Props) {
                     <div className="py-4 text-center text-muted-foreground">加载中...</div>
                   ) : billingState ? (
                     <>
-                      <div className="grid gap-4 md:grid-cols-2">
-                        <div className="space-y-2 rounded-lg border p-4">
-                          <div className="flex items-center justify-between">
-                            <span className="text-sm text-muted-foreground">当前优先级</span>
-                            <Badge>{formatPrimarySource(billingState.primarySource)}</Badge>
-                          </div>
-                          <p className="text-sm text-muted-foreground">
-                            {billingState.primarySource === 'subscription'
-                              ? '先使用订阅额度，不足时自动回退到余额。'
-                              : '先使用余额，不足时自动回退到订阅额度。'}
-                          </p>
-                        </div>
-                        <div className="space-y-2 rounded-lg border p-4">
-                          <div className="flex items-center justify-between">
-                            <span className="text-sm text-muted-foreground">次级来源</span>
-                            <Badge variant="outline">{formatPrimarySource(billingState.secondarySource)}</Badge>
-                          </div>
-                          <p className="text-sm text-muted-foreground">当主来源不足时，系统会自动切换到次级来源继续扣费。</p>
-                        </div>
-                      </div>
-
                       <div className="space-y-3">
                         <Label>优先级策略</Label>
                         <RadioGroup
@@ -556,7 +496,6 @@ export default function AccountSettings({ username, onUsernameChange }: Props) {
               <Card>
                 <CardHeader>
                   <CardTitle>修改密码</CardTitle>
-                  <CardDescription>安全操作单独成面板，避免和用户名修改互相干扰。</CardDescription>
                 </CardHeader>
                 <CardContent>
                   <form onSubmit={(event) => void handleChangePassword(event)} className="space-y-4">

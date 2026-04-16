@@ -112,7 +112,6 @@ export default function SystemSettings({
   const [errorRules, setErrorRules] = useState<ErrorRule[]>([])
   const [errorRulesLoading, setErrorRulesLoading] = useState(false)
   const [requestPayloadLimitMB, setRequestPayloadLimitMB] = useState(128)
-  const [requestPayloadLimitSaving, setRequestPayloadLimitSaving] = useState(false)
   const [requestDetailConfig, setRequestDetailConfig] = useState<RequestDetailConfig | null>(null)
   const [requestDetailLoading, setRequestDetailLoading] = useState(false)
   const [requestDetailLoadError, setRequestDetailLoadError] = useState<string | null>(null)
@@ -315,13 +314,18 @@ export default function SystemSettings({
   const handleSaveSiteConfig = async () => {
     setSiteConfigSaving(true)
     try {
-      const result = await updateSiteConfig(siteNameInput, siteTimeZoneInput, ampProxySettingsPolicyInput)
+      const nextPayloadLimitMB = Math.max(1, Math.round(requestPayloadLimitMB))
+      const [result] = await Promise.all([
+        updateSiteConfig(siteNameInput, siteTimeZoneInput, ampProxySettingsPolicyInput),
+        updateRequestPayloadLimit({ maxBytes: nextPayloadLimitMB * 1024 * 1024 }),
+      ])
       onSiteNameChange(result.config.siteName)
       onSiteTimeZoneChange(result.config.timeZone)
       onAmpProxySettingsPolicyChange(result.config.ampProxySettingsPolicy)
       setSiteNameInput(result.config.siteName)
       setSiteTimeZoneInput(result.config.timeZone)
       setAmpProxySettingsPolicyInput(result.config.ampProxySettingsPolicy)
+      setRequestPayloadLimitMB(nextPayloadLimitMB)
       showMessage('success', '网站配置已保存')
     } catch (err) {
       showMessage('error', err instanceof Error ? err.message : '保存失败')
@@ -477,20 +481,6 @@ export default function SystemSettings({
       showMessage('error', err instanceof Error ? err.message : '保存失败')
     } finally {
       setErrorRulesLoading(false)
-    }
-  }
-
-  const handleSaveRequestPayloadLimit = async () => {
-    const nextMB = Math.max(1, Math.round(requestPayloadLimitMB))
-    setRequestPayloadLimitSaving(true)
-    try {
-      await updateRequestPayloadLimit({ maxBytes: nextMB * 1024 * 1024 })
-      setRequestPayloadLimitMB(nextMB)
-      showMessage('success', '请求体上限已更新')
-    } catch (err) {
-      showMessage('error', err instanceof Error ? err.message : '保存失败')
-    } finally {
-      setRequestPayloadLimitSaving(false)
     }
   }
 
@@ -744,7 +734,7 @@ export default function SystemSettings({
               <Card>
                 <CardHeader>
                   <CardTitle>网站配置</CardTitle>
-                  <CardDescription>同步影响登录、注册、左上角、浏览器标题和全站时间显示。</CardDescription>
+                  <CardDescription>同步影响登录、注册、左上角、浏览器标题和全站时间显示</CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-4">
                   <div className="max-w-xl space-y-2">
@@ -772,18 +762,28 @@ export default function SystemSettings({
                       </SelectContent>
                     </Select>
                   </div>
-                  <div className="max-w-xl space-y-2 rounded-lg border p-4">
+                  <div className="max-w-xl space-y-2">
                     <Label htmlFor="ampProxySettingsPolicy">Amp 设置权限</Label>
                     <Select value={ampProxySettingsPolicyInput} onValueChange={(value) => setAmpProxySettingsPolicyInput(value as AmpProxySettingsPolicy)}>
                       <SelectTrigger id="ampProxySettingsPolicy">
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="disabled">已禁用：所有人都不能访问 Amp 设置</SelectItem>
-                        <SelectItem value="admin_only">仅管理员：只有管理员可配置，普通用户运行时回退默认上游</SelectItem>
-                        <SelectItem value="all">所有用户：所有用户都可配置并使用自己的 Amp 设置</SelectItem>
+                        <SelectItem value="disabled">禁用</SelectItem>
+                        <SelectItem value="admin_only">仅管理员</SelectItem>
+                        <SelectItem value="all">启用</SelectItem>
                       </SelectContent>
                     </Select>
+                  </div>
+                  <div className="max-w-xs space-y-2">
+                    <Label htmlFor="requestPayloadLimit">请求体上限 (MiB)</Label>
+                    <Input
+                      id="requestPayloadLimit"
+                      type="number"
+                      min={1}
+                      value={requestPayloadLimitMB}
+                      onChange={(e) => setRequestPayloadLimitMB(parseInt(e.target.value) || 1)}
+                    />
                   </div>
                   <div className="flex justify-end">
                     <Button onClick={handleSaveSiteConfig} disabled={siteConfigSaving}>
@@ -796,7 +796,7 @@ export default function SystemSettings({
               <Card>
                 <CardHeader>
                   <CardTitle>余额充值</CardTitle>
-                  <CardDescription>设置充值单价。</CardDescription>
+                  <CardDescription>设置充值单价</CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-4">
                   <div className="max-w-xs space-y-2">
@@ -821,11 +821,7 @@ export default function SystemSettings({
           )}
 
           {activeTab === 'announcements' && (
-            <Card>
-              <CardContent className="pt-6">
-                <AnnouncementAdminSection onMessage={showMessage} />
-              </CardContent>
-            </Card>
+            <AnnouncementAdminSection onMessage={showMessage} />
           )}
 
           {activeTab === 'database' && (
@@ -1168,25 +1164,6 @@ export default function SystemSettings({
                           checked={retryConfig.respectRetryAfter}
                           onCheckedChange={(checked) => handleRetryConfigChange('respectRetryAfter', checked)}
                         />
-                      </div>
-                    </div>
-
-                    <div className="rounded-lg border p-4">
-                      <div className="grid gap-4 md:grid-cols-[minmax(0,220px)_auto] md:items-end">
-                        <div className="space-y-2">
-                          <Label>请求体上限 (MiB)</Label>
-                          <Input
-                            type="number"
-                            min={1}
-                            value={requestPayloadLimitMB}
-                            onChange={(e) => setRequestPayloadLimitMB(parseInt(e.target.value) || 1)}
-                          />
-                        </div>
-                        <div className="flex justify-start md:justify-end">
-                          <Button onClick={handleSaveRequestPayloadLimit} disabled={requestPayloadLimitSaving}>
-                            {requestPayloadLimitSaving ? '保存中...' : '保存上限'}
-                          </Button>
-                        </div>
                       </div>
                     </div>
 

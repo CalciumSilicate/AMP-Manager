@@ -1,5 +1,8 @@
+import { useEffect, useState } from 'react'
+
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
+import { Input } from '@/components/ui/input'
 import { Switch } from '@/components/ui/switch'
 import {
   Table,
@@ -8,7 +11,6 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table'
-import { formatDate } from '@/lib/formatters'
 import { motion, tableStaggerContainer, tableRowVariants } from '@/lib/motion'
 import { Channel, ChannelType, TestChannelResult } from '@/api/channels'
 
@@ -18,6 +20,7 @@ export interface ChannelTableProps {
   fetchingModels: Record<string, boolean>
   modelCounts: Record<string, number>
   onToggleEnabled: (id: string, enabled: boolean) => void
+  onQuickUpdate: (channel: Channel, field: 'priority' | 'weight' | 'rateMultiplier', value: number) => Promise<void>
   onTest: (channel: Channel) => void
   onFetchModels: (id: string) => void
   onEdit: (channel: Channel) => void
@@ -37,18 +40,98 @@ function getTypeBadgeVariant(type: ChannelType): 'default' | 'secondary' | 'outl
   }
 }
 
+function EditableNumericCell({
+  value,
+  step = '1',
+  suffix = '',
+  onSave,
+}: {
+  value: number
+  step?: string
+  suffix?: string
+  onSave: (value: number) => Promise<void>
+}) {
+  const [editing, setEditing] = useState(false)
+  const [saving, setSaving] = useState(false)
+  const [draft, setDraft] = useState(String(value))
+
+  useEffect(() => {
+    if (!editing) {
+      setDraft(String(value))
+    }
+  }, [editing, value])
+
+  const commit = async () => {
+    const nextValue = Number.parseFloat(draft)
+    if (Number.isNaN(nextValue)) {
+      setDraft(String(value))
+      setEditing(false)
+      return
+    }
+    if (nextValue === value) {
+      setEditing(false)
+      return
+    }
+
+    setSaving(true)
+    try {
+      await onSave(nextValue)
+    } finally {
+      setSaving(false)
+      setEditing(false)
+    }
+  }
+
+  if (editing) {
+    return (
+      <Input
+        autoFocus
+        type="number"
+        step={step}
+        value={draft}
+        onChange={(event) => setDraft(event.target.value)}
+        onBlur={() => void commit()}
+        onKeyDown={(event) => {
+          if (event.key === 'Enter') {
+            event.preventDefault()
+            void commit()
+          }
+          if (event.key === 'Escape') {
+            setDraft(String(value))
+            setEditing(false)
+          }
+        }}
+        className="h-8 w-24 text-right font-mono"
+      />
+    )
+  }
+
+  return (
+    <button
+      type="button"
+      className="font-mono text-sm text-muted-foreground transition-colors hover:text-foreground"
+      onClick={() => setEditing(true)}
+      disabled={saving}
+    >
+      {saving ? '保存中' : `${value}${suffix}`}
+    </button>
+  )
+}
+
 export function ChannelTable({
   channels,
   testResults: _testResults,
   fetchingModels,
   modelCounts,
   onToggleEnabled,
+  onQuickUpdate,
   onTest,
   onFetchModels,
   onEdit,
   onDelete,
 }: ChannelTableProps) {
   void _testResults
+
   return (
     <div className="rounded-md border">
       <Table>
@@ -58,8 +141,9 @@ export function ChannelTable({
             <TableHead>类型</TableHead>
             <TableHead>Base URL</TableHead>
             <TableHead>状态</TableHead>
-            <TableHead>优先级/权重/倍率</TableHead>
-            <TableHead>更新时间</TableHead>
+            <TableHead>优先级</TableHead>
+            <TableHead>权重</TableHead>
+            <TableHead>倍率</TableHead>
             <TableHead className="text-right">操作</TableHead>
           </TableRow>
         </TableHeader>
@@ -95,8 +179,15 @@ export function ChannelTable({
                   </span>
                 </div>
               </TableCell>
-              <TableCell>{channel.priority} / {channel.weight} / {channel.rateMultiplier}x</TableCell>
-              <TableCell>{formatDate(channel.updatedAt)}</TableCell>
+              <TableCell>
+                <EditableNumericCell value={channel.priority} onSave={(value) => onQuickUpdate(channel, 'priority', Math.round(value))} />
+              </TableCell>
+              <TableCell>
+                <EditableNumericCell value={channel.weight} onSave={(value) => onQuickUpdate(channel, 'weight', Math.round(value))} />
+              </TableCell>
+              <TableCell>
+                <EditableNumericCell value={channel.rateMultiplier} step="0.01" suffix="x" onSave={(value) => onQuickUpdate(channel, 'rateMultiplier', value)} />
+              </TableCell>
               <TableCell className="text-right space-x-2">
                 <Button variant="ghost" size="sm" onClick={() => onTest(channel)}>
                   测试

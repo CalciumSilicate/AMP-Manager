@@ -120,7 +120,7 @@ export default function Groups() {
     <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
       <AdminPageShell
         title="分组管理"
-        description="维护用户分组与倍率规则。"
+        description="维护用户分组与倍率规则"
         actions={<Button onClick={handleCreate}>添加分组</Button>}
       >
         <AnimatePresence>
@@ -152,7 +152,7 @@ export default function Groups() {
                 <div className="admin-surface-header">
                   <div className="space-y-1">
                     <p className="text-sm font-medium text-foreground">{groups.length} 个分组</p>
-                    <p className="admin-inline-note">用于倍率控制与权限归类。</p>
+                    <p className="admin-inline-note">用于倍率控制与权限归类</p>
                   </div>
                 </div>
                 <Table>

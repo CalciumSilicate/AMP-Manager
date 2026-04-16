@@ -254,7 +254,7 @@ export default function SubscriptionPlans() {
     <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
       <AdminPageShell
         title="订阅套餐"
-        description="配置可分配的订阅套餐与额度限制。"
+        description="配置可分配的订阅套餐与额度限制"
         actions={<Button onClick={handleCreate}>添加套餐</Button>}
       >
         <AnimatePresence>
@@ -284,7 +284,7 @@ export default function SubscriptionPlans() {
             ) : (
               <>
                 <div className="admin-surface-header">
-                  <p className="admin-inline-note">支持开关、编辑和删除。</p>
+                  <p className="admin-inline-note">支持开关、编辑和删除</p>
                 </div>
                 <Table>
                   <TableHeader>

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 
 import {
   createAnnouncement,
@@ -10,7 +10,6 @@ import {
   type AnnouncementRequest,
 } from '@/api/announcements'
 import { formatDateTime } from '@/lib/formatters'
-import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import {
@@ -24,6 +23,7 @@ import {
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Switch } from '@/components/ui/switch'
+import { TablePagination } from '@/components/TablePagination'
 import {
   Table,
   TableBody,
@@ -60,6 +60,8 @@ export function AnnouncementAdminSection({ onMessage }: Props) {
   const [deleteTarget, setDeleteTarget] = useState<Announcement | null>(null)
   const [open, setOpen] = useState(false)
   const [formData, setFormData] = useState<AnnouncementRequest>(defaultForm)
+  const [page, setPage] = useState(1)
+  const [pageSize, setPageSize] = useState(10)
 
   const loadAnnouncements = useCallback(async () => {
     try {
@@ -75,12 +77,6 @@ export function AnnouncementAdminSection({ onMessage }: Props) {
   useEffect(() => {
     void loadAnnouncements()
   }, [loadAnnouncements])
-
-  const stats = useMemo(() => {
-    const enabledCount = announcements.filter((item) => item.enabled).length
-    const pinnedCount = announcements.filter((item) => item.pinned).length
-    return { total: announcements.length, enabledCount, pinnedCount }
-  }, [announcements])
 
   const openCreate = () => {
     setEditing(null)
@@ -137,6 +133,10 @@ export function AnnouncementAdminSection({ onMessage }: Props) {
     }
   }
 
+  const totalPages = Math.max(1, Math.ceil(announcements.length / pageSize))
+  const currentPage = Math.min(page, totalPages)
+  const visibleAnnouncements = announcements.slice((currentPage - 1) * pageSize, currentPage * pageSize)
+
   return (
     <>
       <div className="space-y-4">
@@ -148,81 +148,73 @@ export function AnnouncementAdminSection({ onMessage }: Props) {
           <Button onClick={openCreate}>新建公告</Button>
         </div>
 
-        <div className="grid gap-4 md:grid-cols-3">
-          <div className="rounded-lg border px-4 py-3">
-            <div className="text-sm text-muted-foreground">总公告数</div>
-            <div className="mt-1 text-2xl font-semibold">{stats.total}</div>
-          </div>
-          <div className="rounded-lg border px-4 py-3">
-            <div className="text-sm text-muted-foreground">启用中</div>
-            <div className="mt-1 text-2xl font-semibold">{stats.enabledCount}</div>
-          </div>
-          <div className="rounded-lg border px-4 py-3">
-            <div className="text-sm text-muted-foreground">置顶公告</div>
-            <div className="mt-1 text-2xl font-semibold">{stats.pinnedCount}</div>
-          </div>
-        </div>
-
         {loading ? (
           <div className="rounded-lg border border-dashed px-4 py-8 text-center text-sm text-muted-foreground">加载中...</div>
         ) : announcements.length === 0 ? (
           <div className="rounded-lg border border-dashed px-4 py-8 text-center text-sm text-muted-foreground">暂无公告</div>
         ) : (
-          <div className="overflow-x-auto rounded-lg border">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>标题</TableHead>
-                  <TableHead>受众</TableHead>
-                  <TableHead>状态</TableHead>
-                  <TableHead>更新时间</TableHead>
-                  <TableHead className="text-right">操作</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {announcements.map((announcement) => (
-                  <TableRow key={announcement.id}>
-                    <TableCell>
-                      <div className="space-y-1">
-                        <div className="flex flex-wrap items-center gap-2">
-                          <span className="font-medium">{announcement.title}</span>
-                          {announcement.pinned ? <Badge>置顶</Badge> : null}
-                        </div>
-                        <p className="max-w-[38rem] overflow-hidden text-ellipsis whitespace-nowrap text-xs text-muted-foreground">
-                          {announcement.content}
-                        </p>
-                      </div>
-                    </TableCell>
-                    <TableCell>
-                      <Badge variant="outline">
-                        {audienceOptions.find((item) => item.value === announcement.audience)?.label || announcement.audience}
-                      </Badge>
-                    </TableCell>
-                    <TableCell>
-                      <Badge variant={announcement.enabled ? 'default' : 'secondary'}>
-                        {announcement.enabled ? '已启用' : '已停用'}
-                      </Badge>
-                    </TableCell>
-                    <TableCell className="text-sm text-muted-foreground">{formatDateTime(announcement.updatedAt)}</TableCell>
-                    <TableCell className="text-right">
-                      <div className="flex justify-end gap-2">
-                        <Button variant="ghost" size="sm" onClick={() => openEdit(announcement)}>编辑</Button>
-                        <Button variant="ghost" size="sm" className="text-destructive hover:text-destructive" onClick={() => setDeleteTarget(announcement)}>
-                          删除
-                        </Button>
-                      </div>
-                    </TableCell>
+          <div>
+            <div className="overflow-x-auto rounded-lg border">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>标题</TableHead>
+                    <TableHead>受众</TableHead>
+                    <TableHead>状态</TableHead>
+                    <TableHead>更新时间</TableHead>
+                    <TableHead className="text-right">操作</TableHead>
                   </TableRow>
-                ))}
-              </TableBody>
-            </Table>
+                </TableHeader>
+                <TableBody>
+                  {visibleAnnouncements.map((announcement) => (
+                    <TableRow key={announcement.id}>
+                      <TableCell>
+                        <div className="space-y-1">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <span className="font-medium">{announcement.title}</span>
+                            {announcement.pinned ? <Badge>置顶</Badge> : null}
+                          </div>
+                          <p className="max-w-[38rem] overflow-hidden text-ellipsis whitespace-nowrap text-xs text-muted-foreground">
+                            {announcement.content}
+                          </p>
+                        </div>
+                      </TableCell>
+                      <TableCell>
+                        <Badge variant="outline">
+                          {audienceOptions.find((item) => item.value === announcement.audience)?.label || announcement.audience}
+                        </Badge>
+                      </TableCell>
+                      <TableCell>
+                        <Badge variant={announcement.enabled ? 'default' : 'secondary'}>
+                          {announcement.enabled ? '已启用' : '已停用'}
+                        </Badge>
+                      </TableCell>
+                      <TableCell className="text-sm text-muted-foreground">{formatDateTime(announcement.updatedAt)}</TableCell>
+                      <TableCell className="text-right">
+                        <div className="flex justify-end gap-2">
+                          <Button variant="ghost" size="sm" onClick={() => openEdit(announcement)}>编辑</Button>
+                          <Button variant="ghost" size="sm" className="text-destructive hover:text-destructive" onClick={() => setDeleteTarget(announcement)}>
+                            删除
+                          </Button>
+                        </div>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </div>
+            <TablePagination
+              page={currentPage}
+              pageSize={pageSize}
+              total={announcements.length}
+              onPageChange={setPage}
+              onPageSizeChange={(nextPageSize) => {
+                setPageSize(nextPageSize)
+                setPage(1)
+              }}
+            />
           </div>
         )}
-
-        <Alert>
-          <AlertDescription>
-          </AlertDescription>
-        </Alert>
       </div>
 
       <Dialog open={open} onOpenChange={setOpen}>

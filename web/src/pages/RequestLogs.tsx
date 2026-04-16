@@ -51,6 +51,12 @@ function matchesRequestLogFilters(log: RequestLog, filters: FilterValues) {
       return false
     }
   }
+  if (filters.channel) {
+    const channelText = (log.channelName || log.provider || '').toLowerCase()
+    if (!channelText.includes(filters.channel.toLowerCase())) {
+      return false
+    }
+  }
   if (filters.statuses.length > 0 && !filters.statuses.includes(String(log.statusCode))) {
     return false
   }
@@ -405,7 +411,7 @@ export default function RequestLogs({ isAdmin }: Props) {
   const [total, setTotal] = useState(0)
   const [pageSize, setPageSize] = useState(20)
 
-  const [filters, setFilters] = useState<FilterValues>({ userId: '', apiKeyId: '', model: '', statuses: [], from: '', to: '' })
+  const [filters, setFilters] = useState<FilterValues>({ userId: '', apiKeyId: '', model: '', channel: '', statuses: [], from: '', to: '' })
 
   const [users, setUsers] = useState<UserInfo[]>([])
   const [models, setModels] = useState<string[]>([])
@@ -418,7 +424,7 @@ export default function RequestLogs({ isAdmin }: Props) {
   const logsRef = useRef<RequestLog[]>([])
   const totalRef = useRef(0)
   const knownLogIDsRef = useRef<Set<string>>(new Set())
-  const filtersRef = useRef<FilterValues>({ userId: '', apiKeyId: '', model: '', statuses: [], from: '', to: '' })
+  const filtersRef = useRef<FilterValues>({ userId: '', apiKeyId: '', model: '', channel: '', statuses: [], from: '', to: '' })
   const abortControllerRef = useRef<AbortController | null>(null)
 
   const [selectedLogId, setSelectedLogId] = useState<string | null>(null)
@@ -570,6 +576,7 @@ export default function RequestLogs({ isAdmin }: Props) {
         page,
         pageSize,
         model: filters.model || undefined,
+        channel: filters.channel || undefined,
         statusCodes: filters.statuses.length ? filters.statuses.map((status) => Number.parseInt(status, 10)) : undefined,
         from: filters.from ? localToISO(filters.from) : undefined,
         to: filters.to ? localToISO(filters.to) : undefined,
@@ -613,17 +620,6 @@ export default function RequestLogs({ isAdmin }: Props) {
   }
 
   const totalPages = Math.max(1, Math.ceil(total / pageSize))
-  const tableBodyKey = [
-    page,
-    pageSize,
-    filters.userId,
-    filters.apiKeyId,
-    filters.model,
-    filters.statuses.join(','),
-    filters.from,
-    filters.to,
-  ].join(':')
-
   const handleOpenDetail = useCallback((logId: string) => {
     setSelectedLogId(logId)
     setDetailModalOpen(true)
@@ -708,7 +704,7 @@ export default function RequestLogs({ isAdmin }: Props) {
                       <TableHead className="text-right">倍率</TableHead>
                     </TableRow>
                   </TableHeader>
-                  <TableBody key={tableBodyKey}>
+                  <TableBody>
                     {deferredLogs.map((log) => (
                       <RequestLogRow
                         key={log.id}
