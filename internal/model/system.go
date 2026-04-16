@@ -2,6 +2,12 @@ package model
 
 import "time"
 
+const (
+	AmpProxySettingsPolicyDisabled  = "disabled"
+	AmpProxySettingsPolicyAdminOnly = "admin_only"
+	AmpProxySettingsPolicyAll       = "all"
+)
+
 // RetryConfigResponse 重试配置响应
 type RetryConfigResponse struct {
 	Enabled           bool  `json:"enabled"`
@@ -91,16 +97,16 @@ type RequestDetailConfigRequest struct {
 
 // SiteConfigResponse 站点配置响应
 type SiteConfigResponse struct {
-	SiteName              string `json:"siteName"`
-	TimeZone              string `json:"timeZone"`
-	AllowAmpProxySettings bool   `json:"allowAmpProxySettings"`
+	SiteName               string `json:"siteName"`
+	TimeZone               string `json:"timeZone"`
+	AmpProxySettingsPolicy string `json:"ampProxySettingsPolicy"`
 }
 
 // SiteConfigRequest 站点配置请求
 type SiteConfigRequest struct {
-	SiteName              string `json:"siteName"`
-	TimeZone              string `json:"timeZone"`
-	AllowAmpProxySettings *bool  `json:"allowAmpProxySettings,omitempty"`
+	SiteName               string  `json:"siteName"`
+	TimeZone               string  `json:"timeZone"`
+	AmpProxySettingsPolicy *string `json:"ampProxySettingsPolicy,omitempty"`
 }
 
 type BillingRuntimeConfigResponse struct {

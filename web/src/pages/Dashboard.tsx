@@ -20,6 +20,7 @@ import AccountSettings from './AccountSettings'
 import PurchaseCenter from './PurchaseCenter'
 import PaidSubscriptions from './PaidSubscriptions'
 import RedeemManagement from './RedeemManagement'
+import type { AmpProxySettingsPolicy } from '@/api/system'
 import { Button } from '@/components/ui/button'
 // Card components available if needed by child pages
 import { Badge } from '@/components/ui/badge'
@@ -65,10 +66,10 @@ interface Props {
   isAdmin: boolean
   siteName: string
   siteTimeZone: string
-  allowAmpProxySettings: boolean
+  ampProxySettingsPolicy: AmpProxySettingsPolicy
   onSiteNameChange: (siteName: string) => void
   onSiteTimeZoneChange: (timeZone: string) => void
-  onAllowAmpProxySettingsChange: (allowed: boolean) => void
+  onAmpProxySettingsPolicyChange: (policy: AmpProxySettingsPolicy) => void
   onLogout: () => void
 }
 
@@ -100,10 +101,10 @@ export default function Dashboard({
   isAdmin,
   siteName,
   siteTimeZone,
-  allowAmpProxySettings,
+  ampProxySettingsPolicy,
   onSiteNameChange,
   onSiteTimeZoneChange,
-  onAllowAmpProxySettingsChange,
+  onAmpProxySettingsPolicyChange,
   onLogout,
 }: Props) {
   const [currentPage, setCurrentPage] = useState<Page>('overview')
@@ -114,9 +115,11 @@ export default function Dashboard({
   const [announcementBusyAll, setAnnouncementBusyAll] = useState(false)
   const [showUnreadDialog, setShowUnreadDialog] = useState(false)
 
+  const canAccessAmpSettings = ampProxySettingsPolicy === 'all' || (ampProxySettingsPolicy === 'admin_only' && isAdmin)
+
   const navItems: { key: Page; label: string; adminOnly?: boolean }[] = [
     { key: 'overview', label: '概览' },
-    ...(allowAmpProxySettings ? [{ key: 'amp-settings' as const, label: 'Amp 设置' }] : []),
+    ...(canAccessAmpSettings ? [{ key: 'amp-settings' as const, label: 'Amp 设置' }] : []),
     { key: 'api-keys', label: 'API Key 管理' },
     { key: 'request-logs', label: '请求日志' },
     { key: 'usage-stats', label: '使用量统计' },
@@ -161,10 +164,10 @@ export default function Dashboard({
   }, [visibleNavItems])
 
   useEffect(() => {
-    if (!allowAmpProxySettings && currentPage === 'amp-settings') {
+    if (!canAccessAmpSettings && currentPage === 'amp-settings') {
       setCurrentPage('overview')
     }
-  }, [allowAmpProxySettings, currentPage])
+  }, [canAccessAmpSettings, currentPage])
 
   useEffect(() => {
     let cancelled = false
@@ -422,7 +425,7 @@ export default function Dashboard({
                 >
                   {currentPage === 'overview' && <Overview />}
                   {currentPage === 'admin-overview' && isAdmin && <AdminOverview />}
-                  {currentPage === 'amp-settings' && allowAmpProxySettings && <AmpSettings />}
+                  {currentPage === 'amp-settings' && canAccessAmpSettings && <AmpSettings />}
                   {currentPage === 'api-keys' && <APIKeys />}
                   {currentPage === 'request-logs' && <RequestLogs isAdmin={isAdmin} />}
                   {currentPage === 'usage-stats' && <UsageStats isAdmin={isAdmin} />}
@@ -441,10 +444,10 @@ export default function Dashboard({
                     <SystemSettings
                       siteName={siteName}
                       siteTimeZone={siteTimeZone}
-                      allowAmpProxySettings={allowAmpProxySettings}
+                      ampProxySettingsPolicy={ampProxySettingsPolicy}
                       onSiteNameChange={onSiteNameChange}
                       onSiteTimeZoneChange={onSiteTimeZoneChange}
-                      onAllowAmpProxySettingsChange={onAllowAmpProxySettingsChange}
+                      onAmpProxySettingsPolicyChange={onAmpProxySettingsPolicyChange}
                     />
                   )}
                 </motion.div>

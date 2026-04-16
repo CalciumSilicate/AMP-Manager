@@ -35,6 +35,7 @@ import {
   updateBillingRuntimeConfig,
   BillingRuntimeConfig,
   BillingRuntimeStats,
+  type AmpProxySettingsPolicy,
 } from '../api/system'
 import { Button } from '@/components/ui/button'
 import { AnnouncementAdminSection } from '@/components/announcements/AnnouncementAdminSection'
@@ -73,19 +74,19 @@ const tabs: { key: SettingsTab; label: string }[] = [
 interface Props {
   siteName: string
   siteTimeZone: string
-  allowAmpProxySettings: boolean
+  ampProxySettingsPolicy: AmpProxySettingsPolicy
   onSiteNameChange: (siteName: string) => void
   onSiteTimeZoneChange: (timeZone: string) => void
-  onAllowAmpProxySettingsChange: (allowed: boolean) => void
+  onAmpProxySettingsPolicyChange: (policy: AmpProxySettingsPolicy) => void
 }
 
 export default function SystemSettings({
   siteName,
   siteTimeZone,
-  allowAmpProxySettings,
+  ampProxySettingsPolicy,
   onSiteNameChange,
   onSiteTimeZoneChange,
-  onAllowAmpProxySettingsChange,
+  onAmpProxySettingsPolicyChange,
 }: Props) {
   const [activeTab, setActiveTab] = useState<SettingsTab>('site')
 
@@ -115,7 +116,7 @@ export default function SystemSettings({
   const [cacheTTLLoading, setCacheTTLLoading] = useState(false)
   const [siteNameInput, setSiteNameInput] = useState(siteName)
   const [siteTimeZoneInput, setSiteTimeZoneInput] = useState(siteTimeZone)
-  const [allowAmpProxySettingsInput, setAllowAmpProxySettingsInput] = useState(allowAmpProxySettings)
+  const [ampProxySettingsPolicyInput, setAmpProxySettingsPolicyInput] = useState<AmpProxySettingsPolicy>(ampProxySettingsPolicy)
   const [siteConfigSaving, setSiteConfigSaving] = useState(false)
   const [balanceTopupPriceInput, setBalanceTopupPriceInput] = useState('0')
   const [balanceTopupSaving, setBalanceTopupSaving] = useState(false)
@@ -133,8 +134,8 @@ export default function SystemSettings({
   }, [siteTimeZone])
 
   useEffect(() => {
-    setAllowAmpProxySettingsInput(allowAmpProxySettings)
-  }, [allowAmpProxySettings])
+    setAmpProxySettingsPolicyInput(ampProxySettingsPolicy)
+  }, [ampProxySettingsPolicy])
 
   const showMessage = useCallback((type: 'success' | 'error', text: string) => {
     setMessage({ type, text })
@@ -297,13 +298,13 @@ export default function SystemSettings({
   const handleSaveSiteConfig = async () => {
     setSiteConfigSaving(true)
     try {
-      const result = await updateSiteConfig(siteNameInput, siteTimeZoneInput, allowAmpProxySettingsInput)
+      const result = await updateSiteConfig(siteNameInput, siteTimeZoneInput, ampProxySettingsPolicyInput)
       onSiteNameChange(result.config.siteName)
       onSiteTimeZoneChange(result.config.timeZone)
-      onAllowAmpProxySettingsChange(result.config.allowAmpProxySettings)
+      onAmpProxySettingsPolicyChange(result.config.ampProxySettingsPolicy)
       setSiteNameInput(result.config.siteName)
       setSiteTimeZoneInput(result.config.timeZone)
-      setAllowAmpProxySettingsInput(result.config.allowAmpProxySettings)
+      setAmpProxySettingsPolicyInput(result.config.ampProxySettingsPolicy)
       showMessage('success', '网站配置已保存')
     } catch (err) {
       showMessage('error', err instanceof Error ? err.message : '保存失败')
@@ -706,15 +707,18 @@ export default function SystemSettings({
                       </SelectContent>
                     </Select>
                   </div>
-                  <div className="max-w-xl rounded-lg border p-4">
-                    <div className="flex items-center justify-between gap-4">
-                      <Label htmlFor="allowAmpProxySettings">允许设置 Amp 代理</Label>
-                      <Switch
-                        id="allowAmpProxySettings"
-                        checked={allowAmpProxySettingsInput}
-                        onCheckedChange={setAllowAmpProxySettingsInput}
-                      />
-                    </div>
+                  <div className="max-w-xl space-y-2 rounded-lg border p-4">
+                    <Label htmlFor="ampProxySettingsPolicy">Amp 设置权限</Label>
+                    <Select value={ampProxySettingsPolicyInput} onValueChange={(value) => setAmpProxySettingsPolicyInput(value as AmpProxySettingsPolicy)}>
+                      <SelectTrigger id="ampProxySettingsPolicy">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="disabled">已禁用：所有人都不能访问 Amp 设置</SelectItem>
+                        <SelectItem value="admin_only">仅管理员：只有管理员可配置，普通用户运行时回退默认上游</SelectItem>
+                        <SelectItem value="all">所有用户：所有用户都可配置并使用自己的 Amp 设置</SelectItem>
+                      </SelectContent>
+                    </Select>
                   </div>
                   <div className="flex justify-end">
                     <Button onClick={handleSaveSiteConfig} disabled={siteConfigSaving}>

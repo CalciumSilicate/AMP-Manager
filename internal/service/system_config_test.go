@@ -31,21 +31,21 @@ func TestSystemConfigServiceSiteConfigDefaultsAndPersistence(t *testing.T) {
 	if defaultCfg.TimeZone != defaultSiteTimeZone {
 		t.Fatalf("default time zone mismatch: got %q want %q", defaultCfg.TimeZone, defaultSiteTimeZone)
 	}
-	if defaultCfg.AllowAmpProxySettings != defaultAllowAmpProxySettings {
-		t.Fatalf("default amp proxy setting mismatch: got %v want %v", defaultCfg.AllowAmpProxySettings, defaultAllowAmpProxySettings)
+	if defaultCfg.AmpProxySettingsPolicy != defaultAmpProxySettingsPolicy {
+		t.Fatalf("default amp proxy policy mismatch: got %q want %q", defaultCfg.AmpProxySettingsPolicy, defaultAmpProxySettingsPolicy)
 	}
 
-	disabled := false
+	adminOnly := model.AmpProxySettingsPolicyAdminOnly
 
 	updatedCfg, err := svc.SetSiteConfig(model.SiteConfigRequest{
-		SiteName:              "Ops Console",
-		TimeZone:              "America/Los_Angeles",
-		AllowAmpProxySettings: &disabled,
+		SiteName:               "Ops Console",
+		TimeZone:               "America/Los_Angeles",
+		AmpProxySettingsPolicy: &adminOnly,
 	})
 	if err != nil {
 		t.Fatalf("SetSiteConfig returned error: %v", err)
 	}
-	if updatedCfg.SiteName != "Ops Console" || updatedCfg.TimeZone != "America/Los_Angeles" || updatedCfg.AllowAmpProxySettings {
+	if updatedCfg.SiteName != "Ops Console" || updatedCfg.TimeZone != "America/Los_Angeles" || updatedCfg.AmpProxySettingsPolicy != model.AmpProxySettingsPolicyAdminOnly {
 		t.Fatalf("unexpected updated config: %+v", updatedCfg)
 	}
 
@@ -55,6 +55,33 @@ func TestSystemConfigServiceSiteConfigDefaultsAndPersistence(t *testing.T) {
 	}
 	if reloadedCfg != updatedCfg {
 		t.Fatalf("reloaded config mismatch: got %+v want %+v", reloadedCfg, updatedCfg)
+	}
+}
+
+func TestCanAccessAmpSettingsForPolicy(t *testing.T) {
+	testCases := []struct {
+		name    string
+		policy  string
+		isAdmin bool
+		want    bool
+	}{
+		{name: "disabled admin", policy: model.AmpProxySettingsPolicyDisabled, isAdmin: true, want: false},
+		{name: "disabled user", policy: model.AmpProxySettingsPolicyDisabled, isAdmin: false, want: false},
+		{name: "admin only admin", policy: model.AmpProxySettingsPolicyAdminOnly, isAdmin: true, want: true},
+		{name: "admin only user", policy: model.AmpProxySettingsPolicyAdminOnly, isAdmin: false, want: false},
+		{name: "all admin", policy: model.AmpProxySettingsPolicyAll, isAdmin: true, want: true},
+		{name: "all user", policy: model.AmpProxySettingsPolicyAll, isAdmin: false, want: true},
+		{name: "legacy true", policy: "true", isAdmin: false, want: true},
+		{name: "legacy false", policy: "false", isAdmin: true, want: false},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := CanAccessAmpSettingsForPolicy(tc.policy, tc.isAdmin)
+			if got != tc.want {
+				t.Fatalf("CanAccessAmpSettingsForPolicy(%q, %v) = %v, want %v", tc.policy, tc.isAdmin, got, tc.want)
+			}
+		})
 	}
 }
 

@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react'
 import { motion, AnimatePresence } from '@/lib/motion'
 import { FontLoadCoordinator } from '@/components/font-load-coordinator'
 import { listPublicAnnouncements, type Announcement } from '@/api/announcements'
-import { getPublicSiteConfig } from '@/api/system'
+import { getPublicSiteConfig, type AmpProxySettingsPolicy } from '@/api/system'
 import { DEFAULT_SITE_TIME_ZONE, setActiveSiteTimeZone } from '@/lib/site-config'
 import Login from './pages/Login'
 import Register from './pages/Register'
@@ -18,7 +18,7 @@ function App() {
   const [user, setUser] = useState<UserState | null>(null)
   const [siteName, setSiteName] = useState('AMP Manager')
   const [siteTimeZone, setSiteTimeZone] = useState(DEFAULT_SITE_TIME_ZONE)
-  const [allowAmpProxySettings, setAllowAmpProxySettings] = useState(true)
+  const [ampProxySettingsPolicy, setAmpProxySettingsPolicy] = useState<AmpProxySettingsPolicy>('all')
   const [publicAnnouncements, setPublicAnnouncements] = useState<Announcement[]>([])
 
   useEffect(() => {
@@ -42,7 +42,7 @@ function App() {
           if (config.timeZone) {
             setSiteTimeZone(config.timeZone)
           }
-          setAllowAmpProxySettings(config.allowAmpProxySettings !== false)
+          setAmpProxySettingsPolicy(config.ampProxySettingsPolicy || 'all')
         }
       })
       .catch(() => {
@@ -119,10 +119,10 @@ function App() {
           isAdmin={user.isAdmin}
           siteName={siteName}
           siteTimeZone={siteTimeZone}
-          allowAmpProxySettings={allowAmpProxySettings}
+          ampProxySettingsPolicy={ampProxySettingsPolicy}
           onSiteNameChange={setSiteName}
           onSiteTimeZoneChange={setSiteTimeZone}
-          onAllowAmpProxySettingsChange={setAllowAmpProxySettings}
+          onAmpProxySettingsPolicyChange={setAmpProxySettingsPolicy}
           onLogout={handleLogout}
         />
       </>

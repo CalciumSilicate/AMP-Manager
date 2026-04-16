@@ -247,12 +247,20 @@ func APIKeyAuthMiddleware() gin.HandlerFunc {
 			return
 		}
 
-		allowAmpProxySettings, err := systemCfgSvc.GetAllowAmpProxySettings()
+		ampProxySettingsPolicy, err := systemCfgSvc.GetAmpProxySettingsPolicy()
 		if err != nil {
 			log.Errorf("amp api key auth: failed to load system config: %v", err)
 			c.AbortWithStatusJSON(http.StatusInternalServerError, NewStandardError(http.StatusInternalServerError, "internal server error"))
 			return
 		}
+
+		user, err := userRepo.GetByID(apiKeyRecord.UserID)
+		if err != nil {
+			log.Errorf("amp api key auth: failed to load user %s: %v", apiKeyRecord.UserID, err)
+			c.AbortWithStatusJSON(http.StatusInternalServerError, NewStandardError(http.StatusInternalServerError, "internal server error"))
+			return
+		}
+		userIsAdmin := user != nil && user.IsAdmin
 
 		proxyCfg := &ProxyConfig{
 			UserID:            apiKeyRecord.UserID,
@@ -267,7 +275,7 @@ func APIKeyAuthMiddleware() gin.HandlerFunc {
 			Socks5Proxy:       "",
 		}
 
-		if allowAmpProxySettings {
+		if service.CanAccessAmpSettingsForPolicy(ampProxySettingsPolicy, userIsAdmin) {
 			settings, err := settingsRepo.GetByUserID(apiKeyRecord.UserID)
 			if err != nil {
 				log.Errorf("amp api key auth: failed to load settings: %v", err)
@@ -275,24 +283,18 @@ func APIKeyAuthMiddleware() gin.HandlerFunc {
 				return
 			}
 
-			if settings == nil {
-				c.AbortWithStatusJSON(http.StatusForbidden, NewStandardError(http.StatusForbidden, "amp proxy not configured for this user"))
-				return
+			if settings != nil {
+				if settings.UpstreamURL != "" {
+					proxyCfg.UpstreamURL = settings.UpstreamURL
+				}
+				proxyCfg.UpstreamAPIKey = settings.UpstreamAPIKey
+				proxyCfg.ModelMappingsJSON = settings.ModelMappingsJSON
+				proxyCfg.Enabled = settings.Enabled
+				proxyCfg.WebSearchMode = settings.WebSearchMode
+				proxyCfg.NativeMode = settings.NativeMode
+				proxyCfg.ShowBalanceInAd = settings.ShowBalanceInAd
+				proxyCfg.Socks5Proxy = settings.Socks5Proxy
 			}
-
-			if settings.UpstreamURL == "" {
-				c.AbortWithStatusJSON(http.StatusServiceUnavailable, NewStandardError(http.StatusServiceUnavailable, "upstream not configured"))
-				return
-			}
-
-			proxyCfg.UpstreamURL = settings.UpstreamURL
-			proxyCfg.UpstreamAPIKey = settings.UpstreamAPIKey
-			proxyCfg.ModelMappingsJSON = settings.ModelMappingsJSON
-			proxyCfg.Enabled = settings.Enabled
-			proxyCfg.WebSearchMode = settings.WebSearchMode
-			proxyCfg.NativeMode = settings.NativeMode
-			proxyCfg.ShowBalanceInAd = settings.ShowBalanceInAd
-			proxyCfg.Socks5Proxy = settings.Socks5Proxy
 		}
 
 		rateMultiplier, groupIDs, err := groupRepo.GetMinRateMultiplierByUserID(apiKeyRecord.UserID)
@@ -303,12 +305,6 @@ func APIKeyAuthMiddleware() gin.HandlerFunc {
 		proxyCfg.GroupRateMultiplier = rateMultiplier
 		proxyCfg.GroupIDs = groupIDs
 
-		user, err := userRepo.GetByID(apiKeyRecord.UserID)
-		if err != nil {
-			log.Errorf("amp api key auth: failed to load user %s: %v", apiKeyRecord.UserID, err)
-			c.AbortWithStatusJSON(http.StatusInternalServerError, NewStandardError(http.StatusInternalServerError, "internal server error"))
-			return
-		}
 		if user != nil && user.ConcurrencyLimit > 0 {
 			if !userConcurrencyLimiter.TryAcquire(apiKeyRecord.UserID, user.ConcurrencyLimit) {
 				c.AbortWithStatusJSON(http.StatusTooManyRequests, NewStandardError(http.StatusTooManyRequests, "user concurrency limit exceeded"))

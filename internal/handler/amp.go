@@ -6,6 +6,7 @@ import (
 
 	"ampmanager/internal/middleware"
 	"ampmanager/internal/model"
+	"ampmanager/internal/repository"
 	"ampmanager/internal/service"
 
 	"github.com/gin-gonic/gin"
@@ -22,13 +23,18 @@ func NewAmpHandler() *AmpHandler {
 }
 
 func (h *AmpHandler) GetSettings(c *gin.Context) {
-	allowed, err := service.NewSystemConfigService().GetAllowAmpProxySettings()
+	isAdmin, err := loadIsAdmin(c)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "获取配置失败"})
+		return
+	}
+	allowed, err := service.NewSystemConfigService().CanAccessAmpSettings(isAdmin)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "获取配置失败"})
 		return
 	}
 	if !allowed {
-		c.JSON(http.StatusForbidden, gin.H{"error": "Amp 设置已禁用"})
+		c.JSON(http.StatusForbidden, gin.H{"error": "当前无权访问 Amp 设置"})
 		return
 	}
 
@@ -44,13 +50,18 @@ func (h *AmpHandler) GetSettings(c *gin.Context) {
 }
 
 func (h *AmpHandler) UpdateSettings(c *gin.Context) {
-	allowed, err := service.NewSystemConfigService().GetAllowAmpProxySettings()
+	isAdmin, err := loadIsAdmin(c)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "获取配置失败"})
+		return
+	}
+	allowed, err := service.NewSystemConfigService().CanAccessAmpSettings(isAdmin)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "获取配置失败"})
 		return
 	}
 	if !allowed {
-		c.JSON(http.StatusForbidden, gin.H{"error": "Amp 设置已禁用"})
+		c.JSON(http.StatusForbidden, gin.H{"error": "当前无权修改 Amp 设置"})
 		return
 	}
 
@@ -75,13 +86,18 @@ func (h *AmpHandler) UpdateSettings(c *gin.Context) {
 }
 
 func (h *AmpHandler) TestConnection(c *gin.Context) {
-	allowed, err := service.NewSystemConfigService().GetAllowAmpProxySettings()
+	isAdmin, err := loadIsAdmin(c)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "获取配置失败"})
+		return
+	}
+	allowed, err := service.NewSystemConfigService().CanAccessAmpSettings(isAdmin)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "获取配置失败"})
 		return
 	}
 	if !allowed {
-		c.JSON(http.StatusForbidden, gin.H{"error": "Amp 设置已禁用"})
+		c.JSON(http.StatusForbidden, gin.H{"error": "当前无权测试 Amp 设置"})
 		return
 	}
 
@@ -94,6 +110,21 @@ func (h *AmpHandler) TestConnection(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, result)
+}
+
+func loadIsAdmin(c *gin.Context) (bool, error) {
+	if middleware.IsAdmin(c) {
+		return true, nil
+	}
+
+	user, err := repository.NewUserRepository().GetByID(middleware.GetUserID(c))
+	if err != nil {
+		return false, err
+	}
+	if user == nil {
+		return false, errors.New("user not found")
+	}
+	return user.IsAdmin, nil
 }
 
 func (h *AmpHandler) ListAPIKeys(c *gin.Context) {
@@ -224,6 +255,39 @@ func (h *AmpHandler) GetAPIKey(c *gin.Context) {
 	c.JSON(http.StatusOK, key)
 }
 
+func (h *AmpHandler) UpdateAPIKeyStatus(c *gin.Context) {
+	userID := middleware.GetUserID(c)
+	keyID := c.Param("id")
+
+	var req model.UpdateAPIKeyStatusRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"error":   "请求参数错误",
+			"details": err.Error(),
+		})
+		return
+	}
+
+	key, err := h.ampService.SetAPIKeyDisabled(userID, keyID, req.Disabled)
+	if err != nil {
+		status := http.StatusInternalServerError
+		msg := "更新 API Key 状态失败"
+
+		if errors.Is(err, service.ErrAPIKeyNotFound) {
+			status = http.StatusNotFound
+			msg = err.Error()
+		} else if errors.Is(err, service.ErrNotOwner) {
+			status = http.StatusForbidden
+			msg = err.Error()
+		}
+
+		c.JSON(status, gin.H{"error": msg})
+		return
+	}
+
+	c.JSON(http.StatusOK, key)
+}
+
 func (h *AmpHandler) AdminListUserAPIKeys(c *gin.Context) {
 	userID := c.Param("id")
 
@@ -286,6 +350,37 @@ func (h *AmpHandler) AdminDeleteUserAPIKey(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{"message": "API Key 已删除"})
+}
+
+func (h *AmpHandler) AdminUpdateUserAPIKeyStatus(c *gin.Context) {
+	userID := c.Param("id")
+	keyID := c.Param("keyId")
+
+	var req model.UpdateAPIKeyStatusRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"error":   "请求参数错误",
+			"details": err.Error(),
+		})
+		return
+	}
+
+	key, err := h.ampService.SetAPIKeyDisabledForAdmin(userID, keyID, req.Disabled)
+	if err != nil {
+		status := http.StatusInternalServerError
+		msg := "更新 API Key 状态失败"
+		if errors.Is(err, service.ErrAPIKeyNotFound) {
+			status = http.StatusNotFound
+			msg = err.Error()
+		} else if errors.Is(err, service.ErrNotOwner) {
+			status = http.StatusBadRequest
+			msg = "API Key 不属于当前用户"
+		}
+		c.JSON(status, gin.H{"error": msg})
+		return
+	}
+
+	c.JSON(http.StatusOK, key)
 }
 
 func (h *AmpHandler) GetBootstrap(c *gin.Context) {

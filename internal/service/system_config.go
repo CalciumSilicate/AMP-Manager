@@ -40,7 +40,7 @@ const (
 	defaultRequestPayloadMaxBytes        = 128 * 1024 * 1024
 	siteTimeZoneKey                      = "site_time_zone"
 	defaultSiteTimeZone                  = "Asia/Shanghai"
-	defaultAllowAmpProxySettings         = true
+	defaultAmpProxySettingsPolicy        = model.AmpProxySettingsPolicyAll
 )
 
 type SystemConfigService struct {
@@ -248,7 +248,7 @@ func (s *SystemConfigService) GetSiteConfig() (model.SiteConfigResponse, error) 
 	if err != nil {
 		return model.SiteConfigResponse{}, err
 	}
-	allowAmpProxySettings, err := s.GetAllowAmpProxySettings()
+	ampProxySettingsPolicy, err := s.GetAmpProxySettingsPolicy()
 	if err != nil {
 		return model.SiteConfigResponse{}, err
 	}
@@ -263,21 +263,21 @@ func (s *SystemConfigService) GetSiteConfig() (model.SiteConfigResponse, error) 
 	}
 
 	return model.SiteConfigResponse{
-		SiteName:              siteName,
-		TimeZone:              timeZone,
-		AllowAmpProxySettings: allowAmpProxySettings,
+		SiteName:               siteName,
+		TimeZone:               timeZone,
+		AmpProxySettingsPolicy: ampProxySettingsPolicy,
 	}, nil
 }
 
 func (s *SystemConfigService) SetSiteConfig(req model.SiteConfigRequest) (model.SiteConfigResponse, error) {
 	siteName := strings.TrimSpace(req.SiteName)
 	timeZone := strings.TrimSpace(req.TimeZone)
-	allowAmpProxySettings, err := s.GetAllowAmpProxySettings()
+	ampProxySettingsPolicy, err := s.GetAmpProxySettingsPolicy()
 	if err != nil {
 		return model.SiteConfigResponse{}, err
 	}
-	if req.AllowAmpProxySettings != nil {
-		allowAmpProxySettings = *req.AllowAmpProxySettings
+	if req.AmpProxySettingsPolicy != nil {
+		ampProxySettingsPolicy = normalizeAmpProxySettingsPolicy(*req.AmpProxySettingsPolicy)
 	}
 
 	if timeZone == "" {
@@ -305,33 +305,61 @@ func (s *SystemConfigService) SetSiteConfig(req model.SiteConfigRequest) (model.
 		}
 	}
 
-	if allowAmpProxySettings == defaultAllowAmpProxySettings {
+	if ampProxySettingsPolicy == defaultAmpProxySettingsPolicy {
 		if err := s.repo.Delete(allowAmpProxySettingsKey); err != nil {
 			return model.SiteConfigResponse{}, err
 		}
 	} else {
-		if err := s.repo.Set(allowAmpProxySettingsKey, boolToConfigString(allowAmpProxySettings)); err != nil {
+		if err := s.repo.Set(allowAmpProxySettingsKey, ampProxySettingsPolicy); err != nil {
 			return model.SiteConfigResponse{}, err
 		}
 	}
 
 	return model.SiteConfigResponse{
-		SiteName:              siteName,
-		TimeZone:              timeZone,
-		AllowAmpProxySettings: allowAmpProxySettings,
+		SiteName:               siteName,
+		TimeZone:               timeZone,
+		AmpProxySettingsPolicy: ampProxySettingsPolicy,
 	}, nil
 }
 
-func (s *SystemConfigService) GetAllowAmpProxySettings() (bool, error) {
+func (s *SystemConfigService) GetAmpProxySettingsPolicy() (string, error) {
 	value, err := s.repo.Get(allowAmpProxySettingsKey)
 	if err != nil {
-		return defaultAllowAmpProxySettings, err
+		return defaultAmpProxySettingsPolicy, err
 	}
-	value = strings.TrimSpace(value)
-	if value == "" {
-		return defaultAllowAmpProxySettings, nil
+	return normalizeAmpProxySettingsPolicy(value), nil
+}
+
+func (s *SystemConfigService) CanAccessAmpSettings(isAdmin bool) (bool, error) {
+	policy, err := s.GetAmpProxySettingsPolicy()
+	if err != nil {
+		return false, err
 	}
-	return value != "false", nil
+	return CanAccessAmpSettingsForPolicy(policy, isAdmin), nil
+}
+
+func CanAccessAmpSettingsForPolicy(policy string, isAdmin bool) bool {
+	switch normalizeAmpProxySettingsPolicy(policy) {
+	case model.AmpProxySettingsPolicyDisabled:
+		return false
+	case model.AmpProxySettingsPolicyAdminOnly:
+		return isAdmin
+	default:
+		return true
+	}
+}
+
+func normalizeAmpProxySettingsPolicy(value string) string {
+	switch strings.TrimSpace(value) {
+	case "", "true", model.AmpProxySettingsPolicyAll:
+		return model.AmpProxySettingsPolicyAll
+	case "false", model.AmpProxySettingsPolicyDisabled:
+		return model.AmpProxySettingsPolicyDisabled
+	case model.AmpProxySettingsPolicyAdminOnly:
+		return model.AmpProxySettingsPolicyAdminOnly
+	default:
+		return defaultAmpProxySettingsPolicy
+	}
 }
 
 func (s *SystemConfigService) GetSiteLocation() (*time.Location, error) {
