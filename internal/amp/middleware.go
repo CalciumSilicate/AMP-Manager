@@ -403,6 +403,20 @@ func (l *activeRequestLimiter) Release(userID string) {
 	l.counts[userID] = current - 1
 }
 
+func (l *activeRequestLimiter) Current(userID string) int {
+	if userID == "" {
+		return 0
+	}
+
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.counts[userID]
+}
+
+func GetUserCurrentConcurrency(userID string) int {
+	return userConcurrencyLimiter.Current(userID)
+}
+
 func maskAPIKey(apiKey string) string {
 	if len(apiKey) <= 4 {
 		return strings.Repeat("*", len(apiKey))

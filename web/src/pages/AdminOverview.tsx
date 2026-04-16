@@ -64,7 +64,7 @@ export default function AdminOverview() {
   const [error, setError] = useState('')
   const [trendView, setTrendView] = useState<'cost' | 'requests'>('cost')
   const [throughputView, setThroughputView] = useState<'qps1m' | 'rpm5m' | 'tpm5m' | 'concurrency1m' | 'ttfb' | 'duration'>('qps1m')
-  const [throughputWindow, setThroughputWindow] = useState<'1h' | '3h' | '6h' | '12h' | '24h' | '3d'>('24h')
+  const [throughputWindow, setThroughputWindow] = useState<'1h' | '3h' | '6h' | '12h' | '24h' | '3d'>('1h')
 
   const loadDashboard = useCallback(async () => {
     setLoading(true)

@@ -300,6 +300,7 @@ export default function AccountSettings({ username, onUsernameChange }: Props) {
           className="space-y-6"
         >
           {activeTab === 'balance' && (
+            <>
             <Card>
               <CardHeader>
                 <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
@@ -363,6 +364,113 @@ export default function AccountSettings({ username, onUsernameChange }: Props) {
                 )}
               </CardContent>
             </Card>
+
+            <Card>
+              <CardHeader>
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                  <div className="space-y-1">
+                    <CardTitle>当前订阅</CardTitle>
+                    <CardDescription>查看套餐状态、窗口额度和当前的使用区间。</CardDescription>
+                  </div>
+                  <Button type="button" variant="outline" size="sm" onClick={() => navigateDashboard('purchase-center')}>
+                    <CreditCard className="mr-2 h-4 w-4" />
+                    购买续费
+                  </Button>
+                </div>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                {billingLoading && !billingState ? (
+                  <div className="py-4 text-center text-muted-foreground">加载中...</div>
+                ) : billingState?.subscription ? (
+                  <>
+                    <div className="grid gap-4 md:grid-cols-2">
+                      <div className="space-y-2 rounded-lg border p-4">
+                        <div className="flex items-center justify-between">
+                          <span className="text-sm text-muted-foreground">套餐</span>
+                          <Badge variant={billingState.subscription.status === 'active' ? 'default' : 'secondary'}>
+                            {formatSubscriptionStatus(billingState.subscription.status)}
+                          </Badge>
+                        </div>
+                        <p className="text-lg font-semibold">{billingState.subscription.planName}</p>
+                        <p className="text-sm text-muted-foreground">
+                          {billingState.subscription.expiresAt
+                            ? `到期 ${formatDateTime(billingState.subscription.expiresAt)}`
+                            : '永久有效'}
+                        </p>
+                      </div>
+                      <div className="space-y-2 rounded-lg border p-4">
+                        <div className="flex items-center justify-between">
+                          <span className="text-sm text-muted-foreground">窗口数量</span>
+                          <Badge variant="outline">{billingState.windows?.length || 0}</Badge>
+                        </div>
+                        <p className="text-sm text-muted-foreground">
+                          生效时间 {formatDateTime(billingState.subscription.startsAt)}
+                        </p>
+                        <p className="text-sm text-muted-foreground">窗口会按照订阅计划限制自动刷新或滚动结算。</p>
+                      </div>
+                    </div>
+
+                    {billingState.windows?.length ? (
+                      <div className="overflow-hidden rounded-lg border">
+                        <div className="divide-y">
+                          {billingState.windows.map((item) => (
+                            <div
+                              key={`${item.limitType}-${item.windowMode}`}
+                              className="grid gap-2 px-4 py-3 md:grid-cols-[0.8fr_1.4fr_0.8fr] md:items-center"
+                            >
+                              <div>
+                                <p className="font-medium">{LIMIT_TYPE_LABELS[item.limitType] || item.limitType}</p>
+                                <p className="text-xs text-muted-foreground">{WINDOW_MODE_LABELS[item.windowMode] || item.windowMode}</p>
+                              </div>
+                              <p className="font-mono text-xs text-muted-foreground">
+                                已用 ${formatDecimal(item.usedMicros / 1e6, 2)} / 剩余 ${formatDecimal(item.leftMicros / 1e6, 2)} / 限额 ${formatDecimal(item.limitMicros / 1e6, 2)}
+                              </p>
+                              <p className="text-xs text-muted-foreground md:text-right">
+                                {formatDateTime(item.windowStart)} - {formatDateTime(item.windowEnd)}
+                              </p>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="rounded-lg border border-dashed px-5 py-8 text-center text-sm text-muted-foreground">
+                        当前订阅暂未返回额度窗口信息。
+                      </div>
+                    )}
+                  </>
+                ) : (
+                  <div className="rounded-lg border border-dashed px-5 py-8 text-center text-sm text-muted-foreground">
+                    暂无生效中的订阅。
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader>
+                <CardTitle>兑换码</CardTitle>
+                <CardDescription>保持单一输入路径，成功后立即刷新余额和订阅状态。</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <RedeemQuickEntry
+                  onSuccess={async () => {
+                    setRedeemRefreshKey((current) => current + 1)
+                    await Promise.all([fetchBalance(), fetchBillingState()])
+                  }}
+                />
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader>
+                <CardTitle>最近兑换记录</CardTitle>
+                <CardDescription>把历史记录作为结果面板，和上方兑换操作分层。</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <RedeemRecordTable compact refreshKey={redeemRefreshKey} />
+              </CardContent>
+            </Card>
+            </>
           )}
 
           {activeTab === 'billing' && (
@@ -438,112 +546,6 @@ export default function AccountSettings({ username, onUsernameChange }: Props) {
                   ) : (
                     <div className="py-4 text-center text-muted-foreground">计费状态加载失败</div>
                   )}
-                </CardContent>
-              </Card>
-
-              <Card>
-                <CardHeader>
-                  <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-                    <div className="space-y-1">
-                      <CardTitle>当前订阅</CardTitle>
-                      <CardDescription>查看套餐状态、窗口额度和当前的使用区间。</CardDescription>
-                    </div>
-                    <Button type="button" variant="outline" size="sm" onClick={() => navigateDashboard('purchase-center')}>
-                      <CreditCard className="mr-2 h-4 w-4" />
-                      购买续费
-                    </Button>
-                  </div>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                  {billingLoading && !billingState ? (
-                    <div className="py-4 text-center text-muted-foreground">加载中...</div>
-                  ) : billingState?.subscription ? (
-                    <>
-                      <div className="grid gap-4 md:grid-cols-2">
-                        <div className="space-y-2 rounded-lg border p-4">
-                          <div className="flex items-center justify-between">
-                            <span className="text-sm text-muted-foreground">套餐</span>
-                            <Badge variant={billingState.subscription.status === 'active' ? 'default' : 'secondary'}>
-                              {formatSubscriptionStatus(billingState.subscription.status)}
-                            </Badge>
-                          </div>
-                          <p className="text-lg font-semibold">{billingState.subscription.planName}</p>
-                          <p className="text-sm text-muted-foreground">
-                            {billingState.subscription.expiresAt
-                              ? `到期 ${formatDateTime(billingState.subscription.expiresAt)}`
-                              : '永久有效'}
-                          </p>
-                        </div>
-                        <div className="space-y-2 rounded-lg border p-4">
-                          <div className="flex items-center justify-between">
-                            <span className="text-sm text-muted-foreground">窗口数量</span>
-                            <Badge variant="outline">{billingState.windows?.length || 0}</Badge>
-                          </div>
-                          <p className="text-sm text-muted-foreground">
-                            生效时间 {formatDateTime(billingState.subscription.startsAt)}
-                          </p>
-                          <p className="text-sm text-muted-foreground">窗口会按照订阅计划限制自动刷新或滚动结算。</p>
-                        </div>
-                      </div>
-
-                      {billingState.windows?.length ? (
-                        <div className="overflow-hidden rounded-lg border">
-                          <div className="divide-y">
-                            {billingState.windows.map((item) => (
-                              <div
-                                key={`${item.limitType}-${item.windowMode}`}
-                                className="grid gap-2 px-4 py-3 md:grid-cols-[0.8fr_1.4fr_0.8fr] md:items-center"
-                              >
-                                <div>
-                                  <p className="font-medium">{LIMIT_TYPE_LABELS[item.limitType] || item.limitType}</p>
-                                  <p className="text-xs text-muted-foreground">{WINDOW_MODE_LABELS[item.windowMode] || item.windowMode}</p>
-                                </div>
-                                <p className="font-mono text-xs text-muted-foreground">
-                                  已用 ${formatDecimal(item.usedMicros / 1e6, 2)} / 剩余 ${formatDecimal(item.leftMicros / 1e6, 2)} / 限额 ${formatDecimal(item.limitMicros / 1e6, 2)}
-                                </p>
-                                <p className="text-xs text-muted-foreground md:text-right">
-                                  {formatDateTime(item.windowStart)} - {formatDateTime(item.windowEnd)}
-                                </p>
-                              </div>
-                            ))}
-                          </div>
-                        </div>
-                      ) : (
-                        <div className="rounded-lg border border-dashed px-5 py-8 text-center text-sm text-muted-foreground">
-                          当前订阅暂未返回额度窗口信息。
-                        </div>
-                      )}
-                    </>
-                  ) : (
-                    <div className="rounded-lg border border-dashed px-5 py-8 text-center text-sm text-muted-foreground">
-                      暂无生效中的订阅。
-                    </div>
-                  )}
-                </CardContent>
-              </Card>
-
-              <Card>
-                <CardHeader>
-                  <CardTitle>兑换码</CardTitle>
-                  <CardDescription>保持单一输入路径，成功后立即刷新余额和订阅状态。</CardDescription>
-                </CardHeader>
-                <CardContent>
-                  <RedeemQuickEntry
-                    onSuccess={async () => {
-                      setRedeemRefreshKey((current) => current + 1)
-                      await Promise.all([fetchBalance(), fetchBillingState()])
-                    }}
-                  />
-                </CardContent>
-              </Card>
-
-              <Card>
-                <CardHeader>
-                  <CardTitle>最近兑换记录</CardTitle>
-                  <CardDescription>把历史记录作为结果面板，和上方兑换操作分层。</CardDescription>
-                </CardHeader>
-                <CardContent>
-                  <RedeemRecordTable compact refreshKey={redeemRefreshKey} />
                 </CardContent>
               </Card>
             </>

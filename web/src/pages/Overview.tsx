@@ -165,6 +165,7 @@ export default function Overview() {
   const balanceUsd = parseFloat(data.balance.balanceUsd)
   const todayCost = parseFloat(data.today.costUsd)
   const weekCost = parseFloat(data.week.costUsd)
+  const concurrencyDisplay = `${data.balance.currentConcurrency} / ${data.balance.concurrencyLimit > 0 ? data.balance.concurrencyLimit : '∞'}`
   const formatUsd = (value: number, digits: number) => `$${formatDecimal(value, digits)}`
   const formatWindowUsd = (micros: number) => formatDecimal(micros / 1e6, 2)
   const getWindowMeta = (windowMode: string, limitType: string, windowStart: string, windowEnd: string) => {
@@ -206,14 +207,20 @@ export default function Overview() {
         <motion.div variants={staggerItem} whileHover={{ scale: 1.03, y: -4 }} whileTap={{ scale: 0.98 }} className="h-full">
           <Card className="h-full bg-gradient-to-br from-blue-500/10 to-cyan-500/10 border-blue-500/20">
             <CardHeader className="pb-2">
-              <CardDescription className="flex items-center gap-1.5">
-                <Wallet className="h-4 w-4" />
-                账户余额
-              </CardDescription>
+              <div className="flex items-center justify-between gap-2">
+                <CardDescription className="flex items-center gap-1.5">
+                  <Wallet className="h-4 w-4" />
+                  账户余额
+                </CardDescription>
+                <Badge variant="outline" className="bg-background/70">{concurrencyDisplay}</Badge>
+              </div>
               <CardTitle className="text-3xl text-blue-600 dark:text-blue-400">
                 {formatUsd(balanceUsd, 2)}
               </CardTitle>
             </CardHeader>
+            <CardContent className="pt-0">
+              <p className="text-xs text-muted-foreground">当前并发 / 最大并发</p>
+            </CardContent>
           </Card>
         </motion.div>
 

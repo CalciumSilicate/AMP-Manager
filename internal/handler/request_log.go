@@ -410,6 +410,17 @@ func (h *RequestLogHandler) GetDashboard(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "获取余额失败"})
 		return
 	}
+	userRepo := repository.NewUserRepository()
+	user, err := userRepo.GetByID(userID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "获取并发配置失败"})
+		return
+	}
+	currentConcurrency := amp.GetUserCurrentConcurrency(userID)
+	concurrencyLimit := 0
+	if user != nil {
+		concurrencyLimit = user.ConcurrencyLimit
+	}
 
 	today, week, month, topModels, dailyTrend, err := h.logService.GetDashboardStats(userID)
 	if err != nil {
@@ -468,8 +479,10 @@ func (h *RequestLogHandler) GetDashboard(c *gin.Context) {
 
 	c.JSON(http.StatusOK, gin.H{
 		"balance": gin.H{
-			"balanceMicros": balance,
-			"balanceUsd":    fmt.Sprintf("%.6f", float64(balance)/1e6),
+			"balanceMicros":      balance,
+			"balanceUsd":         fmt.Sprintf("%.6f", float64(balance)/1e6),
+			"currentConcurrency": currentConcurrency,
+			"concurrencyLimit":   concurrencyLimit,
 		},
 		"today":         formatPeriod(today),
 		"week":          formatPeriod(week),
@@ -577,17 +590,17 @@ func (h *RequestLogHandler) GetAdminDashboard(c *gin.Context) {
 			"totalBalanceUsd":    fmt.Sprintf("%.6f", float64(totalBalance)/1e6),
 			"userCount":          userCount,
 		},
-			"today":           formatPeriod(today),
-			"week":            formatPeriod(week),
-			"month":           formatPeriod(month),
-			"topModels":       topModelsList,
-			"dailyTrend":      trendList,
-			"throughputWindow": windowKey,
-			"throughputTrend": throughputList,
-			"ttfbTrend":       formatTimingTrend(ttfbTrend),
-			"durationTrend":   formatTimingTrend(durationTrend),
-			"cacheHitRates":   cacheHitRateList,
-		})
+		"today":            formatPeriod(today),
+		"week":             formatPeriod(week),
+		"month":            formatPeriod(month),
+		"topModels":        topModelsList,
+		"dailyTrend":       trendList,
+		"throughputWindow": windowKey,
+		"throughputTrend":  throughputList,
+		"ttfbTrend":        formatTimingTrend(ttfbTrend),
+		"durationTrend":    formatTimingTrend(durationTrend),
+		"cacheHitRates":    cacheHitRateList,
+	})
 }
 
 // AdminRequestLogsWS WebSocket 实时日志推送

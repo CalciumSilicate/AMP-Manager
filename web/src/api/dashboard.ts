@@ -55,6 +55,8 @@ export interface DashboardData {
   balance: {
     balanceMicros: number
     balanceUsd: string
+    currentConcurrency: number
+    concurrencyLimit: number
   }
   today: DashboardPeriodStats
   week: DashboardPeriodStats
@@ -88,7 +90,7 @@ export interface AdminDashboardData {
   cacheHitRates: DashboardCacheHitRate[]
 }
 
-export async function getAdminDashboard(throughputWindow = '24h'): Promise<AdminDashboardData> {
+export async function getAdminDashboard(throughputWindow = '1h'): Promise<AdminDashboardData> {
   const res = await authFetch(`${API_BASE}/admin/dashboard?throughputWindow=${encodeURIComponent(throughputWindow)}`)
   if (!res.ok) throw new Error('获取管理员仪表盘数据失败')
   return res.json()
