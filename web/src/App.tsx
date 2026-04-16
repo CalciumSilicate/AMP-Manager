@@ -17,6 +17,7 @@ function App() {
   const [user, setUser] = useState<UserState | null>(null)
   const [siteName, setSiteName] = useState('AMP Manager')
   const [siteTimeZone, setSiteTimeZone] = useState(DEFAULT_SITE_TIME_ZONE)
+  const [allowAmpProxySettings, setAllowAmpProxySettings] = useState(true)
 
   useEffect(() => {
     const token = localStorage.getItem('token')
@@ -39,6 +40,7 @@ function App() {
           if (config.timeZone) {
             setSiteTimeZone(config.timeZone)
           }
+          setAllowAmpProxySettings(config.allowAmpProxySettings !== false)
         }
       })
       .catch(() => {
@@ -95,8 +97,10 @@ function App() {
           isAdmin={user.isAdmin}
           siteName={siteName}
           siteTimeZone={siteTimeZone}
+          allowAmpProxySettings={allowAmpProxySettings}
           onSiteNameChange={setSiteName}
           onSiteTimeZoneChange={setSiteTimeZone}
+          onAllowAmpProxySettingsChange={setAllowAmpProxySettings}
           onLogout={handleLogout}
         />
       </>

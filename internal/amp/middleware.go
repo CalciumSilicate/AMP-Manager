@@ -17,6 +17,7 @@ import (
 
 	"ampmanager/internal/repository"
 	"ampmanager/internal/service"
+	"ampmanager/internal/service"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
@@ -202,6 +203,7 @@ var isFreeTierRequestRegex = regexp.MustCompile(`"isFreeTierRequest"\s*:\s*false
 var (
 	apiKeyRepo   = repository.NewAPIKeyRepository()
 	settingsRepo = repository.NewAmpSettingsRepository()
+	systemCfgSvc = service.NewSystemConfigService()
 )
 
 var groupRepo = repository.NewGroupRepository()
@@ -241,34 +243,52 @@ func APIKeyAuthMiddleware() gin.HandlerFunc {
 			return
 		}
 
-		settings, err := settingsRepo.GetByUserID(apiKeyRecord.UserID)
+		allowAmpProxySettings, err := systemCfgSvc.GetAllowAmpProxySettings()
 		if err != nil {
-			log.Errorf("amp api key auth: failed to load settings: %v", err)
+			log.Errorf("amp api key auth: failed to load system config: %v", err)
 			c.AbortWithStatusJSON(http.StatusInternalServerError, NewStandardError(http.StatusInternalServerError, "internal server error"))
-			return
-		}
-
-		if settings == nil {
-			c.AbortWithStatusJSON(http.StatusForbidden, NewStandardError(http.StatusForbidden, "amp proxy not configured for this user"))
-			return
-		}
-
-		if settings.UpstreamURL == "" {
-			c.AbortWithStatusJSON(http.StatusServiceUnavailable, NewStandardError(http.StatusServiceUnavailable, "upstream not configured"))
 			return
 		}
 
 		proxyCfg := &ProxyConfig{
 			UserID:            apiKeyRecord.UserID,
 			APIKeyID:          apiKeyRecord.ID,
-			UpstreamURL:       settings.UpstreamURL,
-			UpstreamAPIKey:    settings.UpstreamAPIKey,
-			ModelMappingsJSON: settings.ModelMappingsJSON,
-			Enabled:           settings.Enabled,
-			WebSearchMode:     settings.WebSearchMode,
-			NativeMode:        settings.NativeMode,
-			ShowBalanceInAd:   settings.ShowBalanceInAd,
-			Socks5Proxy:       settings.Socks5Proxy,
+			UpstreamURL:       "https://ampcode.com",
+			UpstreamAPIKey:    "",
+			ModelMappingsJSON: "",
+			Enabled:           false,
+			WebSearchMode:     "upstream",
+			NativeMode:        false,
+			ShowBalanceInAd:   false,
+			Socks5Proxy:       "",
+		}
+
+		if allowAmpProxySettings {
+			settings, err := settingsRepo.GetByUserID(apiKeyRecord.UserID)
+			if err != nil {
+				log.Errorf("amp api key auth: failed to load settings: %v", err)
+				c.AbortWithStatusJSON(http.StatusInternalServerError, NewStandardError(http.StatusInternalServerError, "internal server error"))
+				return
+			}
+
+			if settings == nil {
+				c.AbortWithStatusJSON(http.StatusForbidden, NewStandardError(http.StatusForbidden, "amp proxy not configured for this user"))
+				return
+			}
+
+			if settings.UpstreamURL == "" {
+				c.AbortWithStatusJSON(http.StatusServiceUnavailable, NewStandardError(http.StatusServiceUnavailable, "upstream not configured"))
+				return
+			}
+
+			proxyCfg.UpstreamURL = settings.UpstreamURL
+			proxyCfg.UpstreamAPIKey = settings.UpstreamAPIKey
+			proxyCfg.ModelMappingsJSON = settings.ModelMappingsJSON
+			proxyCfg.Enabled = settings.Enabled
+			proxyCfg.WebSearchMode = settings.WebSearchMode
+			proxyCfg.NativeMode = settings.NativeMode
+			proxyCfg.ShowBalanceInAd = settings.ShowBalanceInAd
+			proxyCfg.Socks5Proxy = settings.Socks5Proxy
 		}
 
 		rateMultiplier, groupIDs, err := groupRepo.GetMinRateMultiplierByUserID(apiKeyRecord.UserID)

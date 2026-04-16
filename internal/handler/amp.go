@@ -22,6 +22,16 @@ func NewAmpHandler() *AmpHandler {
 }
 
 func (h *AmpHandler) GetSettings(c *gin.Context) {
+	allowed, err := service.NewSystemConfigService().GetAllowAmpProxySettings()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "获取配置失败"})
+		return
+	}
+	if !allowed {
+		c.JSON(http.StatusForbidden, gin.H{"error": "Amp 设置已禁用"})
+		return
+	}
+
 	userID := middleware.GetUserID(c)
 
 	settings, err := h.ampService.GetSettings(userID)
@@ -34,6 +44,16 @@ func (h *AmpHandler) GetSettings(c *gin.Context) {
 }
 
 func (h *AmpHandler) UpdateSettings(c *gin.Context) {
+	allowed, err := service.NewSystemConfigService().GetAllowAmpProxySettings()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "获取配置失败"})
+		return
+	}
+	if !allowed {
+		c.JSON(http.StatusForbidden, gin.H{"error": "Amp 设置已禁用"})
+		return
+	}
+
 	userID := middleware.GetUserID(c)
 
 	var req model.AmpSettingsRequest
@@ -55,6 +75,16 @@ func (h *AmpHandler) UpdateSettings(c *gin.Context) {
 }
 
 func (h *AmpHandler) TestConnection(c *gin.Context) {
+	allowed, err := service.NewSystemConfigService().GetAllowAmpProxySettings()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "获取配置失败"})
+		return
+	}
+	if !allowed {
+		c.JSON(http.StatusForbidden, gin.H{"error": "Amp 设置已禁用"})
+		return
+	}
+
 	userID := middleware.GetUserID(c)
 
 	result, err := h.ampService.TestConnection(userID)

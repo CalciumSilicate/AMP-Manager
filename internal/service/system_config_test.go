@@ -31,15 +31,21 @@ func TestSystemConfigServiceSiteConfigDefaultsAndPersistence(t *testing.T) {
 	if defaultCfg.TimeZone != defaultSiteTimeZone {
 		t.Fatalf("default time zone mismatch: got %q want %q", defaultCfg.TimeZone, defaultSiteTimeZone)
 	}
+	if defaultCfg.AllowAmpProxySettings != defaultAllowAmpProxySettings {
+		t.Fatalf("default amp proxy setting mismatch: got %v want %v", defaultCfg.AllowAmpProxySettings, defaultAllowAmpProxySettings)
+	}
+
+	disabled := false
 
 	updatedCfg, err := svc.SetSiteConfig(model.SiteConfigRequest{
-		SiteName: "Ops Console",
-		TimeZone: "America/Los_Angeles",
+		SiteName:              "Ops Console",
+		TimeZone:              "America/Los_Angeles",
+		AllowAmpProxySettings: &disabled,
 	})
 	if err != nil {
 		t.Fatalf("SetSiteConfig returned error: %v", err)
 	}
-	if updatedCfg.SiteName != "Ops Console" || updatedCfg.TimeZone != "America/Los_Angeles" {
+	if updatedCfg.SiteName != "Ops Console" || updatedCfg.TimeZone != "America/Los_Angeles" || updatedCfg.AllowAmpProxySettings {
 		t.Fatalf("unexpected updated config: %+v", updatedCfg)
 	}
 
