@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useCallback, KeyboardEvent } from 'react'
+import { useState, useEffect, useMemo, useCallback, KeyboardEvent, useRef } from 'react'
 import { motion, tableStaggerContainer, tableRowVariants } from '@/lib/motion'
 import {
   listPrices,
@@ -7,6 +7,7 @@ import {
   listPriceContextRules,
   updatePriceContextRules,
   ModelPrice,
+  ModelPriceContextRule,
   ModelPriceContextRuleRequest,
   PriceStats,
 } from '../api/billing'
@@ -77,6 +78,53 @@ function fromPerMillionString(value: string): number {
   return parsed / 1_000_000
 }
 
+function toEditableContextRule(rule: ModelPriceContextRule): EditableContextRule {
+  return {
+    id: rule.id,
+    ruleName: rule.ruleName,
+    minTokens: String(rule.minTokens),
+    maxTokens: rule.maxTokens ? String(rule.maxTokens) : '',
+    inputPerMillion: toPerMillionString(rule.inputCostPerToken),
+    outputPerMillion: toPerMillionString(rule.outputCostPerToken),
+    cacheReadPerMillion: toPerMillionString(rule.cacheReadInputPerToken),
+    cacheCreationPerMillion: toPerMillionString(rule.cacheCreationPerToken),
+  }
+}
+
+function cloneEditableContextRules(rules: EditableContextRule[]): EditableContextRule[] {
+  return rules.map((rule) => ({ ...rule }))
+}
+
+function createEmptyContextRule(): EditableContextRule {
+  return {
+    id: crypto.randomUUID(),
+    ruleName: '',
+    minTokens: '',
+    maxTokens: '',
+    inputPerMillion: '',
+    outputPerMillion: '',
+    cacheReadPerMillion: '',
+    cacheCreationPerMillion: '',
+  }
+}
+
+function normalizeEditableContextRule(rule: EditableContextRule) {
+  return {
+    ruleName: rule.ruleName.trim(),
+    minTokens: rule.minTokens.replace(/\D/g, ''),
+    maxTokens: rule.maxTokens.replace(/\D/g, ''),
+    inputPerMillion: rule.inputPerMillion,
+    outputPerMillion: rule.outputPerMillion,
+    cacheReadPerMillion: rule.cacheReadPerMillion,
+    cacheCreationPerMillion: rule.cacheCreationPerMillion,
+  }
+}
+
+function areEditableContextRulesEqual(left: EditableContextRule[], right: EditableContextRule[]): boolean {
+  if (left.length !== right.length) return false
+  return JSON.stringify(left.map(normalizeEditableContextRule)) === JSON.stringify(right.map(normalizeEditableContextRule))
+}
+
 export default function PricesPage() {
   const [prices, setPrices] = useState<ModelPrice[]>([])
   const [stats, setStats] = useState<PriceStats | null>(null)
@@ -89,9 +137,12 @@ export default function PricesPage() {
   const [page, setPage] = useState(1)
   const [pageSize, setPageSize] = useState(20)
   const [rulesDialogModel, setRulesDialogModel] = useState<ModelPrice | null>(null)
-  const [contextRules, setContextRules] = useState<EditableContextRule[]>([])
+  const [rulesDraftModelName, setRulesDraftModelName] = useState<string | null>(null)
+  const [loadedRulesSnapshot, setLoadedRulesSnapshot] = useState<EditableContextRule[]>([])
+  const [contextRulesDraft, setContextRulesDraft] = useState<EditableContextRule[]>([])
   const [rulesLoading, setRulesLoading] = useState(false)
   const [rulesSaving, setRulesSaving] = useState(false)
+  const rulesRequestIdRef = useRef(0)
 
   const loadData = useCallback(async (signal?: AbortSignal) => {
     try {
@@ -196,55 +247,91 @@ export default function PricesPage() {
     setPage(1)
   }
 
-  const openRulesDialog = async (price: ModelPrice) => {
+  const clearRulesDialogState = useCallback(() => {
+    rulesRequestIdRef.current += 1
+    setRulesDialogModel(null)
+    setRulesDraftModelName(null)
+    setLoadedRulesSnapshot([])
+    setContextRulesDraft([])
+    setRulesLoading(false)
+  }, [])
+
+  const isRulesDirty = useMemo(() => {
+    if (!rulesDraftModelName) return false
+    return !areEditableContextRulesEqual(loadedRulesSnapshot, contextRulesDraft)
+  }, [contextRulesDraft, loadedRulesSnapshot, rulesDraftModelName])
+
+  const loadRulesForModel = useCallback(async (price: ModelPrice) => {
+    const requestId = rulesRequestIdRef.current + 1
+    rulesRequestIdRef.current = requestId
+
     setRulesDialogModel(price)
+    setRulesDraftModelName(price.model)
     setRulesLoading(true)
-    setContextRules([])
+    setLoadedRulesSnapshot([])
+    setContextRulesDraft([])
     try {
       const result = await listPriceContextRules(price.model)
-      setContextRules((result.items || []).map((rule) => ({
-        id: rule.id,
-        ruleName: rule.ruleName,
-        minTokens: String(rule.minTokens),
-        maxTokens: rule.maxTokens ? String(rule.maxTokens) : '',
-        inputPerMillion: toPerMillionString(rule.inputCostPerToken),
-        outputPerMillion: toPerMillionString(rule.outputCostPerToken),
-        cacheReadPerMillion: toPerMillionString(rule.cacheReadInputPerToken),
-        cacheCreationPerMillion: toPerMillionString(rule.cacheCreationPerToken),
-      })))
+      if (requestId !== rulesRequestIdRef.current) return
+
+      const snapshot = (result.items || []).map(toEditableContextRule)
+      setLoadedRulesSnapshot(snapshot)
+      setContextRulesDraft(cloneEditableContextRules(snapshot))
+      setError('')
     } catch (err) {
+      if (requestId !== rulesRequestIdRef.current) return
       setError(err instanceof Error ? err.message : '加载上下文规则失败')
     } finally {
-      setRulesLoading(false)
+      if (requestId === rulesRequestIdRef.current) {
+        setRulesLoading(false)
+      }
     }
+  }, [])
+
+  const requestCloseRulesDialog = useCallback(() => {
+    if (rulesSaving) return false
+    if (isRulesDirty && !window.confirm('关闭将丢弃未保存的上下文规则，确定继续吗？')) {
+      return false
+    }
+    clearRulesDialogState()
+    return true
+  }, [clearRulesDialogState, isRulesDirty, rulesSaving])
+
+  const openRulesDialog = async (price: ModelPrice) => {
+    const nextModelName = price.model
+    const isSameModel = rulesDraftModelName === nextModelName
+
+    if (isSameModel) {
+      setRulesDialogModel(price)
+      if (rulesLoading || isRulesDirty) {
+        return
+      }
+    } else if (rulesDraftModelName && isRulesDirty) {
+      const shouldDiscard = window.confirm(`切换到 ${nextModelName} 将丢弃当前未保存的上下文规则，确定继续吗？`)
+      if (!shouldDiscard) return
+    }
+
+    await loadRulesForModel(price)
   }
 
   const addContextRule = () => {
-    setContextRules((prev) => [...prev, {
-      id: crypto.randomUUID(),
-      ruleName: '',
-      minTokens: '',
-      maxTokens: '',
-      inputPerMillion: '',
-      outputPerMillion: '',
-      cacheReadPerMillion: '',
-      cacheCreationPerMillion: '',
-    }])
+    setContextRulesDraft((prev) => [...prev, createEmptyContextRule()])
   }
 
   const updateContextRule = (id: string, field: keyof EditableContextRule, value: string) => {
-    setContextRules((prev) => prev.map((rule) => rule.id === id ? { ...rule, [field]: value } : rule))
+    setContextRulesDraft((prev) => prev.map((rule) => rule.id === id ? { ...rule, [field]: value } : rule))
   }
 
   const removeContextRule = (id: string) => {
-    setContextRules((prev) => prev.filter((rule) => rule.id !== id))
+    setContextRulesDraft((prev) => prev.filter((rule) => rule.id !== id))
   }
 
   const handleSaveContextRules = async () => {
-    if (!rulesDialogModel) return
+    const modelName = rulesDraftModelName || rulesDialogModel?.model
+    if (!modelName) return
     setRulesSaving(true)
     try {
-      const payload: ModelPriceContextRuleRequest[] = contextRules.map((rule, index) => ({
+      const payload: ModelPriceContextRuleRequest[] = contextRulesDraft.map((rule, index) => ({
         ruleName: rule.ruleName.trim(),
         minTokens: Number.parseInt(rule.minTokens || '0', 10) || 0,
         maxTokens: rule.maxTokens.trim() ? Number.parseInt(rule.maxTokens, 10) : undefined,
@@ -254,10 +341,9 @@ export default function PricesPage() {
         cacheCreationPerToken: fromPerMillionString(rule.cacheCreationPerMillion),
         sortOrder: index,
       }))
-      await updatePriceContextRules(rulesDialogModel.model, payload)
-      setSuccess(`已更新 ${rulesDialogModel.model} 的上下文规则`)
-      setRulesDialogModel(null)
-      setContextRules([])
+      await updatePriceContextRules(modelName, payload)
+      setSuccess(`已更新 ${modelName} 的上下文规则`)
+      clearRulesDialogState()
     } catch (err) {
       setError(err instanceof Error ? err.message : '保存上下文规则失败')
     } finally {
@@ -405,7 +491,7 @@ export default function PricesPage() {
                 <CardTitle>价格列表</CardTitle>
                 <CardDescription>共 {filteredPrices.length} 条记录</CardDescription>
               </div>
-              <Button variant="outline" onClick={() => loadData()}>刷新</Button>
+              <Button variant="outline" onClick={() => void loadData()}>刷新</Button>
             </div>
           </CardHeader>
           <CardContent>
@@ -509,8 +595,7 @@ export default function PricesPage() {
         open={!!rulesDialogModel}
         onOpenChange={(open) => {
           if (!open) {
-            setRulesDialogModel(null)
-            setContextRules([])
+            requestCloseRulesDialog()
           }
         }}
       >
@@ -526,13 +611,13 @@ export default function PricesPage() {
             </div>
             {rulesLoading ? (
               <div className="py-8 text-center text-muted-foreground">加载中...</div>
-            ) : contextRules.length === 0 ? (
+            ) : contextRulesDraft.length === 0 ? (
               <div className="rounded-md border border-dashed px-4 py-8 text-center text-sm text-muted-foreground">
                 暂无上下文规则
               </div>
             ) : (
               <div className="space-y-3">
-                {contextRules.map((rule) => (
+                {contextRulesDraft.map((rule) => (
                   <div key={rule.id} className="grid gap-3 rounded-lg border border-border/70 p-4 md:grid-cols-4">
                     <Input value={rule.ruleName} onChange={(e) => updateContextRule(rule.id, 'ruleName', e.target.value)} placeholder="规则名，例如 长上下文" />
                     <Input value={rule.minTokens} onChange={(e) => updateContextRule(rule.id, 'minTokens', e.target.value.replace(/\D/g, ''))} placeholder="最小 tokens" />
@@ -548,7 +633,7 @@ export default function PricesPage() {
             )}
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setRulesDialogModel(null)}>取消</Button>
+            <Button variant="outline" onClick={() => requestCloseRulesDialog()}>取消</Button>
             <Button onClick={() => void handleSaveContextRules()} disabled={rulesSaving}>
               {rulesSaving ? '保存中...' : '保存规则'}
             </Button>
