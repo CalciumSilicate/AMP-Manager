@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, useCallback } from 'react'
 import { motion, AnimatePresence } from '@/lib/motion'
 import { formatDateTime } from '@/lib/formatters'
 import { SITE_TIME_ZONE_OPTIONS } from '@/lib/site-config'
+import { getPurchaseSettings, updatePurchaseSettings } from '@/api/purchase'
 import {
   getDatabaseInfo,
   DatabaseInfo,
@@ -110,6 +111,8 @@ export default function SystemSettings({
   const [siteTimeZoneInput, setSiteTimeZoneInput] = useState(siteTimeZone)
   const [allowAmpProxySettingsInput, setAllowAmpProxySettingsInput] = useState(allowAmpProxySettings)
   const [siteConfigSaving, setSiteConfigSaving] = useState(false)
+  const [balanceTopupPriceInput, setBalanceTopupPriceInput] = useState('0')
+  const [balanceTopupSaving, setBalanceTopupSaving] = useState(false)
   const [billingRuntimeConfig, setBillingRuntimeConfig] = useState<BillingRuntimeConfig | null>(null)
   const [billingRuntimeLoading, setBillingRuntimeLoading] = useState(false)
   const [billingRuntimeStats, setBillingRuntimeStats] = useState<BillingRuntimeStats | null>(null)
@@ -213,6 +216,15 @@ export default function SystemSettings({
     }
   }, [])
 
+  const fetchBalanceTopupSettings = useCallback(async () => {
+    try {
+      const data = await getPurchaseSettings()
+      setBalanceTopupPriceInput(String(data.balanceTopupPriceCnyPerUsd || 0))
+    } catch (err) {
+      console.error('获取余额充值单价失败:', err)
+    }
+  }, [])
+
   const fetchBillingRuntimeStats = useCallback(async (silent = false) => {
     if (!silent) {
       setBillingRuntimeStatsLoading(true)
@@ -240,7 +252,9 @@ export default function SystemSettings({
     fetchCacheTTLConfig()
     fetchBillingRuntimeConfig()
     fetchBillingRuntimeStats(true)
+    fetchBalanceTopupSettings()
   }, [
+    fetchBalanceTopupSettings,
     fetchBillingRuntimeConfig,
     fetchBillingRuntimeStats,
     fetchCacheTTLConfig,
@@ -284,6 +298,35 @@ export default function SystemSettings({
   const handleBillingRuntimeConfigChange = (key: keyof BillingRuntimeConfig, value: string | number | boolean) => {
     if (!billingRuntimeConfig) return
     setBillingRuntimeConfig({ ...billingRuntimeConfig, [key]: value } as BillingRuntimeConfig)
+  }
+
+  const handleSaveBalanceTopupPrice = async () => {
+    const price = Number.parseFloat(balanceTopupPriceInput)
+    if (Number.isNaN(price) || price < 0) {
+      showMessage('error', '单价格式错误')
+      return
+    }
+
+    setBalanceTopupSaving(true)
+    try {
+      const current = await getPurchaseSettings()
+      await updatePurchaseSettings({
+        purchaseEnabled: current.purchaseEnabled,
+        debugAutoPaid: current.debugAutoPaid,
+        alipayAppId: current.alipayAppId,
+        alipayPid: current.alipayPid,
+        alipayEnvironment: current.alipayEnvironment,
+        alipayNotifyUrl: current.alipayNotifyUrl,
+        alipayPublicKey: current.alipayPublicKey,
+        balanceTopupPriceCnyPerUsd: price,
+      })
+      setBalanceTopupPriceInput(String(price))
+      showMessage('success', '充值单价已保存')
+    } catch (err) {
+      showMessage('error', err instanceof Error ? err.message : '保存失败')
+    } finally {
+      setBalanceTopupSaving(false)
+    }
   }
 
   const handleSaveBillingRuntimeConfig = async () => {
@@ -600,54 +643,81 @@ export default function SystemSettings({
           className="space-y-6"
         >
           {activeTab === 'site' && (
-            <Card>
-              <CardHeader>
-                <CardTitle>网站配置</CardTitle>
-                <CardDescription>同步影响登录、注册、左上角、浏览器标题和全站时间显示。</CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <div className="max-w-xl space-y-2">
-                  <Label htmlFor="siteName">网站名称</Label>
-                  <Input
-                    id="siteName"
-                    value={siteNameInput}
-                    onChange={(e) => setSiteNameInput(e.target.value)}
-                    placeholder="AMP Manager"
-                    maxLength={64}
-                  />
-                </div>
-                <div className="max-w-xl space-y-2">
-                  <Label htmlFor="siteTimeZone">网站时区</Label>
-                  <Select value={siteTimeZoneInput} onValueChange={setSiteTimeZoneInput}>
-                    <SelectTrigger id="siteTimeZone">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {siteTimeZoneOptions.map((option) => (
-                        <SelectItem key={option.value} value={option.value}>
-                          {option.label}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div className="max-w-xl rounded-lg border p-4">
-                  <div className="flex items-center justify-between gap-4">
-                    <Label htmlFor="allowAmpProxySettings">允许设置 Amp 代理</Label>
-                    <Switch
-                      id="allowAmpProxySettings"
-                      checked={allowAmpProxySettingsInput}
-                      onCheckedChange={setAllowAmpProxySettingsInput}
+            <>
+              <Card>
+                <CardHeader>
+                  <CardTitle>网站配置</CardTitle>
+                  <CardDescription>同步影响登录、注册、左上角、浏览器标题和全站时间显示。</CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  <div className="max-w-xl space-y-2">
+                    <Label htmlFor="siteName">网站名称</Label>
+                    <Input
+                      id="siteName"
+                      value={siteNameInput}
+                      onChange={(e) => setSiteNameInput(e.target.value)}
+                      placeholder="AMP Manager"
+                      maxLength={64}
                     />
                   </div>
-                </div>
-                <div className="flex justify-end">
-                  <Button onClick={handleSaveSiteConfig} disabled={siteConfigSaving}>
-                    {siteConfigSaving ? '保存中...' : '保存设置'}
-                  </Button>
-                </div>
-              </CardContent>
-            </Card>
+                  <div className="max-w-xl space-y-2">
+                    <Label htmlFor="siteTimeZone">网站时区</Label>
+                    <Select value={siteTimeZoneInput} onValueChange={setSiteTimeZoneInput}>
+                      <SelectTrigger id="siteTimeZone">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {siteTimeZoneOptions.map((option) => (
+                          <SelectItem key={option.value} value={option.value}>
+                            {option.label}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="max-w-xl rounded-lg border p-4">
+                    <div className="flex items-center justify-between gap-4">
+                      <Label htmlFor="allowAmpProxySettings">允许设置 Amp 代理</Label>
+                      <Switch
+                        id="allowAmpProxySettings"
+                        checked={allowAmpProxySettingsInput}
+                        onCheckedChange={setAllowAmpProxySettingsInput}
+                      />
+                    </div>
+                  </div>
+                  <div className="flex justify-end">
+                    <Button onClick={handleSaveSiteConfig} disabled={siteConfigSaving}>
+                      {siteConfigSaving ? '保存中...' : '保存设置'}
+                    </Button>
+                  </div>
+                </CardContent>
+              </Card>
+
+              <Card>
+                <CardHeader>
+                  <CardTitle>余额充值</CardTitle>
+                  <CardDescription>设置充值单价。</CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  <div className="max-w-xs space-y-2">
+                    <Label htmlFor="balanceTopupPrice">元/刀</Label>
+                    <Input
+                      id="balanceTopupPrice"
+                      type="number"
+                      min="0"
+                      step="0.01"
+                      value={balanceTopupPriceInput}
+                      onChange={(e) => setBalanceTopupPriceInput(e.target.value)}
+                    />
+                  </div>
+                  <div className="flex justify-end">
+                    <Button onClick={handleSaveBalanceTopupPrice} disabled={balanceTopupSaving}>
+                      {balanceTopupSaving ? '保存中...' : '保存单价'}
+                    </Button>
+                  </div>
+                </CardContent>
+              </Card>
+            </>
           )}
 
           {activeTab === 'database' && (

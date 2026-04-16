@@ -105,14 +105,15 @@ func Setup() *gin.Engine {
 			me.PUT("/billing/priority", billingSettingHandler.UpdateBillingPriority)
 			me.GET("/subscription", billingSettingHandler.GetMySubscription)
 
-			purchase := me.Group("/purchase")
-			{
-				purchase.GET("/products", purchaseHandler.GetCatalog)
-				purchase.GET("/orders", purchaseHandler.ListMyOrders)
-				purchase.POST("/orders", purchaseHandler.CreateOrder)
-				purchase.GET("/orders/:orderNo", purchaseHandler.GetMyOrder)
-				purchase.POST("/orders/:orderNo/refresh", purchaseHandler.RefreshMyOrder)
-			}
+				purchase := me.Group("/purchase")
+				{
+					purchase.GET("/products", purchaseHandler.GetCatalog)
+					purchase.GET("/orders", purchaseHandler.ListMyOrders)
+					purchase.POST("/orders", purchaseHandler.CreateOrder)
+					purchase.POST("/balance-topup/orders", purchaseHandler.CreateBalanceTopupOrder)
+					purchase.GET("/orders/:orderNo", purchaseHandler.GetMyOrder)
+					purchase.POST("/orders/:orderNo/refresh", purchaseHandler.RefreshMyOrder)
+				}
 
 			redeem := me.Group("/redeem")
 			{

@@ -30,9 +30,9 @@ func (r *PurchaseOrderRepository) Create(order *model.PurchaseOrder) error {
 	db := database.GetDB()
 	_, err := db.Exec(
 		`INSERT INTO purchase_orders
-		 (id, order_no, user_id, product_id, subscription_plan_id, duration_days, amount_cny_cent, payment_channel, payment_status, fulfillment_status,
+		 (id, order_no, user_id, product_id, subscription_plan_id, duration_days, amount_cny_cent, order_kind, balance_topup_micros, payment_channel, payment_status, fulfillment_status,
 		  alipay_trade_no, alipay_qr_code, alipay_qr_url, expires_at, paid_at, fulfilled_at, failure_reason, created_at, updated_at)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		order.ID,
 		order.OrderNo,
 		order.UserID,
@@ -40,6 +40,8 @@ func (r *PurchaseOrderRepository) Create(order *model.PurchaseOrder) error {
 		order.SubscriptionPlanID,
 		order.DurationDays,
 		order.AmountCNYCent,
+		order.OrderKind,
+		order.BalanceTopupMicros,
 		order.PaymentChannel,
 		order.PaymentStatus,
 		order.FulfillmentStatus,
@@ -60,7 +62,7 @@ func (r *PurchaseOrderRepository) GetByOrderNo(orderNo string) (*model.PurchaseO
 	db := database.GetDB()
 	return r.getOrderByQuery(
 		db.QueryRow(
-			`SELECT id, order_no, user_id, product_id, subscription_plan_id, duration_days, amount_cny_cent, payment_channel, payment_status,
+			`SELECT id, order_no, user_id, product_id, subscription_plan_id, duration_days, amount_cny_cent, order_kind, balance_topup_micros, payment_channel, payment_status,
 			        fulfillment_status, alipay_trade_no, alipay_qr_code, alipay_qr_url, expires_at, paid_at, fulfilled_at, failure_reason,
 			        created_at, updated_at
 			   FROM purchase_orders
@@ -195,6 +197,8 @@ func (r *PurchaseOrderRepository) getOrderByQuery(row *sql.Row) (*model.Purchase
 		&order.SubscriptionPlanID,
 		&order.DurationDays,
 		&order.AmountCNYCent,
+		&order.OrderKind,
+		&order.BalanceTopupMicros,
 		&order.PaymentChannel,
 		&order.PaymentStatus,
 		&order.FulfillmentStatus,
@@ -216,7 +220,7 @@ func (r *PurchaseOrderRepository) getOrderByQuery(row *sql.Row) (*model.Purchase
 
 func (r *PurchaseOrderRepository) detailSelectSQL() string {
 	return `SELECT o.id, o.order_no, o.user_id, u.username, o.product_id, p.name, p.summary, o.subscription_plan_id, sp.name,
-	               o.duration_days, o.amount_cny_cent, o.payment_channel, o.payment_status, o.fulfillment_status,
+	               o.duration_days, o.amount_cny_cent, o.order_kind, o.balance_topup_micros, o.payment_channel, o.payment_status, o.fulfillment_status,
 	               o.alipay_trade_no, o.alipay_qr_code, o.alipay_qr_url, o.expires_at, o.paid_at, o.fulfilled_at,
 	               o.failure_reason, o.created_at, o.updated_at
 	          FROM purchase_orders o
@@ -239,6 +243,8 @@ func (r *PurchaseOrderRepository) getOrderDetailByQuery(row *sql.Row) (*model.Pu
 		&order.SubscriptionPlanName,
 		&order.DurationDays,
 		&order.AmountCNYCent,
+		&order.OrderKind,
+		&order.BalanceTopupMicros,
 		&order.PaymentChannel,
 		&order.PaymentStatus,
 		&order.FulfillmentStatus,
@@ -274,6 +280,8 @@ func (r *PurchaseOrderRepository) scanOrderDetails(rows *sql.Rows) ([]*model.Pur
 			&order.SubscriptionPlanName,
 			&order.DurationDays,
 			&order.AmountCNYCent,
+			&order.OrderKind,
+			&order.BalanceTopupMicros,
 			&order.PaymentChannel,
 			&order.PaymentStatus,
 			&order.FulfillmentStatus,

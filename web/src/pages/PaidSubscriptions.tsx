@@ -50,7 +50,11 @@ function paymentLabel(status: PurchaseOrder['paymentStatus']): string {
   }
 }
 
-function fulfillmentLabel(status: PurchaseOrder['fulfillmentStatus']): string {
+function fulfillmentLabel(order: PurchaseOrder): string {
+  if (order.orderKind === 'balance_topup') {
+    return order.fulfillmentStatus === 'fulfilled' ? '已到账' : order.fulfillmentStatus === 'failed' ? '入账失败' : '待入账'
+  }
+  const status = order.fulfillmentStatus
   switch (status) {
     case 'fulfilled':
       return '已开通'
@@ -74,7 +78,8 @@ function paymentTone(status: PurchaseOrder['paymentStatus']): string {
   }
 }
 
-function fulfillmentTone(status: PurchaseOrder['fulfillmentStatus']): string {
+function fulfillmentTone(order: PurchaseOrder): string {
+  const status = order.fulfillmentStatus
   switch (status) {
     case 'fulfilled':
       return 'border-sky-200 bg-sky-50 text-sky-700'
@@ -572,8 +577,8 @@ export default function PaidSubscriptions() {
                             </Badge>
                           </TableCell>
                           <TableCell>
-                            <Badge variant="outline" className={fulfillmentTone(order.fulfillmentStatus)}>
-                              {fulfillmentLabel(order.fulfillmentStatus)}
+                            <Badge variant="outline" className={fulfillmentTone(order)}>
+                              {fulfillmentLabel(order)}
                             </Badge>
                           </TableCell>
                           <TableCell className="text-xs text-muted-foreground">{formatDateTime(order.createdAt)}</TableCell>

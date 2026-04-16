@@ -26,6 +26,13 @@ const (
 	PurchaseFulfillmentStatusFailed    PurchaseFulfillmentStatus = "failed"
 )
 
+type PurchaseOrderKind string
+
+const (
+	PurchaseOrderKindSubscription PurchaseOrderKind = "subscription"
+	PurchaseOrderKindBalanceTopup PurchaseOrderKind = "balance_topup"
+)
+
 type AlipayEnvironment string
 
 const (
@@ -34,37 +41,40 @@ const (
 )
 
 type PurchaseSettings struct {
-	PurchaseEnabled   bool              `json:"purchaseEnabled"`
-	DebugAutoPaid     bool              `json:"debugAutoPaid"`
-	AlipayAppID       string            `json:"alipayAppId"`
-	AlipayPID         string            `json:"alipayPid"`
-	AlipayEnvironment AlipayEnvironment `json:"alipayEnvironment"`
-	AlipayNotifyURL   string            `json:"alipayNotifyUrl"`
-	AlipayPublicKey   string            `json:"alipayPublicKey"`
-	AlipayPrivateKey  string            `json:"-"`
+	PurchaseEnabled              bool              `json:"purchaseEnabled"`
+	DebugAutoPaid                bool              `json:"debugAutoPaid"`
+	AlipayAppID                  string            `json:"alipayAppId"`
+	AlipayPID                    string            `json:"alipayPid"`
+	AlipayEnvironment            AlipayEnvironment `json:"alipayEnvironment"`
+	AlipayNotifyURL              string            `json:"alipayNotifyUrl"`
+	AlipayPublicKey              string            `json:"alipayPublicKey"`
+	AlipayPrivateKey             string            `json:"-"`
+	BalanceTopupPriceCnyCentPerUSD int64          `json:"-"`
 }
 
 type PurchaseSettingsResponse struct {
-	PurchaseEnabled   bool              `json:"purchaseEnabled"`
-	DebugAutoPaid     bool              `json:"debugAutoPaid"`
-	AlipayAppID       string            `json:"alipayAppId"`
-	AlipayPID         string            `json:"alipayPid"`
-	AlipayEnvironment AlipayEnvironment `json:"alipayEnvironment"`
-	AlipayNotifyURL   string            `json:"alipayNotifyUrl"`
-	AlipayPublicKey   string            `json:"alipayPublicKey"`
-	PrivateKeySet     bool              `json:"privateKeySet"`
-	PaymentConfigured bool              `json:"paymentConfigured"`
+	PurchaseEnabled            bool              `json:"purchaseEnabled"`
+	DebugAutoPaid              bool              `json:"debugAutoPaid"`
+	AlipayAppID                string            `json:"alipayAppId"`
+	AlipayPID                  string            `json:"alipayPid"`
+	AlipayEnvironment          AlipayEnvironment `json:"alipayEnvironment"`
+	AlipayNotifyURL            string            `json:"alipayNotifyUrl"`
+	AlipayPublicKey            string            `json:"alipayPublicKey"`
+	PrivateKeySet              bool              `json:"privateKeySet"`
+	PaymentConfigured          bool              `json:"paymentConfigured"`
+	BalanceTopupPriceCnyPerUsd float64           `json:"balanceTopupPriceCnyPerUsd"`
 }
 
 type PurchaseSettingsRequest struct {
-	PurchaseEnabled   bool              `json:"purchaseEnabled"`
-	DebugAutoPaid     bool              `json:"debugAutoPaid"`
-	AlipayAppID       string            `json:"alipayAppId" binding:"max=64"`
-	AlipayPID         string            `json:"alipayPid" binding:"max=64"`
-	AlipayEnvironment AlipayEnvironment `json:"alipayEnvironment" binding:"omitempty,oneof=sandbox production"`
-	AlipayNotifyURL   string            `json:"alipayNotifyUrl" binding:"max=255"`
-	AlipayPublicKey   string            `json:"alipayPublicKey" binding:"max=8192"`
-	AlipayPrivateKey  string            `json:"alipayPrivateKey" binding:"max=8192"`
+	PurchaseEnabled            bool              `json:"purchaseEnabled"`
+	DebugAutoPaid              bool              `json:"debugAutoPaid"`
+	AlipayAppID                string            `json:"alipayAppId" binding:"max=64"`
+	AlipayPID                  string            `json:"alipayPid" binding:"max=64"`
+	AlipayEnvironment          AlipayEnvironment `json:"alipayEnvironment" binding:"omitempty,oneof=sandbox production"`
+	AlipayNotifyURL            string            `json:"alipayNotifyUrl" binding:"max=255"`
+	AlipayPublicKey            string            `json:"alipayPublicKey" binding:"max=8192"`
+	AlipayPrivateKey           string            `json:"alipayPrivateKey" binding:"max=8192"`
+	BalanceTopupPriceCnyPerUsd *float64          `json:"balanceTopupPriceCnyPerUsd,omitempty"`
 }
 
 type PurchaseProduct struct {
@@ -115,6 +125,8 @@ type PurchaseOrder struct {
 	SubscriptionPlanID string                    `json:"subscriptionPlanId"`
 	DurationDays       int                       `json:"durationDays"`
 	AmountCNYCent      int64                     `json:"amountCnyCent"`
+	OrderKind          PurchaseOrderKind         `json:"orderKind"`
+	BalanceTopupMicros int64                     `json:"balanceTopupMicros"`
 	PaymentChannel     PaymentChannel            `json:"paymentChannel"`
 	PaymentStatus      PurchasePaymentStatus     `json:"paymentStatus"`
 	FulfillmentStatus  PurchaseFulfillmentStatus `json:"fulfillmentStatus"`
@@ -141,6 +153,8 @@ type PurchaseOrderResponse struct {
 	SubscriptionPlanName  string                    `json:"subscriptionPlanName"`
 	DurationDays          int                       `json:"durationDays"`
 	AmountCNYCent         int64                     `json:"amountCnyCent"`
+	OrderKind             PurchaseOrderKind         `json:"orderKind"`
+	BalanceTopupMicros    int64                     `json:"balanceTopupMicros"`
 	PaymentChannel        PaymentChannel            `json:"paymentChannel"`
 	PaymentStatus         PurchasePaymentStatus     `json:"paymentStatus"`
 	FulfillmentStatus     PurchaseFulfillmentStatus `json:"fulfillmentStatus"`
@@ -158,12 +172,14 @@ type PurchaseOrderResponse struct {
 }
 
 type PurchaseCatalogResponse struct {
-	PurchaseEnabled     bool                       `json:"purchaseEnabled"`
-	DebugAutoPaid       bool                       `json:"debugAutoPaid"`
-	PaymentConfigured   bool                       `json:"paymentConfigured"`
-	RenewalRule         string                     `json:"renewalRule"`
-	CurrentSubscription *UserSubscriptionResponse  `json:"currentSubscription"`
-	Products            []*PurchaseProductResponse `json:"products"`
+	PurchaseEnabled              bool                       `json:"purchaseEnabled"`
+	DebugAutoPaid                bool                       `json:"debugAutoPaid"`
+	PaymentConfigured            bool                       `json:"paymentConfigured"`
+	RenewalRule                  string                     `json:"renewalRule"`
+	CurrentSubscription          *UserSubscriptionResponse  `json:"currentSubscription"`
+	Products                     []*PurchaseProductResponse `json:"products"`
+	BalanceTopupEnabled          bool                       `json:"balanceTopupEnabled"`
+	BalanceTopupPriceCnyPerUsd   float64                    `json:"balanceTopupPriceCnyPerUsd"`
 }
 
 type PurchaseOrderListResponse struct {
@@ -173,6 +189,10 @@ type PurchaseOrderListResponse struct {
 
 type CreatePurchaseOrderRequest struct {
 	ProductID string `json:"productId" binding:"required"`
+}
+
+type CreateBalanceTopupOrderRequest struct {
+	AmountUsd float64 `json:"amountUsd" binding:"required,gt=0"`
 }
 
 type PurchaseOrderFilters struct {

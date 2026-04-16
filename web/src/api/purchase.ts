@@ -35,6 +35,7 @@ export interface PurchaseSettingsResponse {
   alipayPublicKey: string
   privateKeySet: boolean
   paymentConfigured: boolean
+  balanceTopupPriceCnyPerUsd: number
 }
 
 export interface PurchaseSettingsRequest {
@@ -46,6 +47,7 @@ export interface PurchaseSettingsRequest {
   alipayNotifyUrl: string
   alipayPublicKey: string
   alipayPrivateKey?: string
+  balanceTopupPriceCnyPerUsd?: number
 }
 
 export interface PurchaseProduct {
@@ -86,6 +88,8 @@ export interface PurchaseOrder {
   subscriptionPlanName: string
   durationDays: number
   amountCnyCent: number
+  orderKind: 'subscription' | 'balance_topup'
+  balanceTopupMicros: number
   paymentChannel: 'alipay'
   paymentStatus: PurchasePaymentStatus
   fulfillmentStatus: PurchaseFulfillmentStatus
@@ -109,6 +113,8 @@ export interface PurchaseCatalogResponse {
   renewalRule: string
   currentSubscription: UserSubscriptionResponse | null
   products: PurchaseProduct[]
+  balanceTopupEnabled: boolean
+  balanceTopupPriceCnyPerUsd: number
 }
 
 export interface PurchaseOrderListResponse {
@@ -124,6 +130,13 @@ export async function createPurchaseOrder(productId: string): Promise<PurchaseOr
   return fetchJson<PurchaseOrder>(`${API_BASE}/me/purchase/orders`, {
     method: 'POST',
     body: JSON.stringify({ productId }),
+  })
+}
+
+export async function createBalanceTopupOrder(amountUsd: number): Promise<PurchaseOrder> {
+  return fetchJson<PurchaseOrder>(`${API_BASE}/me/purchase/balance-topup/orders`, {
+    method: 'POST',
+    body: JSON.stringify({ amountUsd }),
   })
 }
 

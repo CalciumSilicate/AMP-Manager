@@ -6,6 +6,7 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
+	"math"
 	"net/url"
 	"strings"
 	"time"
@@ -26,6 +27,13 @@ var (
 	ErrPurchaseProductHasOrders = errors.New("该商品已有订单，无法删除")
 	ErrDifferentPlanActive      = errors.New("当前账号已有其他生效中的订阅，暂不支持切换购买")
 	ErrPermanentSubscription    = errors.New("当前账号已有永久订阅，无法续费")
+	ErrBalanceTopupUnavailable  = errors.New("余额充值未开启")
+	ErrInvalidBalanceTopupAmount = errors.New("充值金额无效")
+)
+
+const (
+	balanceTopupPlanID    = "system-balance-topup-plan"
+	balanceTopupProductID = "system-balance-topup-product"
 )
 
 type purchasePaymentGateway interface {
@@ -123,12 +131,14 @@ func (s *PurchaseService) GetCatalog(userID string) (*model.PurchaseCatalogRespo
 	}
 
 	return &model.PurchaseCatalogResponse{
-		PurchaseEnabled:     settings.PurchaseEnabled,
-		DebugAutoPaid:       settings.DebugAutoPaid,
-		PaymentConfigured:   s.settingsSvc.CanCreateOrders(settings),
-		RenewalRule:         "同套餐续期，不同套餐不可购买",
-		CurrentSubscription: currentSubscription,
-		Products:            responses,
+		PurchaseEnabled:            settings.PurchaseEnabled,
+		DebugAutoPaid:              settings.DebugAutoPaid,
+		PaymentConfigured:          s.settingsSvc.CanCreateOrders(settings),
+		RenewalRule:                "同套餐续期，不同套餐不可购买",
+		CurrentSubscription:        currentSubscription,
+		Products:                   responses,
+		BalanceTopupEnabled:        s.settingsSvc.CanCreateBalanceTopup(settings),
+		BalanceTopupPriceCnyPerUsd: float64(settings.BalanceTopupPriceCnyCentPerUSD) / 100,
 	}, nil
 }
 
@@ -266,6 +276,7 @@ func (s *PurchaseService) CreateOrder(ctx context.Context, userID, username, pro
 		SubscriptionPlanID: product.SubscriptionPlanID,
 		DurationDays:       product.DurationDays,
 		AmountCNYCent:      product.PriceCNYCent,
+		OrderKind:          model.PurchaseOrderKindSubscription,
 		PaymentChannel:     model.PaymentChannelAlipay,
 		PaymentStatus:      model.PurchasePaymentStatusPending,
 		FulfillmentStatus:  model.PurchaseFulfillmentStatusPending,
@@ -287,6 +298,76 @@ func (s *PurchaseService) CreateOrder(ctx context.Context, userID, username, pro
 		return nil, err
 	}
 
+	if err := s.updateOrderPrecreateData(order.OrderNo, paymentResult); err != nil {
+		return nil, err
+	}
+	return s.GetOrderForUser(userID, order.OrderNo)
+}
+
+func (s *PurchaseService) CreateBalanceTopupOrder(ctx context.Context, userID, username string, amountUsd float64) (*model.PurchaseOrderResponse, error) {
+	settings, err := s.settingsSvc.Get()
+	if err != nil {
+		return nil, err
+	}
+	if !s.settingsSvc.CanCreateBalanceTopup(settings) {
+		return nil, ErrBalanceTopupUnavailable
+	}
+
+	balanceTopupMicros := int64(math.Round(amountUsd * 1_000_000))
+	if balanceTopupMicros <= 0 {
+		return nil, ErrInvalidBalanceTopupAmount
+	}
+	amountCnyCent := int64(math.Round((float64(balanceTopupMicros) / 1_000_000) * float64(settings.BalanceTopupPriceCnyCentPerUSD)))
+	if amountCnyCent <= 0 {
+		return nil, ErrInvalidBalanceTopupAmount
+	}
+
+	if err := s.ensureBalanceTopupPlaceholders(); err != nil {
+		return nil, err
+	}
+
+	now := time.Now().UTC()
+	order := &model.PurchaseOrder{
+		ID:                 uuid.New().String(),
+		OrderNo:            newPurchaseOrderNo(now),
+		UserID:             userID,
+		ProductID:          balanceTopupProductID,
+		SubscriptionPlanID: balanceTopupPlanID,
+		DurationDays:       1,
+		AmountCNYCent:      amountCnyCent,
+		OrderKind:          model.PurchaseOrderKindBalanceTopup,
+		BalanceTopupMicros: balanceTopupMicros,
+		PaymentChannel:     model.PaymentChannelAlipay,
+		PaymentStatus:      model.PurchasePaymentStatusPending,
+		FulfillmentStatus:  model.PurchaseFulfillmentStatusPending,
+		FailureReason:      "",
+		CreatedAt:          now,
+		UpdatedAt:          now,
+	}
+	if err := s.orderRepo.Create(order); err != nil {
+		return nil, err
+	}
+
+	productResp := &model.PurchaseProductResponse{
+		ID:                   balanceTopupProductID,
+		Name:                 "余额充值",
+		Summary:              fmt.Sprintf("$%.2f", amountUsd),
+		SubscriptionPlanID:   balanceTopupPlanID,
+		SubscriptionPlanName: "余额充值",
+		DurationDays:         1,
+		PriceCNYCent:         amountCnyCent,
+		Enabled:              false,
+	}
+
+	if settings.DebugAutoPaid {
+		return s.applySuccessfulPayment(order.OrderNo, "debug-"+order.OrderNo, &now)
+	}
+
+	paymentResult, err := s.payment.CreateOrder(ctx, order, productResp, username)
+	if err != nil {
+		_ = s.markOrderFailed(order.OrderNo, err.Error())
+		return nil, err
+	}
 	if err := s.updateOrderPrecreateData(order.OrderNo, paymentResult); err != nil {
 		return nil, err
 	}
@@ -543,18 +624,25 @@ func (s *PurchaseService) fulfillOrderTx(tx *sql.Tx, order *model.PurchaseOrder,
 		return nil
 	}
 
-	if _, err := s.grantSvc.GrantSubscriptionTx(tx, order.UserID, order.SubscriptionPlanID, order.DurationDays, now); err != nil {
-		if errors.Is(err, ErrDifferentPlanActive) || errors.Is(err, ErrPermanentSubscription) {
-			_, updateErr := tx.Exec(
-				`UPDATE purchase_orders SET fulfillment_status = ?, failure_reason = ?, updated_at = ? WHERE order_no = ?`,
-				model.PurchaseFulfillmentStatusFailed,
-				err.Error(),
-				now,
-				order.OrderNo,
-			)
-			return updateErr
+	switch order.OrderKind {
+	case model.PurchaseOrderKindBalanceTopup:
+		if _, err := s.grantSvc.GrantBalanceTx(tx, order.UserID, order.BalanceTopupMicros, now); err != nil {
+			return err
 		}
-		return err
+	default:
+		if _, err := s.grantSvc.GrantSubscriptionTx(tx, order.UserID, order.SubscriptionPlanID, order.DurationDays, now); err != nil {
+			if errors.Is(err, ErrDifferentPlanActive) || errors.Is(err, ErrPermanentSubscription) {
+				_, updateErr := tx.Exec(
+					`UPDATE purchase_orders SET fulfillment_status = ?, failure_reason = ?, updated_at = ? WHERE order_no = ?`,
+					model.PurchaseFulfillmentStatusFailed,
+					err.Error(),
+					now,
+					order.OrderNo,
+				)
+				return updateErr
+			}
+			return err
+		}
 	}
 
 	_, err := tx.Exec(
@@ -572,7 +660,7 @@ func (s *PurchaseService) fulfillOrderTx(tx *sql.Tx, order *model.PurchaseOrder,
 func (s *PurchaseService) getOrderByOrderNoTx(tx *sql.Tx, orderNo string) (*model.PurchaseOrder, error) {
 	order := &model.PurchaseOrder{}
 	err := tx.QueryRow(
-		`SELECT id, order_no, user_id, product_id, subscription_plan_id, duration_days, amount_cny_cent, payment_channel, payment_status,
+		`SELECT id, order_no, user_id, product_id, subscription_plan_id, duration_days, amount_cny_cent, order_kind, balance_topup_micros, payment_channel, payment_status,
 		        fulfillment_status, alipay_trade_no, alipay_qr_code, alipay_qr_url, expires_at, paid_at, fulfilled_at, failure_reason,
 		        created_at, updated_at
 		   FROM purchase_orders
@@ -586,6 +674,8 @@ func (s *PurchaseService) getOrderByOrderNoTx(tx *sql.Tx, orderNo string) (*mode
 		&order.SubscriptionPlanID,
 		&order.DurationDays,
 		&order.AmountCNYCent,
+		&order.OrderKind,
+		&order.BalanceTopupMicros,
 		&order.PaymentChannel,
 		&order.PaymentStatus,
 		&order.FulfillmentStatus,
@@ -761,6 +851,43 @@ func (s *PurchaseService) toProductResponse(product *model.PurchaseProduct, plan
 		CreatedAt:            product.CreatedAt,
 		UpdatedAt:            product.UpdatedAt,
 	}
+}
+
+func (s *PurchaseService) ensureBalanceTopupPlaceholders() error {
+	db := database.GetDB()
+	now := time.Now().UTC()
+	if _, err := db.Exec(
+		`INSERT OR IGNORE INTO subscription_plans (id, name, description, enabled, created_at, updated_at)
+		 VALUES (?, ?, ?, ?, ?, ?)`,
+		balanceTopupPlanID,
+		"余额充值",
+		"系统余额充值占位套餐",
+		false,
+		now,
+		now,
+	); err != nil {
+		return err
+	}
+
+	if _, err := db.Exec(
+		`INSERT OR IGNORE INTO purchase_products (id, name, summary, subscription_plan_id, duration_days, price_cny_cent, is_recommended, sort_order, enabled, created_at, updated_at)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		balanceTopupProductID,
+		"余额充值",
+		"系统余额充值占位商品",
+		balanceTopupPlanID,
+		1,
+		1,
+		false,
+		0,
+		false,
+		now,
+		now,
+	); err != nil {
+		return err
+	}
+
+	return nil
 }
 
 func newPurchaseOrderNo(now time.Time) string {

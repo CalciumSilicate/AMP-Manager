@@ -515,15 +515,17 @@ func createTables() error {
 	CREATE INDEX IF NOT EXISTS idx_purchase_products_enabled_sort ON purchase_products(enabled, is_recommended DESC, sort_order ASC, created_at DESC);
 	CREATE INDEX IF NOT EXISTS idx_purchase_products_plan ON purchase_products(subscription_plan_id);
 
-	CREATE TABLE IF NOT EXISTS purchase_orders (
-		id TEXT PRIMARY KEY,
-		order_no TEXT UNIQUE NOT NULL,
-		user_id TEXT NOT NULL,
-		product_id TEXT NOT NULL,
-		subscription_plan_id TEXT NOT NULL,
-		duration_days INTEGER NOT NULL CHECK (duration_days > 0),
-		amount_cny_cent BIGINT NOT NULL CHECK (amount_cny_cent > 0),
-		payment_channel TEXT NOT NULL CHECK (payment_channel IN ('alipay')),
+		CREATE TABLE IF NOT EXISTS purchase_orders (
+			id TEXT PRIMARY KEY,
+			order_no TEXT UNIQUE NOT NULL,
+			user_id TEXT NOT NULL,
+			product_id TEXT NOT NULL,
+			subscription_plan_id TEXT NOT NULL,
+			duration_days INTEGER NOT NULL CHECK (duration_days > 0),
+			amount_cny_cent BIGINT NOT NULL CHECK (amount_cny_cent > 0),
+			order_kind TEXT NOT NULL DEFAULT 'subscription' CHECK (order_kind IN ('subscription', 'balance_topup')),
+			balance_topup_micros BIGINT NOT NULL DEFAULT 0,
+			payment_channel TEXT NOT NULL CHECK (payment_channel IN ('alipay')),
 		payment_status TEXT NOT NULL DEFAULT 'pending' CHECK (payment_status IN ('pending', 'paid', 'expired', 'closed', 'failed')),
 		fulfillment_status TEXT NOT NULL DEFAULT 'pending' CHECK (fulfillment_status IN ('pending', 'fulfilled', 'failed')),
 		alipay_trade_no TEXT NOT NULL DEFAULT '',
@@ -1204,9 +1206,9 @@ func runMigrations() error {
 			name: "add_channels_translator_json",
 			sql:  `ALTER TABLE channels ADD COLUMN translator_json TEXT NOT NULL DEFAULT '{}'`,
 		},
-		{
-			name: "create_purchase_products_and_orders",
-			sql: `
+			{
+				name: "create_purchase_products_and_orders",
+				sql: `
 				CREATE TABLE IF NOT EXISTS purchase_products (
 					id TEXT PRIMARY KEY,
 					name TEXT NOT NULL,
@@ -1223,15 +1225,17 @@ func runMigrations() error {
 				);
 				CREATE INDEX IF NOT EXISTS idx_purchase_products_enabled_sort ON purchase_products(enabled, is_recommended DESC, sort_order ASC, created_at DESC);
 				CREATE INDEX IF NOT EXISTS idx_purchase_products_plan ON purchase_products(subscription_plan_id);
-				CREATE TABLE IF NOT EXISTS purchase_orders (
-					id TEXT PRIMARY KEY,
-					order_no TEXT UNIQUE NOT NULL,
-					user_id TEXT NOT NULL,
-					product_id TEXT NOT NULL,
-					subscription_plan_id TEXT NOT NULL,
-					duration_days INTEGER NOT NULL CHECK (duration_days > 0),
-					amount_cny_cent BIGINT NOT NULL CHECK (amount_cny_cent > 0),
-					payment_channel TEXT NOT NULL CHECK (payment_channel IN ('alipay')),
+					CREATE TABLE IF NOT EXISTS purchase_orders (
+						id TEXT PRIMARY KEY,
+						order_no TEXT UNIQUE NOT NULL,
+						user_id TEXT NOT NULL,
+						product_id TEXT NOT NULL,
+						subscription_plan_id TEXT NOT NULL,
+						duration_days INTEGER NOT NULL CHECK (duration_days > 0),
+						amount_cny_cent BIGINT NOT NULL CHECK (amount_cny_cent > 0),
+						order_kind TEXT NOT NULL DEFAULT 'subscription' CHECK (order_kind IN ('subscription', 'balance_topup')),
+						balance_topup_micros BIGINT NOT NULL DEFAULT 0,
+						payment_channel TEXT NOT NULL CHECK (payment_channel IN ('alipay')),
 					payment_status TEXT NOT NULL DEFAULT 'pending' CHECK (payment_status IN ('pending', 'paid', 'expired', 'closed', 'failed')),
 					fulfillment_status TEXT NOT NULL DEFAULT 'pending' CHECK (fulfillment_status IN ('pending', 'fulfilled', 'failed')),
 					alipay_trade_no TEXT NOT NULL DEFAULT '',
@@ -1252,10 +1256,18 @@ func runMigrations() error {
 				CREATE INDEX IF NOT EXISTS idx_purchase_orders_fulfillment_created ON purchase_orders(fulfillment_status, created_at DESC);
 				CREATE INDEX IF NOT EXISTS idx_purchase_orders_product_created ON purchase_orders(product_id, created_at DESC);
 				CREATE INDEX IF NOT EXISTS idx_purchase_orders_trade_no ON purchase_orders(alipay_trade_no)
-			`,
-		},
-		{
-			name: "create_redeem_tables",
+				`,
+			},
+			{
+				name: "add_purchase_orders_order_kind",
+				sql:  `ALTER TABLE purchase_orders ADD COLUMN order_kind TEXT NOT NULL DEFAULT 'subscription'`,
+			},
+			{
+				name: "add_purchase_orders_balance_topup_micros",
+				sql:  `ALTER TABLE purchase_orders ADD COLUMN balance_topup_micros BIGINT NOT NULL DEFAULT 0`,
+			},
+			{
+				name: "create_redeem_tables",
 			sql: `
 				CREATE TABLE IF NOT EXISTS redeem_campaigns (
 					id TEXT PRIMARY KEY,

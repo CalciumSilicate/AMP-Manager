@@ -75,6 +75,36 @@ func (h *PurchaseHandler) CreateOrder(c *gin.Context) {
 	c.JSON(http.StatusCreated, order)
 }
 
+func (h *PurchaseHandler) CreateBalanceTopupOrder(c *gin.Context) {
+	userID := middleware.GetUserID(c)
+	username := middleware.GetUsername(c)
+	if userID == "" {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "未授权"})
+		return
+	}
+
+	var req model.CreateBalanceTopupOrderRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "请求参数错误", "details": err.Error()})
+		return
+	}
+
+	order, err := h.purchaseService.CreateBalanceTopupOrder(c.Request.Context(), userID, username, req.AmountUsd)
+	if err != nil {
+		switch {
+		case errors.Is(err, service.ErrBalanceTopupUnavailable),
+			errors.Is(err, service.ErrInvalidBalanceTopupAmount),
+			errors.Is(err, service.ErrPaymentUnavailable):
+			c.JSON(http.StatusConflict, gin.H{"error": err.Error()})
+		default:
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		}
+		return
+	}
+
+	c.JSON(http.StatusCreated, order)
+}
+
 func (h *PurchaseHandler) ListMyOrders(c *gin.Context) {
 	userID := middleware.GetUserID(c)
 	if userID == "" {

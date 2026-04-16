@@ -17,7 +17,6 @@ import (
 
 	"ampmanager/internal/repository"
 	"ampmanager/internal/service"
-	"ampmanager/internal/service"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
