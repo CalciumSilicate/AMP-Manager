@@ -145,8 +145,17 @@ export function DateTimePicker({ value, onChange, placeholder = '选择时间', 
     onChange(buildValue(now.getFullYear(), now.getMonth(), now.getDate(), h, m))
   }
 
-  const handleClear = (e: React.MouseEvent) => {
+  // Radix PopoverTrigger listens on pointer down; without this, clicking the clear icon
+  // can bubble into the trigger and open the popover instead of clearing.
+  const handleClearPointerDown = (e: React.PointerEvent | React.MouseEvent) => {
+    e.preventDefault()
     e.stopPropagation()
+  }
+
+  const handleClear = (e: React.MouseEvent) => {
+    e.preventDefault()
+    e.stopPropagation()
+    setOpen(false)
     onChange('')
     setHour('00')
     setMinute('00')
@@ -176,6 +185,8 @@ export function DateTimePicker({ value, onChange, placeholder = '选择时间', 
           {value && (
             <X
               className="h-3 w-3 ml-auto text-muted-foreground hover:text-foreground shrink-0 cursor-pointer"
+              onPointerDown={handleClearPointerDown}
+              onMouseDown={handleClearPointerDown}
               onClick={handleClear}
             />
           )}
