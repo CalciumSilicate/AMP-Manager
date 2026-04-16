@@ -475,6 +475,18 @@ func (r *Runtime) ensureConsumerGroup(ctx context.Context) error {
 	return nil
 }
 
+func (r *Runtime) recoverProjectorGroup(ctx context.Context, stage string, cause error) bool {
+	if !isProjectorGroupUnavailable(cause) {
+		return false
+	}
+	if err := r.ensureConsumerGroup(ctx); err != nil {
+		log.Warnf("billing state: projector %s failed to recreate missing consumer group: %v", stage, err)
+		return false
+	}
+	log.Warnf("billing state: projector %s recreated missing consumer group %s", stage, defaultProjectorGroup)
+	return true
+}
+
 func (r *Runtime) projectorLoop(consumerName string) {
 	defer r.wg.Done()
 
@@ -512,6 +524,9 @@ func (r *Runtime) projectorLoop(consumerName string) {
 		}).Result()
 		if err != nil {
 			if err == redis.Nil {
+				continue
+			}
+			if r.recoverProjectorGroup(ctx, "read", err) {
 				continue
 			}
 			log.Warnf("billing state: projector read failed: %v", err)

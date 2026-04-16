@@ -2,6 +2,7 @@ package billingstate
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"slices"
 	"testing"
@@ -71,6 +72,59 @@ func TestBuildStartsConfiguredProjectorWorkers(t *testing.T) {
 			t.Fatalf("duplicate projector consumer name %q", name)
 		}
 		seen[name] = struct{}{}
+	}
+}
+
+func TestRecoverProjectorGroupRecreatesMissingConsumerGroup(t *testing.T) {
+	mr := miniredis.RunT(t)
+	client := redis.NewClient(&redis.Options{Addr: mr.Addr()})
+	t.Cleanup(func() { _ = client.Close() })
+
+	rt := &Runtime{
+		client: client,
+		cfg:    Config{Prefix: "amp"},
+	}
+
+	msgID, err := client.XAdd(context.Background(), &redis.XAddArgs{
+		Stream: rt.streamKey(),
+		Values: map[string]any{
+			"event_type": "reserve",
+			"request_id": "req-1",
+		},
+	}).Result()
+	if err != nil {
+		t.Fatalf("XAdd returned error: %v", err)
+	}
+
+	_, err = client.XReadGroup(context.Background(), &redis.XReadGroupArgs{
+		Group:    defaultProjectorGroup,
+		Consumer: "worker-1",
+		Streams:  []string{rt.streamKey(), ">"},
+		Count:    1,
+	}).Result()
+	if !isProjectorGroupUnavailable(err) {
+		t.Fatalf("XReadGroup error = %v, want missing-group error", err)
+	}
+
+	if !rt.recoverProjectorGroup(context.Background(), "read", err) {
+		t.Fatal("recoverProjectorGroup returned false, want true")
+	}
+
+	streams, err := client.XReadGroup(context.Background(), &redis.XReadGroupArgs{
+		Group:    defaultProjectorGroup,
+		Consumer: "worker-1",
+		Streams:  []string{rt.streamKey(), ">"},
+		Count:    1,
+	}).Result()
+	if err != nil {
+		t.Fatalf("XReadGroup after recovery returned error: %v", err)
+	}
+	if len(streams) != 1 || len(streams[0].Messages) != 1 || streams[0].Messages[0].ID != msgID {
+		t.Fatalf("unexpected read result after recovery: %+v", streams)
+	}
+
+	if rt.recoverProjectorGroup(context.Background(), "read", errors.New("other error")) {
+		t.Fatal("recoverProjectorGroup returned true for non-group error")
 	}
 }
 
