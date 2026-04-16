@@ -17,8 +17,6 @@ var (
 	dateReDash   = regexp.MustCompile(`(\d{4})-(\d{2})-(\d{2})`) // YYYY-MM-DD 格式
 )
 
-const longContextThresholdTokens = 272_000
-
 // CostCalculator 成本计算器
 type CostCalculator struct {
 	store *PriceStore
@@ -98,7 +96,7 @@ func (c *CostCalculator) Calculate(pricingModel string, usage TokenUsage) CostRe
 	}
 	if !appliedCustomRule {
 		var tierName string
-		priceData, tierName = effectivePriceDataForUsage(priceData, inputTokens)
+		priceData, tierName = ApplyPriceDataForUsage(priceData, inputTokens)
 		if tierName != "" {
 			result.PricingRuleName = tierName
 		}
@@ -122,30 +120,53 @@ func (c *CostCalculator) Calculate(pricingModel string, usage TokenUsage) CostRe
 	return result
 }
 
-func effectivePriceDataForUsage(priceData PriceData, inputTokens int) (PriceData, string) {
-	if inputTokens <= longContextThresholdTokens {
+func ApplyPriceDataForUsage(priceData PriceData, inputTokens int) (PriceData, string) {
+	if len(priceData.Tiers) == 0 {
 		return priceData, ""
 	}
-	applied := false
-	if priceData.InputMicrosPerMillionAbove272k > 0 {
-		priceData.InputMicrosPerMillion = priceData.InputMicrosPerMillionAbove272k
-		priceData.InputCostPerToken = priceData.InputCostPerTokenAbove272k
-		applied = true
+
+	var matched *PriceTier
+	for index := range priceData.Tiers {
+		tier := &priceData.Tiers[index]
+		if int64(inputTokens) > tier.ThresholdTokens {
+			matched = tier
+		}
 	}
-	if priceData.OutputMicrosPerMillionAbove272k > 0 {
-		priceData.OutputMicrosPerMillion = priceData.OutputMicrosPerMillionAbove272k
-		priceData.OutputCostPerToken = priceData.OutputCostPerTokenAbove272k
-		applied = true
+	if matched == nil {
+		return priceData, ""
 	}
-	if priceData.CacheReadMicrosPerMillionAbove272k > 0 {
-		priceData.CacheReadMicrosPerMillion = priceData.CacheReadMicrosPerMillionAbove272k
-		priceData.CacheReadInputPerToken = priceData.CacheReadInputPerTokenAbove272k
-		applied = true
+	if matched.InputMicrosPerMillion > 0 {
+		priceData.InputMicrosPerMillion = matched.InputMicrosPerMillion
+		priceData.InputCostPerToken = float64(matched.InputMicrosPerMillion) / 1_000_000_000_000
 	}
-	if applied {
-		return priceData, "272K 以上上下文"
+	if matched.OutputMicrosPerMillion > 0 {
+		priceData.OutputMicrosPerMillion = matched.OutputMicrosPerMillion
+		priceData.OutputCostPerToken = float64(matched.OutputMicrosPerMillion) / 1_000_000_000_000
 	}
-	return priceData, ""
+	if matched.CacheReadMicrosPerMillion > 0 {
+		priceData.CacheReadMicrosPerMillion = matched.CacheReadMicrosPerMillion
+		priceData.CacheReadInputPerToken = float64(matched.CacheReadMicrosPerMillion) / 1_000_000_000_000
+	}
+	if matched.CacheCreationMicrosPerMillion > 0 {
+		priceData.CacheCreationMicrosPerMillion = matched.CacheCreationMicrosPerMillion
+		priceData.CacheCreationPerToken = float64(matched.CacheCreationMicrosPerMillion) / 1_000_000_000_000
+	}
+	return priceData, formatTierPricingRuleName(matched.ThresholdTokens)
+}
+
+func formatTierPricingRuleName(threshold int64) string {
+	switch {
+	case threshold%1_000_000 == 0:
+		return fmt.Sprintf("%dM 以上上下文", threshold/1_000_000)
+	case threshold > 1_000_000:
+		return fmt.Sprintf("%.1fM 以上上下文", float64(threshold)/1_000_000)
+	case threshold%1_000 == 0:
+		return fmt.Sprintf("%dK 以上上下文", threshold/1_000)
+	case threshold > 1_000:
+		return fmt.Sprintf("%.1fK 以上上下文", float64(threshold)/1_000)
+	default:
+		return fmt.Sprintf("%d 以上上下文", threshold)
+	}
 }
 
 // tryFuzzyMatch 尝试模糊匹配模型名

@@ -76,12 +76,17 @@ func TestCalculateUsesAbove272kPricingWhenContextExceedsThreshold(t *testing.T) 
 			"gpt-5.4": {
 				Model: "gpt-5.4",
 				PriceData: PriceData{
-					InputCostPerToken:               2.5 / 1_000_000,
-					OutputCostPerToken:              15.0 / 1_000_000,
-					CacheReadInputPerToken:          0.25 / 1_000_000,
-					InputCostPerTokenAbove272k:      5.0 / 1_000_000,
-					OutputCostPerTokenAbove272k:     22.5 / 1_000_000,
-					CacheReadInputPerTokenAbove272k: 0.5 / 1_000_000,
+					InputCostPerToken:      2.5 / 1_000_000,
+					OutputCostPerToken:     15.0 / 1_000_000,
+					CacheReadInputPerToken: 0.25 / 1_000_000,
+					Tiers: []PriceTier{
+						{
+							ThresholdTokens:           272000,
+							InputMicrosPerMillion:     5_000_000,
+							OutputMicrosPerMillion:    22_500_000,
+							CacheReadMicrosPerMillion: 500_000,
+						},
+					},
 				},
 			},
 		},
@@ -109,12 +114,17 @@ func TestCalculateKeepsContextRulePriorityOverBuiltInLongContextTier(t *testing.
 			"gpt-5.4": {
 				Model: "gpt-5.4",
 				PriceData: PriceData{
-					InputCostPerToken:               2.5 / 1_000_000,
-					OutputCostPerToken:              15.0 / 1_000_000,
-					CacheReadInputPerToken:          0.25 / 1_000_000,
-					InputCostPerTokenAbove272k:      5.0 / 1_000_000,
-					OutputCostPerTokenAbove272k:     22.5 / 1_000_000,
-					CacheReadInputPerTokenAbove272k: 0.5 / 1_000_000,
+					InputCostPerToken:      2.5 / 1_000_000,
+					OutputCostPerToken:     15.0 / 1_000_000,
+					CacheReadInputPerToken: 0.25 / 1_000_000,
+					Tiers: []PriceTier{
+						{
+							ThresholdTokens:           272000,
+							InputMicrosPerMillion:     5_000_000,
+							OutputMicrosPerMillion:    22_500_000,
+							CacheReadMicrosPerMillion: 500_000,
+						},
+					},
 				},
 			},
 		},
@@ -173,5 +183,25 @@ func TestLiteLLMPricingParsesAbove272kFields(t *testing.T) {
 	}
 	if pricing.CacheReadInputTokenCostAbove272k == nil || *pricing.CacheReadInputTokenCostAbove272k != 0.0000005 {
 		t.Fatalf("unexpected cache read above272k: %#v", pricing.CacheReadInputTokenCostAbove272k)
+	}
+}
+
+func TestExtractLiteLLMPriceTiersParsesDynamicThresholds(t *testing.T) {
+	raw := json.RawMessage(`{
+		"input_cost_per_token_above_272k_tokens": 0.000005,
+		"output_cost_per_token_above_272k_tokens": 0.0000225,
+		"cache_read_input_token_cost_above_272k_tokens": 0.0000005,
+		"input_cost_per_token_above_1m_tokens": 0.000006
+	}`)
+
+	tiers := extractLiteLLMPriceTiers(raw)
+	if len(tiers) != 2 {
+		t.Fatalf("unexpected tier count: got %d want 2", len(tiers))
+	}
+	if tiers[0].ThresholdTokens != 272000 {
+		t.Fatalf("unexpected first threshold: %d", tiers[0].ThresholdTokens)
+	}
+	if tiers[1].ThresholdTokens != 1000000 {
+		t.Fatalf("unexpected second threshold: %d", tiers[1].ThresholdTokens)
 	}
 }

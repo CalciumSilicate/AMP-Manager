@@ -123,6 +123,7 @@ func enrichRequestLogPricing(log *model.RequestLog) {
 	if !found {
 		return
 	}
+	appliedCustomRule := false
 	if log.PricingRuleName != nil && strings.TrimSpace(*log.PricingRuleName) != "" {
 		if rule, ok := store.FindContextRuleByName(pricingModel, strings.TrimSpace(*log.PricingRuleName)); ok {
 			priceData = billing.PriceData{
@@ -135,7 +136,11 @@ func enrichRequestLogPricing(log *model.RequestLog) {
 				CacheReadInputPerToken:        rule.CacheReadInputPerToken,
 				CacheCreationPerToken:         rule.CacheCreationPerToken,
 			}
+			appliedCustomRule = true
 		}
+	}
+	if !appliedCustomRule && log.InputTokens != nil {
+		priceData, _ = billing.ApplyPriceDataForUsage(priceData, *log.InputTokens)
 	}
 
 	log.InputMicrosPerMillion = &priceData.InputMicrosPerMillion
@@ -422,8 +427,8 @@ func (r *RequestLogRepository) List(params ListParams) ([]model.RequestLog, int6
 		if outputPreview.Valid {
 			log.OutputPreview = &outputPreview.String
 		}
-		enrichRequestLogMetrics(&log)
 		enrichRequestLogPricing(&log)
+		enrichRequestLogMetrics(&log)
 
 		logs = append(logs, log)
 	}
@@ -1138,8 +1143,8 @@ func (r *RequestLogRepository) GetByID(id string) (*model.RequestLog, error) {
 	if transportFallbackReason.Valid {
 		log.TransportFallbackReason = &transportFallbackReason.String
 	}
-	enrichRequestLogMetrics(&log)
 	enrichRequestLogPricing(&log)
+	enrichRequestLogMetrics(&log)
 
 	return &log, nil
 }
@@ -1311,8 +1316,8 @@ func (r *RequestLogRepository) GetByIDWithJoins(id string) (*model.RequestLog, e
 	if transportFallbackReason.Valid {
 		l.TransportFallbackReason = &transportFallbackReason.String
 	}
-	enrichRequestLogMetrics(&l)
 	enrichRequestLogPricing(&l)
+	enrichRequestLogMetrics(&l)
 
 	return &l, nil
 }

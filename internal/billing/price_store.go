@@ -8,6 +8,10 @@ import (
 	"io"
 	"math"
 	"net/http"
+	"regexp"
+	"sort"
+	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -68,6 +72,8 @@ type LiteLLMPricing struct {
 	MaxInputTokens  *wholeNumber `json:"max_input_tokens,omitempty"`
 	MaxOutputTokens *wholeNumber `json:"max_output_tokens,omitempty"`
 }
+
+var tierFieldPattern = regexp.MustCompile(`^(input_cost_per_token|output_cost_per_token|cache_read_input_token_cost|cache_creation_input_token_cost)_above_([0-9]+(?:\.[0-9]+)?[km]?)_tokens$`)
 
 // PriceStore 管理模型价格表
 type PriceStore struct {
@@ -231,6 +237,7 @@ func (s *PriceStore) FetchFromLiteLLM(ctx context.Context) error {
 				InputCostPerTokenAbove272k:      ptrFloat64(lp.InputCostPerTokenAbove272k),
 				OutputCostPerTokenAbove272k:     ptrFloat64(lp.OutputCostPerTokenAbove272k),
 				CacheReadInputPerTokenAbove272k: ptrFloat64(lp.CacheReadInputTokenCostAbove272k),
+				Tiers:                           extractLiteLLMPriceTiers(raw),
 			}),
 			CreatedAt: time.Now(),
 			UpdatedAt: time.Now(),
@@ -594,6 +601,12 @@ func normalizePriceData(data PriceData) PriceData {
 	if data.CacheReadMicrosPerMillionAbove272k <= 0 && data.CacheReadInputPerTokenAbove272k > 0 {
 		data.CacheReadMicrosPerMillionAbove272k = precision.CostPerTokenToMicrosPerMillion(data.CacheReadInputPerTokenAbove272k)
 	}
+	if data.CacheCreationMicrosPerMillion > 0 && data.CacheCreationPerToken == 0 {
+		data.CacheCreationPerToken = precision.MicrosPerMillionToCostPerToken(data.CacheCreationMicrosPerMillion)
+	}
+	if data.CacheCreationPerToken > 0 && data.CacheCreationMicrosPerMillion == 0 {
+		data.CacheCreationMicrosPerMillion = precision.CostPerTokenToMicrosPerMillion(data.CacheCreationPerToken)
+	}
 
 	data.InputCostPerToken = precision.MicrosPerMillionToCostPerToken(data.InputMicrosPerMillion)
 	data.OutputCostPerToken = precision.MicrosPerMillionToCostPerToken(data.OutputMicrosPerMillion)
@@ -602,7 +615,115 @@ func normalizePriceData(data PriceData) PriceData {
 	data.InputCostPerTokenAbove272k = precision.MicrosPerMillionToCostPerToken(data.InputMicrosPerMillionAbove272k)
 	data.OutputCostPerTokenAbove272k = precision.MicrosPerMillionToCostPerToken(data.OutputMicrosPerMillionAbove272k)
 	data.CacheReadInputPerTokenAbove272k = precision.MicrosPerMillionToCostPerToken(data.CacheReadMicrosPerMillionAbove272k)
+
+	if len(data.Tiers) == 0 {
+		data = appendLegacyAbove272kTier(data)
+	}
+	if len(data.Tiers) > 0 {
+		sortedTiers := make([]PriceTier, 0, len(data.Tiers))
+		for _, tier := range data.Tiers {
+			if tier.ThresholdTokens <= 0 {
+				continue
+			}
+			if tier.InputMicrosPerMillion < 0 || tier.OutputMicrosPerMillion < 0 || tier.CacheReadMicrosPerMillion < 0 || tier.CacheCreationMicrosPerMillion < 0 {
+				continue
+			}
+			sortedTiers = append(sortedTiers, tier)
+		}
+		sort.Slice(sortedTiers, func(i, j int) bool {
+			return sortedTiers[i].ThresholdTokens < sortedTiers[j].ThresholdTokens
+		})
+		data.Tiers = sortedTiers
+	}
 	return data
+}
+
+func appendLegacyAbove272kTier(data PriceData) PriceData {
+	if data.InputMicrosPerMillionAbove272k <= 0 && data.OutputMicrosPerMillionAbove272k <= 0 && data.CacheReadMicrosPerMillionAbove272k <= 0 {
+		return data
+	}
+	threshold, err := parseTokenThresholdValue("272k")
+	if err != nil || threshold <= 0 {
+		return data
+	}
+	data.Tiers = append(data.Tiers, PriceTier{
+		ThresholdTokens:           threshold,
+		InputMicrosPerMillion:     data.InputMicrosPerMillionAbove272k,
+		OutputMicrosPerMillion:    data.OutputMicrosPerMillionAbove272k,
+		CacheReadMicrosPerMillion: data.CacheReadMicrosPerMillionAbove272k,
+	})
+	return data
+}
+
+func extractLiteLLMPriceTiers(raw json.RawMessage) []PriceTier {
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &fields); err != nil {
+		return nil
+	}
+
+	tiers := make(map[int64]*PriceTier)
+	for key, rawValue := range fields {
+		matches := tierFieldPattern.FindStringSubmatch(key)
+		if len(matches) != 3 {
+			continue
+		}
+		var value *float64
+		if err := json.Unmarshal(rawValue, &value); err != nil || value == nil {
+			continue
+		}
+		threshold, err := parseTokenThresholdValue(matches[2])
+		if err != nil || threshold <= 0 {
+			continue
+		}
+		tier, ok := tiers[threshold]
+		if !ok {
+			tier = &PriceTier{ThresholdTokens: threshold}
+			tiers[threshold] = tier
+		}
+		micros := precision.CostPerTokenToMicrosPerMillion(*value)
+		switch matches[1] {
+		case "input_cost_per_token":
+			tier.InputMicrosPerMillion = micros
+		case "output_cost_per_token":
+			tier.OutputMicrosPerMillion = micros
+		case "cache_read_input_token_cost":
+			tier.CacheReadMicrosPerMillion = micros
+		case "cache_creation_input_token_cost":
+			tier.CacheCreationMicrosPerMillion = micros
+		}
+	}
+
+	if len(tiers) == 0 {
+		return nil
+	}
+	out := make([]PriceTier, 0, len(tiers))
+	for _, tier := range tiers {
+		out = append(out, *tier)
+	}
+	sort.Slice(out, func(i, j int) bool {
+		return out[i].ThresholdTokens < out[j].ThresholdTokens
+	})
+	return out
+}
+
+func parseTokenThresholdValue(raw string) (int64, error) {
+	value := strings.TrimSpace(strings.ToLower(raw))
+	value = strings.ReplaceAll(value, "_", "")
+	value = strings.ReplaceAll(value, ",", "")
+	multiplier := 1.0
+	switch {
+	case strings.HasSuffix(value, "k"):
+		multiplier = 1_000
+		value = strings.TrimSuffix(value, "k")
+	case strings.HasSuffix(value, "m"):
+		multiplier = 1_000_000
+		value = strings.TrimSuffix(value, "m")
+	}
+	parsed, err := strconv.ParseFloat(value, 64)
+	if err != nil {
+		return 0, err
+	}
+	return int64(math.Round(parsed * multiplier)), nil
 }
 
 func syncModelPriceContextRule(rule *model.ModelPriceContextRule) {
