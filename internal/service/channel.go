@@ -277,6 +277,10 @@ func (s *ChannelService) Create(req *model.ChannelRequest) (*model.ChannelRespon
 	if priority < 1 {
 		priority = 100
 	}
+	rateMultiplier := req.RateMultiplier
+	if rateMultiplier <= 0 {
+		rateMultiplier = 1
+	}
 
 	endpoint := req.Endpoint
 	if endpoint == "" {
@@ -292,6 +296,7 @@ func (s *ChannelService) Create(req *model.ChannelRequest) (*model.ChannelRespon
 		Enabled:               req.Enabled,
 		Weight:                weight,
 		Priority:              priority,
+		RateMultiplier:        rateMultiplier,
 		ModelWhitelist:        req.ModelWhitelist,
 		SimulateCLI:           req.SimulateCLI,
 		SimulateUA:            req.SimulateUA,
@@ -375,6 +380,10 @@ func (s *ChannelService) Update(id string, req *model.ChannelRequest) (*model.Ch
 	if priority < 1 {
 		priority = 100
 	}
+	rateMultiplier := req.RateMultiplier
+	if rateMultiplier <= 0 {
+		rateMultiplier = 1
+	}
 
 	endpoint := req.Endpoint
 	if endpoint == "" {
@@ -388,6 +397,7 @@ func (s *ChannelService) Update(id string, req *model.ChannelRequest) (*model.Ch
 	existing.Enabled = req.Enabled
 	existing.Weight = weight
 	existing.Priority = priority
+	existing.RateMultiplier = rateMultiplier
 	existing.ModelWhitelist = req.ModelWhitelist
 	existing.SimulateCLI = req.SimulateCLI
 	existing.SimulateUA = req.SimulateUA
@@ -1125,6 +1135,7 @@ func (s *ChannelService) buildResponse(channel *model.Channel, gids []string, gr
 		Enabled:               channel.Enabled,
 		Weight:                channel.Weight,
 		Priority:              channel.Priority,
+		RateMultiplier:        channel.RateMultiplier,
 		ModelWhitelist:        channel.ModelWhitelist,
 		SimulateCLI:           channel.SimulateCLI,
 		SimulateUA:            channel.SimulateUA,

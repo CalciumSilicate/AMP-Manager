@@ -23,6 +23,7 @@ type UserRepositoryInterface interface {
 	UpdatePassword(id string, passwordHash string) error
 	UpdateUsername(id string, username string) error
 	SetAdmin(id string, isAdmin bool) error
+	SetConcurrencyLimit(id string, concurrencyLimit int) error
 	SetGroups(id string, groupIDs []string) error
 	GetGroupIDs(userID string) ([]string, error)
 	GetAllUserGroupIDs() (map[string][]string, error)
@@ -48,9 +49,9 @@ func (r *UserRepository) Create(user *model.User) error {
 	user.UpdatedAt = time.Now().UTC()
 
 	_, err := db.Exec(
-		`INSERT INTO users (id, username, password_hash, is_admin, balance_micros, created_at, updated_at) 
-		 VALUES (?, ?, ?, ?, ?, ?, ?)`,
-		user.ID, user.Username, user.PasswordHash, user.IsAdmin, user.BalanceMicros, user.CreatedAt, user.UpdatedAt,
+		`INSERT INTO users (id, username, password_hash, is_admin, balance_micros, concurrency_limit, created_at, updated_at) 
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+		user.ID, user.Username, user.PasswordHash, user.IsAdmin, user.BalanceMicros, user.ConcurrencyLimit, user.CreatedAt, user.UpdatedAt,
 	)
 	return err
 }
@@ -59,9 +60,9 @@ func (r *UserRepository) GetByUsername(username string) (*model.User, error) {
 	db := database.GetDB()
 	user := &model.User{}
 	err := db.QueryRow(
-		`SELECT id, username, password_hash, is_admin, balance_micros, created_at, updated_at FROM users WHERE username = ?`,
+		`SELECT id, username, password_hash, is_admin, balance_micros, concurrency_limit, created_at, updated_at FROM users WHERE username = ?`,
 		username,
-	).Scan(&user.ID, &user.Username, &user.PasswordHash, &user.IsAdmin, &user.BalanceMicros, &user.CreatedAt, &user.UpdatedAt)
+	).Scan(&user.ID, &user.Username, &user.PasswordHash, &user.IsAdmin, &user.BalanceMicros, &user.ConcurrencyLimit, &user.CreatedAt, &user.UpdatedAt)
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
@@ -79,9 +80,9 @@ func (r *UserRepository) GetByID(id string) (*model.User, error) {
 	db := database.GetDB()
 	user := &model.User{}
 	err := db.QueryRow(
-		`SELECT id, username, password_hash, is_admin, balance_micros, created_at, updated_at FROM users WHERE id = ?`,
+		`SELECT id, username, password_hash, is_admin, balance_micros, concurrency_limit, created_at, updated_at FROM users WHERE id = ?`,
 		id,
-	).Scan(&user.ID, &user.Username, &user.PasswordHash, &user.IsAdmin, &user.BalanceMicros, &user.CreatedAt, &user.UpdatedAt)
+	).Scan(&user.ID, &user.Username, &user.PasswordHash, &user.IsAdmin, &user.BalanceMicros, &user.ConcurrencyLimit, &user.CreatedAt, &user.UpdatedAt)
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
@@ -91,7 +92,7 @@ func (r *UserRepository) GetByID(id string) (*model.User, error) {
 func (r *UserRepository) List() ([]*model.User, error) {
 	db := database.GetDB()
 	rows, err := db.Query(
-		`SELECT id, username, password_hash, is_admin, balance_micros, created_at, updated_at FROM users ORDER BY created_at DESC`,
+		`SELECT id, username, password_hash, is_admin, balance_micros, concurrency_limit, created_at, updated_at FROM users ORDER BY created_at DESC`,
 	)
 	if err != nil {
 		return nil, err
@@ -101,7 +102,7 @@ func (r *UserRepository) List() ([]*model.User, error) {
 	var users []*model.User
 	for rows.Next() {
 		user := &model.User{}
-		if err := rows.Scan(&user.ID, &user.Username, &user.PasswordHash, &user.IsAdmin, &user.BalanceMicros, &user.CreatedAt, &user.UpdatedAt); err != nil {
+		if err := rows.Scan(&user.ID, &user.Username, &user.PasswordHash, &user.IsAdmin, &user.BalanceMicros, &user.ConcurrencyLimit, &user.CreatedAt, &user.UpdatedAt); err != nil {
 			return nil, err
 		}
 		users = append(users, user)
@@ -129,7 +130,7 @@ func (r *UserRepository) ListPaged(page, pageSize int) ([]*model.User, int64, er
 
 	offset := (page - 1) * pageSize
 	rows, err := db.Query(
-		`SELECT id, username, password_hash, is_admin, balance_micros, created_at, updated_at
+		`SELECT id, username, password_hash, is_admin, balance_micros, concurrency_limit, created_at, updated_at
 		 FROM users
 		 ORDER BY created_at DESC
 		 LIMIT ? OFFSET ?`,
@@ -143,7 +144,7 @@ func (r *UserRepository) ListPaged(page, pageSize int) ([]*model.User, int64, er
 	var users []*model.User
 	for rows.Next() {
 		user := &model.User{}
-		if err := rows.Scan(&user.ID, &user.Username, &user.PasswordHash, &user.IsAdmin, &user.BalanceMicros, &user.CreatedAt, &user.UpdatedAt); err != nil {
+		if err := rows.Scan(&user.ID, &user.Username, &user.PasswordHash, &user.IsAdmin, &user.BalanceMicros, &user.ConcurrencyLimit, &user.CreatedAt, &user.UpdatedAt); err != nil {
 			return nil, 0, err
 		}
 		users = append(users, user)
@@ -195,6 +196,15 @@ func (r *UserRepository) SetAdmin(id string, isAdmin bool) error {
 	_, err := db.Exec(
 		`UPDATE users SET is_admin = ?, updated_at = ? WHERE id = ?`,
 		isAdmin, time.Now().UTC(), id,
+	)
+	return err
+}
+
+func (r *UserRepository) SetConcurrencyLimit(id string, concurrencyLimit int) error {
+	db := database.GetDB()
+	_, err := db.Exec(
+		`UPDATE users SET concurrency_limit = ?, updated_at = ? WHERE id = ?`,
+		concurrencyLimit, time.Now().UTC(), id,
 	)
 	return err
 }

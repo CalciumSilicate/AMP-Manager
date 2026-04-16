@@ -100,9 +100,9 @@ func (r *APIKeyRepository) Create(apiKey *model.UserAPIKey) error {
 	apiKey.CreatedAt = time.Now().UTC()
 
 	_, err := db.Exec(
-		`INSERT INTO user_api_keys (id, user_id, name, prefix, key_hash, api_key, created_at) 
-		 VALUES (?, ?, ?, ?, ?, ?, ?)`,
-		apiKey.ID, apiKey.UserID, apiKey.Name, apiKey.Prefix, apiKey.KeyHash, apiKey.APIKey, apiKey.CreatedAt,
+		`INSERT INTO user_api_keys (id, user_id, name, prefix, key_hash, api_key, expires_at, created_at) 
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+		apiKey.ID, apiKey.UserID, apiKey.Name, apiKey.Prefix, apiKey.KeyHash, apiKey.APIKey, apiKey.ExpiresAt, apiKey.CreatedAt,
 	)
 	return err
 }
@@ -110,7 +110,7 @@ func (r *APIKeyRepository) Create(apiKey *model.UserAPIKey) error {
 func (r *APIKeyRepository) ListByUserID(userID string) ([]*model.UserAPIKey, error) {
 	db := database.GetDB()
 	rows, err := db.Query(
-		`SELECT id, user_id, name, prefix, key_hash, created_at, revoked_at, last_used_at 
+		`SELECT id, user_id, name, prefix, key_hash, created_at, revoked_at, last_used_at, expires_at
 		 FROM user_api_keys WHERE user_id = ? ORDER BY created_at DESC`,
 		userID,
 	)
@@ -122,8 +122,8 @@ func (r *APIKeyRepository) ListByUserID(userID string) ([]*model.UserAPIKey, err
 	var keys []*model.UserAPIKey
 	for rows.Next() {
 		key := &model.UserAPIKey{}
-		var revokedAt, lastUsed sql.NullTime
-		err := rows.Scan(&key.ID, &key.UserID, &key.Name, &key.Prefix, &key.KeyHash, &key.CreatedAt, &revokedAt, &lastUsed)
+		var revokedAt, lastUsed, expiresAt sql.NullTime
+		err := rows.Scan(&key.ID, &key.UserID, &key.Name, &key.Prefix, &key.KeyHash, &key.CreatedAt, &revokedAt, &lastUsed, &expiresAt)
 		if err != nil {
 			return nil, err
 		}
@@ -133,6 +133,9 @@ func (r *APIKeyRepository) ListByUserID(userID string) ([]*model.UserAPIKey, err
 		if lastUsed.Valid {
 			key.LastUsed = &lastUsed.Time
 		}
+		if expiresAt.Valid {
+			key.ExpiresAt = &expiresAt.Time
+		}
 		keys = append(keys, key)
 	}
 	return keys, rows.Err()
@@ -141,12 +144,12 @@ func (r *APIKeyRepository) ListByUserID(userID string) ([]*model.UserAPIKey, err
 func (r *APIKeyRepository) GetByID(id string) (*model.UserAPIKey, error) {
 	db := database.GetDB()
 	key := &model.UserAPIKey{}
-	var revokedAt, lastUsed sql.NullTime
+	var revokedAt, lastUsed, expiresAt sql.NullTime
 	err := db.QueryRow(
-		`SELECT id, user_id, name, prefix, key_hash, api_key, created_at, revoked_at, last_used_at 
+		`SELECT id, user_id, name, prefix, key_hash, api_key, created_at, revoked_at, last_used_at, expires_at 
 		 FROM user_api_keys WHERE id = ?`,
 		id,
-	).Scan(&key.ID, &key.UserID, &key.Name, &key.Prefix, &key.KeyHash, &key.APIKey, &key.CreatedAt, &revokedAt, &lastUsed)
+	).Scan(&key.ID, &key.UserID, &key.Name, &key.Prefix, &key.KeyHash, &key.APIKey, &key.CreatedAt, &revokedAt, &lastUsed, &expiresAt)
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
@@ -158,6 +161,9 @@ func (r *APIKeyRepository) GetByID(id string) (*model.UserAPIKey, error) {
 	}
 	if lastUsed.Valid {
 		key.LastUsed = &lastUsed.Time
+	}
+	if expiresAt.Valid {
+		key.ExpiresAt = &expiresAt.Time
 	}
 	return key, nil
 }
@@ -168,15 +174,24 @@ func (r *APIKeyRepository) Delete(id string) error {
 	return err
 }
 
+func (r *APIKeyRepository) UpdateEditableFields(id, name string, expiresAt *time.Time) error {
+	db := database.GetDB()
+	_, err := db.Exec(
+		`UPDATE user_api_keys SET name = ?, expires_at = ? WHERE id = ?`,
+		name, expiresAt, id,
+	)
+	return err
+}
+
 func (r *APIKeyRepository) GetByKeyHash(keyHash string) (*model.UserAPIKey, error) {
 	db := database.GetDB()
 	key := &model.UserAPIKey{}
-	var revokedAt, lastUsed sql.NullTime
+	var revokedAt, lastUsed, expiresAt sql.NullTime
 	err := db.QueryRow(
-		`SELECT id, user_id, name, prefix, key_hash, created_at, revoked_at, last_used_at 
+		`SELECT id, user_id, name, prefix, key_hash, created_at, revoked_at, last_used_at, expires_at 
 		 FROM user_api_keys WHERE key_hash = ?`,
 		keyHash,
-	).Scan(&key.ID, &key.UserID, &key.Name, &key.Prefix, &key.KeyHash, &key.CreatedAt, &revokedAt, &lastUsed)
+	).Scan(&key.ID, &key.UserID, &key.Name, &key.Prefix, &key.KeyHash, &key.CreatedAt, &revokedAt, &lastUsed, &expiresAt)
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
@@ -188,6 +203,9 @@ func (r *APIKeyRepository) GetByKeyHash(keyHash string) (*model.UserAPIKey, erro
 	}
 	if lastUsed.Valid {
 		key.LastUsed = &lastUsed.Time
+	}
+	if expiresAt.Valid {
+		key.ExpiresAt = &expiresAt.Time
 	}
 	return key, nil
 }

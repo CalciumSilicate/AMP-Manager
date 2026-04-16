@@ -3,13 +3,13 @@ package service
 import (
 	"crypto/rand"
 	"crypto/sha256"
-	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"log"
 	"net/http"
+	"strings"
 	"time"
 
 	"ampmanager/internal/config"
@@ -239,11 +239,11 @@ func (s *AmpService) TestConnection(userID string) (*model.TestConnectionRespons
 func (s *AmpService) CreateAPIKey(userID string, req *model.CreateAPIKeyRequest) (*model.CreateAPIKeyResponse, error) {
 	rawKey := req.CustomKey
 	if rawKey == "" {
-		keyBytes := make([]byte, 32)
+		keyBytes := make([]byte, 8)
 		if _, err := rand.Read(keyBytes); err != nil {
 			return nil, err
 		}
-		rawKey = base64.RawURLEncoding.EncodeToString(keyBytes)
+		rawKey = "sk-" + hex.EncodeToString(keyBytes)
 	} else if !isValidCustomAPIKey(rawKey) {
 		return nil, ErrInvalidAPIKeyFormat
 	}
@@ -262,11 +262,12 @@ func (s *AmpService) CreateAPIKey(userID string, req *model.CreateAPIKeyRequest)
 	prefix := rawKey[:8]
 
 	apiKey := &model.UserAPIKey{
-		UserID:  userID,
-		Name:    req.Name,
-		Prefix:  prefix,
-		KeyHash: keyHash,
-		APIKey:  rawKey,
+		UserID:    userID,
+		Name:      req.Name,
+		Prefix:    prefix,
+		KeyHash:   keyHash,
+		APIKey:    rawKey,
+		ExpiresAt: req.ExpiresAt,
 	}
 
 	if err := s.apiKeyRepo.Create(apiKey); err != nil {
@@ -278,17 +279,23 @@ func (s *AmpService) CreateAPIKey(userID string, req *model.CreateAPIKeyRequest)
 		Name:      apiKey.Name,
 		Prefix:    apiKey.Prefix,
 		APIKey:    rawKey,
+		ExpiresAt: apiKey.ExpiresAt,
 		CreatedAt: apiKey.CreatedAt,
 		Message:   "API Key 创建成功，请妥善保存，可在列表中再次查看",
 	}, nil
 }
 
 func isValidCustomAPIKey(value string) bool {
-	if len(value) < 16 {
+	core := value
+	if strings.HasPrefix(core, "sk-") {
+		core = strings.TrimPrefix(core, "sk-")
+	}
+
+	if len(core) < 16 {
 		return false
 	}
 
-	for _, r := range value {
+	for _, r := range core {
 		isDigit := r >= '0' && r <= '9'
 		isLower := r >= 'a' && r <= 'z'
 		isUpper := r >= 'A' && r <= 'Z'
@@ -318,6 +325,7 @@ func (s *AmpService) ListAPIKeys(userID string) ([]*model.APIKeyListItem, error)
 			CreatedAt: k.CreatedAt,
 			RevokedAt: k.RevokedAt,
 			LastUsed:  k.LastUsed,
+			ExpiresAt: k.ExpiresAt,
 			IsActive:  k.RevokedAt == nil,
 		})
 	}
@@ -357,6 +365,7 @@ func (s *AmpService) GetAPIKey(userID, keyID string) (*model.APIKeyRevealRespons
 		Name:      key.Name,
 		Prefix:    key.Prefix,
 		APIKey:    key.APIKey,
+		ExpiresAt: key.ExpiresAt,
 		CreatedAt: key.CreatedAt,
 	}, nil
 }

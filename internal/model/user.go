@@ -3,13 +3,14 @@ package model
 import "time"
 
 type User struct {
-	ID            string    `json:"id"`
-	Username      string    `json:"username"`
-	PasswordHash  string    `json:"-"`
-	IsAdmin       bool      `json:"is_admin"`
-	BalanceMicros int64     `json:"balance_micros"`
-	CreatedAt     time.Time `json:"created_at"`
-	UpdatedAt     time.Time `json:"updated_at"`
+	ID               string    `json:"id"`
+	Username         string    `json:"username"`
+	PasswordHash     string    `json:"-"`
+	IsAdmin          bool      `json:"is_admin"`
+	BalanceMicros    int64     `json:"balance_micros"`
+	ConcurrencyLimit int       `json:"concurrency_limit"`
+	CreatedAt        time.Time `json:"created_at"`
+	UpdatedAt        time.Time `json:"updated_at"`
 }
 
 type RegisterRequest struct {
@@ -31,15 +32,16 @@ type AuthResponse struct {
 }
 
 type UserInfo struct {
-	ID            string    `json:"id"`
-	Username      string    `json:"username"`
-	IsAdmin       bool      `json:"isAdmin"`
-	BalanceMicros int64     `json:"balanceMicros"`
-	BalanceUsd    string    `json:"balanceUsd"`
-	GroupIDs      []string  `json:"groupIds"`
-	GroupNames    []string  `json:"groupNames"`
-	CreatedAt     time.Time `json:"createdAt"`
-	UpdatedAt     time.Time `json:"updatedAt"`
+	ID               string    `json:"id"`
+	Username         string    `json:"username"`
+	IsAdmin          bool      `json:"isAdmin"`
+	BalanceMicros    int64     `json:"balanceMicros"`
+	BalanceUsd       string    `json:"balanceUsd"`
+	ConcurrencyLimit int       `json:"concurrencyLimit"`
+	GroupIDs         []string  `json:"groupIds"`
+	GroupNames       []string  `json:"groupNames"`
+	CreatedAt        time.Time `json:"createdAt"`
+	UpdatedAt        time.Time `json:"updatedAt"`
 }
 
 type UserListPage struct {
@@ -72,4 +74,8 @@ type SetGroupsRequest struct {
 
 type TopUpRequest struct {
 	AmountUsd float64 `json:"amountUsd" binding:"required,gt=0"`
+}
+
+type UpdateUserConcurrencyLimitRequest struct {
+	ConcurrencyLimit int `json:"concurrencyLimit"`
 }

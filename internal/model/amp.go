@@ -85,25 +85,34 @@ type TestConnectionResponse struct {
 }
 
 type CreateAPIKeyRequest struct {
-	Name      string `json:"name" binding:"required,min=1,max=64"`
-	CustomKey string `json:"customKey,omitempty"`
+	Name      string     `json:"name" binding:"required,min=1,max=64"`
+	CustomKey string     `json:"customKey,omitempty"`
+	ExpiresAt *time.Time `json:"expiresAt,omitempty"`
+}
+
+type UpdateAPIKeyRequest struct {
+	Name        string     `json:"name" binding:"required,min=1,max=64"`
+	ExpiresAt   *time.Time `json:"expiresAt,omitempty"`
+	ClearExpiry bool       `json:"clearExpiry,omitempty"`
 }
 
 type CreateAPIKeyResponse struct {
-	ID        string    `json:"id"`
-	Name      string    `json:"name"`
-	Prefix    string    `json:"prefix"`
-	APIKey    string    `json:"apiKey"`
-	CreatedAt time.Time `json:"createdAt"`
-	Message   string    `json:"message"`
+	ID        string     `json:"id"`
+	Name      string     `json:"name"`
+	Prefix    string     `json:"prefix"`
+	APIKey    string     `json:"apiKey"`
+	ExpiresAt *time.Time `json:"expiresAt,omitempty"`
+	CreatedAt time.Time  `json:"createdAt"`
+	Message   string     `json:"message"`
 }
 
 type APIKeyRevealResponse struct {
-	ID        string    `json:"id"`
-	Name      string    `json:"name"`
-	Prefix    string    `json:"prefix"`
-	APIKey    string    `json:"apiKey"`
-	CreatedAt time.Time `json:"createdAt"`
+	ID        string     `json:"id"`
+	Name      string     `json:"name"`
+	Prefix    string     `json:"prefix"`
+	APIKey    string     `json:"apiKey"`
+	ExpiresAt *time.Time `json:"expiresAt,omitempty"`
+	CreatedAt time.Time  `json:"createdAt"`
 }
 
 type APIKeyListItem struct {
@@ -113,6 +122,7 @@ type APIKeyListItem struct {
 	CreatedAt time.Time  `json:"createdAt"`
 	RevokedAt *time.Time `json:"revokedAt,omitempty"`
 	LastUsed  *time.Time `json:"lastUsedAt,omitempty"`
+	ExpiresAt *time.Time `json:"expiresAt,omitempty"`
 	IsActive  bool       `json:"isActive"`
 }
 
@@ -169,11 +179,17 @@ type RequestLog struct {
 	CostMicros                 *int64   `json:"costMicros,omitempty"`   // 成本（微美元，USD * 1e6）
 	CostUsd                    *string  `json:"costUsd,omitempty"`      // 成本（USD，用于展示）
 	PricingModel               *string  `json:"pricingModel,omitempty"` // 计价模型名
+	PricingRuleName            *string  `json:"pricingRuleName,omitempty"`
 	InputCostPerToken          *float64 `json:"inputCostPerToken,omitempty"`
 	OutputCostPerToken         *float64 `json:"outputCostPerToken,omitempty"`
 	CacheReadInputPerToken     *float64 `json:"cacheReadInputPerToken,omitempty"`
 	CacheCreationInputPerToken *float64 `json:"cacheCreationInputPerToken,omitempty"`
 	RateMultiplier             *float64 `json:"rateMultiplier,omitempty"`
+	ChannelRateMultiplier      *float64 `json:"channelRateMultiplier,omitempty"`
+	GroupRateMultiplier        *float64 `json:"groupRateMultiplier,omitempty"`
+	SpecialRateMultiplier      *float64 `json:"specialRateMultiplier,omitempty"`
+	SpecialRateReason          *string  `json:"specialRateReason,omitempty"`
+	ChannelTranslator          *ChannelTranslator `json:"channelTranslator,omitempty"`
 	BillingStatus              string   `json:"-"`
 	ChargedSubscriptionMicros  int64    `json:"-"`
 	ChargedBalanceMicros       int64    `json:"-"`

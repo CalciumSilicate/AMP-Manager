@@ -254,6 +254,8 @@ func createTables() error {
 		username TEXT UNIQUE NOT NULL,
 		password_hash TEXT NOT NULL,
 		is_admin INTEGER DEFAULT 0,
+		balance_micros BIGINT NOT NULL DEFAULT 0,
+		concurrency_limit INTEGER NOT NULL DEFAULT 0,
 		created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
 		updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
 	);
@@ -297,6 +299,7 @@ func createTables() error {
 		enabled INTEGER NOT NULL DEFAULT 1,
 		weight INTEGER NOT NULL DEFAULT 1,
 		priority INTEGER NOT NULL DEFAULT 100,
+		rate_multiplier REAL NOT NULL DEFAULT 1.0,
 		codex_websocket_enabled INTEGER NOT NULL DEFAULT 0,
 		models_json TEXT NOT NULL DEFAULT '[]',
 		headers_json TEXT NOT NULL DEFAULT '{}',
@@ -382,6 +385,11 @@ func createTables() error {
 		transport_fallback_reason TEXT,
 		response_text TEXT,
 		rate_multiplier REAL,
+		channel_rate_multiplier REAL,
+		group_rate_multiplier REAL,
+		special_rate_multiplier REAL,
+		special_rate_reason TEXT,
+		pricing_rule_name TEXT,
 		charged_subscription_micros INTEGER NOT NULL DEFAULT 0,
 		charged_balance_micros INTEGER NOT NULL DEFAULT 0,
 		billing_status TEXT NOT NULL DEFAULT 'none'
@@ -429,6 +437,22 @@ func createTables() error {
 	);
 	CREATE INDEX IF NOT EXISTS idx_model_prices_provider ON model_prices(provider);
 
+	CREATE TABLE IF NOT EXISTS model_price_context_rules (
+		id TEXT PRIMARY KEY,
+		model TEXT NOT NULL,
+		rule_name TEXT NOT NULL,
+		min_tokens BIGINT NOT NULL DEFAULT 0,
+		max_tokens BIGINT,
+		input_cost_per_token REAL NOT NULL DEFAULT 0,
+		output_cost_per_token REAL NOT NULL DEFAULT 0,
+		cache_read_input_per_token REAL NOT NULL DEFAULT 0,
+		cache_creation_per_token REAL NOT NULL DEFAULT 0,
+		sort_order INTEGER NOT NULL DEFAULT 0,
+		created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+		updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+	);
+	CREATE INDEX IF NOT EXISTS idx_model_price_context_rules_model ON model_price_context_rules(model, sort_order ASC, created_at ASC);
+
 	CREATE TABLE IF NOT EXISTS system_config (
 		key TEXT PRIMARY KEY,
 		value TEXT NOT NULL,
@@ -447,6 +471,28 @@ func createTables() error {
 		created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
 	);
 	CREATE INDEX IF NOT EXISTS idx_request_log_details_created ON request_log_details(created_at DESC);
+
+	CREATE TABLE IF NOT EXISTS announcements (
+		id TEXT PRIMARY KEY,
+		title TEXT NOT NULL,
+		content TEXT NOT NULL,
+		audience TEXT NOT NULL CHECK (audience IN ('authenticated', 'new_user', 'public')),
+		pinned INTEGER NOT NULL DEFAULT 0,
+		enabled INTEGER NOT NULL DEFAULT 1,
+		created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+		updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+	);
+	CREATE INDEX IF NOT EXISTS idx_announcements_audience_enabled ON announcements(audience, enabled, pinned DESC, created_at DESC);
+
+	CREATE TABLE IF NOT EXISTS announcement_reads (
+		announcement_id TEXT NOT NULL,
+		user_id TEXT NOT NULL,
+		read_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+		PRIMARY KEY (announcement_id, user_id),
+		FOREIGN KEY (announcement_id) REFERENCES announcements(id) ON DELETE CASCADE,
+		FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+	);
+	CREATE INDEX IF NOT EXISTS idx_announcement_reads_user ON announcement_reads(user_id, read_at DESC);
 
 	CREATE TABLE IF NOT EXISTS subscription_plans (
 		id TEXT PRIMARY KEY,
@@ -896,6 +942,34 @@ func runMigrations() error {
 			sql:  `ALTER TABLE request_logs ADD COLUMN charged_balance_micros INTEGER NOT NULL DEFAULT 0`,
 		},
 		{
+			name: "add_user_concurrency_limit",
+			sql:  `ALTER TABLE users ADD COLUMN concurrency_limit INTEGER NOT NULL DEFAULT 0`,
+		},
+		{
+			name: "add_channels_rate_multiplier",
+			sql:  `ALTER TABLE channels ADD COLUMN rate_multiplier REAL NOT NULL DEFAULT 1.0`,
+		},
+		{
+			name: "add_request_logs_channel_rate_multiplier",
+			sql:  `ALTER TABLE request_logs ADD COLUMN channel_rate_multiplier REAL`,
+		},
+		{
+			name: "add_request_logs_group_rate_multiplier",
+			sql:  `ALTER TABLE request_logs ADD COLUMN group_rate_multiplier REAL`,
+		},
+		{
+			name: "add_request_logs_special_rate_multiplier",
+			sql:  `ALTER TABLE request_logs ADD COLUMN special_rate_multiplier REAL`,
+		},
+		{
+			name: "add_request_logs_special_rate_reason",
+			sql:  `ALTER TABLE request_logs ADD COLUMN special_rate_reason TEXT`,
+		},
+		{
+			name: "add_request_logs_pricing_rule_name",
+			sql:  `ALTER TABLE request_logs ADD COLUMN pricing_rule_name TEXT`,
+		},
+		{
 			name: "add_request_logs_billing_status",
 			sql:  `ALTER TABLE request_logs ADD COLUMN billing_status TEXT NOT NULL DEFAULT 'none'`,
 		},
@@ -1206,6 +1280,59 @@ func runMigrations() error {
 			name: "add_channels_translator_json",
 			sql:  `ALTER TABLE channels ADD COLUMN translator_json TEXT NOT NULL DEFAULT '{}'`,
 		},
+		{
+			name: "create_model_price_context_rules_table",
+			sql: `CREATE TABLE IF NOT EXISTS model_price_context_rules (
+				id TEXT PRIMARY KEY,
+				model TEXT NOT NULL,
+				rule_name TEXT NOT NULL,
+				min_tokens BIGINT NOT NULL DEFAULT 0,
+				max_tokens BIGINT,
+				input_cost_per_token REAL NOT NULL DEFAULT 0,
+				output_cost_per_token REAL NOT NULL DEFAULT 0,
+				cache_read_input_per_token REAL NOT NULL DEFAULT 0,
+				cache_creation_per_token REAL NOT NULL DEFAULT 0,
+				sort_order INTEGER NOT NULL DEFAULT 0,
+				created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+				updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+			)`,
+		},
+		{
+			name: "create_model_price_context_rules_indexes",
+			sql:  `CREATE INDEX IF NOT EXISTS idx_model_price_context_rules_model ON model_price_context_rules(model, sort_order ASC, created_at ASC)`,
+		},
+		{
+			name: "create_announcements_table",
+			sql: `CREATE TABLE IF NOT EXISTS announcements (
+				id TEXT PRIMARY KEY,
+				title TEXT NOT NULL,
+				content TEXT NOT NULL,
+				audience TEXT NOT NULL CHECK (audience IN ('authenticated', 'new_user', 'public')),
+				pinned INTEGER NOT NULL DEFAULT 0,
+				enabled INTEGER NOT NULL DEFAULT 1,
+				created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+				updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+			)`,
+		},
+		{
+			name: "create_announcements_indexes",
+			sql:  `CREATE INDEX IF NOT EXISTS idx_announcements_audience_enabled ON announcements(audience, enabled, pinned DESC, created_at DESC)`,
+		},
+		{
+			name: "create_announcement_reads_table",
+			sql: `CREATE TABLE IF NOT EXISTS announcement_reads (
+				announcement_id TEXT NOT NULL,
+				user_id TEXT NOT NULL,
+				read_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+				PRIMARY KEY (announcement_id, user_id),
+				FOREIGN KEY (announcement_id) REFERENCES announcements(id) ON DELETE CASCADE,
+				FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+			)`,
+		},
+		{
+			name: "create_announcement_reads_indexes",
+			sql:  `CREATE INDEX IF NOT EXISTS idx_announcement_reads_user ON announcement_reads(user_id, read_at DESC)`,
+		},
 			{
 				name: "create_purchase_products_and_orders",
 				sql: `
@@ -1404,6 +1531,10 @@ func adaptMigrationSQL(name string, sqlText string) string {
 	case "add_user_balance_micros":
 		if dbType == DBTypePostgres {
 			adapted = `ALTER TABLE users ADD COLUMN balance_micros BIGINT NOT NULL DEFAULT 0`
+		}
+	case "add_request_logs_pricing_rule_name":
+		if dbType == DBTypePostgres {
+			adapted = `ALTER TABLE request_logs ADD COLUMN pricing_rule_name TEXT`
 		}
 	case "add_request_logs_cost_micros":
 		if dbType == DBTypePostgres {

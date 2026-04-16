@@ -192,15 +192,16 @@ func (s *UserService) buildUserInfos(users []*model.User) ([]*model.UserInfo, er
 			gids = []string{}
 		}
 		result[i] = &model.UserInfo{
-			ID:            u.ID,
-			Username:      u.Username,
-			IsAdmin:       u.IsAdmin,
-			BalanceMicros: u.BalanceMicros,
-			BalanceUsd:    fmt.Sprintf("%.6f", float64(u.BalanceMicros)/1e6),
-			GroupIDs:      gids,
-			GroupNames:    groupNames,
-			CreatedAt:     u.CreatedAt,
-			UpdatedAt:     u.UpdatedAt,
+			ID:               u.ID,
+			Username:         u.Username,
+			IsAdmin:          u.IsAdmin,
+			BalanceMicros:    u.BalanceMicros,
+			BalanceUsd:       fmt.Sprintf("%.6f", float64(u.BalanceMicros)/1e6),
+			ConcurrencyLimit: u.ConcurrencyLimit,
+			GroupIDs:         gids,
+			GroupNames:       groupNames,
+			CreatedAt:        u.CreatedAt,
+			UpdatedAt:        u.UpdatedAt,
 		}
 	}
 	return result, nil
@@ -240,6 +241,13 @@ func (s *UserService) ChangeUsername(userID string, newUsername string) error {
 
 func (s *UserService) SetAdmin(userID string, isAdmin bool) error {
 	return s.repo.SetAdmin(userID, isAdmin)
+}
+
+func (s *UserService) SetConcurrencyLimit(userID string, concurrencyLimit int) error {
+	if concurrencyLimit < 0 {
+		concurrencyLimit = 0
+	}
+	return s.repo.SetConcurrencyLimit(userID, concurrencyLimit)
 }
 
 func (s *UserService) SetGroups(userID string, groupIDs []string) error {

@@ -36,6 +36,7 @@ type Channel struct {
 	Enabled               bool            `json:"enabled"`
 	Weight                int             `json:"weight"`
 	Priority              int             `json:"priority"`
+	RateMultiplier        float64         `json:"rateMultiplier"`
 	ModelWhitelist        bool            `json:"modelWhitelist"`
 	SimulateCLI           bool            `json:"simulateCli"`
 	SimulateUA            bool            `json:"simulateUa"`
@@ -64,6 +65,7 @@ type ChannelRequest struct {
 	Enabled               bool              `json:"enabled"`
 	Weight                int               `json:"weight"`
 	Priority              int               `json:"priority"`
+	RateMultiplier        float64           `json:"rateMultiplier"`
 	ModelWhitelist        bool              `json:"modelWhitelist"`
 	SimulateCLI           bool              `json:"simulateCli"`
 	SimulateUA            bool              `json:"simulateUa"`
@@ -87,6 +89,7 @@ type ChannelResponse struct {
 	Enabled               bool              `json:"enabled"`
 	Weight                int               `json:"weight"`
 	Priority              int               `json:"priority"`
+	RateMultiplier        float64           `json:"rateMultiplier"`
 	ModelWhitelist        bool              `json:"modelWhitelist"`
 	SimulateCLI           bool              `json:"simulateCli"`
 	SimulateUA            bool              `json:"simulateUa"`
