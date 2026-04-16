@@ -1,6 +1,5 @@
 import { useEffect, useState } from 'react'
 
-import { motion } from '@/lib/motion'
 import { navigateDashboard } from '@/lib/dashboard-navigation'
 import { formatDateTime } from '@/lib/formatters'
 import {
@@ -13,13 +12,22 @@ import {
   type PurchaseProduct,
 } from '@/api/purchase'
 import { RedeemQuickEntry } from '@/components/redeem/RedeemPanels'
-import { PageShell, PageStat, PageStatStrip, PageSurface } from '@/components/layout/PageScaffold'
-import { Alert, AlertDescription } from '@/components/ui/alert'
+import { TabbedSettingsPage, type TabbedSettingsPageTab } from '@/components/layout/TabbedSettingsPage'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
-import { CheckCircle2, CircleAlert, CreditCard, QrCode, RefreshCw, ShoppingCart } from 'lucide-react'
+import { CreditCard, QrCode, RefreshCw, ShoppingCart } from 'lucide-react'
+
+type PurchaseCenterTab = 'subscription' | 'redeem' | 'orders' | 'products'
+
+const tabs: TabbedSettingsPageTab<PurchaseCenterTab>[] = [
+  { key: 'subscription', label: '当前订阅' },
+  { key: 'redeem', label: '兑换码' },
+  { key: 'orders', label: '我的订单' },
+  { key: 'products', label: '可购商品' },
+]
 
 function formatCNY(cents: number): string {
   return `¥${(cents / 100).toFixed(2)}`
@@ -92,6 +100,7 @@ function paymentChannelLabel(catalog: PurchaseCatalogResponse | null): string {
 }
 
 export default function PurchaseCenter() {
+  const [activeTab, setActiveTab] = useState<PurchaseCenterTab>('subscription')
   const [catalog, setCatalog] = useState<PurchaseCatalogResponse | null>(null)
   const [orders, setOrders] = useState<PurchaseOrder[]>([])
   const [loading, setLoading] = useState(true)
@@ -123,7 +132,7 @@ export default function PurchaseCenter() {
 
   const showMessage = (type: 'success' | 'error', text: string) => {
     setMessage({ type, text })
-    window.setTimeout(() => setMessage(null), 3200)
+    window.setTimeout(() => setMessage(null), 5000)
   }
 
   const loadAll = async (silent = false) => {
@@ -158,8 +167,10 @@ export default function PurchaseCenter() {
 
       if (order.paymentStatus === 'paid') {
         showMessage('success', '订阅已开通')
+        setActiveTab('subscription')
       } else {
         setPendingOrder(order)
+        setActiveTab('orders')
         showMessage('success', '订单已创建')
       }
     } catch (error) {
@@ -201,222 +212,270 @@ export default function PurchaseCenter() {
   }
 
   return (
-    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
-      <PageShell
+    <>
+      <TabbedSettingsPage
         title="购买订阅"
-        description="把当前订阅、兑换入口、商品清单和订单状态放进同一条自助购买路径。"
-        width="7xl"
-        actions={(
-          <Button variant="outline" size="sm" onClick={() => void loadAll(true)} disabled={reloading}>
-            <RefreshCw className={`mr-2 h-4 w-4 ${reloading ? 'animate-spin' : ''}`} />
-            刷新
-          </Button>
-        )}
+        description="查看当前订阅、兑换入口、订单状态和可购买商品。"
+        tabs={tabs}
+        activeTab={activeTab}
+        onTabChange={setActiveTab}
+        indicatorId="purchase-center-tab-indicator"
+        message={message}
       >
-        <PageStatStrip>
-          <PageStat label="支付方式" value={paymentChannelLabel(catalog)} note={catalog?.paymentConfigured ? '扫码即可下单' : '等待配置'} />
-          <PageStat label="当前套餐" value={catalog?.currentSubscription?.planName || '未订阅'} note={catalog?.currentSubscription?.expiresAt ? `到期 ${formatDateTime(catalog.currentSubscription.expiresAt)}` : catalog?.renewalRule || '-'} />
-          <PageStat label="可购商品" value={catalog?.products.length || 0} note={catalog?.purchaseEnabled ? '可立即下单' : '购买已关闭'} />
-          <PageStat label="待支付订单" value={pendingOrders.length} note={`${orders.length} 条最近订单`} />
-        </PageStatStrip>
-
-        {message && (
-          <Alert variant={message.type === 'error' ? 'destructive' : 'default'}>
-            {message.type === 'error' ? <CircleAlert className="h-4 w-4" /> : <CheckCircle2 className="h-4 w-4" />}
-            <AlertDescription>{message.text}</AlertDescription>
-          </Alert>
+        {activeTab === 'subscription' && (
+          <Card>
+            <CardHeader>
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                <div className="space-y-1">
+                  <CardTitle>当前订阅</CardTitle>
+                  <CardDescription>查看当前套餐、支付方式和续费规则。</CardDescription>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  {catalog?.currentSubscription ? (
+                    <Button type="button" variant="outline" size="sm" onClick={() => navigateDashboard('overview')}>
+                      <CreditCard className="mr-2 h-4 w-4" />
+                      查看当前额度
+                    </Button>
+                  ) : null}
+                  <Button type="button" variant="outline" size="sm" onClick={() => void loadAll(true)} disabled={reloading}>
+                    <RefreshCw className={`mr-2 h-4 w-4 ${reloading ? 'animate-spin' : ''}`} />
+                    刷新
+                  </Button>
+                </div>
+              </div>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="grid gap-4 md:grid-cols-2">
+                <div className="space-y-3 rounded-lg border p-4">
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm text-muted-foreground">套餐</span>
+                    <Badge variant={catalog?.purchaseEnabled ? 'default' : 'secondary'}>
+                      {catalog?.purchaseEnabled ? '可下单' : '已关闭'}
+                    </Badge>
+                  </div>
+                  <p className="text-2xl font-semibold tracking-tight">
+                    {catalog?.currentSubscription?.planName || '未订阅'}
+                  </p>
+                  <p className="text-sm text-muted-foreground">
+                    {catalog?.currentSubscription?.expiresAt
+                      ? `到期 ${formatDateTime(catalog.currentSubscription.expiresAt)}`
+                      : catalog?.currentSubscription
+                        ? '永久有效'
+                        : catalog?.renewalRule || '-'}
+                  </p>
+                  <div className="flex flex-wrap gap-2">
+                    {pendingOrders.length > 0 ? (
+                      <Badge variant="outline">{pendingOrders.length} 个待支付订单</Badge>
+                    ) : null}
+                    <Badge variant="outline">{orders.length} 条最近订单</Badge>
+                  </div>
+                </div>
+                <div className="space-y-2 rounded-lg border p-4">
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm text-muted-foreground">支付方式</span>
+                    <Badge variant="outline">{paymentChannelLabel(catalog)}</Badge>
+                  </div>
+                  <p className="text-sm text-muted-foreground">
+                    {catalog?.paymentConfigured ? '已配置扫码支付，可直接创建订单。' : '当前支付配置不完整，暂时不能下单。'}
+                  </p>
+                  <div className="grid gap-3 pt-2 sm:grid-cols-2">
+                    <div className="rounded-md bg-muted/40 p-3">
+                      <div className="text-xs text-muted-foreground">可购商品</div>
+                      <div className="mt-1 text-2xl font-semibold">{catalog?.products.length || 0}</div>
+                    </div>
+                    <div className="rounded-md bg-muted/40 p-3">
+                      <div className="text-xs text-muted-foreground">续费规则</div>
+                      <div className="mt-1 text-sm font-semibold">{catalog?.renewalRule || '-'}</div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
         )}
 
-        <div className="grid gap-5 xl:grid-cols-[1.1fr_0.9fr]">
-          <PageSurface
-            title="当前订阅"
-            description="续费、开通和支付方式都沿用一条支付链路。"
-            actions={(
-              <Badge variant="outline" className="self-start sm:self-center">
-                {paymentChannelLabel(catalog)}
-              </Badge>
-            )}
-          >
-            <div className="grid gap-4 lg:grid-cols-[1.3fr_0.7fr]">
-            <div className="space-y-3">
-              <div>
-                <p className="text-[11px] uppercase tracking-[0.18em] text-muted-foreground">套餐</p>
-                <p className="mt-2 text-2xl font-semibold tracking-tight">
-                  {catalog?.currentSubscription?.planName || '未订阅'}
-                </p>
-                <p className="mt-1 text-sm text-muted-foreground">
-                  {catalog?.currentSubscription?.expiresAt
-                    ? `到期 ${formatDateTime(catalog.currentSubscription.expiresAt)}`
-                    : catalog?.currentSubscription
-                      ? '永久有效'
-                      : catalog?.renewalRule || '-'}
-                </p>
-              </div>
-              <div className="flex flex-wrap gap-2">
-                <Badge variant={catalog?.purchaseEnabled ? 'default' : 'secondary'}>
-                  {catalog?.purchaseEnabled ? '可下单' : '已关闭'}
-                </Badge>
-                {pendingOrders.length > 0 ? (
-                  <Badge variant="outline">{pendingOrders.length} 个待支付订单</Badge>
-                ) : null}
-              </div>
-            </div>
-            <div className="grid gap-3 rounded-xl border border-border/70 bg-background/70 px-4 py-4 text-sm">
-              <div className="flex items-center justify-between gap-3">
-                <span className="text-muted-foreground">支付方式</span>
-                <span className="font-medium">{paymentChannelLabel(catalog)}</span>
-              </div>
-              <div className="flex items-center justify-between gap-3">
-                <span className="text-muted-foreground">商品数</span>
-                <span className="font-medium">{catalog?.products.length || 0}</span>
-              </div>
-              <div className="flex items-center justify-between gap-3">
-                <span className="text-muted-foreground">续费规则</span>
-                <span className="text-right font-medium">{catalog?.renewalRule || '-'}</span>
-              </div>
-            </div>
-            </div>
-          </PageSurface>
-
-          <PageSurface
-            title="兑换码"
-            description="把兑换入口收成一个独立操作主体，避免和购买动作混淆。"
-          >
-            <RedeemQuickEntry onSuccess={() => loadAll(true)} />
-          </PageSurface>
-        </div>
-
-        <PageSurface
-          title="可购商品"
-          description="展示当前可下单的商品结构，卡片负责选择，页头动作负责跳回额度页。"
-          actions={catalog?.currentSubscription ? (
-            <Button variant="ghost" size="sm" onClick={() => navigateDashboard('overview')}>
-              <CreditCard className="mr-2 h-4 w-4" />
-              查看当前额度
-            </Button>
-          ) : null}
-        >
-          {catalog?.products.length ? (
-          <div className="grid gap-4 xl:grid-cols-3">
-            {catalog.products.map((product) => (
-              <button
-                key={product.id}
-                type="button"
-                onClick={() => setConfirmProduct(product)}
-                disabled={!catalog.purchaseEnabled || !catalog.paymentConfigured}
-                className="group flex min-h-[168px] flex-col justify-between rounded-xl border border-border/80 bg-card/95 px-5 py-5 text-left shadow-sm transition hover:border-foreground/20 disabled:cursor-not-allowed disabled:opacity-55"
-              >
-                <div className="space-y-3">
-                  <div className="flex items-start justify-between gap-3">
-                    <div>
-                      <p className="text-lg font-semibold tracking-tight">{product.name}</p>
-                      <p className="mt-1 text-sm text-muted-foreground">{product.subscriptionPlanName}</p>
-                    </div>
-                    {product.isRecommended ? <Badge variant="outline">推荐</Badge> : null}
-                  </div>
-                  <p className="text-sm text-muted-foreground">{product.summary || '标准续费档'}</p>
+        {activeTab === 'redeem' && (
+          <Card>
+            <CardHeader>
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                <div className="space-y-1">
+                  <CardTitle>兑换码</CardTitle>
+                  <CardDescription>兑换成功后会立即刷新当前订阅和订单状态。</CardDescription>
                 </div>
+                <Button type="button" variant="outline" size="sm" onClick={() => void loadAll(true)} disabled={reloading}>
+                  <RefreshCw className={`mr-2 h-4 w-4 ${reloading ? 'animate-spin' : ''}`} />
+                  刷新
+                </Button>
+              </div>
+            </CardHeader>
+            <CardContent>
+              <RedeemQuickEntry onSuccess={() => void loadAll(true)} />
+            </CardContent>
+          </Card>
+        )}
 
-                <div className="flex items-end justify-between gap-4 border-t border-border/70 pt-4">
-                  <div>
-                    <p className="text-[11px] uppercase tracking-[0.18em] text-muted-foreground">时长</p>
-                    <p className="mt-1 text-sm font-medium">{product.durationDays} 天</p>
-                  </div>
-                  <p className="text-3xl font-semibold tracking-tight">{formatCNY(product.priceCnyCent)}</p>
+        {activeTab === 'orders' && (
+          <Card>
+            <CardHeader>
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                <div className="space-y-1">
+                  <CardTitle>我的订单</CardTitle>
+                  <CardDescription>保留最近订单和当前仍然有效的支付、刷新动作。</CardDescription>
                 </div>
-              </button>
-            ))}
-          </div>
-          ) : (
-            <div className="rounded-xl border border-dashed border-border/70 px-5 py-8 text-sm text-muted-foreground">
-              当前没有可购买的商品。
-            </div>
-          )}
-        </PageSurface>
+                <div className="flex flex-wrap gap-2">
+                  <Badge variant="outline">共 {orders.length} 条</Badge>
+                  <Button type="button" variant="outline" size="sm" onClick={() => void loadAll(true)} disabled={reloading}>
+                    <RefreshCw className={`mr-2 h-4 w-4 ${reloading ? 'animate-spin' : ''}`} />
+                    刷新
+                  </Button>
+                </div>
+              </div>
+            </CardHeader>
+            <CardContent className="px-0 pb-0">
+              <div className="overflow-x-auto border-t">
+                {orders.length === 0 ? (
+                  <div className="px-6 py-10 text-sm text-muted-foreground">暂无订单。</div>
+                ) : (
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>订单</TableHead>
+                        <TableHead>商品</TableHead>
+                        <TableHead>金额</TableHead>
+                        <TableHead>支付</TableHead>
+                        <TableHead>发放</TableHead>
+                        <TableHead>时间</TableHead>
+                        <TableHead className="text-right">操作</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {orders.map((order) => (
+                        <TableRow key={order.id}>
+                          <TableCell>
+                            <div>
+                              <p className="font-mono text-xs">{order.orderNo}</p>
+                              {order.alipayTradeNo ? (
+                                <p className="mt-1 text-xs text-muted-foreground">{order.alipayTradeNo}</p>
+                              ) : null}
+                            </div>
+                          </TableCell>
+                          <TableCell>
+                            <div>
+                              <p className="font-medium">{order.productName}</p>
+                              <p className="text-xs text-muted-foreground">{order.subscriptionPlanName}</p>
+                            </div>
+                          </TableCell>
+                          <TableCell>{formatCNY(order.amountCnyCent)}</TableCell>
+                          <TableCell>
+                            <Badge variant="outline" className={paymentTone(order.paymentStatus)}>
+                              {paymentLabel(order.paymentStatus)}
+                            </Badge>
+                          </TableCell>
+                          <TableCell>
+                            <Badge variant="outline" className={fulfillmentTone(order.fulfillmentStatus)}>
+                              {fulfillmentLabel(order.fulfillmentStatus)}
+                            </Badge>
+                          </TableCell>
+                          <TableCell className="text-xs text-muted-foreground">{formatDateTime(order.createdAt)}</TableCell>
+                          <TableCell className="text-right">
+                            <div className="flex flex-wrap justify-end gap-2">
+                              {order.paymentStatus === 'pending' ? (
+                                <Button type="button" variant="outline" size="sm" onClick={() => setPendingOrder(order)}>
+                                  <QrCode className="mr-2 h-4 w-4" />
+                                  支付
+                                </Button>
+                              ) : null}
+                              {order.canRefresh ? (
+                                <Button
+                                  type="button"
+                                  size="sm"
+                                  onClick={() => void handleRefreshOrder(order.orderNo, false)}
+                                  disabled={refreshingOrderNo === order.orderNo}
+                                >
+                                  <RefreshCw className={`mr-2 h-4 w-4 ${refreshingOrderNo === order.orderNo ? 'animate-spin' : ''}`} />
+                                  刷新
+                                </Button>
+                              ) : null}
+                            </div>
+                            {order.failureReason ? (
+                              <p className="mt-2 text-xs text-rose-600">{order.failureReason}</p>
+                            ) : null}
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                )}
+              </div>
+            </CardContent>
+          </Card>
+        )}
 
-        <PageSurface
-          title="我的订单"
-          description="保留最近订单和支付动作，操作区只放当前仍然有效的下一步。"
-          actions={<div className="text-xs text-muted-foreground">共 {orders.length} 条</div>}
-          bodyClassName="px-0 py-0"
-        >
-          <div className="ops-table-shell rounded-none border-x-0 border-b-0">
-          {orders.length === 0 ? (
-            <div className="px-5 py-10 text-sm text-muted-foreground">暂无订单。</div>
-          ) : (
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>订单</TableHead>
-                  <TableHead>商品</TableHead>
-                  <TableHead>金额</TableHead>
-                  <TableHead>支付</TableHead>
-                  <TableHead>发放</TableHead>
-                  <TableHead>时间</TableHead>
-                  <TableHead className="text-right">操作</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {orders.map((order) => (
-                  <TableRow key={order.id}>
-                    <TableCell>
-                      <div>
-                        <p className="font-mono text-xs">{order.orderNo}</p>
-                        {order.alipayTradeNo ? (
-                          <p className="mt-1 text-xs text-muted-foreground">{order.alipayTradeNo}</p>
-                        ) : null}
+        {activeTab === 'products' && (
+          <Card>
+            <CardHeader>
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                <div className="space-y-1">
+                  <CardTitle>可购商品</CardTitle>
+                  <CardDescription>选择商品后直接创建订单，支付成功后自动续订到当前账号。</CardDescription>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  {catalog?.currentSubscription ? (
+                    <Button type="button" variant="outline" size="sm" onClick={() => navigateDashboard('overview')}>
+                      <CreditCard className="mr-2 h-4 w-4" />
+                      查看当前额度
+                    </Button>
+                  ) : null}
+                  <Button type="button" variant="outline" size="sm" onClick={() => void loadAll(true)} disabled={reloading}>
+                    <RefreshCw className={`mr-2 h-4 w-4 ${reloading ? 'animate-spin' : ''}`} />
+                    刷新
+                  </Button>
+                </div>
+              </div>
+            </CardHeader>
+            <CardContent>
+              {catalog?.products.length ? (
+                <div className="grid gap-4 xl:grid-cols-3">
+                  {catalog.products.map((product) => (
+                    <button
+                      key={product.id}
+                      type="button"
+                      onClick={() => setConfirmProduct(product)}
+                      disabled={!catalog.purchaseEnabled || !catalog.paymentConfigured}
+                      className="group flex min-h-[168px] flex-col justify-between rounded-xl border border-border/80 bg-card/95 px-5 py-5 text-left shadow-sm transition hover:border-foreground/20 disabled:cursor-not-allowed disabled:opacity-55"
+                    >
+                      <div className="space-y-3">
+                        <div className="flex items-start justify-between gap-3">
+                          <div>
+                            <p className="text-lg font-semibold tracking-tight">{product.name}</p>
+                            <p className="mt-1 text-sm text-muted-foreground">{product.subscriptionPlanName}</p>
+                          </div>
+                          {product.isRecommended ? <Badge variant="outline">推荐</Badge> : null}
+                        </div>
+                        <p className="text-sm text-muted-foreground">{product.summary || '标准续费档'}</p>
                       </div>
-                    </TableCell>
-                    <TableCell>
-                      <div>
-                        <p className="font-medium">{order.productName}</p>
-                        <p className="text-xs text-muted-foreground">{order.subscriptionPlanName}</p>
-                      </div>
-                    </TableCell>
-                    <TableCell>{formatCNY(order.amountCnyCent)}</TableCell>
-                    <TableCell>
-                      <Badge variant="outline" className={paymentTone(order.paymentStatus)}>
-                        {paymentLabel(order.paymentStatus)}
-                      </Badge>
-                    </TableCell>
-                    <TableCell>
-                      <Badge variant="outline" className={fulfillmentTone(order.fulfillmentStatus)}>
-                        {fulfillmentLabel(order.fulfillmentStatus)}
-                      </Badge>
-                    </TableCell>
-                    <TableCell className="text-xs text-muted-foreground">{formatDateTime(order.createdAt)}</TableCell>
-                    <TableCell className="text-right">
-                      <div className="flex flex-wrap justify-end gap-2">
-                        {order.paymentStatus === 'pending' ? (
-                          <Button variant="outline" size="sm" onClick={() => setPendingOrder(order)}>
-                            <QrCode className="mr-2 h-4 w-4" />
-                            支付
-                          </Button>
-                        ) : null}
-                        {order.canRefresh ? (
-                          <Button
-                            size="sm"
-                            onClick={() => void handleRefreshOrder(order.orderNo, false)}
-                            disabled={refreshingOrderNo === order.orderNo}
-                          >
-                            <RefreshCw className={`mr-2 h-4 w-4 ${refreshingOrderNo === order.orderNo ? 'animate-spin' : ''}`} />
-                            刷新
-                          </Button>
-                        ) : null}
-                      </div>
-                      {order.failureReason ? (
-                        <p className="mt-2 text-xs text-rose-600">{order.failureReason}</p>
-                      ) : null}
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          )}
-          </div>
-        </PageSurface>
 
-        <Dialog open={!!confirmProduct} onOpenChange={(open) => !open && setConfirmProduct(null)}>
+                      <div className="flex items-end justify-between gap-4 border-t border-border/70 pt-4">
+                        <div>
+                          <p className="text-[11px] uppercase tracking-[0.18em] text-muted-foreground">时长</p>
+                          <p className="mt-1 text-sm font-medium">{product.durationDays} 天</p>
+                        </div>
+                        <p className="text-3xl font-semibold tracking-tight">{formatCNY(product.priceCnyCent)}</p>
+                      </div>
+                    </button>
+                  ))}
+                </div>
+              ) : (
+                <div className="rounded-lg border border-dashed px-5 py-8 text-sm text-muted-foreground">
+                  当前没有可购买的商品。
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        )}
+      </TabbedSettingsPage>
+
+      <Dialog open={!!confirmProduct} onOpenChange={(open) => !open && setConfirmProduct(null)}>
         <DialogContent className="max-w-md">
           <DialogHeader>
             <DialogTitle className="text-xl">确认下单</DialogTitle>
@@ -442,8 +501,8 @@ export default function PurchaseCenter() {
             </div>
           ) : null}
           <DialogFooter>
-            <Button variant="outline" onClick={() => setConfirmProduct(null)}>取消</Button>
-            <Button onClick={handleCreateOrder} disabled={creating || !catalog?.purchaseEnabled || !catalog?.paymentConfigured}>
+            <Button type="button" variant="outline" onClick={() => setConfirmProduct(null)}>取消</Button>
+            <Button type="button" onClick={handleCreateOrder} disabled={creating || !catalog?.purchaseEnabled || !catalog?.paymentConfigured}>
               {creating ? <RefreshCw className="mr-2 h-4 w-4 animate-spin" /> : <ShoppingCart className="mr-2 h-4 w-4" />}
               提交
             </Button>
@@ -486,6 +545,7 @@ export default function PurchaseCenter() {
 
               <div className="flex flex-wrap justify-between gap-2">
                 <Button
+                  type="button"
                   variant="outline"
                   onClick={() => {
                     if (pendingOrder.paymentQrUrl) {
@@ -496,6 +556,7 @@ export default function PurchaseCenter() {
                   复制链接
                 </Button>
                 <Button
+                  type="button"
                   onClick={() => void handleRefreshOrder(pendingOrder.orderNo, true)}
                   disabled={refreshingOrderNo === pendingOrder.orderNo}
                 >
@@ -506,8 +567,7 @@ export default function PurchaseCenter() {
             </div>
           ) : null}
         </DialogContent>
-        </Dialog>
-      </PageShell>
-    </motion.div>
+      </Dialog>
+    </>
   )
 }

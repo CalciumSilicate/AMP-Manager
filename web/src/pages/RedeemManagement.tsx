@@ -19,20 +19,19 @@ import {
   type RedeemRedemption,
 } from '@/api/redeem'
 import { getPlans, type SubscriptionPlanResponse } from '@/api/subscription'
-import { AdminPageShell, AdminSurface, AdminToolbarRow } from '@/components/admin/AdminPageShell'
-import { PageStat, PageStatStrip } from '@/components/layout/PageScaffold'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Switch } from '@/components/ui/switch'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
+import { TabbedSettingsPage, type TabbedSettingsPageTab } from '@/components/layout/TabbedSettingsPage'
 import { formatDateTime, formatDecimal } from '@/lib/formatters'
-import { motion } from '@/lib/motion'
-import { CheckCircle2, Copy, Download, Plus, RefreshCw, TicketPercent, Trash2 } from 'lucide-react'
+import { Copy, Download, Plus, RefreshCw, TicketPercent, Trash2 } from 'lucide-react'
 
 type CampaignFormState = {
   name: string
@@ -119,7 +118,17 @@ function downloadTextFile(filename: string, content: string): void {
   URL.revokeObjectURL(url)
 }
 
+type RedeemManagementTab = 'campaigns' | 'batches' | 'codes' | 'redemptions'
+
+const tabs: TabbedSettingsPageTab<RedeemManagementTab>[] = [
+  { key: 'campaigns', label: '活动' },
+  { key: 'batches', label: '批次' },
+  { key: 'codes', label: '兑换码明细' },
+  { key: 'redemptions', label: '兑换记录' },
+]
+
 export default function RedeemManagement() {
+  const [activeTab, setActiveTab] = useState<RedeemManagementTab>('campaigns')
   const [loading, setLoading] = useState(true)
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
   const [campaigns, setCampaigns] = useState<RedeemCampaign[]>([])
@@ -150,13 +159,17 @@ export default function RedeemManagement() {
   })
   const [togglingCodeId, setTogglingCodeId] = useState<string | null>(null)
 
+  const enabledCampaigns = campaigns.filter((item) => item.enabled).length
+  const sharedCampaigns = campaigns.filter((item) => item.codeMode === 'shared').length
+  const singleUseCampaigns = campaigns.filter((item) => item.codeMode === 'single_use').length
+
   useEffect(() => {
     void loadAll()
   }, [])
 
   const showMessage = (type: 'success' | 'error', text: string) => {
     setMessage({ type, text })
-    window.setTimeout(() => setMessage(null), 3200)
+    window.setTimeout(() => setMessage(null), 5000)
   }
 
   const loadAll = async () => {
@@ -330,191 +343,238 @@ export default function RedeemManagement() {
   }
 
   return (
-    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
-      <AdminPageShell
+    <>
+      <TabbedSettingsPage
         title="兑换码管理"
-        description="管理活动、批次、码明细与兑换记录。"
-        width="7xl"
-        actions={(
-          <Button onClick={handleOpenCreateCampaign}>
-            <Plus className="mr-2 h-4 w-4" />
-            新建活动
-          </Button>
-        )}
-      >
-        {message && (
-          <Alert variant={message.type === 'error' ? 'destructive' : 'default'}>
-            {message.type === 'success' ? <CheckCircle2 className="h-4 w-4" /> : null}
-            <AlertDescription>{message.text}</AlertDescription>
-          </Alert>
-        )}
-
-        {latestBatchCodes.length > 0 && (
+        description="管理活动、批次、兑换码明细与兑换记录。"
+        tabs={tabs}
+        activeTab={activeTab}
+        onTabChange={setActiveTab}
+        indicatorId="redeem-management-tab-indicator"
+        message={message}
+        extraContent={activeTab === 'batches' && latestBatchCodes.length > 0 ? (
           <Alert>
             <AlertDescription className="flex flex-wrap items-center justify-between gap-3">
               <span>最近一次批量生成了 {latestBatchCodes.length} 个兑换码。</span>
-              <Button variant="outline" size="sm" onClick={() => navigator.clipboard.writeText(latestBatchCodes.join('\n')).catch(() => undefined)}>
+              <Button type="button" variant="outline" size="sm" onClick={() => navigator.clipboard.writeText(latestBatchCodes.join('\n')).catch(() => undefined)}>
                 <Copy className="mr-2 h-4 w-4" />
                 复制全部
               </Button>
             </AlertDescription>
           </Alert>
+        ) : null}
+      >
+        {activeTab === 'campaigns' && (
+          <Card>
+            <CardHeader>
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                <div className="space-y-1">
+                  <CardTitle>活动</CardTitle>
+                  <CardDescription>共享码和单次码共用一套奖励配置，活动负责定义规则和限制。</CardDescription>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  <Button type="button" variant="outline" size="sm" onClick={() => void loadAll()}>
+                    <RefreshCw className="mr-2 h-4 w-4" />
+                    刷新
+                  </Button>
+                  <Button type="button" onClick={handleOpenCreateCampaign}>
+                    <Plus className="mr-2 h-4 w-4" />
+                    新建活动
+                  </Button>
+                </div>
+              </div>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+                <div className="space-y-2 rounded-lg border p-4">
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm text-muted-foreground">活动总数</span>
+                    <Badge variant="outline">{campaigns.length}</Badge>
+                  </div>
+                  <p className="text-sm text-muted-foreground">共享码与单次码统一管理。</p>
+                </div>
+                <div className="space-y-2 rounded-lg border p-4">
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm text-muted-foreground">启用中</span>
+                    <Badge>{enabledCampaigns}</Badge>
+                  </div>
+                  <p className="text-sm text-muted-foreground">当前对用户开放兑换的活动数量。</p>
+                </div>
+                <div className="space-y-2 rounded-lg border p-4">
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm text-muted-foreground">共享码</span>
+                    <Badge variant="outline">{sharedCampaigns}</Badge>
+                  </div>
+                  <p className="text-sm text-muted-foreground">共享码活动支持重复发码但可限制用户次数。</p>
+                </div>
+                <div className="space-y-2 rounded-lg border p-4">
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm text-muted-foreground">单次码</span>
+                    <Badge variant="outline">{singleUseCampaigns}</Badge>
+                  </div>
+                  <p className="text-sm text-muted-foreground">单次码活动支持批量生成和导出。</p>
+                </div>
+              </div>
+
+              <div className="overflow-x-auto rounded-lg border">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>活动</TableHead>
+                      <TableHead>模式</TableHead>
+                      <TableHead>奖励</TableHead>
+                      <TableHead>限制</TableHead>
+                      <TableHead>状态</TableHead>
+                      <TableHead>码量</TableHead>
+                      <TableHead className="text-right">操作</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {campaigns.map((item) => (
+                      <TableRow key={item.id}>
+                        <TableCell>
+                          <div>
+                            <p className="font-medium">{item.name}</p>
+                            <p className="text-xs text-muted-foreground">{item.description || '-'}</p>
+                          </div>
+                        </TableCell>
+                        <TableCell>
+                          <div className="flex flex-wrap gap-2">
+                            <Badge variant="outline">{item.codeMode === 'shared' ? '共享码' : '单次码'}</Badge>
+                            {item.codeMode === 'shared' && item.sharedCodeMask ? (
+                              <Badge variant="secondary">{item.sharedCodeMask}</Badge>
+                            ) : null}
+                          </div>
+                        </TableCell>
+                        <TableCell>{campaignReward(item)}</TableCell>
+                        <TableCell className="text-sm text-muted-foreground">
+                          <div>总上限 {item.totalRedemptionsLimit > 0 ? item.totalRedemptionsLimit : '不限'}</div>
+                          <div>单用户 {item.perUserLimit}</div>
+                        </TableCell>
+                        <TableCell>
+                          <Badge variant={item.enabled ? 'default' : 'secondary'}>
+                            {item.enabled ? '启用' : '停用'}
+                          </Badge>
+                        </TableCell>
+                        <TableCell className="text-sm text-muted-foreground">
+                          <div>{item.redeemedCount} / {item.totalRedemptionsLimit > 0 ? item.totalRedemptionsLimit : '∞'}</div>
+                          <div>{item.codeCount} 个码 / {item.batchCount} 批</div>
+                        </TableCell>
+                        <TableCell className="text-right">
+                          <div className="flex flex-wrap justify-end gap-2">
+                            {item.codeMode === 'shared' && item.sharedCode ? (
+                              <Button type="button" variant="outline" size="sm" onClick={() => navigator.clipboard.writeText(item.sharedCode || '').catch(() => undefined)}>
+                                <Copy className="mr-2 h-4 w-4" />
+                                复制码
+                              </Button>
+                            ) : null}
+                            {item.codeMode === 'single_use' ? (
+                              <Button type="button" variant="outline" size="sm" onClick={() => setBatchDialogCampaign(item)}>
+                                <TicketPercent className="mr-2 h-4 w-4" />
+                                生成批次
+                              </Button>
+                            ) : null}
+                            <Button type="button" variant="outline" size="sm" onClick={() => handleOpenEditCampaign(item)}>编辑</Button>
+                            <Button type="button" variant="outline" size="sm" onClick={() => handleDeleteCampaign(item)} className="text-destructive hover:text-destructive">
+                              <Trash2 className="mr-2 h-4 w-4" />
+                              删除
+                            </Button>
+                          </div>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </div>
+            </CardContent>
+          </Card>
         )}
 
-        <PageStatStrip>
-          <PageStat label="活动" value={campaigns.length} note="共享码与单次码统一管理" />
-          <PageStat label="批次" value={batches.length} note="仅单次码支持批量生成" />
-          <PageStat label="兑换码" value={codes.length} note="明细支持启停与搜索" />
-          <PageStat label="兑换记录" value={redemptions.length} note="包含成功与拒绝记录" />
-        </PageStatStrip>
-
-        <AdminSurface>
-          <div className="admin-surface-header">
-            <div className="space-y-1">
-              <p className="text-sm font-medium text-foreground">{campaigns.length} 个活动</p>
-              <p className="admin-inline-note">共享码和单次码共用一套奖励配置。</p>
-            </div>
-            <Button variant="outline" size="sm" onClick={() => void loadAll()}>
-              <RefreshCw className="mr-2 h-4 w-4" />
-              刷新
-            </Button>
-          </div>
-          <div className="ops-table-shell rounded-none border-x-0 border-b-0">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>活动</TableHead>
-                  <TableHead>模式</TableHead>
-                  <TableHead>奖励</TableHead>
-                  <TableHead>限制</TableHead>
-                  <TableHead>状态</TableHead>
-                  <TableHead>码量</TableHead>
-                  <TableHead className="text-right">操作</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {campaigns.map((item) => (
-                  <TableRow key={item.id}>
-                    <TableCell>
-                      <div>
-                        <p className="font-medium">{item.name}</p>
-                        <p className="text-xs text-muted-foreground">{item.description || '-'}</p>
-                      </div>
-                    </TableCell>
-                    <TableCell>
-                      <div className="flex flex-wrap gap-2">
-                        <Badge variant="outline">{item.codeMode === 'shared' ? '共享码' : '单次码'}</Badge>
-                        {item.codeMode === 'shared' && item.sharedCodeMask ? (
-                          <Badge variant="secondary">{item.sharedCodeMask}</Badge>
-                        ) : null}
-                      </div>
-                    </TableCell>
-                    <TableCell>{campaignReward(item)}</TableCell>
-                    <TableCell className="text-sm text-muted-foreground">
-                      <div>总上限 {item.totalRedemptionsLimit > 0 ? item.totalRedemptionsLimit : '不限'}</div>
-                      <div>单用户 {item.perUserLimit}</div>
-                    </TableCell>
-                    <TableCell>
-                      <Badge variant={item.enabled ? 'default' : 'secondary'}>
-                        {item.enabled ? '启用' : '停用'}
-                      </Badge>
-                    </TableCell>
-                    <TableCell className="text-sm text-muted-foreground">
-                      <div>{item.redeemedCount} / {item.totalRedemptionsLimit > 0 ? item.totalRedemptionsLimit : '∞'}</div>
-                      <div>{item.codeCount} 个码 / {item.batchCount} 批</div>
-                    </TableCell>
-                    <TableCell className="text-right">
-                      <div className="flex flex-wrap justify-end gap-2">
-                        {item.codeMode === 'shared' && item.sharedCode ? (
-                          <Button variant="outline" size="sm" onClick={() => navigator.clipboard.writeText(item.sharedCode || '').catch(() => undefined)}>
-                            <Copy className="mr-2 h-4 w-4" />
-                            复制码
-                          </Button>
-                        ) : null}
-                        {item.codeMode === 'single_use' ? (
-                          <Button variant="outline" size="sm" onClick={() => setBatchDialogCampaign(item)}>
-                            <TicketPercent className="mr-2 h-4 w-4" />
-                            生成批次
-                          </Button>
-                        ) : null}
-                        <Button variant="outline" size="sm" onClick={() => handleOpenEditCampaign(item)}>编辑</Button>
-                        <Button variant="outline" size="sm" onClick={() => handleDeleteCampaign(item)} className="text-destructive hover:text-destructive">
-                          <Trash2 className="mr-2 h-4 w-4" />
-                          删除
-                        </Button>
-                      </div>
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          </div>
-        </AdminSurface>
-
-        <div className="grid gap-5 xl:grid-cols-2">
-          <AdminSurface>
-            <AdminToolbarRow>
-              <div className="space-y-1">
-                <p className="text-sm font-medium text-foreground">批次</p>
-                <p className="admin-inline-note">单次码批量生成与导出。</p>
+        {activeTab === 'batches' && (
+          <Card>
+            <CardHeader>
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                <div className="space-y-1">
+                  <CardTitle>批次</CardTitle>
+                  <CardDescription>单次码批量生成与导出都挂在批次层级上。</CardDescription>
+                </div>
+                <Button type="button" variant="outline" size="sm" onClick={() => void loadAll()}>
+                  <RefreshCw className="mr-2 h-4 w-4" />
+                  刷新
+                </Button>
               </div>
-              <Select
-                value={codeFilters.campaignId}
-                onValueChange={async (value) => {
-                  setCodeFilters((current) => ({ ...current, campaignId: value }))
-                  setBatches(await listRedeemBatches(value === 'all' ? '' : value))
-                }}
-              >
-                <SelectTrigger className="w-[220px]">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">全部活动</SelectItem>
-                  {campaigns.filter((item) => item.codeMode === 'single_use').map((item) => (
-                    <SelectItem key={item.id} value={item.id}>{item.name}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </AdminToolbarRow>
-            <div className="ops-table-shell rounded-none border-x-0 border-b-0">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>批次</TableHead>
-                    <TableHead>活动</TableHead>
-                    <TableHead>数量</TableHead>
-                    <TableHead>前缀</TableHead>
-                    <TableHead>创建时间</TableHead>
-                    <TableHead className="text-right">操作</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {batches.map((item) => (
-                    <TableRow key={item.id}>
-                      <TableCell className="font-medium">{item.name}</TableCell>
-                      <TableCell>{item.campaignName}</TableCell>
-                      <TableCell>{item.codeCount}</TableCell>
-                      <TableCell>{item.prefix || '-'}</TableCell>
-                      <TableCell className="text-muted-foreground">{formatDateTime(item.createdAt)}</TableCell>
-                      <TableCell className="text-right">
-                        <Button variant="outline" size="sm" onClick={() => void handleExportBatch(item)}>
-                          <Download className="mr-2 h-4 w-4" />
-                          导出
-                        </Button>
-                      </TableCell>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="flex flex-wrap gap-2">
+                <Select
+                  value={codeFilters.campaignId}
+                  onValueChange={async (value) => {
+                    setCodeFilters((current) => ({ ...current, campaignId: value }))
+                    setBatches(await listRedeemBatches(value === 'all' ? '' : value))
+                  }}
+                >
+                  <SelectTrigger className="w-[220px]">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">全部活动</SelectItem>
+                    {campaigns.filter((item) => item.codeMode === 'single_use').map((item) => (
+                      <SelectItem key={item.id} value={item.id}>{item.name}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="overflow-x-auto rounded-lg border">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>批次</TableHead>
+                      <TableHead>活动</TableHead>
+                      <TableHead>数量</TableHead>
+                      <TableHead>前缀</TableHead>
+                      <TableHead>创建时间</TableHead>
+                      <TableHead className="text-right">操作</TableHead>
                     </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            </div>
-          </AdminSurface>
-
-          <AdminSurface>
-            <AdminToolbarRow>
-              <div className="space-y-1">
-                <p className="text-sm font-medium text-foreground">兑换码明细</p>
-                <p className="admin-inline-note">支持筛选、搜索和停用。</p>
+                  </TableHeader>
+                  <TableBody>
+                    {batches.map((item) => (
+                      <TableRow key={item.id}>
+                        <TableCell className="font-medium">{item.name}</TableCell>
+                        <TableCell>{item.campaignName}</TableCell>
+                        <TableCell>{item.codeCount}</TableCell>
+                        <TableCell>{item.prefix || '-'}</TableCell>
+                        <TableCell className="text-muted-foreground">{formatDateTime(item.createdAt)}</TableCell>
+                        <TableCell className="text-right">
+                          <Button type="button" variant="outline" size="sm" onClick={() => void handleExportBatch(item)}>
+                            <Download className="mr-2 h-4 w-4" />
+                            导出
+                          </Button>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
               </div>
+            </CardContent>
+          </Card>
+        )}
+
+        {activeTab === 'codes' && (
+          <Card>
+            <CardHeader>
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                <div className="space-y-1">
+                  <CardTitle>兑换码明细</CardTitle>
+                  <CardDescription>支持筛选、搜索和启停管理，已用尽的兑换码只保留结果状态。</CardDescription>
+                </div>
+                <Button type="button" variant="outline" size="sm" onClick={() => void refreshCodes()}>
+                  <RefreshCw className="mr-2 h-4 w-4" />
+                  刷新
+                </Button>
+              </div>
+            </CardHeader>
+            <CardContent className="space-y-4">
               <div className="flex flex-wrap gap-2">
                 <Select
                   value={codeFilters.status}
@@ -536,146 +596,159 @@ export default function RedeemManagement() {
                   placeholder="搜索码或活动"
                   className="w-[220px]"
                 />
-                <Button variant="outline" size="sm" onClick={() => void refreshCodes()}>
+                <Button type="button" variant="outline" size="sm" onClick={() => void refreshCodes()}>
                   查询
                 </Button>
               </div>
-            </AdminToolbarRow>
-            <div className="ops-table-shell rounded-none border-x-0 border-b-0">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>兑换码</TableHead>
-                    <TableHead>活动</TableHead>
-                    <TableHead>批次</TableHead>
-                    <TableHead>次数</TableHead>
-                    <TableHead>状态</TableHead>
-                    <TableHead className="text-right">操作</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {codes.map((item) => (
-                    <TableRow key={item.id}>
-                      <TableCell className="font-mono text-xs">{item.codeMode === 'shared' ? item.codeValue : item.codeMask}</TableCell>
-                      <TableCell>{item.campaignName}</TableCell>
-                      <TableCell>{item.batchName || '-'}</TableCell>
-                      <TableCell>{item.redeemedCount} / {item.maxRedemptions > 0 ? item.maxRedemptions : '∞'}</TableCell>
-                      <TableCell>
-                        <Badge variant={item.status === 'active' ? 'default' : 'secondary'}>{item.status}</Badge>
-                      </TableCell>
-                      <TableCell className="text-right">
-                        {item.status !== 'consumed' ? (
-                          <div className="flex items-center justify-end gap-3">
-                            <span className="text-xs text-muted-foreground">{item.status === 'active' ? '启用' : '停用'}</span>
-                            <Switch
-                              checked={item.status === 'active'}
-                              disabled={togglingCodeId === item.id}
-                              onCheckedChange={(checked) => void handleToggleCode(item, checked)}
-                            />
-                          </div>
-                        ) : (
-                          <span className="text-xs text-muted-foreground">已用尽</span>
-                        )}
-                      </TableCell>
+
+              <div className="overflow-x-auto rounded-lg border">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>兑换码</TableHead>
+                      <TableHead>活动</TableHead>
+                      <TableHead>批次</TableHead>
+                      <TableHead>次数</TableHead>
+                      <TableHead>状态</TableHead>
+                      <TableHead className="text-right">操作</TableHead>
                     </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            </div>
-          </AdminSurface>
-        </div>
+                  </TableHeader>
+                  <TableBody>
+                    {codes.map((item) => (
+                      <TableRow key={item.id}>
+                        <TableCell className="font-mono text-xs">{item.codeMode === 'shared' ? item.codeValue : item.codeMask}</TableCell>
+                        <TableCell>{item.campaignName}</TableCell>
+                        <TableCell>{item.batchName || '-'}</TableCell>
+                        <TableCell>{item.redeemedCount} / {item.maxRedemptions > 0 ? item.maxRedemptions : '∞'}</TableCell>
+                        <TableCell>
+                          <Badge variant={item.status === 'active' ? 'default' : 'secondary'}>{item.status}</Badge>
+                        </TableCell>
+                        <TableCell className="text-right">
+                          {item.status !== 'consumed' ? (
+                            <div className="flex items-center justify-end gap-3">
+                              <span className="text-xs text-muted-foreground">{item.status === 'active' ? '启用' : '停用'}</span>
+                              <Switch
+                                checked={item.status === 'active'}
+                                disabled={togglingCodeId === item.id}
+                                onCheckedChange={(checked) => void handleToggleCode(item, checked)}
+                              />
+                            </div>
+                          ) : (
+                            <span className="text-xs text-muted-foreground">已用尽</span>
+                          )}
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </div>
+            </CardContent>
+          </Card>
+        )}
 
-        <AdminSurface>
-          <AdminToolbarRow>
-            <div className="space-y-1">
-              <p className="text-sm font-medium text-foreground">兑换记录</p>
-              <p className="admin-inline-note">包含成功与拒绝记录。</p>
-            </div>
-            <div className="flex flex-wrap gap-2">
-              <Select
-                value={redemptionFilters.campaignId}
-                onValueChange={(value) => setRedemptionFilters((current) => ({ ...current, campaignId: value }))}
-              >
-                <SelectTrigger className="w-[220px]">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">全部活动</SelectItem>
-                  {campaigns.map((item) => (
-                    <SelectItem key={item.id} value={item.id}>{item.name}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-              <Select
-                value={redemptionFilters.status}
-                onValueChange={(value) => setRedemptionFilters((current) => ({ ...current, status: value }))}
-              >
-                <SelectTrigger className="w-[150px]">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">全部结果</SelectItem>
-                  <SelectItem value="success">成功</SelectItem>
-                  <SelectItem value="rejected">拒绝</SelectItem>
-                </SelectContent>
-              </Select>
-              <Input
-                value={redemptionFilters.username}
-                onChange={(event) => setRedemptionFilters((current) => ({ ...current, username: event.target.value }))}
-                placeholder="用户名"
-                className="w-[180px]"
-              />
-              <Button variant="outline" size="sm" onClick={() => void refreshRedemptions()}>
-                查询
-              </Button>
-            </div>
-          </AdminToolbarRow>
-          <div className="ops-table-shell rounded-none border-x-0 border-b-0">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>时间</TableHead>
-                  <TableHead>用户</TableHead>
-                  <TableHead>活动</TableHead>
-                  <TableHead>码</TableHead>
-                  <TableHead>奖励</TableHead>
-                  <TableHead>结果</TableHead>
-                  <TableHead>说明</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {redemptions.map((item) => (
-                  <TableRow key={item.id}>
-                    <TableCell className="text-muted-foreground">{formatDateTime(item.createdAt)}</TableCell>
-                    <TableCell>{item.username}</TableCell>
-                    <TableCell>{item.campaignName || '-'}</TableCell>
-                    <TableCell className="font-mono text-xs">{item.codeMask || '-'}</TableCell>
-                    <TableCell className="text-sm text-muted-foreground">
-                      <div>{item.subscriptionPlanName ? `${item.subscriptionPlanName} ${item.subscriptionDurationDays}天` : '-'}</div>
-                      {item.balanceMicros > 0 ? <div>{microsToUsdLabel(item.balanceMicros)}</div> : null}
-                    </TableCell>
-                    <TableCell>
-                      <Badge variant={item.status === 'success' ? 'default' : 'secondary'}>
-                        {item.status === 'success' ? '成功' : '拒绝'}
-                      </Badge>
-                    </TableCell>
-                    <TableCell className="text-sm text-muted-foreground">
-                      {item.status === 'success'
-                        ? item.grantedExpiresAt
-                          ? `到期 ${formatDateTime(item.grantedExpiresAt)}`
-                          : item.balanceAfterMicros > 0
-                            ? `余额 ${microsToUsdLabel(item.balanceAfterMicros)}`
-                            : '-'
-                        : item.failureReason || '-'}
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          </div>
-        </AdminSurface>
+        {activeTab === 'redemptions' && (
+          <Card>
+            <CardHeader>
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                <div className="space-y-1">
+                  <CardTitle>兑换记录</CardTitle>
+                  <CardDescription>包含成功与拒绝记录，可按活动、结果和用户名过滤。</CardDescription>
+                </div>
+                <Button type="button" variant="outline" size="sm" onClick={() => void refreshRedemptions()}>
+                  <RefreshCw className="mr-2 h-4 w-4" />
+                  刷新
+                </Button>
+              </div>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="flex flex-wrap gap-2">
+                <Select
+                  value={redemptionFilters.campaignId}
+                  onValueChange={(value) => setRedemptionFilters((current) => ({ ...current, campaignId: value }))}
+                >
+                  <SelectTrigger className="w-[220px]">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">全部活动</SelectItem>
+                    {campaigns.map((item) => (
+                      <SelectItem key={item.id} value={item.id}>{item.name}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <Select
+                  value={redemptionFilters.status}
+                  onValueChange={(value) => setRedemptionFilters((current) => ({ ...current, status: value }))}
+                >
+                  <SelectTrigger className="w-[150px]">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">全部结果</SelectItem>
+                    <SelectItem value="success">成功</SelectItem>
+                    <SelectItem value="rejected">拒绝</SelectItem>
+                  </SelectContent>
+                </Select>
+                <Input
+                  value={redemptionFilters.username}
+                  onChange={(event) => setRedemptionFilters((current) => ({ ...current, username: event.target.value }))}
+                  placeholder="用户名"
+                  className="w-[180px]"
+                />
+                <Button type="button" variant="outline" size="sm" onClick={() => void refreshRedemptions()}>
+                  查询
+                </Button>
+              </div>
 
-        <Dialog open={campaignDialogOpen} onOpenChange={setCampaignDialogOpen}>
+              <div className="overflow-x-auto rounded-lg border">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>时间</TableHead>
+                      <TableHead>用户</TableHead>
+                      <TableHead>活动</TableHead>
+                      <TableHead>码</TableHead>
+                      <TableHead>奖励</TableHead>
+                      <TableHead>结果</TableHead>
+                      <TableHead>说明</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {redemptions.map((item) => (
+                      <TableRow key={item.id}>
+                        <TableCell className="text-muted-foreground">{formatDateTime(item.createdAt)}</TableCell>
+                        <TableCell>{item.username}</TableCell>
+                        <TableCell>{item.campaignName || '-'}</TableCell>
+                        <TableCell className="font-mono text-xs">{item.codeMask || '-'}</TableCell>
+                        <TableCell className="text-sm text-muted-foreground">
+                          <div>{item.subscriptionPlanName ? `${item.subscriptionPlanName} ${item.subscriptionDurationDays}天` : '-'}</div>
+                          {item.balanceMicros > 0 ? <div>{microsToUsdLabel(item.balanceMicros)}</div> : null}
+                        </TableCell>
+                        <TableCell>
+                          <Badge variant={item.status === 'success' ? 'default' : 'secondary'}>
+                            {item.status === 'success' ? '成功' : '拒绝'}
+                          </Badge>
+                        </TableCell>
+                        <TableCell className="text-sm text-muted-foreground">
+                          {item.status === 'success'
+                            ? item.grantedExpiresAt
+                              ? `到期 ${formatDateTime(item.grantedExpiresAt)}`
+                              : item.balanceAfterMicros > 0
+                                ? `余额 ${microsToUsdLabel(item.balanceAfterMicros)}`
+                                : '-'
+                            : item.failureReason || '-'}
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </div>
+            </CardContent>
+          </Card>
+        )}
+      </TabbedSettingsPage>
+
+      <Dialog open={campaignDialogOpen} onOpenChange={setCampaignDialogOpen}>
           <DialogContent className="sm:max-w-2xl">
             <DialogHeader>
               <DialogTitle>{editingCampaign ? '编辑兑换活动' : '新建兑换活动'}</DialogTitle>
@@ -817,9 +890,9 @@ export default function RedeemManagement() {
               </Button>
             </DialogFooter>
           </DialogContent>
-        </Dialog>
+      </Dialog>
 
-        <Dialog open={!!batchDialogCampaign} onOpenChange={(open) => !open && setBatchDialogCampaign(null)}>
+      <Dialog open={!!batchDialogCampaign} onOpenChange={(open) => !open && setBatchDialogCampaign(null)}>
           <DialogContent>
             <DialogHeader>
               <DialogTitle>生成兑换批次</DialogTitle>
@@ -875,8 +948,7 @@ export default function RedeemManagement() {
               </Button>
             </DialogFooter>
           </DialogContent>
-        </Dialog>
-      </AdminPageShell>
-    </motion.div>
+      </Dialog>
+    </>
   )
 }
