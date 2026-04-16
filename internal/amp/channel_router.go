@@ -762,6 +762,12 @@ func ChannelProxyHandler() gin.HandlerFunc {
 					return nil
 				}
 
+				// For translated streams, billing/usage must be extracted from the raw upstream
+				// SSE payload before any compatibility translation rewrites the event shape.
+				if trace != nil {
+					resp.Body = WrapResponseBodyForTokenExtraction(resp.Body, isStreaming, trace, providerInfo)
+				}
+
 				resp.Body = NewSSEJSONTransformWrapper(resp.Body, func(b []byte) [][]byte {
 					payloads := [][]byte{b}
 					if transInfo != nil && transInfo.NeedsConversion {
@@ -808,7 +814,6 @@ func ChannelProxyHandler() gin.HandlerFunc {
 
 				// Streaming response handling (existing logic)
 				if trace != nil {
-					resp.Body = WrapResponseBodyForTokenExtraction(resp.Body, isStreaming, trace, providerInfo)
 					if IsRequestDetailCaptureEnabled(resp.Request.Context()) {
 						resp.Body = NewResponseCaptureWrapper(resp.Body, trace.RequestID, resp.Header)
 					}
