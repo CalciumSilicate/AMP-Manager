@@ -2,6 +2,8 @@ package repository
 
 import (
 	"database/sql"
+	"math"
+	"sort"
 	"time"
 
 	"ampmanager/internal/database"
@@ -19,12 +21,29 @@ type DashboardThroughputPoint struct {
 	TPM5m  float64
 }
 
+type DashboardTimingPoint struct {
+	Bucket    string
+	AvgMs     float64
+	P50Ms     float64
+	P90Ms     float64
+	P99Ms     float64
+	SampleCnt int64
+}
+
 type dashboardMinuteMetricRow struct {
 	MinuteBucket    time.Time
 	RequestCountSum int64
 	InputTokensSum  int64
 	OutputTokensSum int64
 	TotalTokensSum  int64
+	LatencyMs       int64
+	TTFBMs          int64
+}
+
+type dashboardTimingProjectionRow struct {
+	MinuteBucket time.Time
+	LatencyMs    int64
+	TTFBMs       int64
 }
 
 func adminThroughputWindowBounds(now time.Time) (time.Time, time.Time) {
@@ -78,6 +97,50 @@ func buildDashboardThroughputPoints(rows []dashboardMinuteMetricRow) []Dashboard
 		})
 	}
 
+	return points
+}
+
+func timingBucketStart(minute time.Time) time.Time {
+	return minute.UTC().Truncate(5 * time.Minute)
+}
+
+func percentileFloat64(samples []float64, percentile float64) float64 {
+	if len(samples) == 0 {
+		return 0
+	}
+	sorted := append([]float64(nil), samples...)
+	sort.Float64s(sorted)
+	index := int(math.Ceil(float64(len(sorted))*percentile)) - 1
+	if index < 0 {
+		index = 0
+	}
+	if index >= len(sorted) {
+		index = len(sorted) - 1
+	}
+	return sorted[index]
+}
+
+func buildDashboardTimingPoints(start, end time.Time, valuesByBucket map[time.Time][]float64) []DashboardTimingPoint {
+	points := make([]DashboardTimingPoint, 0, int(end.Sub(start)/(5*time.Minute))+1)
+	for bucket := start.UTC(); !bucket.After(end.UTC()); bucket = bucket.Add(5 * time.Minute) {
+		samples := valuesByBucket[bucket]
+		if len(samples) == 0 {
+			points = append(points, DashboardTimingPoint{Bucket: bucket.Format(time.RFC3339)})
+			continue
+		}
+		sum := 0.0
+		for _, value := range samples {
+			sum += value
+		}
+		points = append(points, DashboardTimingPoint{
+			Bucket:    bucket.Format(time.RFC3339),
+			AvgMs:     sum / float64(len(samples)),
+			P50Ms:     percentileFloat64(samples, 0.50),
+			P90Ms:     percentileFloat64(samples, 0.90),
+			P99Ms:     percentileFloat64(samples, 0.99),
+			SampleCnt: int64(len(samples)),
+		})
+	}
 	return points
 }
 
@@ -161,6 +224,47 @@ func (r *RequestLogRepository) GetAdminThroughputTrend() ([]DashboardThroughputP
 	return buildDashboardThroughputPoints(filled), nil
 }
 
+func (r *RequestLogRepository) GetAdminTimingTrend() (ttfbTrend []DashboardTimingPoint, durationTrend []DashboardTimingPoint, err error) {
+	startMinute, endMinute := adminThroughputWindowBounds(time.Now().UTC())
+	if err = r.ensureAdminThroughputMetricsWindow(startMinute, endMinute); err != nil {
+		return nil, nil, err
+	}
+
+	rows, err := database.GetDB().Query(`
+		SELECT minute_bucket, latency_ms, ttfb_ms
+		FROM global_request_metric_projections
+		WHERE minute_bucket >= ? AND minute_bucket <= ?
+		ORDER BY minute_bucket ASC
+	`, startMinute.UTC(), endMinute.UTC())
+	if err != nil {
+		return nil, nil, err
+	}
+	defer rows.Close()
+
+	ttfbByBucket := make(map[time.Time][]float64)
+	durationByBucket := make(map[time.Time][]float64)
+	for rows.Next() {
+		var row dashboardTimingProjectionRow
+		if err = rows.Scan(&row.MinuteBucket, &row.LatencyMs, &row.TTFBMs); err != nil {
+			return nil, nil, err
+		}
+		bucket := timingBucketStart(row.MinuteBucket)
+		if row.TTFBMs > 0 {
+			ttfbByBucket[bucket] = append(ttfbByBucket[bucket], float64(row.TTFBMs))
+		}
+		if row.LatencyMs > 0 {
+			durationByBucket[bucket] = append(durationByBucket[bucket], float64(row.LatencyMs))
+		}
+	}
+	if err = rows.Err(); err != nil {
+		return nil, nil, err
+	}
+
+	startBucket := timingBucketStart(startMinute)
+	endBucket := timingBucketStart(endMinute)
+	return buildDashboardTimingPoints(startBucket, endBucket, ttfbByBucket), buildDashboardTimingPoints(startBucket, endBucket, durationByBucket), nil
+}
+
 func (r *RequestLogRepository) ensureAdminThroughputMetricsWindow(start, end time.Time) error {
 	var count int64
 	err := database.GetDB().QueryRow(`
@@ -198,7 +302,7 @@ func (r *RequestLogRepository) rebuildAdminThroughputMetricsWindow(start, end ti
 	}
 
 	rows, err := tx.Query(`
-		SELECT id, created_at, COALESCE(input_tokens, 0), COALESCE(output_tokens, 0)
+		SELECT id, created_at, COALESCE(input_tokens, 0), COALESCE(output_tokens, 0), COALESCE(latency_ms, 0), COALESCE(ttfb_ms, 0)
 		FROM request_logs
 		WHERE created_at >= ? AND created_at < ? AND status <> 'pending'
 		ORDER BY created_at ASC
@@ -214,7 +318,9 @@ func (r *RequestLogRepository) rebuildAdminThroughputMetricsWindow(start, end ti
 		var createdAt time.Time
 		var inputTokens int64
 		var outputTokens int64
-		if err := rows.Scan(&requestID, &createdAt, &inputTokens, &outputTokens); err != nil {
+		var latencyMs int64
+		var ttfbMs int64
+		if err := rows.Scan(&requestID, &createdAt, &inputTokens, &outputTokens, &latencyMs, &ttfbMs); err != nil {
 			return err
 		}
 
@@ -224,6 +330,8 @@ func (r *RequestLogRepository) rebuildAdminThroughputMetricsWindow(start, end ti
 			InputTokensSum:  inputTokens,
 			OutputTokensSum: outputTokens,
 			TotalTokensSum:  inputTokens + outputTokens,
+			LatencyMs:       latencyMs,
+			TTFBMs:          ttfbMs,
 		}
 
 		if err := applyMinuteMetricAggregateDeltaTx(
@@ -240,24 +348,28 @@ func (r *RequestLogRepository) rebuildAdminThroughputMetricsWindow(start, end ti
 
 		if _, err := tx.Exec(`
 			INSERT INTO global_request_metric_projections (
-				request_id, minute_bucket, request_count, input_tokens, output_tokens, total_tokens, updated_at
-			) VALUES (?, ?, ?, ?, ?, ?, ?)
+				request_id, minute_bucket, request_count, input_tokens, output_tokens, total_tokens, latency_ms, ttfb_ms, updated_at
+			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
 			ON CONFLICT(request_id) DO UPDATE SET
 				minute_bucket = excluded.minute_bucket,
 				request_count = excluded.request_count,
 				input_tokens = excluded.input_tokens,
 				output_tokens = excluded.output_tokens,
 				total_tokens = excluded.total_tokens,
+				latency_ms = excluded.latency_ms,
+				ttfb_ms = excluded.ttfb_ms,
 				updated_at = excluded.updated_at
 		`,
 			requestID,
 			projection.MinuteBucket.UTC(),
 			projection.RequestCountSum,
-			projection.InputTokensSum,
-			projection.OutputTokensSum,
-			projection.TotalTokensSum,
-			now,
-		); err != nil {
+				projection.InputTokensSum,
+				projection.OutputTokensSum,
+				projection.TotalTokensSum,
+				projection.LatencyMs,
+				projection.TTFBMs,
+				now,
+			); err != nil {
 			return err
 		}
 	}

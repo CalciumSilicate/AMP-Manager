@@ -12,6 +12,8 @@ type requestMetricProjection struct {
 	InputTokens  int64
 	OutputTokens int64
 	TotalTokens  int64
+	LatencyMs    int64
+	TTFBMs       int64
 }
 
 func buildRequestMetricProjection(snapshot RequestTrace) *requestMetricProjection {
@@ -36,7 +38,16 @@ func buildRequestMetricProjection(snapshot RequestTrace) *requestMetricProjectio
 		InputTokens:  inputTokens,
 		OutputTokens: outputTokens,
 		TotalTokens:  inputTokens + outputTokens,
+		LatencyMs:    snapshot.LatencyMs,
+		TTFBMs:       valueOrZeroInt64(snapshot.TTFBMs),
 	}
+}
+
+func valueOrZeroInt64(value *int64) int64 {
+	if value == nil {
+		return 0
+	}
+	return *value
 }
 
 func queryRequestMetricProjectionTx(tx *sql.Tx, requestID string) (*requestMetricProjection, error) {
@@ -46,7 +57,7 @@ func queryRequestMetricProjectionTx(tx *sql.Tx, requestID string) (*requestMetri
 
 	var projection requestMetricProjection
 	err := tx.QueryRow(`
-		SELECT request_id, minute_bucket, request_count, input_tokens, output_tokens, total_tokens
+		SELECT request_id, minute_bucket, request_count, input_tokens, output_tokens, total_tokens, latency_ms, ttfb_ms
 		FROM global_request_metric_projections
 		WHERE request_id = ?
 	`, requestID).Scan(
@@ -56,6 +67,8 @@ func queryRequestMetricProjectionTx(tx *sql.Tx, requestID string) (*requestMetri
 		&projection.InputTokens,
 		&projection.OutputTokens,
 		&projection.TotalTokens,
+		&projection.LatencyMs,
+		&projection.TTFBMs,
 	)
 	if err == sql.ErrNoRows {
 		return nil, nil
@@ -73,14 +86,16 @@ func upsertRequestMetricProjectionTx(tx *sql.Tx, projection *requestMetricProjec
 
 	_, err := tx.Exec(`
 		INSERT INTO global_request_metric_projections (
-			request_id, minute_bucket, request_count, input_tokens, output_tokens, total_tokens, updated_at
-		) VALUES (?, ?, ?, ?, ?, ?, ?)
+			request_id, minute_bucket, request_count, input_tokens, output_tokens, total_tokens, latency_ms, ttfb_ms, updated_at
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT(request_id) DO UPDATE SET
 			minute_bucket = excluded.minute_bucket,
 			request_count = excluded.request_count,
 			input_tokens = excluded.input_tokens,
 			output_tokens = excluded.output_tokens,
 			total_tokens = excluded.total_tokens,
+			latency_ms = excluded.latency_ms,
+			ttfb_ms = excluded.ttfb_ms,
 			updated_at = excluded.updated_at
 	`,
 		projection.RequestID,
@@ -89,6 +104,8 @@ func upsertRequestMetricProjectionTx(tx *sql.Tx, projection *requestMetricProjec
 		projection.InputTokens,
 		projection.OutputTokens,
 		projection.TotalTokens,
+		projection.LatencyMs,
+		projection.TTFBMs,
 		now.UTC(),
 	)
 	return err

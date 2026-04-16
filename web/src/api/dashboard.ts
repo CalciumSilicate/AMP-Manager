@@ -32,6 +32,15 @@ export interface AdminDashboardThroughputPoint {
   tpm5m: number
 }
 
+export interface AdminDashboardTimingPoint {
+  bucket: string
+  avgMs: number
+  p50Ms: number
+  p90Ms: number
+  p99Ms: number
+  sampleCnt: number
+}
+
 export interface DashboardCacheHitRate {
   provider: string
   totalInputTokens: number
@@ -72,6 +81,8 @@ export interface AdminDashboardData {
   topModels: DashboardTopModel[]
   dailyTrend: DashboardDailyTrend[]
   throughputTrend: AdminDashboardThroughputPoint[]
+  ttfbTrend: AdminDashboardTimingPoint[]
+  durationTrend: AdminDashboardTimingPoint[]
   cacheHitRates: DashboardCacheHitRate[]
 }
 
