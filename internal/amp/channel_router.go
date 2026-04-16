@@ -725,20 +725,6 @@ func ChannelProxyHandler() gin.HandlerFunc {
 					}
 				}
 
-				// Log non-2xx responses
-				if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-					log.Warnf("channel proxy: upstream returned status %d for %s", resp.StatusCode, sanitizeURL(targetURL))
-					if trace != nil {
-						trace.SetError("upstream_error")
-						streamBody := io.ReadCloser(resp.Body)
-						if IsRequestDetailCaptureEnabled(resp.Request.Context()) {
-							streamBody = NewResponseCaptureWrapper(streamBody, trace.RequestID, resp.Header)
-						}
-						resp.Body = NewLoggingBodyWrapper(streamBody, trace, resp.StatusCode, resp.Request.Context())
-					}
-					return nil
-				}
-
 				// For non-streaming responses, read the complete body upfront,
 				// apply all transformations, then reset body with correct Content-Length
 				if !isStreaming {
@@ -755,6 +741,23 @@ func ChannelProxyHandler() gin.HandlerFunc {
 							resp.Header.Set("Content-Length", strconv.Itoa(len(bodyBytes)))
 							log.Debugf("channel proxy: applied T2S traditional Chinese conversion to non-streaming response")
 						}
+					}
+					if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+						log.Warnf("channel proxy: upstream returned status %d for %s", resp.StatusCode, sanitizeURL(targetURL))
+					}
+					return nil
+				}
+
+				// Log non-2xx streaming responses
+				if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+					log.Warnf("channel proxy: upstream returned status %d for %s", resp.StatusCode, sanitizeURL(targetURL))
+					if trace != nil {
+						trace.SetError("upstream_error")
+						streamBody := io.ReadCloser(resp.Body)
+						if IsRequestDetailCaptureEnabled(resp.Request.Context()) {
+							streamBody = NewResponseCaptureWrapper(streamBody, trace.RequestID, resp.Header)
+						}
+						resp.Body = NewLoggingBodyWrapper(streamBody, trace, resp.StatusCode, resp.Request.Context())
 					}
 					return nil
 				}
@@ -850,11 +853,23 @@ func ChannelProxyHandler() gin.HandlerFunc {
 			},
 			ErrorHandler: func(rw http.ResponseWriter, req *http.Request, err error) {
 				log.Errorf("channel proxy: upstream request failed: %v", err)
+				requestFormat := translator.FormatOpenAIChat
+				if trace != nil && trace.RequestFormat != "" {
+					requestFormat = translator.FromString(trace.RequestFormat)
+				} else {
+					requestFormat = detectIncomingFormat(req.URL.Path)
+				}
+				statusCode := http.StatusBadGateway
+				message := "Upstream request failed"
+				if ClassifyError(err, "write") == ErrorClassClientClosed {
+					statusCode = 499
+					message = "client closed request"
+				}
 				// Update error log (pending record was already written)
 				var requestID string
 				if trace != nil {
 					trace.SetError("upstream_request_failed")
-					trace.SetResponse(http.StatusBadGateway)
+					trace.SetResponse(statusCode)
 					requestID = trace.RequestID
 					if writer := GetLogWriter(); writer != nil {
 						writer.UpdateFromTrace(trace)
@@ -862,12 +877,19 @@ func ChannelProxyHandler() gin.HandlerFunc {
 				}
 				// 使用清理后的错误消息，防止泄露敏感信息
 				safeMsg := SanitizeError(err)
-				body := BuildErrorResponseBody(http.StatusBadGateway, "Upstream request failed: "+safeMsg)
+				if statusCode != 499 {
+					message = message + ": " + safeMsg
+				}
+				if matched := MatchErrorRule(requestFormat, statusCode, []byte(safeMsg)); matched != nil {
+					statusCode = matched.Rule.OverrideStatus
+					message = matched.Rule.OverrideMessage
+				}
+				body := BuildProtocolErrorResponseBody(requestTypeFromFormat(requestFormat), statusCode, message)
 				if IsRequestDetailCaptureEnabled(req.Context()) && requestID != "" {
-					StoreErrorResponseDetail(requestID, http.StatusBadGateway, body)
+					StoreErrorResponseDetail(requestID, statusCode, body)
 				}
 				rw.Header().Set("Content-Type", "application/json")
-				rw.WriteHeader(http.StatusBadGateway)
+				rw.WriteHeader(statusCode)
 				_, _ = rw.Write(body)
 			},
 		}
@@ -1179,6 +1201,45 @@ func findSSEDelimiter(data []byte) (idx int, delimLen int) {
 // MaxNonStreamingResponseSize is the maximum size for non-streaming response body (10MB)
 const MaxNonStreamingResponseSize = 10 * 1024 * 1024
 
+func normalizeNonStreamingErrorResponse(resp *http.Response, transInfo *TranslationInfo, body []byte) ([]byte, bool) {
+	incomingFormat := detectIncomingFormat(resp.Request.URL.Path)
+	if transInfo != nil {
+		incomingFormat = transInfo.IncomingFormat
+	}
+
+	if matched := MatchErrorRule(incomingFormat, resp.StatusCode, body); matched != nil {
+		resp.StatusCode = matched.Rule.OverrideStatus
+		resp.Status = fmt.Sprintf("%d %s", matched.Rule.OverrideStatus, http.StatusText(matched.Rule.OverrideStatus))
+		resp.Header.Set("Content-Type", "application/json")
+		return BuildProtocolErrorResponseBody(matched.RequestType, matched.Rule.OverrideStatus, matched.Rule.OverrideMessage), true
+	}
+
+	if resp.StatusCode >= 200 && resp.StatusCode < 300 {
+		return body, false
+	}
+
+	needsClientNativeError := transInfo != nil && transInfo.NeedsConversion
+	if !needsClientNativeError && json.Valid(body) {
+		return body, false
+	}
+
+	message := extractErrorMessage(body)
+	if message == "" {
+		message = http.StatusText(resp.StatusCode)
+	}
+	resp.Header.Set("Content-Type", "application/json")
+	return BuildProtocolErrorResponseBody(requestTypeFromFormat(incomingFormat), resp.StatusCode, message), true
+}
+
+func extractErrorMessage(body []byte) string {
+	for _, path := range []string{"error.message", "message", "error.msg", "error.status"} {
+		if value := strings.TrimSpace(gjson.GetBytes(body, path).String()); value != "" {
+			return value
+		}
+	}
+	return strings.TrimSpace(string(body))
+}
+
 // handleNonStreamingResponse reads the complete upstream response, applies transformations,
 // and resets resp.Body with correct Content-Length to avoid JSON truncation issues
 func handleNonStreamingResponse(resp *http.Response, trace *RequestTrace, transInfo *TranslationInfo, originalModel, mappedModel string) error {
@@ -1197,13 +1258,15 @@ func handleNonStreamingResponse(resp *http.Response, trace *RequestTrace, transI
 	contentEncoding := resp.Header.Get("Content-Encoding")
 	body = NewGzipDecompressor().Decompress(body, contentEncoding, resp.Header)
 
+	body, handledAsError := normalizeNonStreamingErrorResponse(resp, transInfo, body)
+
 	// Extract token usage for logging
-	if trace != nil {
+	if trace != nil && !handledAsError {
 		info, _ := GetProviderInfo(resp.Request.Context())
 		extractTokenUsageFromBody(body, trace, &info)
 	}
 
-	if transInfo != nil && transInfo.NeedsConversion {
+	if !handledAsError && transInfo != nil && transInfo.NeedsConversion {
 		if transInfo.OutgoingFormat == translator.FormatClaude {
 			if toolMap, ok := GetClaudeToolNameMap(resp.Request.Context()); ok && len(toolMap) > 0 {
 				if unprefixed, changed := UnprefixClaudeToolNamesWithMap(body, toolMap); changed {
@@ -1229,9 +1292,9 @@ func handleNonStreamingResponse(resp *http.Response, trace *RequestTrace, transI
 	}
 
 	// Apply response-side transformations without touching user-visible free-form text.
-	if transInfo != nil && transInfo.NeedsConversion {
+	if !handledAsError && transInfo != nil && transInfo.NeedsConversion {
 		body = TransformResponseJSONForFormat(resp.Request.Context(), body, originalModel, mappedModel, transInfo.IncomingFormat)
-	} else {
+	} else if !handledAsError {
 		body = TransformResponseJSON(resp.Request.Context(), body, originalModel, mappedModel)
 	}
 
@@ -1250,41 +1313,46 @@ func handleNonStreamingResponse(resp *http.Response, trace *RequestTrace, transI
 	// Log completion with cost calculation
 	if trace != nil {
 		trace.SetResponse(resp.StatusCode)
+		if handledAsError || resp.StatusCode < 200 || resp.StatusCode >= 300 {
+			trace.SetError("upstream_error")
+		}
 
-		if calc := billing.GetCostCalculator(); calc != nil {
-			pricingModel := trace.MappedModel
-			if pricingModel == "" {
-				pricingModel = trace.OriginalModel
-			}
-			if pricingModel != "" {
-				costResult := calc.CalculateFromPointers(
-					pricingModel,
-					trace.InputTokens,
-					trace.OutputTokens,
-					trace.CacheReadInputTokens,
-					trace.CacheCreationInputTokens,
-				)
-				if costResult.PriceFound {
-					proxyCfg := GetProxyConfig(resp.Request.Context())
-					multiplier := 1.0
-					if proxyCfg != nil {
-						multiplier = traceMultiplier(trace)
-					}
+		if !handledAsError {
+			if calc := billing.GetCostCalculator(); calc != nil {
+				pricingModel := trace.MappedModel
+				if pricingModel == "" {
+					pricingModel = trace.OriginalModel
+				}
+				if pricingModel != "" {
+					costResult := calc.CalculateFromPointers(
+						pricingModel,
+						trace.InputTokens,
+						trace.OutputTokens,
+						trace.CacheReadInputTokens,
+						trace.CacheCreationInputTokens,
+					)
+					if costResult.PriceFound {
+						proxyCfg := GetProxyConfig(resp.Request.Context())
+						multiplier := 1.0
+						if proxyCfg != nil {
+							multiplier = traceMultiplier(trace)
+						}
 
-					if multiplier == 0 {
-						trace.SetCost(costResult.CostMicros, costResult.CostUsd, costResult.PricingModel, costResult.PricingRuleName)
-					} else {
-						adjustedCostMicros := int64(float64(costResult.CostMicros) * multiplier)
-						adjustedCostUsd := fmt.Sprintf("%.6f", float64(adjustedCostMicros)/1e6)
-						trace.SetCost(adjustedCostMicros, adjustedCostUsd, costResult.PricingModel, costResult.PricingRuleName)
+						if multiplier == 0 {
+							trace.SetCost(costResult.CostMicros, costResult.CostUsd, costResult.PricingModel, costResult.PricingRuleName)
+						} else {
+							adjustedCostMicros := int64(float64(costResult.CostMicros) * multiplier)
+							adjustedCostUsd := fmt.Sprintf("%.6f", float64(adjustedCostMicros)/1e6)
+							trace.SetCost(adjustedCostMicros, adjustedCostUsd, costResult.PricingModel, costResult.PricingRuleName)
 
-						if proxyCfg != nil && adjustedCostMicros > 0 {
-							billingSvc := service.NewBillingService()
-							result, err := billingSvc.SettleRequestCostResult(trace.RequestID, proxyCfg.UserID, adjustedCostMicros)
-							if err != nil {
-								log.Warnf("channel router: failed to settle cost for user %s: %v", proxyCfg.UserID, err)
-							} else {
-								trace.SetBillingResult(result)
+							if proxyCfg != nil && adjustedCostMicros > 0 {
+								billingSvc := service.NewBillingService()
+								result, err := billingSvc.SettleRequestCostResult(trace.RequestID, proxyCfg.UserID, adjustedCostMicros)
+								if err != nil {
+									log.Warnf("channel router: failed to settle cost for user %s: %v", proxyCfg.UserID, err)
+								} else {
+									trace.SetBillingResult(result)
+								}
 							}
 						}
 					}

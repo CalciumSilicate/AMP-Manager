@@ -357,6 +357,21 @@ export interface SiteConfig {
 }
 
 export type AmpProxySettingsPolicy = 'disabled' | 'admin_only' | 'all'
+export type ErrorRuleRequestType = 'responses' | 'chat_completions' | 'gemini' | 'messages'
+export type ErrorRuleMatchMode = 'substring' | 'regex'
+
+export interface ErrorRule {
+  id: string
+  name: string
+  builtIn: boolean
+  enabled: boolean
+  requestType: ErrorRuleRequestType
+  upstreamStatus: string
+  pattern: string
+  matchMode: ErrorRuleMatchMode
+  overrideStatus: number
+  overrideMessage: string
+}
 
 export async function getPublicSiteConfig(): Promise<SiteConfig> {
   const res = await fetch(`${API_BASE}/public/site-config`)
@@ -393,6 +408,31 @@ export async function updateSiteConfig(
   if (!res.ok) {
     const data = await res.json()
     throw new Error(data.error || '更新站点配置失败')
+  }
+
+  return res.json()
+}
+
+export async function getErrorRules(): Promise<{ rules: ErrorRule[] }> {
+  const res = await authFetch(`${API_BASE}/admin/system/error-rules`)
+
+  if (!res.ok) {
+    const data = await res.json()
+    throw new Error(data.error || '获取错误规则失败')
+  }
+
+  return res.json()
+}
+
+export async function updateErrorRules(rules: ErrorRule[]): Promise<{ message: string; rules: ErrorRule[] }> {
+  const res = await authFetch(`${API_BASE}/admin/system/error-rules`, {
+    method: 'PUT',
+    body: JSON.stringify({ rules }),
+  })
+
+  if (!res.ok) {
+    const data = await res.json()
+    throw new Error(data.error || '更新错误规则失败')
   }
 
   return res.json()

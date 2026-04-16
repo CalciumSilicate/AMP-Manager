@@ -202,6 +202,8 @@ func Setup() *gin.Engine {
 				system.PUT("/retry-config", systemHandler.UpdateRetryConfig)
 				system.GET("/request-payload-limit", systemHandler.GetRequestPayloadLimit)
 				system.PUT("/request-payload-limit", systemHandler.UpdateRequestPayloadLimit)
+				system.GET("/error-rules", systemHandler.GetErrorRules)
+				system.PUT("/error-rules", systemHandler.UpdateErrorRules)
 
 				// 请求详情监控配置
 				system.GET("/request-detail-enabled", systemHandler.GetRequestDetailEnabled)

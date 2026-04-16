@@ -19,6 +19,9 @@ import {
   getRetryConfig,
   updateRetryConfig,
   RetryConfig,
+  getErrorRules,
+  updateErrorRules,
+  ErrorRule,
   getRequestPayloadLimit,
   updateRequestPayloadLimit,
   getRequestDetailConfig,
@@ -58,13 +61,14 @@ import { Progress } from '@/components/ui/progress'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { RefreshCw } from 'lucide-react'
 
-type SettingsTab = 'site' | 'announcements' | 'database' | 'retry' | 'monitoring' | 'cache' | 'timeout' | 'billing'
+type SettingsTab = 'site' | 'announcements' | 'database' | 'retry' | 'error-rules' | 'monitoring' | 'cache' | 'timeout' | 'billing'
 
 const tabs: { key: SettingsTab; label: string }[] = [
   { key: 'site', label: '网站配置' },
   { key: 'announcements', label: '公告管理' },
   { key: 'database', label: '数据库管理' },
   { key: 'retry', label: '重试策略' },
+  { key: 'error-rules', label: '错误规则' },
   { key: 'monitoring', label: '请求监控' },
   { key: 'cache', label: '缓存配置' },
   { key: 'timeout', label: '超时配置' },
@@ -105,6 +109,8 @@ export default function SystemSettings({
   const fileInputRef = useRef<HTMLInputElement>(null)
   const [retryConfig, setRetryConfig] = useState<RetryConfig | null>(null)
   const [retryLoading, setRetryLoading] = useState(false)
+  const [errorRules, setErrorRules] = useState<ErrorRule[]>([])
+  const [errorRulesLoading, setErrorRulesLoading] = useState(false)
   const [requestPayloadLimitMB, setRequestPayloadLimitMB] = useState(128)
   const [requestPayloadLimitSaving, setRequestPayloadLimitSaving] = useState(false)
   const [requestDetailConfig, setRequestDetailConfig] = useState<RequestDetailConfig | null>(null)
@@ -191,6 +197,15 @@ export default function SystemSettings({
     }
   }, [])
 
+  const fetchErrorRules = useCallback(async () => {
+    try {
+      const data = await getErrorRules()
+      setErrorRules(data.rules)
+    } catch (err) {
+      console.error('获取错误规则失败:', err)
+    }
+  }, [])
+
   const fetchRequestDetailConfig = useCallback(async () => {
     setRequestDetailLoading(true)
     setRequestDetailLoadError(null)
@@ -263,6 +278,7 @@ export default function SystemSettings({
   useEffect(() => {
     fetchDatabaseInfo()
     fetchRetryConfig()
+    fetchErrorRules()
     fetchRequestPayloadLimit()
     fetchRequestDetailConfig()
     fetchTimeoutConfig()
@@ -276,6 +292,7 @@ export default function SystemSettings({
     fetchBillingRuntimeStats,
     fetchCacheTTLConfig,
     fetchDatabaseInfo,
+    fetchErrorRules,
     fetchRequestPayloadLimit,
     fetchRequestDetailConfig,
     fetchRetryConfig,
@@ -422,6 +439,47 @@ export default function SystemSettings({
     }
   }
 
+  const handleErrorRuleChange = (index: number, key: keyof ErrorRule, value: string | number | boolean) => {
+    setErrorRules((current) =>
+      current.map((rule, currentIndex) => (currentIndex === index ? { ...rule, [key]: value } as ErrorRule : rule))
+    )
+  }
+
+  const handleAddCustomRule = () => {
+    setErrorRules((current) => [
+      ...current,
+      {
+        id: `custom-${Date.now()}`,
+        name: '自定义规则',
+        builtIn: false,
+        enabled: true,
+        requestType: 'responses',
+        upstreamStatus: '200',
+        pattern: '',
+        matchMode: 'substring',
+        overrideStatus: 502,
+        overrideMessage: '上游返回了错误内容',
+      },
+    ])
+  }
+
+  const handleRemoveCustomRule = (id: string) => {
+    setErrorRules((current) => current.filter((rule) => rule.id !== id))
+  }
+
+  const handleSaveErrorRules = async () => {
+    setErrorRulesLoading(true)
+    try {
+      const result = await updateErrorRules(errorRules)
+      setErrorRules(result.rules)
+      showMessage('success', '错误规则已保存')
+    } catch (err) {
+      showMessage('error', err instanceof Error ? err.message : '保存失败')
+    } finally {
+      setErrorRulesLoading(false)
+    }
+  }
+
   const handleSaveRequestPayloadLimit = async () => {
     const nextMB = Math.max(1, Math.round(requestPayloadLimitMB))
     setRequestPayloadLimitSaving(true)
@@ -474,6 +532,13 @@ export default function SystemSettings({
         { key: 'reconcile', label: 'Reconcile', value: billingRuntimeStats.reconcile },
       ]
     : []
+
+  const requestTypeLabelMap: Record<ErrorRule['requestType'], string> = {
+    responses: 'Responses',
+    chat_completions: 'Chat Completions',
+    gemini: 'Gemini',
+    messages: 'Anthropic Messages',
+  }
 
   const handleUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
@@ -1143,6 +1208,142 @@ export default function SystemSettings({
                     </Button>
                   </div>
                 )}
+              </CardContent>
+            </Card>
+          )}
+
+          {activeTab === 'error-rules' && (
+            <Card>
+              <CardHeader>
+                <CardTitle>错误规则</CardTitle>
+                <CardDescription>匹配上游错误文本与状态码，并改写为面向客户端的最终错误状态与消息。</CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <Alert>
+                  <AlertDescription>
+                    默认内置规则会处理 fake-200 和 OpenAI 风格 “An Error Occurred” 场景。内置规则可编辑但不会被删除。
+                  </AlertDescription>
+                </Alert>
+
+                <div className="space-y-4">
+                  {errorRules.map((rule, index) => (
+                    <div key={rule.id} className="rounded-lg border p-4 space-y-4">
+                      <div className="flex flex-wrap items-center justify-between gap-3">
+                        <div className="space-y-1">
+                          <div className="flex items-center gap-2">
+                            <Input
+                              value={rule.name}
+                              onChange={(e) => handleErrorRuleChange(index, 'name', e.target.value)}
+                              className="h-8 w-64"
+                            />
+                            <Badge variant={rule.builtIn ? 'secondary' : 'outline'}>
+                              {rule.builtIn ? '内置' : '自定义'}
+                            </Badge>
+                          </div>
+                          <p className="text-xs text-muted-foreground">规则 ID: {rule.id}</p>
+                        </div>
+                        <div className="flex items-center gap-3">
+                          <div className="flex items-center gap-2">
+                            <Label>启用</Label>
+                            <Switch
+                              checked={rule.enabled}
+                              onCheckedChange={(checked) => handleErrorRuleChange(index, 'enabled', checked)}
+                            />
+                          </div>
+                          {!rule.builtIn && (
+                            <Button type="button" variant="outline" size="sm" onClick={() => handleRemoveCustomRule(rule.id)}>
+                              删除
+                            </Button>
+                          )}
+                        </div>
+                      </div>
+
+                      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+                        <div className="space-y-2">
+                          <Label>请求类型</Label>
+                          <Select
+                            value={rule.requestType}
+                            onValueChange={(value) => handleErrorRuleChange(index, 'requestType', value)}
+                          >
+                            <SelectTrigger>
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {Object.entries(requestTypeLabelMap).map(([value, label]) => (
+                                <SelectItem key={value} value={value}>
+                                  {label}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </div>
+
+                        <div className="space-y-2">
+                          <Label>上游状态码</Label>
+                          <Input
+                            value={rule.upstreamStatus}
+                            onChange={(e) => handleErrorRuleChange(index, 'upstreamStatus', e.target.value)}
+                            placeholder="例如 200 或 500-599"
+                          />
+                        </div>
+
+                        <div className="space-y-2">
+                          <Label>匹配模式</Label>
+                          <Select
+                            value={rule.matchMode}
+                            onValueChange={(value) => handleErrorRuleChange(index, 'matchMode', value)}
+                          >
+                            <SelectTrigger>
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="substring">包含文本</SelectItem>
+                              <SelectItem value="regex">正则表达式</SelectItem>
+                            </SelectContent>
+                          </Select>
+                        </div>
+
+                        <div className="space-y-2 xl:col-span-2">
+                          <Label>匹配内容</Label>
+                          <Input
+                            value={rule.pattern}
+                            onChange={(e) => handleErrorRuleChange(index, 'pattern', e.target.value)}
+                            placeholder={rule.matchMode === 'regex' ? '输入正则表达式' : '输入需要匹配的文本'}
+                          />
+                        </div>
+
+                        <div className="space-y-2">
+                          <Label>覆盖状态码</Label>
+                          <Input
+                            type="number"
+                            min={100}
+                            max={599}
+                            value={rule.overrideStatus}
+                            onChange={(e) => handleErrorRuleChange(index, 'overrideStatus', Number.parseInt(e.target.value || '0', 10))}
+                          />
+                        </div>
+
+                        <div className="space-y-2 md:col-span-2 xl:col-span-3">
+                          <Label>返回消息</Label>
+                          <Input
+                            value={rule.overrideMessage}
+                            onChange={(e) => handleErrorRuleChange(index, 'overrideMessage', e.target.value)}
+                            placeholder="客户端最终看到的错误消息"
+                          />
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+
+                <div className="flex flex-wrap justify-between gap-3">
+                  <Button type="button" variant="outline" onClick={handleAddCustomRule}>
+                    新增自定义规则
+                  </Button>
+                  <Button type="button" onClick={handleSaveErrorRules} disabled={errorRulesLoading}>
+                    {errorRulesLoading ? '保存中...' : '保存规则'}
+                  </Button>
+                </div>
               </CardContent>
             </Card>
           )}
