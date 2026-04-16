@@ -130,6 +130,7 @@ func Setup() *gin.Engine {
 				ampGroup.GET("/api-keys", ampHandler.ListAPIKeys)
 				ampGroup.POST("/api-keys", ampHandler.CreateAPIKey)
 				ampGroup.GET("/api-keys/:id", ampHandler.GetAPIKey)
+				ampGroup.PATCH("/api-keys/:id", ampHandler.UpdateAPIKey)
 				ampGroup.DELETE("/api-keys/:id", ampHandler.DeleteAPIKey)
 
 				ampGroup.GET("/bootstrap", ampHandler.GetBootstrap)
@@ -225,8 +226,14 @@ func Setup() *gin.Engine {
 			{
 				users.GET("/paged", userHandler.ListUsersPaged)
 				users.GET("", userHandler.ListUsers)
+				users.POST("/batch-preview", userHandler.PreviewBatchUpdate)
+				users.POST("/batch-apply", userHandler.ApplyBatchUpdate)
 				users.PATCH("/:id/admin", userHandler.SetAdmin)
+				users.PATCH("/:id/concurrency", userHandler.SetConcurrencyLimit)
 				users.PATCH("/:id/group", userHandler.SetGroup)
+				users.GET("/:id/api-keys", ampHandler.AdminListUserAPIKeys)
+				users.PATCH("/:id/api-keys/:keyId", ampHandler.AdminUpdateUserAPIKey)
+				users.DELETE("/:id/api-keys/:keyId", ampHandler.AdminDeleteUserAPIKey)
 				users.POST("/:id/reset-password", userHandler.ResetPassword)
 				users.POST("/:id/topup", userHandler.TopUp)
 				users.DELETE("/:id", userHandler.DeleteUser)
