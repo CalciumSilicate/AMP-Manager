@@ -55,12 +55,15 @@ type LiteLLMPricing struct {
 	LiteLLMProvider string `json:"litellm_provider"`
 	Mode            string `json:"mode"`
 
-	InputCostPerToken  *float64 `json:"input_cost_per_token,omitempty"`
-	OutputCostPerToken *float64 `json:"output_cost_per_token,omitempty"`
+	InputCostPerToken           *float64 `json:"input_cost_per_token,omitempty"`
+	OutputCostPerToken          *float64 `json:"output_cost_per_token,omitempty"`
+	InputCostPerTokenAbove272k  *float64 `json:"input_cost_per_token_above_272k_tokens,omitempty"`
+	OutputCostPerTokenAbove272k *float64 `json:"output_cost_per_token_above_272k_tokens,omitempty"`
 
-	CacheReadInputTokenCost     *float64 `json:"cache_read_input_token_cost,omitempty"`
-	CacheCreationInputTokenCost *float64 `json:"cache_creation_input_token_cost,omitempty"`
-	SupportsPromptCaching       *bool    `json:"supports_prompt_caching,omitempty"`
+	CacheReadInputTokenCost          *float64 `json:"cache_read_input_token_cost,omitempty"`
+	CacheCreationInputTokenCost      *float64 `json:"cache_creation_input_token_cost,omitempty"`
+	CacheReadInputTokenCostAbove272k *float64 `json:"cache_read_input_token_cost_above_272k_tokens,omitempty"`
+	SupportsPromptCaching            *bool    `json:"supports_prompt_caching,omitempty"`
 
 	MaxInputTokens  *wholeNumber `json:"max_input_tokens,omitempty"`
 	MaxOutputTokens *wholeNumber `json:"max_output_tokens,omitempty"`
@@ -221,10 +224,13 @@ func (s *PriceStore) FetchFromLiteLLM(ctx context.Context) error {
 			Provider: lp.LiteLLMProvider,
 			Source:   "litellm",
 			PriceData: normalizePriceData(PriceData{
-				InputCostPerToken:      ptrFloat64(lp.InputCostPerToken),
-				OutputCostPerToken:     ptrFloat64(lp.OutputCostPerToken),
-				CacheReadInputPerToken: ptrFloat64(lp.CacheReadInputTokenCost),
-				CacheCreationPerToken:  ptrFloat64(lp.CacheCreationInputTokenCost),
+				InputCostPerToken:               ptrFloat64(lp.InputCostPerToken),
+				OutputCostPerToken:              ptrFloat64(lp.OutputCostPerToken),
+				CacheReadInputPerToken:          ptrFloat64(lp.CacheReadInputTokenCost),
+				CacheCreationPerToken:           ptrFloat64(lp.CacheCreationInputTokenCost),
+				InputCostPerTokenAbove272k:      ptrFloat64(lp.InputCostPerTokenAbove272k),
+				OutputCostPerTokenAbove272k:     ptrFloat64(lp.OutputCostPerTokenAbove272k),
+				CacheReadInputPerTokenAbove272k: ptrFloat64(lp.CacheReadInputTokenCostAbove272k),
 			}),
 			CreatedAt: time.Now(),
 			UpdatedAt: time.Now(),
@@ -579,11 +585,23 @@ func normalizePriceData(data PriceData) PriceData {
 	if data.CacheCreationMicrosPerMillion <= 0 && data.CacheCreationPerToken > 0 {
 		data.CacheCreationMicrosPerMillion = precision.CostPerTokenToMicrosPerMillion(data.CacheCreationPerToken)
 	}
+	if data.InputMicrosPerMillionAbove272k <= 0 && data.InputCostPerTokenAbove272k > 0 {
+		data.InputMicrosPerMillionAbove272k = precision.CostPerTokenToMicrosPerMillion(data.InputCostPerTokenAbove272k)
+	}
+	if data.OutputMicrosPerMillionAbove272k <= 0 && data.OutputCostPerTokenAbove272k > 0 {
+		data.OutputMicrosPerMillionAbove272k = precision.CostPerTokenToMicrosPerMillion(data.OutputCostPerTokenAbove272k)
+	}
+	if data.CacheReadMicrosPerMillionAbove272k <= 0 && data.CacheReadInputPerTokenAbove272k > 0 {
+		data.CacheReadMicrosPerMillionAbove272k = precision.CostPerTokenToMicrosPerMillion(data.CacheReadInputPerTokenAbove272k)
+	}
 
 	data.InputCostPerToken = precision.MicrosPerMillionToCostPerToken(data.InputMicrosPerMillion)
 	data.OutputCostPerToken = precision.MicrosPerMillionToCostPerToken(data.OutputMicrosPerMillion)
 	data.CacheReadInputPerToken = precision.MicrosPerMillionToCostPerToken(data.CacheReadMicrosPerMillion)
 	data.CacheCreationPerToken = precision.MicrosPerMillionToCostPerToken(data.CacheCreationMicrosPerMillion)
+	data.InputCostPerTokenAbove272k = precision.MicrosPerMillionToCostPerToken(data.InputMicrosPerMillionAbove272k)
+	data.OutputCostPerTokenAbove272k = precision.MicrosPerMillionToCostPerToken(data.OutputMicrosPerMillionAbove272k)
+	data.CacheReadInputPerTokenAbove272k = precision.MicrosPerMillionToCostPerToken(data.CacheReadMicrosPerMillionAbove272k)
 	return data
 }
 

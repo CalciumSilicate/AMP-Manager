@@ -19,14 +19,20 @@ type ModelPrice struct {
 // 兼容字段单位:
 // - *CostPerToken: USD per token
 type PriceData struct {
-	InputMicrosPerMillion         int64   `json:"input_micros_per_million"`
-	OutputMicrosPerMillion        int64   `json:"output_micros_per_million"`
-	CacheReadMicrosPerMillion     int64   `json:"cache_read_micros_per_million,omitempty"`
-	CacheCreationMicrosPerMillion int64   `json:"cache_creation_micros_per_million,omitempty"`
-	InputCostPerToken             float64 `json:"input_cost_per_token,omitempty"`
-	OutputCostPerToken            float64 `json:"output_cost_per_token,omitempty"`
-	CacheReadInputPerToken        float64 `json:"cache_read_input_token_cost,omitempty"`
-	CacheCreationPerToken         float64 `json:"cache_creation_input_token_cost,omitempty"`
+	InputMicrosPerMillion              int64   `json:"input_micros_per_million"`
+	OutputMicrosPerMillion             int64   `json:"output_micros_per_million"`
+	CacheReadMicrosPerMillion          int64   `json:"cache_read_micros_per_million,omitempty"`
+	CacheCreationMicrosPerMillion      int64   `json:"cache_creation_micros_per_million,omitempty"`
+	InputMicrosPerMillionAbove272k     int64   `json:"input_micros_per_million_above_272k,omitempty"`
+	OutputMicrosPerMillionAbove272k    int64   `json:"output_micros_per_million_above_272k,omitempty"`
+	CacheReadMicrosPerMillionAbove272k int64   `json:"cache_read_micros_per_million_above_272k,omitempty"`
+	InputCostPerToken                  float64 `json:"input_cost_per_token,omitempty"`
+	OutputCostPerToken                 float64 `json:"output_cost_per_token,omitempty"`
+	CacheReadInputPerToken             float64 `json:"cache_read_input_token_cost,omitempty"`
+	CacheCreationPerToken              float64 `json:"cache_creation_input_token_cost,omitempty"`
+	InputCostPerTokenAbove272k         float64 `json:"input_cost_per_token_above_272k_tokens,omitempty"`
+	OutputCostPerTokenAbove272k        float64 `json:"output_cost_per_token_above_272k_tokens,omitempty"`
+	CacheReadInputPerTokenAbove272k    float64 `json:"cache_read_input_token_cost_above_272k_tokens,omitempty"`
 }
 
 // TokenUsage 统一的 token 使用量结构

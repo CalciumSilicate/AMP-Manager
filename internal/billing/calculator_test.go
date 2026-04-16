@@ -1,6 +1,9 @@
 package billing
 
-import "testing"
+import (
+	"encoding/json"
+	"testing"
+)
 
 func TestCalculateSubtractsCacheReadFromInputCost(t *testing.T) {
 	store := &PriceStore{
@@ -62,5 +65,63 @@ func TestCalculateClampsNegativeUncachedInputToZero(t *testing.T) {
 	const wantMicros int64 = 9
 	if result.CostMicros != wantMicros {
 		t.Fatalf("unexpected cost micros: got %d want %d", result.CostMicros, wantMicros)
+	}
+}
+
+func TestCalculateUsesAbove272kPricingWhenContextExceedsThreshold(t *testing.T) {
+	store := &PriceStore{
+		prices: map[string]ModelPrice{
+			"gpt-5.4": {
+				Model: "gpt-5.4",
+				PriceData: PriceData{
+					InputCostPerToken:               2.5 / 1_000_000,
+					OutputCostPerToken:              15.0 / 1_000_000,
+					CacheReadInputPerToken:          0.25 / 1_000_000,
+					InputCostPerTokenAbove272k:      5.0 / 1_000_000,
+					OutputCostPerTokenAbove272k:     22.5 / 1_000_000,
+					CacheReadInputPerTokenAbove272k: 0.5 / 1_000_000,
+				},
+			},
+		},
+	}
+
+	calculator := NewCostCalculator(store)
+	result := calculator.Calculate("gpt-5.4", TokenUsage{
+		InputTokens:          300000,
+		OutputTokens:         1000,
+		CacheReadInputTokens: 100000,
+	})
+
+	const wantMicros int64 = 1_072_500
+	if result.CostMicros != wantMicros {
+		t.Fatalf("unexpected long-context cost micros: got %d want %d", result.CostMicros, wantMicros)
+	}
+}
+
+func TestLiteLLMPricingParsesAbove272kFields(t *testing.T) {
+	raw := []byte(`{
+		"litellm_provider": "openai",
+		"mode": "chat",
+		"input_cost_per_token": 0.0000025,
+		"output_cost_per_token": 0.000015,
+		"cache_read_input_token_cost": 0.00000025,
+		"input_cost_per_token_above_272k_tokens": 0.000005,
+		"output_cost_per_token_above_272k_tokens": 0.0000225,
+		"cache_read_input_token_cost_above_272k_tokens": 0.0000005,
+		"max_input_tokens": 1050000
+	}`)
+
+	var pricing LiteLLMPricing
+	if err := json.Unmarshal(raw, &pricing); err != nil {
+		t.Fatalf("json.Unmarshal returned error: %v", err)
+	}
+	if pricing.InputCostPerTokenAbove272k == nil || *pricing.InputCostPerTokenAbove272k != 0.000005 {
+		t.Fatalf("unexpected input above272k: %#v", pricing.InputCostPerTokenAbove272k)
+	}
+	if pricing.OutputCostPerTokenAbove272k == nil || *pricing.OutputCostPerTokenAbove272k != 0.0000225 {
+		t.Fatalf("unexpected output above272k: %#v", pricing.OutputCostPerTokenAbove272k)
+	}
+	if pricing.CacheReadInputTokenCostAbove272k == nil || *pricing.CacheReadInputTokenCostAbove272k != 0.0000005 {
+		t.Fatalf("unexpected cache read above272k: %#v", pricing.CacheReadInputTokenCostAbove272k)
 	}
 }

@@ -17,6 +17,8 @@ var (
 	dateReDash   = regexp.MustCompile(`(\d{4})-(\d{2})-(\d{2})`) // YYYY-MM-DD 格式
 )
 
+const longContextThresholdTokens = 272_000
+
 // CostCalculator 成本计算器
 type CostCalculator struct {
 	store *PriceStore
@@ -92,6 +94,7 @@ func (c *CostCalculator) Calculate(pricingModel string, usage TokenUsage) CostRe
 		}
 		result.PricingRuleName = rule.RuleName
 	}
+	priceData = effectivePriceDataForUsage(priceData, inputTokens)
 
 	inputMicros := int64(math.Round(float64(int64(uncachedInputTokens)*priceData.InputMicrosPerMillion) / 1_000_000.0))
 	outputMicros := int64(math.Round(float64(int64(outputTokens)*priceData.OutputMicrosPerMillion) / 1_000_000.0))
@@ -109,6 +112,25 @@ func (c *CostCalculator) Calculate(pricingModel string, usage TokenUsage) CostRe
 		cacheReadTokens, cacheCreationTokens, result.CostUsd)
 
 	return result
+}
+
+func effectivePriceDataForUsage(priceData PriceData, inputTokens int) PriceData {
+	if inputTokens <= longContextThresholdTokens {
+		return priceData
+	}
+	if priceData.InputMicrosPerMillionAbove272k > 0 {
+		priceData.InputMicrosPerMillion = priceData.InputMicrosPerMillionAbove272k
+		priceData.InputCostPerToken = priceData.InputCostPerTokenAbove272k
+	}
+	if priceData.OutputMicrosPerMillionAbove272k > 0 {
+		priceData.OutputMicrosPerMillion = priceData.OutputMicrosPerMillionAbove272k
+		priceData.OutputCostPerToken = priceData.OutputCostPerTokenAbove272k
+	}
+	if priceData.CacheReadMicrosPerMillionAbove272k > 0 {
+		priceData.CacheReadMicrosPerMillion = priceData.CacheReadMicrosPerMillionAbove272k
+		priceData.CacheReadInputPerToken = priceData.CacheReadInputPerTokenAbove272k
+	}
+	return priceData
 }
 
 // tryFuzzyMatch 尝试模糊匹配模型名
