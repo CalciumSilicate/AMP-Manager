@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { getAdminDashboard, AdminDashboardData, DashboardCacheHitRate } from '@/api/dashboard'
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
@@ -13,8 +13,8 @@ import {
   ChartTooltipContent,
 } from '@/components/ui/chart'
 import {
-  Area, AreaChart, Bar, BarChart, Pie, PieChart,
-  CartesianGrid, XAxis, YAxis, Cell, Label,
+  Area, AreaChart, Bar, BarChart, CartesianGrid, Cell, Label,
+  Line, LineChart, Pie, PieChart, XAxis, YAxis,
 } from 'recharts'
 import {
   Wallet, TrendingUp, Zap, ArrowUpRight, ArrowDownRight,
@@ -31,6 +31,13 @@ const throughputChartConfig = {
   qps1m: { label: '1 分钟平均 QPS', color: 'hsl(var(--chart-1))' },
   rpm5m: { label: '5 分钟平均 RPM', color: 'hsl(var(--chart-2))' },
   tpm5m: { label: '5 分钟平均 TPM', color: 'hsl(var(--chart-3))' },
+} satisfies ChartConfig
+
+const timingChartConfig = {
+  avgMs: { label: 'avg', color: 'hsl(var(--chart-1))' },
+  p50Ms: { label: 'P50', color: 'hsl(var(--chart-2))' },
+  p90Ms: { label: 'P90', color: 'hsl(var(--chart-3))' },
+  p99Ms: { label: 'P99', color: 'hsl(var(--chart-4))' },
 } satisfies ChartConfig
 
 const modelChartConfig = {
@@ -55,7 +62,7 @@ export default function AdminOverview() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [trendView, setTrendView] = useState<'cost' | 'requests'>('cost')
-  const [throughputView, setThroughputView] = useState<'qps1m' | 'rpm5m' | 'tpm5m'>('qps1m')
+  const [throughputView, setThroughputView] = useState<'qps1m' | 'rpm5m' | 'tpm5m' | 'ttfb' | 'duration'>('qps1m')
 
   const loadDashboard = async () => {
     setLoading(true)
@@ -106,6 +113,54 @@ export default function AdminOverview() {
       }
     })
   }, [data?.throughputTrend])
+
+  const ttfbData = useMemo(() => {
+    if (!data?.ttfbTrend?.length) return []
+    return data.ttfbTrend.map((point) => {
+      const bucket = new Date(point.bucket)
+      const label = Number.isNaN(bucket.getTime())
+        ? point.bucket
+        : bucket.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+      const tooltipLabel = Number.isNaN(bucket.getTime())
+        ? point.bucket
+        : bucket.toLocaleString([], {
+            month: '2-digit',
+            day: '2-digit',
+            hour: '2-digit',
+            minute: '2-digit',
+          })
+
+      return {
+        ...point,
+        label,
+        tooltipLabel,
+      }
+    })
+  }, [data?.ttfbTrend])
+
+  const durationData = useMemo(() => {
+    if (!data?.durationTrend?.length) return []
+    return data.durationTrend.map((point) => {
+      const bucket = new Date(point.bucket)
+      const label = Number.isNaN(bucket.getTime())
+        ? point.bucket
+        : bucket.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+      const tooltipLabel = Number.isNaN(bucket.getTime())
+        ? point.bucket
+        : bucket.toLocaleString([], {
+            month: '2-digit',
+            day: '2-digit',
+            hour: '2-digit',
+            minute: '2-digit',
+          })
+
+      return {
+        ...point,
+        label,
+        tooltipLabel,
+      }
+    })
+  }, [data?.durationTrend])
 
   const modelPieData = useMemo(() => {
     if (!data?.topModels?.length) return []
@@ -206,7 +261,21 @@ export default function AdminOverview() {
       digits: 1,
       unit: 'tok/min',
     },
+    ttfb: {
+      label: 'TTFB',
+      description: '近 24 小时，按 5 分钟聚合的 TTFB 分布',
+      digits: 1,
+      unit: 'ms',
+    },
+    duration: {
+      label: 'Duration',
+      description: '近 24 小时，按 5 分钟聚合的总耗时分布',
+      digits: 1,
+      unit: 'ms',
+    },
   } as const
+
+  const timingData = throughputView === 'ttfb' ? ttfbData : durationData
 
   return (
     <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-6">
@@ -464,11 +533,46 @@ export default function AdminOverview() {
                   <Button size="sm" variant={throughputView === 'tpm5m' ? 'default' : 'outline'} onClick={() => setThroughputView('tpm5m')}>
                     5m TPM
                   </Button>
+                  <Button size="sm" variant={throughputView === 'ttfb' ? 'default' : 'outline'} onClick={() => setThroughputView('ttfb')}>
+                    TTFB
+                  </Button>
+                  <Button size="sm" variant={throughputView === 'duration' ? 'default' : 'outline'} onClick={() => setThroughputView('duration')}>
+                    Duration
+                  </Button>
                 </div>
               </div>
             </CardHeader>
             <CardContent>
-              {throughputData.length === 0 ? (
+              {throughputView === 'ttfb' || throughputView === 'duration' ? (
+                timingData.length === 0 ? (
+                  <p className="py-12 text-center text-muted-foreground">暂无数据</p>
+                ) : (
+                  <ChartContainer config={timingChartConfig} className="h-[240px] w-full">
+                    <LineChart accessibilityLayer data={timingData} margin={{ top: 8, right: 12, left: -4, bottom: 0 }}>
+                      <CartesianGrid vertical={false} />
+                      <XAxis dataKey="label" tickLine={false} axisLine={false} tickMargin={8} minTickGap={28} />
+                      <YAxis tickLine={false} axisLine={false} tickMargin={4} tickFormatter={(value) => formatDecimal(Number(value), 1)} />
+                      <ChartTooltip
+                        cursor={false}
+                        content={
+                          <ChartTooltipContent
+                            indicator="line"
+                            labelFormatter={(_value, payload) => {
+                              const item = payload?.[0]?.payload as { tooltipLabel?: string } | undefined
+                              return item?.tooltipLabel || ''
+                            }}
+                            formatter={(value) => `${formatDecimal(Number(value), 1)} ms`}
+                          />
+                        }
+                      />
+                      <Line type="monotone" dataKey="avgMs" stroke="var(--color-avgMs)" strokeWidth={2} dot={false} />
+                      <Line type="monotone" dataKey="p50Ms" stroke="var(--color-p50Ms)" strokeWidth={2} dot={false} />
+                      <Line type="monotone" dataKey="p90Ms" stroke="var(--color-p90Ms)" strokeWidth={2} dot={false} />
+                      <Line type="monotone" dataKey="p99Ms" stroke="var(--color-p99Ms)" strokeWidth={2} dot={false} />
+                    </LineChart>
+                  </ChartContainer>
+                )
+              ) : throughputData.length === 0 ? (
                 <p className="text-center text-muted-foreground py-12">暂无数据</p>
               ) : (
                 <ChartContainer config={throughputChartConfig} className="h-[240px] w-full">

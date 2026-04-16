@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -11,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"ampmanager/internal/billing"
 	"ampmanager/internal/model"
 	"ampmanager/internal/service"
 	"ampmanager/internal/translator"
@@ -149,7 +151,14 @@ func ResponsesWebsocketProxyHandler() gin.HandlerFunc {
 				trace.SetError("upstream_error")
 				trace.SetResponse(execErr.StatusCode)
 				if writer := GetLogWriter(); writer != nil {
-					writer.UpdateFromTrace(trace)
+					if ok := writer.UpdateFromTrace(trace); !ok {
+						if billingResult := trace.BillingResult(); billingResult != nil {
+							billingSvc := service.NewBillingService()
+							if err := billingSvc.ApplyBillingResult(trace.RequestID, billingResult); err != nil {
+								log.Warnf("responses websocket: failed to apply billing fallback for request %s: %v", trace.RequestID, err)
+							}
+						}
+					}
 				}
 				if errWrite := writeResponsesWebsocketError(conn, execErr.StatusCode, execErr.Error()); errWrite != nil {
 					return
@@ -161,12 +170,13 @@ func ResponsesWebsocketProxyHandler() gin.HandlerFunc {
 			if assistantText := extractResponsesCompletedText(completedPayload); assistantText != "" {
 				trace.SetResponseText(assistantText)
 			}
-			if usage, _, ok := (&openAIResponsesParser{}).ConsumeSSE("response.completed", completedPayload); ok && usage != nil {
-				trace.SetUsage(usage.InputTokens, usage.OutputTokens, usage.CacheReadInputTokens, usage.CacheCreationInputTokens)
-			}
-			if len(completedPayload) > 0 {
-				StoreResponseDetail(trace.RequestID, sanitizeHeaders(responseHeaders), completedPayload)
-			}
+				if usage, _, ok := (&openAIResponsesParser{}).ConsumeSSE("response.completed", completedPayload); ok && usage != nil {
+					trace.SetUsage(usage.InputTokens, usage.OutputTokens, usage.CacheReadInputTokens, usage.CacheCreationInputTokens)
+				}
+				applyResponsesTraceCost(trace, c.Request.Context())
+				if len(completedPayload) > 0 {
+					StoreResponseDetail(trace.RequestID, sanitizeHeaders(responseHeaders), completedPayload)
+				}
 			if writer := GetLogWriter(); writer != nil {
 				writer.UpdateFromTrace(trace)
 			}
@@ -531,23 +541,30 @@ func executeResponsesOverHTTPFallback(ctx context.Context, clientHeaders http.He
 }
 
 func forwardResponsesHTTPBody(ctx context.Context, session *responsesWebsocketSession, prepared *responsesPreparedTurn, resp *http.Response) (http.Header, []byte, []byte, *responsesWebsocketError) {
-	body, errRead := io.ReadAll(io.LimitReader(resp.Body, 50*1024*1024))
-	if errRead != nil {
-		return resp.Header.Clone(), nil, nil, &responsesWebsocketError{StatusCode: http.StatusBadGateway, Message: "failed to read fallback response"}
-	}
 	if strings.Contains(resp.Header.Get("Content-Type"), "text/event-stream") {
-		completedPayload, completedOutput, errStream := forwardResponsesSSEPayloads(ctx, session.downstream, prepared.trace, body)
+		completedPayload, completedOutput, errStream := streamResponsesSSEPayloads(ctx, session.downstream, prepared.trace, resp.Body)
 		if errStream != nil {
 			return resp.Header.Clone(), nil, nil, errStream
 		}
 		return resp.Header.Clone(), completedPayload, completedOutput, nil
 	}
 
-	payload := bytes.TrimSpace(body)
+	firstByte := make([]byte, 1)
+	if _, errRead := resp.Body.Read(firstByte); errRead != nil {
+		if errors.Is(errRead, io.EOF) {
+			return resp.Header.Clone(), nil, nil, &responsesWebsocketError{StatusCode: http.StatusBadGateway, Message: "empty fallback response"}
+		}
+		return resp.Header.Clone(), nil, nil, &responsesWebsocketError{StatusCode: http.StatusBadGateway, Message: "failed to read fallback response"}
+	}
+	prepared.trace.MarkFirstByte()
+	body, errRead := io.ReadAll(io.LimitReader(resp.Body, 50*1024*1024))
+	if errRead != nil {
+		return resp.Header.Clone(), nil, nil, &responsesWebsocketError{StatusCode: http.StatusBadGateway, Message: "failed to read fallback response"}
+	}
+	payload := bytes.TrimSpace(append(firstByte, body...))
 	if gjson.GetBytes(payload, "object").String() == "response" {
 		completed := []byte(`{"type":"response.completed","response":{}}`)
 		completed, _ = sjson.SetRawBytes(completed, "response", payload)
-		prepared.trace.MarkFirstByte()
 		if errWrite := session.downstream.Write(ctx, websocket.MessageText, completed); errWrite != nil {
 			return resp.Header.Clone(), nil, nil, &responsesWebsocketError{StatusCode: http.StatusBadGateway, Message: "downstream_write_failed"}
 		}
@@ -555,6 +572,56 @@ func forwardResponsesHTTPBody(ctx context.Context, session *responsesWebsocketSe
 	}
 
 	return resp.Header.Clone(), nil, nil, &responsesWebsocketError{StatusCode: http.StatusBadGateway, Message: "fallback response did not contain a response object"}
+}
+
+func streamResponsesSSEPayloads(ctx context.Context, downstream *websocket.Conn, trace *RequestTrace, reader io.Reader) ([]byte, []byte, *responsesWebsocketError) {
+	var (
+		completedPayload []byte
+		completedOutput  = []byte("[]")
+		forwardedAny     bool
+		buffer           []byte
+		chunk            = make([]byte, 4096)
+	)
+	for {
+		n, err := reader.Read(chunk)
+		if n > 0 {
+			if !forwardedAny {
+				trace.MarkFirstByte()
+				forwardedAny = true
+			}
+			buffer = append(buffer, chunk[:n]...)
+			for {
+				idx, delimLen := findSSEDelimiter(buffer)
+				if idx < 0 {
+					break
+				}
+				frame := append([]byte(nil), buffer[:idx+delimLen]...)
+				buffer = buffer[idx+delimLen:]
+				eventName, payload, done := parseSSEEvent(frame)
+				if done || len(payload) == 0 {
+					continue
+				}
+				payload = normalizeResponsesCompletedEvent(payload)
+				if errWrite := downstream.Write(ctx, websocket.MessageText, payload); errWrite != nil {
+					return nil, nil, &responsesWebsocketError{StatusCode: http.StatusBadGateway, Message: "downstream_write_failed"}
+				}
+				if eventName == "response.completed" || gjson.GetBytes(payload, "type").String() == "response.completed" {
+					completedPayload = payload
+					completedOutput = extractResponsesCompletedOutput(payload)
+				}
+			}
+		}
+		if err != nil {
+			if errors.Is(err, io.EOF) {
+				break
+			}
+			return nil, nil, &responsesWebsocketError{StatusCode: http.StatusBadGateway, Message: "failed to read fallback stream"}
+		}
+	}
+	if len(completedPayload) == 0 {
+		return nil, nil, &responsesWebsocketError{StatusCode: http.StatusBadGateway, Message: "fallback stream ended without response.completed"}
+	}
+	return completedPayload, completedOutput, nil
 }
 
 func forwardResponsesSSEPayloads(ctx context.Context, downstream *websocket.Conn, trace *RequestTrace, body []byte) ([]byte, []byte, *responsesWebsocketError) {
@@ -592,6 +659,60 @@ func forwardResponsesSSEPayloads(ctx context.Context, downstream *websocket.Conn
 		return nil, nil, &responsesWebsocketError{StatusCode: http.StatusBadGateway, Message: "fallback stream ended without response.completed"}
 	}
 	return completedPayload, completedOutput, nil
+}
+
+func applyResponsesTraceCost(trace *RequestTrace, ctx context.Context) {
+	if trace == nil {
+		return
+	}
+	calc := billing.GetCostCalculator()
+	if calc == nil {
+		return
+	}
+	pricingModel := trace.MappedModel
+	if pricingModel == "" {
+		pricingModel = trace.OriginalModel
+	}
+	if pricingModel == "" {
+		return
+	}
+
+	costResult := calc.CalculateFromPointers(
+		pricingModel,
+		trace.InputTokens,
+		trace.OutputTokens,
+		trace.CacheReadInputTokens,
+		trace.CacheCreationInputTokens,
+	)
+	if !costResult.PriceFound {
+		return
+	}
+
+	proxyCfg := GetProxyConfig(ctx)
+	multiplier := 1.0
+	if proxyCfg != nil {
+		multiplier = proxyCfg.RateMultiplier
+		trace.RateMultiplier = multiplier
+	}
+
+	if multiplier == 0 {
+		trace.SetCost(costResult.CostMicros, costResult.CostUsd, costResult.PricingModel)
+		return
+	}
+
+	adjustedCostMicros := int64(float64(costResult.CostMicros) * multiplier)
+	adjustedCostUsd := fmt.Sprintf("%.6f", float64(adjustedCostMicros)/1e6)
+	trace.SetCost(adjustedCostMicros, adjustedCostUsd, costResult.PricingModel)
+
+	if proxyCfg != nil && adjustedCostMicros > 0 {
+		billingSvc := service.NewBillingService()
+		result, err := billingSvc.SettleRequestCostResult(trace.RequestID, proxyCfg.UserID, adjustedCostMicros)
+		if err != nil {
+			log.Warnf("responses websocket: failed to settle cost for user %s: %v", proxyCfg.UserID, err)
+		} else {
+			trace.SetBillingResult(result)
+		}
+	}
 }
 
 func ensureResponsesUpstreamConn(ctx context.Context, clientHeaders http.Header, proxyCfg *ProxyConfig, session *responsesWebsocketSession, channel *model.Channel) (*websocket.Conn, http.Header, *responsesWebsocketError) {
