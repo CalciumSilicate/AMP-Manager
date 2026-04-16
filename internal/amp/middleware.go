@@ -205,9 +205,12 @@ var (
 	apiKeyRepo   = repository.NewAPIKeyRepository()
 	settingsRepo = repository.NewAmpSettingsRepository()
 	systemCfgSvc = service.NewSystemConfigService()
+	userRepo     = repository.NewUserRepository()
 )
 
 var groupRepo = repository.NewGroupRepository()
+
+var userConcurrencyLimiter = newActiveRequestLimiter()
 
 func APIKeyAuthMiddleware() gin.HandlerFunc {
 	return func(c *gin.Context) {
@@ -357,6 +360,49 @@ func extractAPIKey(c *gin.Context) string {
 func hashAPIKey(apiKey string) string {
 	sum := sha256.Sum256([]byte(apiKey))
 	return hex.EncodeToString(sum[:])
+}
+
+type activeRequestLimiter struct {
+	mu     sync.Mutex
+	counts map[string]int
+}
+
+func newActiveRequestLimiter() *activeRequestLimiter {
+	return &activeRequestLimiter{
+		counts: make(map[string]int),
+	}
+}
+
+func (l *activeRequestLimiter) TryAcquire(userID string, limit int) bool {
+	if userID == "" || limit <= 0 {
+		return true
+	}
+
+	l.mu.Lock()
+	defer l.mu.Unlock()
+
+	current := l.counts[userID]
+	if current >= limit {
+		return false
+	}
+	l.counts[userID] = current + 1
+	return true
+}
+
+func (l *activeRequestLimiter) Release(userID string) {
+	if userID == "" {
+		return
+	}
+
+	l.mu.Lock()
+	defer l.mu.Unlock()
+
+	current := l.counts[userID]
+	if current <= 1 {
+		delete(l.counts, userID)
+		return
+	}
+	l.counts[userID] = current - 1
 }
 
 func maskAPIKey(apiKey string) string {
