@@ -10,6 +10,7 @@ import { formatDateTime, formatDateTimeWithSeconds, formatDecimal, formatGrouped
 import { navigateDashboard } from '@/lib/dashboard-navigation'
 import { motion, AnimatePresence, staggerContainer, staggerItem } from '@/lib/motion'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import {
   type ChartConfig,
   ChartContainer,
@@ -365,16 +366,26 @@ export default function Overview() {
                       <CreditCard className="mr-2 h-4 w-4" />
                       购买订阅
                     </Button>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      className="h-9 rounded-md px-3"
-                      onClick={() => void handleResetBillingDaily()}
-                      disabled={!billingState.dailyReset.allowed || billingResetting}
-                    >
-                      <RotateCcw className={`mr-2 h-4 w-4 ${billingResetting ? 'animate-spin' : ''}`} />
-                      重置今日计费
-                    </Button>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <span className="inline-flex">
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="h-9 rounded-md px-3"
+                            onClick={() => void handleResetBillingDaily()}
+                            disabled={!billingState.dailyReset.allowed || billingResetting}
+                          >
+                            <RotateCcw className={`mr-2 h-4 w-4 ${billingResetting ? 'animate-spin' : ''}`} />
+                            重置今日计费
+                          </Button>
+                        </span>
+                      </TooltipTrigger>
+                      <TooltipContent side="bottom" className="space-y-1 border bg-popover px-3 py-2 text-xs text-popover-foreground shadow-md">
+                        <p>{billingState.dailyReset.message}</p>
+                        <p>今日已重置 {billingState.dailyReset.usedToday}/{billingState.dailyReset.dailyLimit}</p>
+                      </TooltipContent>
+                    </Tooltip>
                     <Popover open={priorityPopoverOpen} onOpenChange={setPriorityPopoverOpen}>
                       <PopoverTrigger asChild>
                         <Button variant="outline" size="sm" className="h-9 rounded-md px-3">
@@ -510,14 +521,6 @@ export default function Overview() {
                       </div>
                     </div>
                   </div>
-
-                  <div className="flex flex-wrap items-center justify-between gap-2 rounded-md border bg-muted/30 px-3 py-2">
-                    <p className="text-xs text-muted-foreground">{billingState.dailyReset.message}</p>
-                    <p className="text-xs font-medium text-muted-foreground">
-                      今日已重置 {billingState.dailyReset.usedToday}/{billingState.dailyReset.dailyLimit}
-                    </p>
-                  </div>
-
                   {billingState.subscription && billingState.windows && billingState.windows.length > 0 ? (
                     <div className="space-y-2">
                       {billingState.windows.map((w, i) => {
