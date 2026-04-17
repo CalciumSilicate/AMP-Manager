@@ -182,6 +182,21 @@ func StoreResponseDetail(requestID string, headers http.Header, body []byte) {
 		requestID, len(headers), len(body))
 }
 
+func StoreTranslatedResponseDetail(requestID string, body []byte) {
+	if !IsRequestDetailEnabled() {
+		return
+	}
+
+	store := GetRequestDetailStore()
+	if store == nil {
+		return
+	}
+
+	store.UpdateTranslatedResponseBody(requestID, body)
+	log.Debugf("request capture: stored translated response body for %s (%d bytes)",
+		requestID, len(body))
+}
+
 func StoreErrorResponseDetail(requestID string, statusCode int, body []byte) {
 	if requestID == "" {
 		return
@@ -271,6 +286,43 @@ func (w *ResponseCaptureWrapper) Close() error {
 	// Store response detail before closing
 	if w.requestID != "" {
 		StoreResponseDetail(w.requestID, w.headers, w.buffer.Bytes())
+	}
+	return w.ReadCloser.Close()
+}
+
+type TranslatedResponseCaptureWrapper struct {
+	io.ReadCloser
+	requestID string
+	buffer    *bytes.Buffer
+	maxSize   int
+}
+
+func NewTranslatedResponseCaptureWrapper(body io.ReadCloser, requestID string) *TranslatedResponseCaptureWrapper {
+	bodyCap := GetRequestDetailConfig().BodyCapBytes
+	return &TranslatedResponseCaptureWrapper{
+		ReadCloser: body,
+		requestID:  requestID,
+		buffer:     &bytes.Buffer{},
+		maxSize:    bodyCap,
+	}
+}
+
+func (w *TranslatedResponseCaptureWrapper) Read(p []byte) (int, error) {
+	n, err := w.ReadCloser.Read(p)
+	if n > 0 && w.buffer.Len() < w.maxSize {
+		remaining := w.maxSize - w.buffer.Len()
+		if n <= remaining {
+			w.buffer.Write(p[:n])
+		} else {
+			w.buffer.Write(p[:remaining])
+		}
+	}
+	return n, err
+}
+
+func (w *TranslatedResponseCaptureWrapper) Close() error {
+	if w.requestID != "" {
+		StoreTranslatedResponseDetail(w.requestID, w.buffer.Bytes())
 	}
 	return w.ReadCloser.Close()
 }

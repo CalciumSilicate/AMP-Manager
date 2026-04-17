@@ -180,13 +180,13 @@ export function LogDetailModal({ isAdmin, logId, open, onOpenChange }: LogDetail
       case 'translated-request':
         return detail.translatedRequestBody
           ? formatBody(detail.translatedRequestBody)
-          : <p className="text-muted-foreground text-sm">无转换数据（请求未经过格式转换）</p>
+          : <p className="text-muted-foreground text-sm">无转换数据（请求未产生独立的上游请求体）</p>
       case 'response-headers': return formatHeaders(detail.responseHeaders)
       case 'response-body': return formatBody(detail.responseBody)
       case 'translated-response':
         return detail.translatedResponseBody
           ? formatBody(detail.translatedResponseBody)
-          : <p className="text-muted-foreground text-sm">无翻译数据（非翻译请求或流式响应未记录）</p>
+          : <p className="text-muted-foreground text-sm">无转换数据（响应未产生独立的下游响应体）</p>
     }
   }
 

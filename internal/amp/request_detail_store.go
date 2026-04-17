@@ -362,6 +362,18 @@ func (s *RequestDetailStore) AppendTranslatedResponse(requestID string, data []b
 	}, false)
 }
 
+func (s *RequestDetailStore) UpdateTranslatedResponseBody(requestID string, body []byte) {
+	if len(body) == 0 {
+		return
+	}
+
+	s.mutateDetail(requestID, func(detail *RequestDetail, cfg RequestDetailConfig) {
+		detail.TranslatedResponseBody = cloneBodyWithCap(body, cfg.BodyCapBytes)
+		detail.MetadataOnly = false
+		detail.Truncated = detail.Truncated || len(body) > cfg.BodyCapBytes
+	}, false)
+}
+
 func (s *RequestDetailStore) mutateDetail(requestID string, fn func(detail *RequestDetail, cfg RequestDetailConfig), allowCreate bool) {
 	if s == nil || requestID == "" {
 		return

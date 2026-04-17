@@ -403,9 +403,9 @@ func ChannelProxyHandler() gin.HandlerFunc {
 		isStreaming := false
 		// Some clients send JSON bodies with chunked transfer encoding (Content-Length = -1).
 		// We still need to buffer the body so /v1/responses SSE retry can replay it.
-			if c.Request.Body != nil {
-				requestPayload, err := ensureRequestBody(c)
-				if err != nil {
+		if c.Request.Body != nil {
+			requestPayload, err := ensureRequestBody(c)
+			if err != nil {
 				if isRequestBodyTooLarge(err) {
 					log.Warnf("channel proxy: request body too large: %v", err)
 					c.JSON(http.StatusRequestEntityTooLarge, NewStandardError(http.StatusRequestEntityTooLarge, "request body too large"))
@@ -414,26 +414,26 @@ func ChannelProxyHandler() gin.HandlerFunc {
 				log.Errorf("channel proxy: failed to read request body: %v", err)
 				c.JSON(http.StatusInternalServerError, NewStandardError(http.StatusInternalServerError, "failed to read request body"))
 				return
-				}
-				bodyBytes := requestPayload.Body
-				originalRequestBody = bodyBytes
-				convertedBody = bodyBytes
+			}
+			bodyBytes := requestPayload.Body
+			originalRequestBody = bodyBytes
+			convertedBody = bodyBytes
 
-				filteredHeaders, filteredBody, filterErr := ApplyBoundGuardRequestFilters(channel.ID, proxyCfg.GroupIDs, c.Request.Header, bodyBytes)
-				if filterErr != nil {
-					log.Warnf("channel proxy: bound guard filter failed: %v", filterErr)
-				} else {
-					c.Request.Header = filteredHeaders
-					bodyBytes = filteredBody
-					requestPayload.Body = filteredBody
-					requestPayload.JSON = nil
-					requestPayload.jsonParsed = false
-					originalRequestBody = filteredBody
-					convertedBody = filteredBody
-				}
+			filteredHeaders, filteredBody, filterErr := ApplyBoundGuardRequestFilters(channel.ID, proxyCfg.GroupIDs, c.Request.Header, bodyBytes)
+			if filterErr != nil {
+				log.Warnf("channel proxy: bound guard filter failed: %v", filterErr)
+			} else {
+				c.Request.Header = filteredHeaders
+				bodyBytes = filteredBody
+				requestPayload.Body = filteredBody
+				requestPayload.JSON = nil
+				requestPayload.jsonParsed = false
+				originalRequestBody = filteredBody
+				convertedBody = filteredBody
+			}
 
-				// Check if streaming without forcing a full JSON parse.
-				if stream := gjson.GetBytes(bodyBytes, "stream"); stream.Exists() {
+			// Check if streaming without forcing a full JSON parse.
+			if stream := gjson.GetBytes(bodyBytes, "stream"); stream.Exists() {
 				if stream.Type == gjson.True || stream.Type == gjson.False {
 					clientWantsStream = stream.Bool()
 					isStreaming = clientWantsStream
@@ -451,12 +451,12 @@ func ChannelProxyHandler() gin.HandlerFunc {
 			}
 
 			// Apply outgoing format filters (e.g., Claude system string to array)
-				translatedFilteredBody, filterErr := filters.ApplyFilters(outgoingFormat, convertedBody)
-				if filterErr != nil {
-					log.Warnf("channel proxy: filter application failed: %v, using unfiltered body", filterErr)
-					translatedFilteredBody = convertedBody
-				}
-				convertedBody = translatedFilteredBody
+			translatedFilteredBody, filterErr := filters.ApplyFilters(outgoingFormat, convertedBody)
+			if filterErr != nil {
+				log.Warnf("channel proxy: filter application failed: %v, using unfiltered body", filterErr)
+				translatedFilteredBody = convertedBody
+			}
+			convertedBody = translatedFilteredBody
 
 			// CopilotAPI mode: save X-Amp-Thread-Id for x-session-id injection in Director.
 			// Also normalize user message string content → array blocks so copilot-api's
@@ -506,10 +506,10 @@ func ChannelProxyHandler() gin.HandlerFunc {
 				log.Debugf("channel proxy: applied S2T traditional Chinese conversion to request body")
 			}
 
-				if !bytes.Equal(convertedBody, bodyBytes) {
-					c.Request.Body = io.NopCloser(bytes.NewReader(convertedBody))
-					c.Request.ContentLength = int64(len(convertedBody))
-					c.Request.Header.Set("Content-Length", fmt.Sprintf("%d", len(convertedBody)))
+			if !bytes.Equal(convertedBody, bodyBytes) {
+				c.Request.Body = io.NopCloser(bytes.NewReader(convertedBody))
+				c.Request.ContentLength = int64(len(convertedBody))
+				c.Request.Header.Set("Content-Length", fmt.Sprintf("%d", len(convertedBody)))
 			} else {
 				c.Request.Body = io.NopCloser(bytes.NewReader(bodyBytes))
 			}
@@ -808,17 +808,6 @@ func ChannelProxyHandler() gin.HandlerFunc {
 					if err := handleNonStreamingResponse(resp, trace, transInfo, originalModel, mappedModel); err != nil {
 						return err
 					}
-					// Apply T2S Traditional Chinese conversion on the final non-streaming response body
-					if GetTraditionalChinese(resp.Request.Context()) {
-						bodyBytes, readErr := io.ReadAll(resp.Body)
-						if readErr == nil && len(bodyBytes) > 0 {
-							bodyBytes = opencc.ConvertClaudeResponseBodyT2S(bodyBytes)
-							resp.Body = io.NopCloser(bytes.NewReader(bodyBytes))
-							resp.ContentLength = int64(len(bodyBytes))
-							resp.Header.Set("Content-Length", strconv.Itoa(len(bodyBytes)))
-							log.Debugf("channel proxy: applied T2S traditional Chinese conversion to non-streaming response")
-						}
-					}
 					if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 						log.Warnf("channel proxy: upstream returned status %d for %s", resp.StatusCode, sanitizeURL(targetURL))
 					}
@@ -839,13 +828,18 @@ func ChannelProxyHandler() gin.HandlerFunc {
 					return nil
 				}
 
+				streamBody := io.ReadCloser(resp.Body)
+				if trace != nil && IsRequestDetailCaptureEnabled(resp.Request.Context()) {
+					streamBody = NewResponseCaptureWrapper(streamBody, trace.RequestID, resp.Header)
+				}
+
 				// For translated streams, billing/usage must be extracted from the raw upstream
 				// SSE payload before any compatibility translation rewrites the event shape.
 				if trace != nil {
-					resp.Body = WrapResponseBodyForTokenExtraction(resp.Body, isStreaming, trace, providerInfo)
+					streamBody = WrapResponseBodyForTokenExtraction(streamBody, isStreaming, trace, providerInfo)
 				}
 
-				resp.Body = NewSSEJSONTransformWrapper(resp.Body, func(b []byte) [][]byte {
+				streamBody = NewSSEJSONTransformWrapper(streamBody, func(b []byte) [][]byte {
 					payloads := [][]byte{b}
 					if transInfo != nil && transInfo.NeedsConversion {
 						if transInfo.OutgoingFormat == translator.FormatClaude {
@@ -891,10 +885,12 @@ func ChannelProxyHandler() gin.HandlerFunc {
 
 				// Streaming response handling (existing logic)
 				if trace != nil {
-					if IsRequestDetailCaptureEnabled(resp.Request.Context()) {
-						resp.Body = NewResponseCaptureWrapper(resp.Body, trace.RequestID, resp.Header)
+					if IsRequestDetailCaptureEnabled(resp.Request.Context()) && ((transInfo != nil && transInfo.NeedsConversion) || GetTraditionalChinese(resp.Request.Context())) {
+						streamBody = NewTranslatedResponseCaptureWrapper(streamBody, trace.RequestID)
 					}
-					resp.Body = NewLoggingBodyWrapper(resp.Body, trace, resp.StatusCode, resp.Request.Context())
+					resp.Body = NewLoggingBodyWrapper(streamBody, trace, resp.StatusCode, resp.Request.Context())
+				} else {
+					resp.Body = streamBody
 				}
 
 				// Wrap SSE responses with keep-alive for long-running streams
@@ -960,21 +956,21 @@ func ChannelProxyHandler() gin.HandlerFunc {
 				}
 				// 使用清理后的错误消息，防止泄露敏感信息
 				safeMsg := SanitizeError(err)
-					if statusCode != 499 {
-						message = message + ": " + safeMsg
+				if statusCode != 499 {
+					message = message + ": " + safeMsg
+				}
+				var overrideBody json.RawMessage
+				if matched := MatchErrorRule(requestFormat, statusCode, []byte(safeMsg)); matched != nil {
+					if matched.Rule.OverrideStatusCode != nil {
+						statusCode = *matched.Rule.OverrideStatusCode
 					}
-					var overrideBody json.RawMessage
-					if matched := MatchErrorRule(requestFormat, statusCode, []byte(safeMsg)); matched != nil {
-						if matched.Rule.OverrideStatusCode != nil {
-							statusCode = *matched.Rule.OverrideStatusCode
-						}
-						message = matched.Rule.OverrideMessage
-						overrideBody = matched.Rule.OverrideResponse
-					}
-					body := BuildProtocolErrorResponseBodyWithOverride(requestTypeFromFormat(requestFormat), statusCode, message, overrideBody)
-					if IsRequestDetailCaptureEnabled(req.Context()) && requestID != "" {
-						StoreErrorResponseDetail(requestID, statusCode, body)
-					}
+					message = matched.Rule.OverrideMessage
+					overrideBody = matched.Rule.OverrideResponse
+				}
+				body := BuildProtocolErrorResponseBodyWithOverride(requestTypeFromFormat(requestFormat), statusCode, message, overrideBody)
+				if IsRequestDetailCaptureEnabled(req.Context()) && requestID != "" {
+					StoreErrorResponseDetail(requestID, statusCode, body)
+				}
 				rw.Header().Set("Content-Type", "application/json")
 				rw.WriteHeader(statusCode)
 				_, _ = rw.Write(body)
@@ -1368,6 +1364,7 @@ func handleNonStreamingResponse(resp *http.Response, trace *RequestTrace, transI
 	// Decompress if needed (supports gzip/br/zstd/deflate)
 	contentEncoding := resp.Header.Get("Content-Encoding")
 	body = NewGzipDecompressor().Decompress(body, contentEncoding, resp.Header)
+	rawUpstreamBody := append([]byte(nil), body...)
 
 	body, handledAsError := normalizeNonStreamingErrorResponse(resp, transInfo, body)
 
@@ -1409,9 +1406,17 @@ func handleNonStreamingResponse(resp *http.Response, trace *RequestTrace, transI
 		body = TransformResponseJSON(resp.Request.Context(), body, originalModel, mappedModel)
 	}
 
-	// Capture response for logging
+	if GetTraditionalChinese(resp.Request.Context()) {
+		body = opencc.ConvertClaudeResponseBodyT2S(body)
+		log.Debugf("channel proxy: applied T2S traditional Chinese conversion to non-streaming response")
+	}
+
+	// Capture upstream/downstream response for detail logging
 	if trace != nil && IsRequestDetailCaptureEnabled(resp.Request.Context()) {
-		StoreResponseDetail(trace.RequestID, sanitizeHeaders(resp.Header), body)
+		StoreResponseDetail(trace.RequestID, sanitizeHeaders(resp.Header), rawUpstreamBody)
+		if !bytes.Equal(body, rawUpstreamBody) {
+			StoreTranslatedResponseDetail(trace.RequestID, body)
+		}
 	}
 
 	// Reset body with correct Content-Length

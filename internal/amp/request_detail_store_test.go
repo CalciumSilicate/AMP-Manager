@@ -212,6 +212,7 @@ func TestRequestDetailStoreResponseUpdateDoesNotCreateMissingDetail(t *testing.T
 	store.UpdateResponseData("req-missing", http.Header{"X-Test": []string{"1"}}, []byte("body"))
 	store.UpdateTranslatedRequestBody("req-missing", []byte("translated"))
 	store.UpdateTranslatedRequestHeaders("req-missing", http.Header{"X-Trace": []string{"1"}})
+	store.UpdateTranslatedResponseBody("req-missing", []byte("translated-response"))
 
 	store.mu.RLock()
 	defer store.mu.RUnlock()
