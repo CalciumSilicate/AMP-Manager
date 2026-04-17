@@ -33,6 +33,38 @@ func (fakePaymentGateway) DecodeNotification(_ context.Context, _ url.Values) (*
 	return nil, errors.New("should not be called")
 }
 
+type paidQueryPaymentGateway struct{}
+
+func (paidQueryPaymentGateway) CreateOrder(_ context.Context, _ *model.PurchaseOrder, _ *model.PurchaseProductResponse, _ string) (*PaymentCreateResult, error) {
+	return nil, errors.New("should not be called")
+}
+
+func (paidQueryPaymentGateway) QueryOrder(_ context.Context, _ string) (*PaymentQueryResult, error) {
+	now := time.Now().UTC()
+	return &PaymentQueryResult{
+		PaymentStatus: model.PurchasePaymentStatusPaid,
+		TradeNo:       "trade-refresh-paid",
+		PaidAt:        &now,
+	}, nil
+}
+
+func (paidQueryPaymentGateway) DecodeNotification(_ context.Context, _ url.Values) (*PaymentNotification, error) {
+	return nil, errors.New("should not be called")
+}
+
+type flakyPurchaseOrderRepo struct {
+	repository.PurchaseOrderRepositoryInterface
+	failGetDetailByOrderNo int
+}
+
+func (r *flakyPurchaseOrderRepo) GetDetailByOrderNo(orderNo string) (*model.PurchaseOrderResponse, error) {
+	if r.failGetDetailByOrderNo > 0 {
+		r.failGetDetailByOrderNo--
+		return nil, errors.New("driver: bad connection")
+	}
+	return r.PurchaseOrderRepositoryInterface.GetDetailByOrderNo(orderNo)
+}
+
 func setupPurchaseServiceTestDB(t *testing.T) {
 	t.Helper()
 
@@ -315,6 +347,57 @@ func TestPurchaseServiceApplySuccessfulPaymentRefreshesRuntimeAfterSubscriptionG
 	}
 	if len(refreshCalls) != 1 || refreshCalls[0] != user.ID {
 		t.Fatalf("unexpected refresh calls: %+v", refreshCalls)
+	}
+}
+
+func TestPurchaseServiceRefreshOrderForUserRetriesAfterTransientBadConnection(t *testing.T) {
+	setupPurchaseServiceTestDB(t)
+
+	settingsSvc := NewPurchaseSettingsService()
+	enableDebugPurchase(t, settingsSvc)
+
+	user := createPurchaseTestUser(t, "buyer-refresh-retry")
+	plan := createPurchaseTestPlan(t, "Refresh Retry Plan")
+	product := createPurchaseTestProduct(t, plan.ID, "订阅商品", 30, 990)
+	order := createPendingPurchaseTestOrder(t, user.ID, product, model.PurchaseOrderKindSubscription, 0)
+
+	baseOrderRepo := repository.NewPurchaseOrderRepository()
+	flakyRepo := &flakyPurchaseOrderRepo{
+		PurchaseOrderRepositoryInterface: baseOrderRepo,
+		failGetDetailByOrderNo:           1,
+	}
+
+	svc := NewPurchaseServiceWithDeps(
+		repository.NewPurchaseProductRepository(),
+		flakyRepo,
+		repository.NewSubscriptionPlanRepository(),
+		repository.NewUserSubscriptionRepository(),
+		settingsSvc,
+		paidQueryPaymentGateway{},
+	)
+	svc.grantSvc = NewRewardGrantService()
+	svc.grantSvc.refreshUserState = func(context.Context, string) error { return nil }
+
+	refreshed, err := svc.RefreshOrderForUser(context.Background(), user.ID, order.OrderNo)
+	if err != nil {
+		t.Fatalf("RefreshOrderForUser returned error: %v", err)
+	}
+	if refreshed == nil {
+		t.Fatal("expected refreshed order")
+	}
+	if refreshed.PaymentStatus != model.PurchasePaymentStatusPaid {
+		t.Fatalf("payment status = %s, want paid", refreshed.PaymentStatus)
+	}
+	if refreshed.FulfillmentStatus != model.PurchaseFulfillmentStatusFulfilled {
+		t.Fatalf("fulfillment status = %s, want fulfilled", refreshed.FulfillmentStatus)
+	}
+
+	sub, err := repository.NewUserSubscriptionRepository().GetActiveByUserID(user.ID)
+	if err != nil {
+		t.Fatalf("GetActiveByUserID returned error: %v", err)
+	}
+	if sub == nil || sub.PlanID != plan.ID {
+		t.Fatalf("active subscription = %+v, want plan %s", sub, plan.ID)
 	}
 }
 

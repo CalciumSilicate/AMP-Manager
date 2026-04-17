@@ -499,25 +499,29 @@ func (s *PurchaseService) ListOrdersAdmin(filters model.PurchaseOrderFilters) (*
 }
 
 func (s *PurchaseService) RefreshOrderForUser(ctx context.Context, userID, orderNo string) (*model.PurchaseOrderResponse, error) {
-	order, err := s.orderRepo.GetDetailByOrderNoForUser(orderNo, userID)
-	if err != nil {
-		return nil, err
-	}
-	if order == nil {
-		return nil, ErrPurchaseOrderNotFound
-	}
-	return s.refreshOrder(ctx, order)
+	return s.retryRefreshOrder(func() (*model.PurchaseOrderResponse, error) {
+		order, err := s.orderRepo.GetDetailByOrderNoForUser(orderNo, userID)
+		if err != nil {
+			return nil, err
+		}
+		if order == nil {
+			return nil, ErrPurchaseOrderNotFound
+		}
+		return s.refreshOrder(ctx, order)
+	})
 }
 
 func (s *PurchaseService) RefreshOrderAdmin(ctx context.Context, orderNo string) (*model.PurchaseOrderResponse, error) {
-	order, err := s.orderRepo.GetDetailByOrderNo(orderNo)
-	if err != nil {
-		return nil, err
-	}
-	if order == nil {
-		return nil, ErrPurchaseOrderNotFound
-	}
-	return s.refreshOrder(ctx, order)
+	return s.retryRefreshOrder(func() (*model.PurchaseOrderResponse, error) {
+		order, err := s.orderRepo.GetDetailByOrderNo(orderNo)
+		if err != nil {
+			return nil, err
+		}
+		if order == nil {
+			return nil, ErrPurchaseOrderNotFound
+		}
+		return s.refreshOrder(ctx, order)
+	})
 }
 
 func (s *PurchaseService) HandleNotification(ctx context.Context, values url.Values) (*model.PurchaseOrderResponse, error) {
@@ -579,6 +583,35 @@ func (s *PurchaseService) refreshOrder(ctx context.Context, order *model.Purchas
 		}
 		return order, nil
 	}
+}
+
+func (s *PurchaseService) retryRefreshOrder(fn func() (*model.PurchaseOrderResponse, error)) (*model.PurchaseOrderResponse, error) {
+	var lastErr error
+	for attempt := 0; attempt < 2; attempt++ {
+		order, err := fn()
+		if err == nil {
+			return order, nil
+		}
+		if !isTransientPurchaseConnectionError(err) {
+			return nil, err
+		}
+		lastErr = err
+	}
+	return nil, lastErr
+}
+
+func isTransientPurchaseConnectionError(err error) bool {
+	if err == nil {
+		return false
+	}
+	if errors.Is(err, sql.ErrConnDone) {
+		return true
+	}
+
+	message := strings.ToLower(strings.TrimSpace(err.Error()))
+	return strings.Contains(message, "driver: bad connection") ||
+		strings.Contains(message, "bad connection") ||
+		strings.Contains(message, "connection is already closed")
 }
 
 func (s *PurchaseService) normalizeOrderState(order *model.PurchaseOrderResponse) error {
