@@ -249,17 +249,6 @@ func (s *BillingService) evaluateBillingDailyReset(
 		return evaluation, nil
 	}
 
-	if billingstate.Get() != nil {
-		pendingCount, err := countReservedBillingReservations(userID)
-		if err != nil {
-			return nil, err
-		}
-		if pendingCount > 0 {
-			evaluation.state.Message = "存在进行中的计费请求，暂时无法重置"
-			return evaluation, nil
-		}
-	}
-
 	evaluation.state.Allowed = true
 	evaluation.state.Message = "可重置今日计费"
 	return evaluation, nil
@@ -290,16 +279,6 @@ func (s *BillingService) revalidateBillingDailyReset(
 	}
 	if countToday >= evaluation.config.DailyLimit {
 		return newBillingDailyResetRuleError(fmt.Sprintf("今日最多可重置 %d 次", evaluation.config.DailyLimit))
-	}
-
-	if billingstate.Get() != nil {
-		pendingCount, err := countReservedBillingReservationsTx(tx, userID)
-		if err != nil {
-			return err
-		}
-		if pendingCount > 0 {
-			return newBillingDailyResetRuleError("存在进行中的计费请求，暂时无法重置")
-		}
 	}
 
 	currentUsageMicros, err := queryBillingUsageInWindowTx(
@@ -356,19 +335,6 @@ func getDayBounds(now time.Time, location *time.Location) (time.Time, time.Time)
 	startLocal := time.Date(localNow.Year(), localNow.Month(), localNow.Day(), 0, 0, 0, 0, location)
 	endLocal := startLocal.AddDate(0, 0, 1)
 	return startLocal.UTC(), endLocal.UTC()
-}
-
-func countReservedBillingReservations(userID string) (int, error) {
-	db := database.GetDB()
-	var count int
-	err := db.QueryRow(`SELECT COUNT(*) FROM billing_reservations WHERE user_id = ? AND status = 'reserved'`, userID).Scan(&count)
-	return count, err
-}
-
-func countReservedBillingReservationsTx(tx *sql.Tx, userID string) (int, error) {
-	var count int
-	err := tx.QueryRow(`SELECT COUNT(*) FROM billing_reservations WHERE user_id = ? AND status = 'reserved'`, userID).Scan(&count)
-	return count, err
 }
 
 func queryBillingDailyResetCountTx(tx *sql.Tx, userID string, now time.Time, quotaSvc *QuotaService) (int, error) {
