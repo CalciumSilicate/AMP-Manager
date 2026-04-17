@@ -10,6 +10,7 @@ type User struct {
 	ID                 string    `json:"id"`
 	Username           string    `json:"username"`
 	PasswordHash       string    `json:"-"`
+	InviteCode         string    `json:"inviteCode"`
 	IsAdmin            bool      `json:"is_admin"`
 	BalanceMicros      int64     `json:"balance_micros"`
 	ConcurrencyLimit   int       `json:"concurrency_limit"`
@@ -22,8 +23,9 @@ type User struct {
 }
 
 type RegisterRequest struct {
-	Username string `json:"username" binding:"required,min=3,max=32"`
-	Password string `json:"password" binding:"required,min=6,max=128"`
+	Username   string `json:"username" binding:"required,min=3,max=32"`
+	Password   string `json:"password" binding:"required,min=6,max=128"`
+	InviteCode string `json:"inviteCode" binding:"omitempty,max=32"`
 }
 
 type LoginRequest struct {

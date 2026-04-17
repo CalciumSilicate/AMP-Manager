@@ -16,13 +16,18 @@ var ErrUserNotFound = errors.New("用户不存在")
 
 type UserRepositoryInterface interface {
 	Create(user *model.User) error
+	CreateTx(tx *sql.Tx, user *model.User) error
 	GetByUsername(username string) (*model.User, error)
+	GetByInviteCode(inviteCode string) (*model.User, error)
 	ExistsByUsername(username string) (bool, error)
+	ExistsByInviteCode(inviteCode string) (bool, error)
 	GetByID(id string) (*model.User, error)
 	List() ([]*model.User, error)
 	ListPaged(page, pageSize int, keyword string) ([]*model.User, int64, error)
 	UpdatePassword(id string, passwordHash string) error
 	UpdateUsername(id string, username string) error
+	SetInviteCode(id string, inviteCode string) error
+	SetInviteCodeTx(tx *sql.Tx, id string, inviteCode string) error
 	CompleteBootstrapCredentials(id, username, passwordHash string) error
 	SetAdmin(id string, isAdmin bool) error
 	SetConcurrencyLimit(id string, concurrencyLimit int) error
@@ -47,14 +52,24 @@ func NewUserRepository() *UserRepository {
 
 func (r *UserRepository) Create(user *model.User) error {
 	db := database.GetDB()
+	return r.createWithExecutor(db, user)
+}
+
+func (r *UserRepository) CreateTx(tx *sql.Tx, user *model.User) error {
+	return r.createWithExecutor(tx, user)
+}
+
+func (r *UserRepository) createWithExecutor(exec interface {
+	Exec(query string, args ...any) (sql.Result, error)
+}, user *model.User) error {
 	user.ID = uuid.New().String()
 	user.CreatedAt = time.Now().UTC()
 	user.UpdatedAt = time.Now().UTC()
 
-	_, err := db.Exec(
-		`INSERT INTO users (id, username, password_hash, is_admin, balance_micros, concurrency_limit, must_change_password, must_change_username, legacy_source, legacy_ref_id, created_at, updated_at) 
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		user.ID, user.Username, user.PasswordHash, user.IsAdmin, user.BalanceMicros, user.ConcurrencyLimit, user.MustChangePassword, user.MustChangeUsername, user.LegacySource, user.LegacyRefID, user.CreatedAt, user.UpdatedAt,
+	_, err := exec.Exec(
+		`INSERT INTO users (id, username, password_hash, invite_code, is_admin, balance_micros, concurrency_limit, must_change_password, must_change_username, legacy_source, legacy_ref_id, created_at, updated_at) 
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		user.ID, user.Username, user.PasswordHash, user.InviteCode, user.IsAdmin, user.BalanceMicros, user.ConcurrencyLimit, user.MustChangePassword, user.MustChangeUsername, user.LegacySource, user.LegacyRefID, user.CreatedAt, user.UpdatedAt,
 	)
 	return err
 }
@@ -63,9 +78,24 @@ func (r *UserRepository) GetByUsername(username string) (*model.User, error) {
 	db := database.GetDB()
 	user := &model.User{}
 	err := db.QueryRow(
-		`SELECT id, username, password_hash, is_admin, balance_micros, concurrency_limit, must_change_password, must_change_username, legacy_source, legacy_ref_id, created_at, updated_at FROM users WHERE username = ?`,
+		`SELECT id, username, password_hash, invite_code, is_admin, balance_micros, concurrency_limit, must_change_password, must_change_username, legacy_source, legacy_ref_id, created_at, updated_at FROM users WHERE username = ?`,
 		username,
-	).Scan(&user.ID, &user.Username, &user.PasswordHash, &user.IsAdmin, &user.BalanceMicros, &user.ConcurrencyLimit, &user.MustChangePassword, &user.MustChangeUsername, &user.LegacySource, &user.LegacyRefID, &user.CreatedAt, &user.UpdatedAt)
+	).Scan(&user.ID, &user.Username, &user.PasswordHash, &user.InviteCode, &user.IsAdmin, &user.BalanceMicros, &user.ConcurrencyLimit, &user.MustChangePassword, &user.MustChangeUsername, &user.LegacySource, &user.LegacyRefID, &user.CreatedAt, &user.UpdatedAt)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	return user, err
+}
+
+func (r *UserRepository) GetByInviteCode(inviteCode string) (*model.User, error) {
+	db := database.GetDB()
+	user := &model.User{}
+	err := db.QueryRow(
+		`SELECT id, username, password_hash, invite_code, is_admin, balance_micros, concurrency_limit, must_change_password, must_change_username, legacy_source, legacy_ref_id, created_at, updated_at
+		   FROM users
+		  WHERE invite_code = ?`,
+		strings.TrimSpace(inviteCode),
+	).Scan(&user.ID, &user.Username, &user.PasswordHash, &user.InviteCode, &user.IsAdmin, &user.BalanceMicros, &user.ConcurrencyLimit, &user.MustChangePassword, &user.MustChangeUsername, &user.LegacySource, &user.LegacyRefID, &user.CreatedAt, &user.UpdatedAt)
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
@@ -79,13 +109,20 @@ func (r *UserRepository) ExistsByUsername(username string) (bool, error) {
 	return count > 0, err
 }
 
+func (r *UserRepository) ExistsByInviteCode(inviteCode string) (bool, error) {
+	db := database.GetDB()
+	var count int
+	err := db.QueryRow(`SELECT COUNT(*) FROM users WHERE invite_code = ?`, strings.TrimSpace(inviteCode)).Scan(&count)
+	return count > 0, err
+}
+
 func (r *UserRepository) GetByID(id string) (*model.User, error) {
 	db := database.GetDB()
 	user := &model.User{}
 	err := db.QueryRow(
-		`SELECT id, username, password_hash, is_admin, balance_micros, concurrency_limit, must_change_password, must_change_username, legacy_source, legacy_ref_id, created_at, updated_at FROM users WHERE id = ?`,
+		`SELECT id, username, password_hash, invite_code, is_admin, balance_micros, concurrency_limit, must_change_password, must_change_username, legacy_source, legacy_ref_id, created_at, updated_at FROM users WHERE id = ?`,
 		id,
-	).Scan(&user.ID, &user.Username, &user.PasswordHash, &user.IsAdmin, &user.BalanceMicros, &user.ConcurrencyLimit, &user.MustChangePassword, &user.MustChangeUsername, &user.LegacySource, &user.LegacyRefID, &user.CreatedAt, &user.UpdatedAt)
+	).Scan(&user.ID, &user.Username, &user.PasswordHash, &user.InviteCode, &user.IsAdmin, &user.BalanceMicros, &user.ConcurrencyLimit, &user.MustChangePassword, &user.MustChangeUsername, &user.LegacySource, &user.LegacyRefID, &user.CreatedAt, &user.UpdatedAt)
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
@@ -95,7 +132,7 @@ func (r *UserRepository) GetByID(id string) (*model.User, error) {
 func (r *UserRepository) List() ([]*model.User, error) {
 	db := database.GetDB()
 	rows, err := db.Query(
-		`SELECT id, username, password_hash, is_admin, balance_micros, concurrency_limit, must_change_password, must_change_username, legacy_source, legacy_ref_id, created_at, updated_at FROM users ORDER BY created_at DESC`,
+		`SELECT id, username, password_hash, invite_code, is_admin, balance_micros, concurrency_limit, must_change_password, must_change_username, legacy_source, legacy_ref_id, created_at, updated_at FROM users ORDER BY created_at DESC`,
 	)
 	if err != nil {
 		return nil, err
@@ -105,7 +142,7 @@ func (r *UserRepository) List() ([]*model.User, error) {
 	var users []*model.User
 	for rows.Next() {
 		user := &model.User{}
-		if err := rows.Scan(&user.ID, &user.Username, &user.PasswordHash, &user.IsAdmin, &user.BalanceMicros, &user.ConcurrencyLimit, &user.MustChangePassword, &user.MustChangeUsername, &user.LegacySource, &user.LegacyRefID, &user.CreatedAt, &user.UpdatedAt); err != nil {
+		if err := rows.Scan(&user.ID, &user.Username, &user.PasswordHash, &user.InviteCode, &user.IsAdmin, &user.BalanceMicros, &user.ConcurrencyLimit, &user.MustChangePassword, &user.MustChangeUsername, &user.LegacySource, &user.LegacyRefID, &user.CreatedAt, &user.UpdatedAt); err != nil {
 			return nil, err
 		}
 		users = append(users, user)
@@ -155,7 +192,7 @@ func (r *UserRepository) ListPaged(page, pageSize int, keyword string) ([]*model
 	offset := (page - 1) * pageSize
 	queryArgs := append(append([]interface{}{}, args...), pageSize, offset)
 	rows, err := db.Query(
-		`SELECT id, username, password_hash, is_admin, balance_micros, concurrency_limit, must_change_password, must_change_username, legacy_source, legacy_ref_id, created_at, updated_at
+		`SELECT id, username, password_hash, invite_code, is_admin, balance_micros, concurrency_limit, must_change_password, must_change_username, legacy_source, legacy_ref_id, created_at, updated_at
 		 FROM users`+whereClause+`
 		 ORDER BY created_at DESC
 		 LIMIT ? OFFSET ?`,
@@ -169,7 +206,7 @@ func (r *UserRepository) ListPaged(page, pageSize int, keyword string) ([]*model
 	var users []*model.User
 	for rows.Next() {
 		user := &model.User{}
-		if err := rows.Scan(&user.ID, &user.Username, &user.PasswordHash, &user.IsAdmin, &user.BalanceMicros, &user.ConcurrencyLimit, &user.MustChangePassword, &user.MustChangeUsername, &user.LegacySource, &user.LegacyRefID, &user.CreatedAt, &user.UpdatedAt); err != nil {
+		if err := rows.Scan(&user.ID, &user.Username, &user.PasswordHash, &user.InviteCode, &user.IsAdmin, &user.BalanceMicros, &user.ConcurrencyLimit, &user.MustChangePassword, &user.MustChangeUsername, &user.LegacySource, &user.LegacyRefID, &user.CreatedAt, &user.UpdatedAt); err != nil {
 			return nil, 0, err
 		}
 		users = append(users, user)
@@ -202,6 +239,35 @@ func (r *UserRepository) UpdateUsername(id string, username string) error {
 	result, err := db.Exec(
 		`UPDATE users SET username = ?, must_change_username = 0, updated_at = ? WHERE id = ?`,
 		username, time.Now().UTC(), id,
+	)
+	if err != nil {
+		return err
+	}
+	rows, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if rows == 0 {
+		return ErrUserNotFound
+	}
+	return nil
+}
+
+func (r *UserRepository) SetInviteCode(id string, inviteCode string) error {
+	db := database.GetDB()
+	return r.setInviteCodeExec(db, id, inviteCode)
+}
+
+func (r *UserRepository) SetInviteCodeTx(tx *sql.Tx, id string, inviteCode string) error {
+	return r.setInviteCodeExec(tx, id, inviteCode)
+}
+
+func (r *UserRepository) setInviteCodeExec(exec interface {
+	Exec(query string, args ...any) (sql.Result, error)
+}, id string, inviteCode string) error {
+	result, err := exec.Exec(
+		`UPDATE users SET invite_code = ?, updated_at = ? WHERE id = ?`,
+		strings.TrimSpace(inviteCode), time.Now().UTC(), id,
 	)
 	if err != nil {
 		return err

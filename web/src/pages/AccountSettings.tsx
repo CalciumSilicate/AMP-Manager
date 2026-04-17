@@ -5,10 +5,13 @@ import { getBillingState, updateBillingPriority, type BillingStateResponse } fro
 import {
   createBalanceTopupOrder,
   getPurchaseCatalog,
+  quotePurchaseOrder,
   refreshMyPurchaseOrder,
   type PurchaseCatalogResponse,
   type PurchaseOrder,
+  type PurchaseQuoteResponse,
 } from '@/api/purchase'
+import { getMyInviteSummary, listMyInviteRewards, type InviteRewardEvent, type InviteSummary } from '@/api/invite'
 import { RedeemQuickEntry, RedeemRecordTable } from '@/components/redeem/RedeemPanels'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -20,13 +23,14 @@ import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group'
 import { useGlobalToast } from '@/components/ui/use-global-toast'
 import { formatDateTime, formatDecimal } from '@/lib/formatters'
 import { AnimatePresence, motion } from '@/lib/motion'
-import { ArrowRightLeft, CreditCard, QrCode, RefreshCw, Shield } from 'lucide-react'
+import { ArrowRightLeft, Copy, CreditCard, QrCode, RefreshCw, Shield } from 'lucide-react'
 
-type AccountTab = 'balance' | 'billing' | 'security'
+type AccountTab = 'balance' | 'billing' | 'invite' | 'security'
 
 const tabs: { key: AccountTab; label: string }[] = [
   { key: 'balance', label: '余额' },
   { key: 'billing', label: '计费' },
+  { key: 'invite', label: '邀请' },
   { key: 'security', label: '安全' },
 ]
 
@@ -74,9 +78,14 @@ export default function AccountSettings({ username, onUsernameChange }: Props) {
   const [purchaseCatalog, setPurchaseCatalog] = useState<PurchaseCatalogResponse | null>(null)
   const [topupDialogOpen, setTopupDialogOpen] = useState(false)
   const [topupAmountUsd, setTopupAmountUsd] = useState('10')
+  const [topupCouponCode, setTopupCouponCode] = useState('')
+  const [topupQuote, setTopupQuote] = useState<PurchaseQuoteResponse | null>(null)
   const [creatingTopupOrder, setCreatingTopupOrder] = useState(false)
   const [pendingTopupOrder, setPendingTopupOrder] = useState<PurchaseOrder | null>(null)
   const [refreshingTopupOrderNo, setRefreshingTopupOrderNo] = useState<string | null>(null)
+  const [inviteSummary, setInviteSummary] = useState<InviteSummary | null>(null)
+  const [inviteRewards, setInviteRewards] = useState<InviteRewardEvent[]>([])
+  const [inviteLoading, setInviteLoading] = useState(false)
 
   const [billingState, setBillingState] = useState<BillingStateResponse | null>(null)
   const [billingLoading, setBillingLoading] = useState(false)
@@ -86,7 +95,13 @@ export default function AccountSettings({ username, onUsernameChange }: Props) {
     void fetchBalance()
     void fetchBillingState()
     void fetchPurchaseCatalog()
+    void fetchInviteData()
   }, [])
+
+  useEffect(() => {
+    if (!topupDialogOpen) return
+    void handlePreviewTopupQuote()
+  }, [topupDialogOpen, topupAmountUsd, topupCouponCode])
 
   const showMessage = (type: 'success' | 'error', text: string) => {
     showToast(type, text)
@@ -122,6 +137,20 @@ export default function AccountSettings({ username, onUsernameChange }: Props) {
       setPurchaseCatalog(data)
     } catch {
       setPurchaseCatalog(null)
+    }
+  }
+
+  const fetchInviteData = async () => {
+    setInviteLoading(true)
+    try {
+      const [summary, rewards] = await Promise.all([getMyInviteSummary(), listMyInviteRewards()])
+      setInviteSummary(summary)
+      setInviteRewards(rewards)
+    } catch {
+      setInviteSummary(null)
+      setInviteRewards([])
+    } finally {
+      setInviteLoading(false)
     }
   }
 
@@ -193,9 +222,11 @@ export default function AccountSettings({ username, onUsernameChange }: Props) {
 
     setCreatingTopupOrder(true)
     try {
-      const order = await createBalanceTopupOrder(amountUsd)
+      const order = await createBalanceTopupOrder(amountUsd, topupCouponCode.trim())
       setTopupDialogOpen(false)
       setTopupAmountUsd(String(amountUsd))
+      setTopupCouponCode('')
+      setTopupQuote(null)
       if (order.paymentStatus === 'paid') {
         await Promise.all([fetchBalance(), fetchBillingState(), fetchPurchaseCatalog()])
         showMessage('success', '余额已到账')
@@ -226,6 +257,37 @@ export default function AccountSettings({ username, onUsernameChange }: Props) {
       showMessage('error', error instanceof Error ? error.message : '刷新失败')
     } finally {
       setRefreshingTopupOrderNo(null)
+    }
+  }
+
+  const handlePreviewTopupQuote = async () => {
+    const amountUsd = Number.parseFloat(topupAmountUsd)
+    if (Number.isNaN(amountUsd) || amountUsd <= 0) {
+      setTopupQuote(null)
+      return
+    }
+    try {
+      const quote = await quotePurchaseOrder({
+        kind: 'balance_topup',
+        amountUsd: topupAmountUsd,
+        couponCode: topupCouponCode.trim(),
+      })
+      setTopupQuote(quote)
+    } catch (error) {
+      setTopupQuote(null)
+      if (topupCouponCode.trim()) {
+        showMessage('error', error instanceof Error ? error.message : '预览失败')
+      }
+    }
+  }
+
+  const handleCopyInviteCode = async () => {
+    if (!inviteSummary?.inviteCode) return
+    try {
+      await navigator.clipboard.writeText(inviteSummary.inviteCode)
+      showMessage('success', '邀请码已复制')
+    } catch {
+      showMessage('error', '复制失败')
     }
   }
 
@@ -471,6 +533,101 @@ export default function AccountSettings({ username, onUsernameChange }: Props) {
             </>
           )}
 
+          {activeTab === 'invite' && (
+            <>
+              <Card>
+                <CardHeader className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                  <div className="space-y-1">
+                    <CardTitle>我的邀请码</CardTitle>
+                    <CardDescription>邀请好友完成首笔有效付费订单后发放奖励</CardDescription>
+                  </div>
+                  <Button type="button" variant="outline" size="sm" onClick={() => void fetchInviteData()} disabled={inviteLoading}>
+                    <RefreshCw className={`mr-2 h-4 w-4 ${inviteLoading ? 'animate-spin' : ''}`} />
+                    刷新
+                  </Button>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  {inviteSummary ? (
+                    <>
+                      <div className="flex flex-col gap-3 rounded-lg border px-4 py-4 sm:flex-row sm:items-center sm:justify-between">
+                        <div>
+                          <p className="text-sm text-muted-foreground">邀请码</p>
+                          <p className="mt-1 font-mono text-2xl font-semibold tracking-tight">{inviteSummary.inviteCode || '-'}</p>
+                        </div>
+                        <div className="flex flex-wrap gap-2">
+                          <Badge variant={inviteSummary.enabled && inviteSummary.configComplete ? 'default' : 'secondary'}>
+                            {inviteSummary.enabled && inviteSummary.configComplete ? '邀请已启用' : '邀请未启用'}
+                          </Badge>
+                          <Button type="button" variant="outline" onClick={() => void handleCopyInviteCode()} disabled={!inviteSummary.inviteCode}>
+                            <Copy className="mr-2 h-4 w-4" />
+                            复制
+                          </Button>
+                        </div>
+                      </div>
+                      <div className="grid gap-4 md:grid-cols-4">
+                        <Card>
+                          <CardHeader><CardTitle className="text-sm">邀请人数</CardTitle></CardHeader>
+                          <CardContent><p className="text-2xl font-semibold">{inviteSummary.invitedUsers}</p></CardContent>
+                        </Card>
+                        <Card>
+                          <CardHeader><CardTitle className="text-sm">待返奖励</CardTitle></CardHeader>
+                          <CardContent><p className="text-2xl font-semibold">{inviteSummary.pendingInvites}</p></CardContent>
+                        </Card>
+                        <Card>
+                          <CardHeader><CardTitle className="text-sm">已返奖励</CardTitle></CardHeader>
+                          <CardContent><p className="text-2xl font-semibold">{inviteSummary.rewardedInvites}</p></CardContent>
+                        </Card>
+                        <Card>
+                          <CardHeader><CardTitle className="text-sm">累计奖励</CardTitle></CardHeader>
+                          <CardContent><p className="text-2xl font-semibold">{formatBalance(inviteSummary.totalRewardMicros)}</p></CardContent>
+                        </Card>
+                      </div>
+                      {inviteSummary.invitedByUsername ? (
+                        <div className="rounded-lg border border-dashed px-4 py-4 text-sm text-muted-foreground">
+                          你由 <span className="font-medium text-foreground">{inviteSummary.invitedByUsername}</span> 邀请注册
+                        </div>
+                      ) : null}
+                    </>
+                  ) : (
+                    <div className="rounded-lg border border-dashed px-4 py-8 text-center text-sm text-muted-foreground">
+                      暂无邀请信息
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+
+              <Card>
+                <CardHeader>
+                  <CardTitle>奖励记录</CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-3">
+                  {inviteRewards.length === 0 ? (
+                    <div className="rounded-lg border border-dashed px-4 py-8 text-center text-sm text-muted-foreground">
+                      暂无奖励记录
+                    </div>
+                  ) : (
+                    inviteRewards.map((item) => (
+                      <div key={item.id} className="flex flex-col gap-2 rounded-lg border px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+                        <div>
+                          <p className="font-medium">{item.beneficiaryRole === 'inviter' ? '邀请奖励' : '新用户奖励'}</p>
+                          <p className="text-xs text-muted-foreground">
+                            订单 {item.orderNo || '-'} · {formatDateTime(item.createdAt)}
+                          </p>
+                        </div>
+                        <div className="flex items-center gap-3">
+                          <Badge variant={item.status === 'granted' ? 'default' : 'secondary'}>
+                            {item.status === 'granted' ? '已发放' : '已回滚'}
+                          </Badge>
+                          <span className="font-semibold">{formatBalance(item.amountMicros)}</span>
+                        </div>
+                      </div>
+                    ))
+                  )}
+                </CardContent>
+              </Card>
+            </>
+          )}
+
           {activeTab === 'security' && (
             <>
               <Card>
@@ -578,6 +735,32 @@ export default function AccountSettings({ username, onUsernameChange }: Props) {
                 onChange={(event) => setTopupAmountUsd(event.target.value)}
               />
             </div>
+            <div className="space-y-2">
+              <Label htmlFor="topupCouponCode">优惠码</Label>
+              <Input
+                id="topupCouponCode"
+                value={topupCouponCode}
+                onChange={(event) => setTopupCouponCode(event.target.value.toUpperCase())}
+                placeholder="可选填写"
+                className="font-mono"
+              />
+            </div>
+            {topupQuote ? (
+              <div className="rounded-lg border px-4 py-4 text-sm">
+                <div className="flex items-center justify-between gap-4">
+                  <span className="text-muted-foreground">原价</span>
+                  <span>¥{(topupQuote.originalAmountCnyCent / 100).toFixed(2)}</span>
+                </div>
+                <div className="mt-2 flex items-center justify-between gap-4">
+                  <span className="text-muted-foreground">优惠</span>
+                  <span>-¥{(topupQuote.discountCnyCent / 100).toFixed(2)}</span>
+                </div>
+                <div className="mt-2 flex items-center justify-between gap-4 font-semibold">
+                  <span>应付</span>
+                  <span>¥{(topupQuote.finalAmountCnyCent / 100).toFixed(2)}</span>
+                </div>
+              </div>
+            ) : null}
           </div>
           <DialogFooter>
             <Button type="button" variant="outline" onClick={() => setTopupDialogOpen(false)}>取消</Button>

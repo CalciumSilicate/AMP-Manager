@@ -3,6 +3,7 @@ const API_BASE = '/api'
 export interface RegisterRequest {
   username: string
   password: string
+  inviteCode?: string
 }
 
 export interface LoginRequest {

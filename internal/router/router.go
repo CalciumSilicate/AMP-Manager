@@ -80,6 +80,8 @@ func Setup() *gin.Engine {
 	billingSettingHandler := handler.NewBillingSettingHandler()
 	purchaseHandler := handler.NewPurchaseHandler()
 	redeemHandler := handler.NewRedeemHandler()
+	inviteHandler := handler.NewInviteHandler()
+	couponHandler := handler.NewCouponHandler()
 	announcementHandler := handler.NewAnnouncementHandler()
 	statusMonitorHandler := handler.NewStatusMonitorHandler()
 	statusMonitorService := service.NewStatusMonitorService()
@@ -142,10 +144,17 @@ func Setup() *gin.Engine {
 			{
 				purchase.GET("/products", purchaseHandler.GetCatalog)
 				purchase.GET("/orders", purchaseHandler.ListMyOrders)
+				purchase.POST("/quote", purchaseHandler.QuoteOrder)
 				purchase.POST("/orders", purchaseHandler.CreateOrder)
 				purchase.POST("/balance-topup/orders", purchaseHandler.CreateBalanceTopupOrder)
 				purchase.GET("/orders/:orderNo", purchaseHandler.GetMyOrder)
 				purchase.POST("/orders/:orderNo/refresh", purchaseHandler.RefreshMyOrder)
+			}
+
+			invite := me.Group("/invite")
+			{
+				invite.GET("/summary", inviteHandler.GetMySummary)
+				invite.GET("/rewards", inviteHandler.ListMyRewardEvents)
 			}
 
 			redeem := me.Group("/redeem")
@@ -416,6 +425,29 @@ func Setup() *gin.Engine {
 				redeem.GET("/codes", redeemHandler.ListCodes)
 				redeem.PATCH("/codes/:id/enabled", redeemHandler.SetCodeEnabled)
 				redeem.GET("/redemptions", redeemHandler.ListRedemptions)
+			}
+
+			invite := admin.Group("/invite")
+			{
+				invite.GET("/config", inviteHandler.GetConfig)
+				invite.PUT("/config", inviteHandler.UpdateConfig)
+				invite.GET("/stats", inviteHandler.GetStats)
+				invite.GET("/relations", inviteHandler.ListRelations)
+				invite.GET("/reward-events", inviteHandler.ListRewardEvents)
+			}
+
+			coupons := admin.Group("/coupons")
+			{
+				coupons.GET("/config", couponHandler.GetConfig)
+				coupons.PUT("/config", couponHandler.UpdateConfig)
+				coupons.GET("/campaigns", couponHandler.ListCampaigns)
+				coupons.POST("/campaigns", couponHandler.CreateCampaign)
+				coupons.PUT("/campaigns/:id", couponHandler.UpdateCampaign)
+				coupons.DELETE("/campaigns/:id", couponHandler.DeleteCampaign)
+				coupons.POST("/campaigns/:id/batches", couponHandler.CreateBatch)
+				coupons.GET("/codes", couponHandler.ListCodes)
+				coupons.PATCH("/codes/:id/enabled", couponHandler.SetCodeEnabled)
+				coupons.GET("/usages", couponHandler.ListUsages)
 			}
 		}
 	}

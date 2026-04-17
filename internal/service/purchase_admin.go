@@ -141,6 +141,35 @@ func (s *PurchaseService) UpdateOrderPaymentStatusAdmin(orderNo string, req *mod
 	}
 
 	now := time.Now().UTC()
+	if req.PaymentStatus == model.PurchasePaymentStatusPaid && order.PaymentStatus != model.PurchasePaymentStatusPaid {
+		_ = tx.Rollback()
+		updated, err := s.applySuccessfulPayment(orderNo, order.AlipayTradeNo, &now)
+		if err != nil {
+			return nil, err
+		}
+		historyTx, err := database.GetDB().Begin()
+		if err != nil {
+			return nil, err
+		}
+		defer historyTx.Rollback()
+		if err := s.adminRepo.AppendPaymentStatusHistoryTx(historyTx, &model.PurchaseOrderPaymentStatusHistory{
+			ID:         uuid.NewString(),
+			OrderID:    order.ID,
+			OrderNo:    order.OrderNo,
+			FromStatus: order.PaymentStatus,
+			ToStatus:   req.PaymentStatus,
+			Note:       note,
+			CreatedBy:  strings.TrimSpace(adminUsername),
+			CreatedAt:  now,
+		}); err != nil {
+			return nil, err
+		}
+		if err := historyTx.Commit(); err != nil {
+			return nil, err
+		}
+		return updated, nil
+	}
+
 	paidAt := order.PaidAt
 	switch req.PaymentStatus {
 	case model.PurchasePaymentStatusPaid:
@@ -168,6 +197,7 @@ func (s *PurchaseService) UpdateOrderPaymentStatusAdmin(orderNo string, req *mod
 	}
 
 	if err := s.adminRepo.AppendPaymentStatusHistoryTx(tx, &model.PurchaseOrderPaymentStatusHistory{
+		ID:         uuid.NewString(),
 		OrderID:    order.ID,
 		OrderNo:    order.OrderNo,
 		FromStatus: order.PaymentStatus,
@@ -179,7 +209,26 @@ func (s *PurchaseService) UpdateOrderPaymentStatusAdmin(orderNo string, req *mod
 		return nil, err
 	}
 
+	var syncActions []BillingStateSyncAction
+	if req.PaymentStatus == model.PurchasePaymentStatusRefunded {
+		if err := s.couponSvc.ReverseUsageForOrderTx(tx, order, now); err != nil {
+			return nil, err
+		}
+		syncActions, err = s.inviteSvc.HandleRefundedOrderTx(tx, order, now)
+		if err != nil {
+			return nil, err
+		}
+	}
+	if req.PaymentStatus == model.PurchasePaymentStatusExpired && order.PaymentStatus == model.PurchasePaymentStatusPending {
+		if err := s.couponSvc.ReverseUsageForOrderTx(tx, order, now); err != nil {
+			return nil, err
+		}
+	}
+
 	if err := tx.Commit(); err != nil {
+		return nil, err
+	}
+	if err := SyncBillingStateActions(context.Background(), s.grantSvc, syncActions); err != nil {
 		return nil, err
 	}
 	return s.orderRepo.GetDetailByOrderNo(orderNo)

@@ -22,14 +22,16 @@ interface Props {
   siteName: string
   siteContact: SiteContactConfig
   announcements: Announcement[]
+  inviteEnabled: boolean
   onSwitch: () => void
   onSuccess: (username: string, token?: string, isAdmin?: boolean, mustChangePassword?: boolean, mustChangeUsername?: boolean) => void
 }
 
-export default function Register({ siteName, siteContact, announcements, onSwitch, onSuccess }: Props) {
+export default function Register({ siteName, siteContact, announcements, inviteEnabled, onSwitch, onSuccess }: Props) {
   const [formData, setFormData] = useState<RegisterRequest>({
     username: '',
     password: '',
+    inviteCode: '',
   })
   const [confirmPassword, setConfirmPassword] = useState('')
   const [loading, setLoading] = useState(false)
@@ -172,6 +174,28 @@ export default function Register({ siteName, siteContact, announcements, onSwitc
                   className="h-11 bg-white/50 dark:bg-white/5"
                 />
               </motion.div>
+
+              {inviteEnabled ? (
+                <motion.div
+                  className="space-y-2"
+                  variants={{
+                    hidden: { opacity: 0, y: 16 },
+                    visible: { opacity: 1, y: 0, transition: { type: 'spring', bounce: 0.25, duration: 0.5 } },
+                  }}
+                >
+                  <Label htmlFor="inviteCode">邀请码</Label>
+                  <Input
+                    id="inviteCode"
+                    type="text"
+                    value={formData.inviteCode || ''}
+                    onChange={(e) =>
+                      setFormData({ ...formData, inviteCode: e.target.value.toUpperCase() })
+                    }
+                    placeholder="可选填写"
+                    className="h-11 bg-white/50 font-mono uppercase dark:bg-white/5"
+                  />
+                </motion.div>
+              ) : null}
 
               <motion.div
                 variants={{

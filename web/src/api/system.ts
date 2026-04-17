@@ -356,6 +356,7 @@ export interface SiteConfig {
   ampProxySettingsPolicy: AmpProxySettingsPolicy
   ampSettingsPolicy: AmpProxySettingsPolicy
   contact: SiteContactConfig
+  inviteEnabled?: boolean
   sessionSticky?: SessionStickyPublicConfig | null
 }
 

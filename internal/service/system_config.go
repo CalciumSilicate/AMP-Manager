@@ -285,6 +285,7 @@ func (s *SystemConfigService) GetSiteConfig() (model.SiteConfigResponse, error) 
 	if err != nil {
 		return model.SiteConfigResponse{}, err
 	}
+	inviteEnabled := NewInviteService().IsPublicEnabled()
 
 	siteName := strings.TrimSpace(siteNameValue)
 	if siteName == "" {
@@ -301,6 +302,7 @@ func (s *SystemConfigService) GetSiteConfig() (model.SiteConfigResponse, error) 
 		AmpProxySettingsPolicy: ampProxySettingsPolicy,
 		AmpSettingsPolicy:      ampSettingsPolicy,
 		Contact:                contact,
+		InviteEnabled:          inviteEnabled,
 		SessionSticky: &model.SessionStickyPublicConfig{
 			Enabled:           sessionSticky.Enabled,
 			LogSearchMinChars: sessionSticky.LogSearchMinChars,
@@ -480,6 +482,7 @@ func (s *SystemConfigService) SetSiteConfig(req model.SiteConfigRequest) (model.
 		AmpProxySettingsPolicy: ampProxySettingsPolicy,
 		AmpSettingsPolicy:      ampSettingsPolicy,
 		Contact:                contact,
+		InviteEnabled:          NewInviteService().IsPublicEnabled(),
 	}, nil
 }
 

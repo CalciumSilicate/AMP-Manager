@@ -10,6 +10,7 @@ import (
 
 	"ampmanager/internal/billingstate"
 	"ampmanager/internal/config"
+	"ampmanager/internal/database"
 	"ampmanager/internal/model"
 	"ampmanager/internal/repository"
 
@@ -57,8 +58,26 @@ func (s *UserService) Register(req *model.RegisterRequest) (*model.User, error) 
 		PasswordHash: string(hashedPassword),
 		IsAdmin:      false,
 	}
+	inviteSvc := NewInviteService()
+	db := database.GetDB()
+	tx, err := db.Begin()
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback()
 
-	if err := s.repo.Create(user); err != nil {
+	if err := s.repo.CreateTx(tx, user); err != nil {
+		return nil, err
+	}
+	inviteCode, err := inviteSvc.AssignInviteCodeTx(tx, user.ID)
+	if err != nil {
+		return nil, err
+	}
+	user.InviteCode = inviteCode
+	if err := inviteSvc.BindInviteDuringRegistrationTx(tx, user.ID, req.InviteCode, time.Now().UTC()); err != nil {
+		return nil, err
+	}
+	if err := tx.Commit(); err != nil {
 		return nil, err
 	}
 

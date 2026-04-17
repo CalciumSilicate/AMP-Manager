@@ -173,6 +173,8 @@ type PurchaseOrder struct {
 	ProductID               string                    `json:"productId"`
 	SubscriptionPlanID      string                    `json:"subscriptionPlanId"`
 	DurationDays            int                       `json:"durationDays"`
+	OriginalAmountCNYCent   int64                     `json:"originalAmountCnyCent"`
+	DiscountCNYCent         int64                     `json:"discountCnyCent"`
 	AmountCNYCent           int64                     `json:"amountCnyCent"`
 	OrderKind               PurchaseOrderKind         `json:"orderKind"`
 	DeliveryMode            PurchaseDeliveryMode      `json:"deliveryMode"`
@@ -186,6 +188,14 @@ type PurchaseOrder struct {
 	UpgradeCreditCNYCent    int64                     `json:"upgradeCreditCnyCent"`
 	UpgradeLockedTargetSecs int64                     `json:"upgradeLockedTargetSeconds"`
 	UpgradeStateToken       string                    `json:"upgradeStateToken"`
+	CouponCampaignID        string                    `json:"couponCampaignId"`
+	CouponCampaignName      string                    `json:"couponCampaignName"`
+	CouponCodeID            string                    `json:"couponCodeId"`
+	CouponCodeValue         string                    `json:"couponCodeValue"`
+	CouponDiscountType      CouponDiscountType        `json:"couponDiscountType"`
+	CouponPercentOffBPS     int                       `json:"couponPercentOffBps"`
+	CouponFixedDiscountCNYCent int64                  `json:"couponFixedDiscountCnyCent"`
+	CouponMaxDiscountCNYCent int64                    `json:"couponMaxDiscountCnyCent"`
 	ActionSnapshotJSON      string                    `json:"-"`
 	TimelinePreviewJSON     string                    `json:"-"`
 	LegacySource            string                    `json:"legacySource"`
@@ -213,6 +223,8 @@ type PurchaseOrderResponse struct {
 	SubscriptionPlanID        string                    `json:"subscriptionPlanId"`
 	SubscriptionPlanName      string                    `json:"subscriptionPlanName"`
 	DurationDays              int                       `json:"durationDays"`
+	OriginalAmountCNYCent     int64                     `json:"originalAmountCnyCent"`
+	DiscountCNYCent           int64                     `json:"discountCnyCent"`
 	AmountCNYCent             int64                     `json:"amountCnyCent"`
 	OrderKind                 PurchaseOrderKind         `json:"orderKind"`
 	DeliveryMode              PurchaseDeliveryMode      `json:"deliveryMode"`
@@ -225,6 +237,14 @@ type PurchaseOrderResponse struct {
 	UpgradeSourceExpiresAt    *time.Time                `json:"upgradeSourceExpiresAt"`
 	UpgradeCreditCnyCent      int64                     `json:"upgradeCreditCnyCent"`
 	UpgradeLockedTargetSecs   int64                     `json:"upgradeLockedTargetSeconds"`
+	CouponCampaignID          string                    `json:"couponCampaignId"`
+	CouponCampaignName        string                    `json:"couponCampaignName"`
+	CouponCodeID              string                    `json:"couponCodeId"`
+	CouponCodeValue           string                    `json:"couponCodeValue"`
+	CouponDiscountType        CouponDiscountType        `json:"couponDiscountType"`
+	CouponPercentOffBPS       int                       `json:"couponPercentOffBps"`
+	CouponFixedDiscountCNYCent int64                    `json:"couponFixedDiscountCnyCent"`
+	CouponMaxDiscountCNYCent  int64                     `json:"couponMaxDiscountCnyCent"`
 	ActionSnapshotJSON        string                    `json:"actionSnapshotJson,omitempty"`
 	TimelinePreviewJSON       string                    `json:"timelinePreviewJson,omitempty"`
 	LegacySource              string                    `json:"legacySource,omitempty"`
@@ -268,6 +288,7 @@ type PurchaseOrderListResponse struct {
 type CreatePurchaseOrderRequest struct {
 	ProductID    string               `json:"productId" binding:"required"`
 	DeliveryMode PurchaseDeliveryMode `json:"deliveryMode" binding:"omitempty,oneof=account redeem_code"`
+	CouponCode   string               `json:"couponCode,omitempty" binding:"omitempty,max=32"`
 }
 
 type PurchaseActionSnapshot struct {
@@ -285,7 +306,8 @@ type PurchaseActionSnapshot struct {
 }
 
 type CreateBalanceTopupOrderRequest struct {
-	AmountUsd precision.DecimalString `json:"amountUsd"`
+	AmountUsd   precision.DecimalString `json:"amountUsd"`
+	CouponCode string                   `json:"couponCode,omitempty" binding:"omitempty,max=32"`
 }
 
 type PurchaseOrderFilters struct {

@@ -28,6 +28,7 @@ function App() {
   const [siteTimeZone, setSiteTimeZone] = useState(DEFAULT_SITE_TIME_ZONE)
   const [ampProxySettingsPolicy, setAmpProxySettingsPolicy] = useState<AmpProxySettingsPolicy>('all')
   const [ampSettingsPolicy, setAmpSettingsPolicy] = useState<AmpProxySettingsPolicy>('all')
+  const [inviteEnabled, setInviteEnabled] = useState(false)
   const [siteContact, setSiteContact] = useState<SiteContactConfig>({
     enabled: false,
     title: '',
@@ -62,6 +63,7 @@ function App() {
           }
           setAmpProxySettingsPolicy(config.ampProxySettingsPolicy || 'all')
           setAmpSettingsPolicy(config.ampSettingsPolicy || 'all')
+          setInviteEnabled(Boolean(config.inviteEnabled))
           setSiteContact(config.contact || {
             enabled: false,
             title: '',
@@ -222,13 +224,14 @@ function App() {
                     onSuccess={handleSuccess}
                   />
                 ) : (
-                  <Register
-                    siteName={siteName}
-                    siteContact={siteContact}
-                    announcements={publicAnnouncements}
-                    onSwitch={() => setPage('login')}
-                    onSuccess={handleSuccess}
-                  />
+                <Register
+                  siteName={siteName}
+                  siteContact={siteContact}
+                  announcements={publicAnnouncements}
+                  inviteEnabled={inviteEnabled}
+                  onSwitch={() => setPage('login')}
+                  onSuccess={handleSuccess}
+                />
                 )}
               </Suspense>
             </ChunkLoadBoundary>

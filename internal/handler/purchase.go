@@ -58,7 +58,7 @@ func (h *PurchaseHandler) CreateOrder(c *gin.Context) {
 		req.DeliveryMode = model.PurchaseDeliveryModeAccount
 	}
 
-	order, err := h.purchaseService.CreateOrder(c.Request.Context(), userID, username, req.ProductID, req.DeliveryMode)
+	order, err := h.purchaseService.CreateOrder(c.Request.Context(), userID, username, req.ProductID, req.DeliveryMode, req.CouponCode)
 	if err != nil {
 		switch {
 		case errors.Is(err, service.ErrPurchaseDisabled),
@@ -69,7 +69,12 @@ func (h *PurchaseHandler) CreateOrder(c *gin.Context) {
 			errors.Is(err, service.ErrPendingSubscriptionOrder),
 			errors.Is(err, service.ErrDowngradeNotAllowed),
 			errors.Is(err, service.ErrSameRankPlanSwitch),
-			errors.Is(err, service.ErrUpgradeValuationMissing):
+			errors.Is(err, service.ErrUpgradeValuationMissing),
+			errors.Is(err, service.ErrCouponDisabled),
+			errors.Is(err, service.ErrCouponCodeNotFound),
+			errors.Is(err, service.ErrCouponCodeInvalid),
+			errors.Is(err, service.ErrCouponPerUserLimit),
+			errors.Is(err, service.ErrCouponTotalLimit):
 			c.JSON(http.StatusConflict, gin.H{"error": err.Error()})
 		case errors.Is(err, repository.ErrPurchaseProductNotFound),
 			errors.Is(err, service.ErrPlanNotFound):
@@ -97,12 +102,17 @@ func (h *PurchaseHandler) CreateBalanceTopupOrder(c *gin.Context) {
 		return
 	}
 
-	order, err := h.purchaseService.CreateBalanceTopupOrder(c.Request.Context(), userID, username, req.AmountUsd)
+	order, err := h.purchaseService.CreateBalanceTopupOrder(c.Request.Context(), userID, username, req.AmountUsd, req.CouponCode)
 	if err != nil {
 		switch {
 		case errors.Is(err, service.ErrBalanceTopupUnavailable),
 			errors.Is(err, service.ErrInvalidBalanceTopupAmount),
-			errors.Is(err, service.ErrPaymentUnavailable):
+			errors.Is(err, service.ErrPaymentUnavailable),
+			errors.Is(err, service.ErrCouponDisabled),
+			errors.Is(err, service.ErrCouponCodeNotFound),
+			errors.Is(err, service.ErrCouponCodeInvalid),
+			errors.Is(err, service.ErrCouponPerUserLimit),
+			errors.Is(err, service.ErrCouponTotalLimit):
 			c.JSON(http.StatusConflict, gin.H{"error": err.Error()})
 		default:
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
@@ -111,6 +121,52 @@ func (h *PurchaseHandler) CreateBalanceTopupOrder(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusCreated, order)
+}
+
+func (h *PurchaseHandler) QuoteOrder(c *gin.Context) {
+	userID := middleware.GetUserID(c)
+	if userID == "" {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "未授权"})
+		return
+	}
+
+	var req model.PurchaseQuoteRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "请求参数错误", "details": err.Error()})
+		return
+	}
+
+	quote, err := h.purchaseService.QuoteOrder(c.Request.Context(), userID, &req)
+	if err != nil {
+		switch {
+		case errors.Is(err, service.ErrPurchaseDisabled),
+			errors.Is(err, service.ErrPaymentUnavailable),
+			errors.Is(err, service.ErrPurchaseProductDisabled),
+			errors.Is(err, service.ErrDifferentPlanActive),
+			errors.Is(err, service.ErrPermanentSubscription),
+			errors.Is(err, service.ErrPendingSubscriptionOrder),
+			errors.Is(err, service.ErrDowngradeNotAllowed),
+			errors.Is(err, service.ErrSameRankPlanSwitch),
+			errors.Is(err, service.ErrUpgradeValuationMissing),
+			errors.Is(err, service.ErrBoostRequiresSubscription),
+			errors.Is(err, service.ErrBalanceTopupUnavailable),
+			errors.Is(err, service.ErrInvalidBalanceTopupAmount),
+			errors.Is(err, service.ErrCouponDisabled),
+			errors.Is(err, service.ErrCouponCodeNotFound),
+			errors.Is(err, service.ErrCouponCodeInvalid),
+			errors.Is(err, service.ErrCouponPerUserLimit),
+			errors.Is(err, service.ErrCouponTotalLimit):
+			c.JSON(http.StatusConflict, gin.H{"error": err.Error()})
+		case errors.Is(err, repository.ErrPurchaseProductNotFound),
+			errors.Is(err, service.ErrPlanNotFound):
+			c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
+		default:
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		}
+		return
+	}
+
+	c.JSON(http.StatusOK, quote)
 }
 
 func (h *PurchaseHandler) ListMyOrders(c *gin.Context) {

@@ -6,10 +6,12 @@ import {
   createPurchaseOrderWithMode,
   getPurchaseCatalog,
   listMyPurchaseOrders,
+  quotePurchaseOrder,
   refreshMyPurchaseOrder,
   type PurchaseCatalogResponse,
   type PurchaseOrder,
   type PurchaseProduct,
+  type PurchaseQuoteResponse,
 } from '@/api/purchase'
 import { RedeemQuickEntry } from '@/components/redeem/RedeemPanels'
 import { TablePagination } from '@/components/TablePagination'
@@ -116,6 +118,8 @@ export default function PurchaseCenter() {
   const [confirmProduct, setConfirmProduct] = useState<PurchaseProduct | null>(null)
   const [deliveryMode, setDeliveryMode] = useState<'account' | 'redeem_code'>('account')
   const [creating, setCreating] = useState(false)
+  const [couponCode, setCouponCode] = useState('')
+  const [quote, setQuote] = useState<PurchaseQuoteResponse | null>(null)
   const [pendingOrder, setPendingOrder] = useState<PurchaseOrder | null>(null)
   const [refreshingOrderNo, setRefreshingOrderNo] = useState<string | null>(null)
   const [countdown, setCountdown] = useState('00:00')
@@ -139,6 +143,31 @@ export default function PurchaseCenter() {
     const timer = window.setInterval(update, 1000)
     return () => window.clearInterval(timer)
   }, [pendingOrder])
+
+  useEffect(() => {
+    if (!confirmProduct) {
+      setCouponCode('')
+      setQuote(null)
+      return
+    }
+    const run = async () => {
+      try {
+        const nextQuote = await quotePurchaseOrder({
+          kind: 'subscription',
+          productId: confirmProduct.id,
+          deliveryMode,
+          couponCode: couponCode.trim(),
+        })
+        setQuote(nextQuote)
+      } catch (error) {
+        setQuote(null)
+        if (couponCode.trim()) {
+          showMessage('error', error instanceof Error ? error.message : '预览失败')
+        }
+      }
+    }
+    void run()
+  }, [confirmProduct, deliveryMode, couponCode])
 
   const showMessage = (type: 'success' | 'error', text: string) => {
     setMessage({ type, text })
@@ -171,9 +200,11 @@ export default function PurchaseCenter() {
     if (!confirmProduct) return
     setCreating(true)
     try {
-      const order = await createPurchaseOrderWithMode(confirmProduct.id, deliveryMode)
+      const order = await createPurchaseOrderWithMode(confirmProduct.id, deliveryMode, couponCode.trim())
       setConfirmProduct(null)
       setDeliveryMode('account')
+      setCouponCode('')
+      setQuote(null)
       await loadAll(true)
 
       if (order.paymentStatus === 'paid') {
@@ -563,6 +594,8 @@ export default function PurchaseCenter() {
                             onClick={() => {
                               setConfirmProduct(product)
                               setDeliveryMode('account')
+                              setCouponCode('')
+                              setQuote(null)
                             }}
                             disabled={!catalog.purchaseEnabled || !catalog.paymentConfigured}
                             className="group flex min-h-[168px] flex-col justify-between rounded-xl border border-border/80 bg-card/95 px-5 py-5 text-left shadow-sm transition hover:border-foreground/20 disabled:cursor-not-allowed disabled:opacity-55"
@@ -634,6 +667,31 @@ export default function PurchaseCenter() {
                 </RadioGroup>
                 {purchaseHint ? <p className="mt-3 text-xs text-muted-foreground">{purchaseHint}</p> : null}
               </div>
+              <div className="space-y-3 border-b border-border/70 pb-4">
+                <div className="text-[11px] uppercase tracking-[0.18em] text-muted-foreground">优惠码</div>
+                <input
+                  value={couponCode}
+                  onChange={(event) => setCouponCode(event.target.value.toUpperCase())}
+                  placeholder="可选填写"
+                  className="w-full rounded-md border border-input bg-background px-3 py-2 font-mono text-sm"
+                />
+                {quote ? (
+                  <div className="rounded-lg border px-3 py-3 text-sm">
+                    <div className="flex items-center justify-between gap-4">
+                      <span className="text-muted-foreground">原价</span>
+                      <span>{formatCNY(quote.originalAmountCnyCent)}</span>
+                    </div>
+                    <div className="mt-2 flex items-center justify-between gap-4">
+                      <span className="text-muted-foreground">优惠</span>
+                      <span>-{formatCNY(quote.discountCnyCent)}</span>
+                    </div>
+                    <div className="mt-2 flex items-center justify-between gap-4 font-semibold">
+                      <span>应付</span>
+                      <span>{formatCNY(quote.finalAmountCnyCent)}</span>
+                    </div>
+                  </div>
+                ) : null}
+              </div>
               <div className="space-y-3 text-sm">
                 <div className="flex items-center justify-between gap-4">
                   <span className="text-muted-foreground">时长</span>
@@ -641,7 +699,7 @@ export default function PurchaseCenter() {
                 </div>
                 <div className="flex items-center justify-between gap-4">
                   <span className="text-muted-foreground">金额</span>
-                  <span className="text-lg font-semibold">{formatCNY(confirmProduct.priceCnyCent)}</span>
+                  <span className="text-lg font-semibold">{formatCNY(quote?.finalAmountCnyCent ?? confirmProduct.priceCnyCent)}</span>
                 </div>
               </div>
             </div>

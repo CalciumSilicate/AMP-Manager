@@ -93,6 +93,8 @@ export interface PurchaseOrder {
   subscriptionPlanId: string
   subscriptionPlanName: string
   durationDays: number
+  originalAmountCnyCent: number
+  discountCnyCent: number
   amountCnyCent: number
   orderKind: 'subscription' | 'balance_topup'
   deliveryMode: 'account' | 'redeem_code'
@@ -105,6 +107,14 @@ export interface PurchaseOrder {
   upgradeSourceExpiresAt: string | null
   upgradeCreditCnyCent: number
   upgradeLockedTargetSeconds: number
+  couponCampaignId: string
+  couponCampaignName: string
+  couponCodeId: string
+  couponCodeValue: string
+  couponDiscountType: 'fixed_amount' | 'percentage' | ''
+  couponPercentOffBps: number
+  couponFixedDiscountCnyCent: number
+  couponMaxDiscountCnyCent: number
   generatedRedeemCodeId: string
   generatedRedeemCode: string
   generatedRedeemCodeMask: string
@@ -138,6 +148,33 @@ export interface PurchaseCatalogResponse {
 export interface PurchaseOrderListResponse {
   items: PurchaseOrder[]
   total: number
+}
+
+export interface PurchaseQuoteCoupon {
+  campaignId: string
+  campaignName: string
+  codeId: string
+  codeValue: string
+  codeMask: string
+  discountType: 'fixed_amount' | 'percentage'
+  fixedDiscountCnyCent: number
+  percentOffBps: number
+  maxDiscountCnyCent: number
+  discountCnyCent: number
+}
+
+export interface PurchaseQuoteResponse {
+  kind: 'subscription' | 'balance_topup'
+  productId: string
+  productName: string
+  orderKindLabel: string
+  deliveryMode: 'account' | 'redeem_code'
+  originalAmountCnyCent: number
+  upgradeCreditCnyCent: number
+  discountCnyCent: number
+  finalAmountCnyCent: number
+  balanceTopupMicros: number
+  coupon?: PurchaseQuoteCoupon | null
 }
 
 export interface PurchaseWebhookTarget {
@@ -203,21 +240,34 @@ export async function getPurchaseCatalog(): Promise<PurchaseCatalogResponse> {
 export async function createPurchaseOrder(productId: string): Promise<PurchaseOrder> {
   return fetchJson<PurchaseOrder>(`${API_BASE}/me/purchase/orders`, {
     method: 'POST',
-    body: JSON.stringify({ productId, deliveryMode: 'account' }),
+    body: JSON.stringify({ productId, deliveryMode: 'account', couponCode: '' }),
   })
 }
 
-export async function createPurchaseOrderWithMode(productId: string, deliveryMode: 'account' | 'redeem_code'): Promise<PurchaseOrder> {
+export async function createPurchaseOrderWithMode(productId: string, deliveryMode: 'account' | 'redeem_code', couponCode = ''): Promise<PurchaseOrder> {
   return fetchJson<PurchaseOrder>(`${API_BASE}/me/purchase/orders`, {
     method: 'POST',
-    body: JSON.stringify({ productId, deliveryMode }),
+    body: JSON.stringify({ productId, deliveryMode, couponCode }),
   })
 }
 
-export async function createBalanceTopupOrder(amountUsd: number): Promise<PurchaseOrder> {
+export async function createBalanceTopupOrder(amountUsd: number, couponCode = ''): Promise<PurchaseOrder> {
   return fetchJson<PurchaseOrder>(`${API_BASE}/me/purchase/balance-topup/orders`, {
     method: 'POST',
-    body: JSON.stringify({ amountUsd }),
+    body: JSON.stringify({ amountUsd, couponCode }),
+  })
+}
+
+export async function quotePurchaseOrder(payload: {
+  kind: 'subscription' | 'balance_topup'
+  productId?: string
+  amountUsd?: string
+  deliveryMode?: 'account' | 'redeem_code'
+  couponCode?: string
+}): Promise<PurchaseQuoteResponse> {
+  return fetchJson<PurchaseQuoteResponse>(`${API_BASE}/me/purchase/quote`, {
+    method: 'POST',
+    body: JSON.stringify(payload),
   })
 }
 

@@ -35,6 +35,23 @@ import {
   type PurchaseWebhookTestResponse,
 } from '@/api/purchase'
 import { getPlans, type SubscriptionPlanResponse } from '@/api/subscription'
+import {
+  createCouponBatch,
+  createCouponCampaign,
+  deleteCouponCampaign,
+  getCouponConfig,
+  listCouponCampaigns,
+  listCouponCodes,
+  listCouponUsages,
+  setCouponCodeEnabled,
+  updateCouponCampaign,
+  updateCouponConfig,
+  type CouponCampaign,
+  type CouponCampaignRequest,
+  type CouponCode,
+  type CouponConfig,
+  type CouponUsage,
+} from '@/api/coupons'
 import { TablePagination } from '@/components/TablePagination'
 import { TabbedSettingsPage, type TabbedSettingsPageTab } from '@/components/layout/TabbedSettingsPage'
 import { Badge } from '@/components/ui/badge'
@@ -49,7 +66,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { Textarea } from '@/components/ui/textarea'
 import { CreditCard, Pencil, Plus, RefreshCw, Send, Trash2 } from 'lucide-react'
 
-type PaidSubscriptionsTab = 'products' | 'orders' | 'webhooks' | 'settings'
+type PaidSubscriptionsTab = 'products' | 'orders' | 'webhooks' | 'coupons' | 'settings'
 
 const DEFAULT_ALIPAY_NOTIFY_URL = 'https://amphk.asxs.top/api/public/purchase/alipay/notify'
 
@@ -57,6 +74,7 @@ const tabs: TabbedSettingsPageTab<PaidSubscriptionsTab>[] = [
   { key: 'products', label: '售卖商品' },
   { key: 'orders', label: '订单' },
   { key: 'webhooks', label: '订单通知' },
+  { key: 'coupons', label: '优惠码' },
   { key: 'settings', label: '支付设置' },
 ]
 
@@ -154,6 +172,22 @@ function initialWebhookForm(): PurchaseWebhookTargetRequest {
   }
 }
 
+function initialCouponForm(): CouponCampaignRequest {
+  return {
+    name: '',
+    description: '',
+    codeMode: 'shared',
+    sharedCode: '',
+    discountType: 'fixed_amount',
+    fixedDiscountCnyCent: 100,
+    percentOffBps: 9000,
+    maxDiscountCnyCent: 0,
+    totalUsageLimit: 0,
+    perUserLimit: 1,
+    enabled: true,
+  }
+}
+
 export default function PaidSubscriptions() {
   const [activeTab, setActiveTab] = useState<PaidSubscriptionsTab>('products')
   const [settings, setSettings] = useState<PurchaseSettingsResponse | null>(null)
@@ -190,6 +224,22 @@ export default function PaidSubscriptions() {
   const [savingWebhook, setSavingWebhook] = useState(false)
   const [testingWebhookID, setTestingWebhookID] = useState<string | null>(null)
   const [testResult, setTestResult] = useState<PurchaseWebhookTestResponse | null>(null)
+  const [couponConfig, setCouponConfig] = useState<CouponConfig>({ enabled: false })
+  const [couponCampaigns, setCouponCampaigns] = useState<CouponCampaign[]>([])
+  const [couponCodes, setCouponCodes] = useState<CouponCode[]>([])
+  const [couponUsages, setCouponUsages] = useState<CouponUsage[]>([])
+  const [couponDialogOpen, setCouponDialogOpen] = useState(false)
+  const [editingCoupon, setEditingCoupon] = useState<CouponCampaign | null>(null)
+  const [couponForm, setCouponForm] = useState<CouponCampaignRequest>(initialCouponForm())
+  const [savingCouponConfig, setSavingCouponConfig] = useState(false)
+  const [savingCoupon, setSavingCoupon] = useState(false)
+  const [creatingCouponBatchFor, setCreatingCouponBatchFor] = useState<CouponCampaign | null>(null)
+  const [couponBatchName, setCouponBatchName] = useState('')
+  const [couponBatchPrefix, setCouponBatchPrefix] = useState('')
+  const [couponBatchCount, setCouponBatchCount] = useState('10')
+  const [couponBatchLength, setCouponBatchLength] = useState('10')
+  const [creatingCouponBatch, setCreatingCouponBatch] = useState(false)
+  const [generatedCouponCodes, setGeneratedCouponCodes] = useState<string[]>([])
 
   const [orderFilters, setOrderFilters] = useState({
     paymentStatus: 'all',
@@ -231,10 +281,20 @@ export default function PaidSubscriptions() {
         getPlans(),
         listPurchaseWebhookTargets(),
       ])
+      const [couponConfigData, couponCampaignsData, couponCodesData, couponUsagesData] = await Promise.all([
+        getCouponConfig(),
+        listCouponCampaigns(),
+        listCouponCodes(),
+        listCouponUsages(),
+      ])
       setSettings(settingsData)
       setProducts(productData)
       setPlans(planData)
       setWebhooks(webhookData)
+      setCouponConfig(couponConfigData)
+      setCouponCampaigns(couponCampaignsData)
+      setCouponCodes(couponCodesData)
+      setCouponUsages(couponUsagesData)
       setSettingsDraft({
         purchaseEnabled: settingsData.purchaseEnabled,
         debugAutoPaid: settingsData.debugAutoPaid,
@@ -286,6 +346,23 @@ export default function PaidSubscriptions() {
       setWebhooks(await listPurchaseWebhookTargets())
     } catch (error) {
       showMessage('error', error instanceof Error ? error.message : '加载通知目标失败')
+    }
+  }
+
+  const refreshCoupons = async () => {
+    try {
+      const [couponConfigData, couponCampaignsData, couponCodesData, couponUsagesData] = await Promise.all([
+        getCouponConfig(),
+        listCouponCampaigns(),
+        listCouponCodes(),
+        listCouponUsages(),
+      ])
+      setCouponConfig(couponConfigData)
+      setCouponCampaigns(couponCampaignsData)
+      setCouponCodes(couponCodesData)
+      setCouponUsages(couponUsagesData)
+    } catch (error) {
+      showMessage('error', error instanceof Error ? error.message : '加载优惠码失败')
     }
   }
 
@@ -372,6 +449,32 @@ export default function PaidSubscriptions() {
     setWebhookForm(initialWebhookForm())
     setTestResult(null)
     setWebhookDialogOpen(true)
+  }
+
+  const openCreateCoupon = () => {
+    setEditingCoupon(null)
+    setCouponForm(initialCouponForm())
+    setCouponDialogOpen(true)
+  }
+
+  const openEditCoupon = (item: CouponCampaign) => {
+    setEditingCoupon(item)
+    setCouponForm({
+      name: item.name,
+      description: item.description,
+      codeMode: item.codeMode,
+      sharedCode: item.sharedCode,
+      discountType: item.discountType,
+      fixedDiscountCnyCent: item.fixedDiscountCnyCent,
+      percentOffBps: item.percentOffBps,
+      maxDiscountCnyCent: item.maxDiscountCnyCent,
+      totalUsageLimit: item.totalUsageLimit,
+      perUserLimit: item.perUserLimit,
+      startsAt: item.startsAt || undefined,
+      endsAt: item.endsAt || undefined,
+      enabled: item.enabled,
+    })
+    setCouponDialogOpen(true)
   }
 
   const openEditWebhook = (item: PurchaseWebhookTarget) => {
@@ -462,6 +565,77 @@ export default function PaidSubscriptions() {
       showMessage('error', error instanceof Error ? error.message : '保存失败')
     } finally {
       setSavingSettings(false)
+    }
+  }
+
+  const handleSaveCouponConfig = async () => {
+    try {
+      setSavingCouponConfig(true)
+      const config = await updateCouponConfig(couponConfig)
+      setCouponConfig(config)
+      showMessage('success', '优惠码开关已保存')
+    } catch (error) {
+      showMessage('error', error instanceof Error ? error.message : '保存失败')
+    } finally {
+      setSavingCouponConfig(false)
+    }
+  }
+
+  const handleSaveCoupon = async () => {
+    try {
+      setSavingCoupon(true)
+      if (editingCoupon) {
+        await updateCouponCampaign(editingCoupon.id, couponForm)
+      } else {
+        await createCouponCampaign(couponForm)
+      }
+      setCouponDialogOpen(false)
+      await refreshCoupons()
+      showMessage('success', '优惠活动已保存')
+    } catch (error) {
+      showMessage('error', error instanceof Error ? error.message : '保存失败')
+    } finally {
+      setSavingCoupon(false)
+    }
+  }
+
+  const handleDeleteCoupon = async (item: CouponCampaign) => {
+    try {
+      await deleteCouponCampaign(item.id)
+      await refreshCoupons()
+      showMessage('success', '优惠活动已删除')
+    } catch (error) {
+      showMessage('error', error instanceof Error ? error.message : '删除失败')
+    }
+  }
+
+  const handleCreateCouponBatch = async () => {
+    if (!creatingCouponBatchFor) return
+    try {
+      setCreatingCouponBatch(true)
+      const result = await createCouponBatch(creatingCouponBatchFor.id, {
+        name: couponBatchName.trim() || '默认批次',
+        prefix: couponBatchPrefix.trim(),
+        codeCount: Number.parseInt(couponBatchCount || '0', 10),
+        codeLength: Number.parseInt(couponBatchLength || '0', 10),
+      })
+      setGeneratedCouponCodes(result.codes)
+      await refreshCoupons()
+      showMessage('success', '优惠码批次已生成')
+    } catch (error) {
+      showMessage('error', error instanceof Error ? error.message : '生成失败')
+    } finally {
+      setCreatingCouponBatch(false)
+    }
+  }
+
+  const handleToggleCouponCode = async (item: CouponCode) => {
+    try {
+      await setCouponCodeEnabled(item.id, item.status !== 'active')
+      await refreshCoupons()
+      showMessage('success', '优惠码状态已更新')
+    } catch (error) {
+      showMessage('error', error instanceof Error ? error.message : '操作失败')
     }
   }
 
@@ -899,6 +1073,119 @@ export default function PaidSubscriptions() {
           </div>
         )}
 
+        {activeTab === 'coupons' && (
+          <div className="space-y-4">
+            <Card>
+              <CardHeader className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                <CardTitle>优惠码配置</CardTitle>
+                <div className="flex gap-2">
+                  <Button type="button" variant="outline" size="sm" onClick={() => void refreshCoupons()}>
+                    <RefreshCw className="mr-2 h-4 w-4" />
+                    刷新
+                  </Button>
+                  <Button type="button" size="sm" onClick={openCreateCoupon}>
+                    <Plus className="mr-2 h-4 w-4" />
+                    新建活动
+                  </Button>
+                </div>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="flex items-center justify-between rounded-lg border px-4 py-3">
+                  <div>
+                    <div className="font-medium">启用优惠码</div>
+                    <div className="text-sm text-muted-foreground">控制下单时是否允许输入优惠码</div>
+                  </div>
+                  <div className="flex items-center gap-3">
+                    <Switch checked={couponConfig.enabled} onCheckedChange={(checked) => setCouponConfig({ enabled: checked })} />
+                    <Button type="button" size="sm" onClick={() => void handleSaveCouponConfig()} disabled={savingCouponConfig}>
+                      {savingCouponConfig ? '保存中...' : '保存'}
+                    </Button>
+                  </div>
+                </div>
+                <div className="space-y-3">
+                  {couponCampaigns.map((item) => (
+                    <div key={item.id} className="rounded-lg border px-4 py-4">
+                      <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+                        <div className="space-y-2">
+                          <div className="flex items-center gap-2">
+                            <div className="font-medium">{item.name}</div>
+                            <Badge variant={item.enabled ? 'default' : 'secondary'}>{item.enabled ? '启用' : '停用'}</Badge>
+                            <Badge variant="outline">{item.codeMode === 'shared' ? '共享码' : '单次码'}</Badge>
+                          </div>
+                          <div className="text-sm text-muted-foreground">{item.description || '无描述'}</div>
+                          <div className="text-xs text-muted-foreground">
+                            {item.discountType === 'fixed_amount'
+                              ? `直减 ${formatCNY(item.fixedDiscountCnyCent)}`
+                              : `${(item.percentOffBps / 100).toFixed(2)} 折${item.maxDiscountCnyCent > 0 ? `，封顶 ${formatCNY(item.maxDiscountCnyCent)}` : ''}`}
+                          </div>
+                          {item.sharedCode ? <div className="font-mono text-xs">共享码: {item.sharedCode}</div> : null}
+                        </div>
+                        <div className="flex flex-wrap gap-2">
+                          {item.codeMode === 'single_use' ? (
+                            <Button type="button" variant="outline" size="sm" onClick={() => setCreatingCouponBatchFor(item)}>
+                              生成批次
+                            </Button>
+                          ) : null}
+                          <Button type="button" variant="outline" size="sm" onClick={() => openEditCoupon(item)}>
+                            <Pencil className="mr-2 h-4 w-4" />
+                            编辑
+                          </Button>
+                          <Button type="button" variant="destructive" size="sm" onClick={() => void handleDeleteCoupon(item)}>
+                            <Trash2 className="mr-2 h-4 w-4" />
+                            删除
+                          </Button>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                  {couponCampaigns.length === 0 ? <div className="rounded-lg border border-dashed px-4 py-8 text-center text-sm text-muted-foreground">暂无优惠活动</div> : null}
+                </div>
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader><CardTitle>优惠码明细</CardTitle></CardHeader>
+              <CardContent className="space-y-3">
+                {couponCodes.slice(0, 20).map((item) => (
+                  <div key={item.id} className="flex flex-col gap-2 rounded-lg border px-4 py-3 lg:flex-row lg:items-center lg:justify-between">
+                    <div>
+                      <div className="font-medium">{item.campaignName}</div>
+                      <div className="font-mono text-xs text-muted-foreground">{item.codeValue}</div>
+                    </div>
+                    <div className="flex items-center gap-3">
+                      <Badge variant={item.status === 'active' ? 'default' : 'secondary'}>{item.status}</Badge>
+                      <span className="text-sm text-muted-foreground">{item.usedCount}/{item.maxUsages || '∞'}</span>
+                      <Button type="button" variant="outline" size="sm" onClick={() => void handleToggleCouponCode(item)}>
+                        {item.status === 'active' ? '停用' : '启用'}
+                      </Button>
+                    </div>
+                  </div>
+                ))}
+                {couponCodes.length === 0 ? <div className="rounded-lg border border-dashed px-4 py-8 text-center text-sm text-muted-foreground">暂无优惠码</div> : null}
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader><CardTitle>最近使用记录</CardTitle></CardHeader>
+              <CardContent className="space-y-3">
+                {couponUsages.slice(0, 20).map((item) => (
+                  <div key={item.id} className="flex flex-col gap-2 rounded-lg border px-4 py-3 lg:flex-row lg:items-center lg:justify-between">
+                    <div>
+                      <div className="font-medium">{item.username}</div>
+                      <div className="text-xs text-muted-foreground">{item.campaignName} · 订单 {item.orderNo}</div>
+                    </div>
+                    <div className="flex items-center gap-3">
+                      <Badge variant={item.status === 'applied' ? 'default' : 'secondary'}>{item.status === 'applied' ? '已使用' : '已回滚'}</Badge>
+                      <span className="font-medium">-{formatCNY(item.discountCnyCent)}</span>
+                    </div>
+                  </div>
+                ))}
+                {couponUsages.length === 0 ? <div className="rounded-lg border border-dashed px-4 py-8 text-center text-sm text-muted-foreground">暂无使用记录</div> : null}
+              </CardContent>
+            </Card>
+          </div>
+        )}
+
         {activeTab === 'settings' && (
           <Card>
             <CardHeader className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
@@ -1147,6 +1434,127 @@ export default function PaidSubscriptions() {
             >
               {settlementSaving && <RefreshCw className="mr-2 h-4 w-4 animate-spin" />}
               确认
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={couponDialogOpen} onOpenChange={setCouponDialogOpen}>
+        <DialogContent className="max-w-xl">
+          <DialogHeader>
+            <DialogTitle>{editingCoupon ? '编辑优惠活动' : '新建优惠活动'}</DialogTitle>
+          </DialogHeader>
+          <div className="grid gap-4 py-2 md:grid-cols-2">
+            <div className="space-y-2">
+              <Label>名称</Label>
+              <Input value={couponForm.name} onChange={(event) => setCouponForm((current) => ({ ...current, name: event.target.value }))} />
+            </div>
+            <div className="space-y-2">
+              <Label>码类型</Label>
+              <Select value={couponForm.codeMode} onValueChange={(value) => setCouponForm((current) => ({ ...current, codeMode: value as CouponCampaignRequest['codeMode'] }))} disabled={!!editingCoupon}>
+                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="shared">共享码</SelectItem>
+                  <SelectItem value="single_use">单次码</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-2 md:col-span-2">
+              <Label>描述</Label>
+              <Textarea value={couponForm.description} onChange={(event) => setCouponForm((current) => ({ ...current, description: event.target.value }))} />
+            </div>
+            {couponForm.codeMode === 'shared' ? (
+              <div className="space-y-2 md:col-span-2">
+                <Label>共享码</Label>
+                <Input value={couponForm.sharedCode || ''} onChange={(event) => setCouponForm((current) => ({ ...current, sharedCode: event.target.value.toUpperCase() }))} className="font-mono" />
+              </div>
+            ) : null}
+            <div className="space-y-2">
+              <Label>优惠类型</Label>
+              <Select value={couponForm.discountType} onValueChange={(value) => setCouponForm((current) => ({ ...current, discountType: value as CouponCampaignRequest['discountType'] }))}>
+                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="fixed_amount">固定金额</SelectItem>
+                  <SelectItem value="percentage">百分比</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            {couponForm.discountType === 'fixed_amount' ? (
+              <div className="space-y-2">
+                <Label>减免金额 (CNY)</Label>
+                <Input type="number" min="0" step="0.01" value={(couponForm.fixedDiscountCnyCent / 100).toString()} onChange={(event) => setCouponForm((current) => ({ ...current, fixedDiscountCnyCent: Math.round(Number.parseFloat(event.target.value || '0') * 100) }))} />
+              </div>
+            ) : (
+              <>
+                <div className="space-y-2">
+                  <Label>折扣比例</Label>
+                  <Input type="number" min="0" step="0.01" value={(couponForm.percentOffBps / 100).toString()} onChange={(event) => setCouponForm((current) => ({ ...current, percentOffBps: Math.round(Number.parseFloat(event.target.value || '0') * 100) }))} />
+                </div>
+                <div className="space-y-2">
+                  <Label>封顶减免 (CNY)</Label>
+                  <Input type="number" min="0" step="0.01" value={(couponForm.maxDiscountCnyCent / 100).toString()} onChange={(event) => setCouponForm((current) => ({ ...current, maxDiscountCnyCent: Math.round(Number.parseFloat(event.target.value || '0') * 100) }))} />
+                </div>
+              </>
+            )}
+            <div className="space-y-2">
+              <Label>总次数</Label>
+              <Input type="number" min="0" value={String(couponForm.totalUsageLimit)} onChange={(event) => setCouponForm((current) => ({ ...current, totalUsageLimit: Number.parseInt(event.target.value || '0', 10) || 0 }))} />
+            </div>
+            <div className="space-y-2">
+              <Label>每人次数</Label>
+              <Input type="number" min="1" value={String(couponForm.perUserLimit)} onChange={(event) => setCouponForm((current) => ({ ...current, perUserLimit: Number.parseInt(event.target.value || '1', 10) || 1 }))} />
+            </div>
+            <div className="flex items-center justify-between rounded-lg border px-4 py-3 md:col-span-2">
+              <div>
+                <div className="font-medium">启用活动</div>
+                <div className="text-xs text-muted-foreground">保存后即可用于下单预览和创建订单</div>
+              </div>
+              <Switch checked={couponForm.enabled} onCheckedChange={(checked) => setCouponForm((current) => ({ ...current, enabled: checked }))} />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setCouponDialogOpen(false)}>取消</Button>
+            <Button onClick={() => void handleSaveCoupon()} disabled={savingCoupon}>
+              {savingCoupon && <RefreshCw className="mr-2 h-4 w-4 animate-spin" />}
+              保存
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={!!creatingCouponBatchFor} onOpenChange={(open) => !open && setCreatingCouponBatchFor(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>生成优惠码批次</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 py-2">
+            <div className="space-y-2">
+              <Label>批次名称</Label>
+              <Input value={couponBatchName} onChange={(event) => setCouponBatchName(event.target.value)} />
+            </div>
+            <div className="grid gap-4 md:grid-cols-3">
+              <div className="space-y-2">
+                <Label>前缀</Label>
+                <Input value={couponBatchPrefix} onChange={(event) => setCouponBatchPrefix(event.target.value.toUpperCase())} />
+              </div>
+              <div className="space-y-2">
+                <Label>数量</Label>
+                <Input value={couponBatchCount} onChange={(event) => setCouponBatchCount(event.target.value)} />
+              </div>
+              <div className="space-y-2">
+                <Label>长度</Label>
+                <Input value={couponBatchLength} onChange={(event) => setCouponBatchLength(event.target.value)} />
+              </div>
+            </div>
+            {generatedCouponCodes.length > 0 ? (
+              <pre className="max-h-56 overflow-auto rounded-lg border bg-muted/40 p-3 text-xs">{generatedCouponCodes.join('\n')}</pre>
+            ) : null}
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setCreatingCouponBatchFor(null)}>关闭</Button>
+            <Button onClick={() => void handleCreateCouponBatch()} disabled={creatingCouponBatch}>
+              {creatingCouponBatch && <RefreshCw className="mr-2 h-4 w-4 animate-spin" />}
+              生成
             </Button>
           </DialogFooter>
         </DialogContent>

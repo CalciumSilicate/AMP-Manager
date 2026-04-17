@@ -276,6 +276,7 @@ func createTables() error {
 		id TEXT PRIMARY KEY,
 		username TEXT UNIQUE NOT NULL,
 		password_hash TEXT NOT NULL,
+		invite_code TEXT NOT NULL DEFAULT '',
 		is_admin INTEGER DEFAULT 0,
 		balance_micros BIGINT NOT NULL DEFAULT 0,
 		concurrency_limit INTEGER NOT NULL DEFAULT 0,
@@ -520,6 +521,46 @@ func createTables() error {
 		value TEXT NOT NULL,
 		updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
 	);
+
+	CREATE TABLE IF NOT EXISTS invite_relationships (
+		id TEXT PRIMARY KEY,
+		inviter_user_id TEXT NOT NULL,
+		inviter_code TEXT NOT NULL,
+		invitee_user_id TEXT NOT NULL UNIQUE,
+		status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'rewarded')),
+		first_paid_order_id TEXT NOT NULL DEFAULT '',
+		first_paid_order_no TEXT NOT NULL DEFAULT '',
+		first_paid_order_kind TEXT NOT NULL DEFAULT '',
+		first_paid_amount_cny_cent BIGINT NOT NULL DEFAULT 0,
+		first_paid_at DATETIME,
+		rewarded_at DATETIME,
+		last_reversed_at DATETIME,
+		created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+		updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+		FOREIGN KEY (inviter_user_id) REFERENCES users(id) ON DELETE CASCADE,
+		FOREIGN KEY (invitee_user_id) REFERENCES users(id) ON DELETE CASCADE
+	);
+	CREATE UNIQUE INDEX IF NOT EXISTS idx_users_invite_code_unique ON users(invite_code) WHERE invite_code <> '';
+	CREATE INDEX IF NOT EXISTS idx_invite_relationships_inviter_status ON invite_relationships(inviter_user_id, status, created_at DESC);
+	CREATE INDEX IF NOT EXISTS idx_invite_relationships_invitee ON invite_relationships(invitee_user_id);
+	CREATE INDEX IF NOT EXISTS idx_invite_relationships_first_paid_order_no ON invite_relationships(first_paid_order_no);
+
+	CREATE TABLE IF NOT EXISTS invite_reward_events (
+		id TEXT PRIMARY KEY,
+		relation_id TEXT NOT NULL,
+		beneficiary_user_id TEXT NOT NULL,
+		beneficiary_role TEXT NOT NULL CHECK (beneficiary_role IN ('inviter', 'invitee')),
+		order_id TEXT NOT NULL DEFAULT '',
+		order_no TEXT NOT NULL DEFAULT '',
+		status TEXT NOT NULL CHECK (status IN ('granted', 'reversed')),
+		amount_micros BIGINT NOT NULL DEFAULT 0,
+		order_paid_amount_cny_cent BIGINT NOT NULL DEFAULT 0,
+		created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+		FOREIGN KEY (relation_id) REFERENCES invite_relationships(id) ON DELETE CASCADE,
+		FOREIGN KEY (beneficiary_user_id) REFERENCES users(id) ON DELETE CASCADE
+	);
+	CREATE UNIQUE INDEX IF NOT EXISTS idx_invite_reward_events_unique ON invite_reward_events(relation_id, beneficiary_role, status, order_no);
+	CREATE INDEX IF NOT EXISTS idx_invite_reward_events_user_created ON invite_reward_events(beneficiary_user_id, created_at DESC);
 
 	CREATE TABLE IF NOT EXISTS status_monitors (
 		id TEXT PRIMARY KEY,
@@ -806,6 +847,8 @@ func createTables() error {
 			product_id TEXT NOT NULL,
 			subscription_plan_id TEXT NOT NULL,
 			duration_days INTEGER NOT NULL CHECK (duration_days > 0),
+			original_amount_cny_cent BIGINT NOT NULL DEFAULT 0,
+			discount_cny_cent BIGINT NOT NULL DEFAULT 0,
 			amount_cny_cent BIGINT NOT NULL CHECK (amount_cny_cent >= 0),
 			order_kind TEXT NOT NULL DEFAULT 'subscription' CHECK (order_kind IN ('subscription', 'balance_topup')),
 			delivery_mode TEXT NOT NULL DEFAULT 'account' CHECK (delivery_mode IN ('account', 'redeem_code')),
@@ -817,6 +860,14 @@ func createTables() error {
 		upgrade_credit_cny_cent BIGINT NOT NULL DEFAULT 0,
 		upgrade_locked_target_seconds BIGINT NOT NULL DEFAULT 0,
 		upgrade_state_token TEXT NOT NULL DEFAULT '',
+		coupon_campaign_id TEXT NOT NULL DEFAULT '',
+		coupon_campaign_name TEXT NOT NULL DEFAULT '',
+		coupon_code_id TEXT NOT NULL DEFAULT '',
+		coupon_code_value TEXT NOT NULL DEFAULT '',
+		coupon_discount_type TEXT NOT NULL DEFAULT '',
+		coupon_percent_off_bps INTEGER NOT NULL DEFAULT 0,
+		coupon_fixed_discount_cny_cent BIGINT NOT NULL DEFAULT 0,
+		coupon_max_discount_cny_cent BIGINT NOT NULL DEFAULT 0,
 		action_snapshot_json TEXT NOT NULL DEFAULT '',
 		timeline_preview_json TEXT NOT NULL DEFAULT '',
 		legacy_source TEXT NOT NULL DEFAULT '',
@@ -843,6 +894,81 @@ func createTables() error {
 	CREATE INDEX IF NOT EXISTS idx_purchase_orders_product_created ON purchase_orders(product_id, created_at DESC);
 	CREATE INDEX IF NOT EXISTS idx_purchase_orders_trade_no ON purchase_orders(alipay_trade_no);
 	CREATE INDEX IF NOT EXISTS idx_purchase_orders_manual_settlement_done ON purchase_orders(manual_settlement_done, created_at DESC);
+
+	CREATE TABLE IF NOT EXISTS coupon_campaigns (
+		id TEXT PRIMARY KEY,
+		name TEXT NOT NULL,
+		description TEXT NOT NULL DEFAULT '',
+		code_mode TEXT NOT NULL CHECK (code_mode IN ('shared', 'single_use')),
+		shared_code TEXT NOT NULL DEFAULT '',
+		discount_type TEXT NOT NULL CHECK (discount_type IN ('fixed_amount', 'percentage')),
+		fixed_discount_cny_cent BIGINT NOT NULL DEFAULT 0,
+		percent_off_bps INTEGER NOT NULL DEFAULT 0,
+		max_discount_cny_cent BIGINT NOT NULL DEFAULT 0,
+		total_usage_limit INTEGER NOT NULL DEFAULT 0,
+		used_count INTEGER NOT NULL DEFAULT 0,
+		per_user_limit INTEGER NOT NULL DEFAULT 1,
+		starts_at DATETIME,
+		ends_at DATETIME,
+		enabled INTEGER NOT NULL DEFAULT 1,
+		created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+		updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+	);
+	CREATE INDEX IF NOT EXISTS idx_coupon_campaigns_enabled_window ON coupon_campaigns(enabled, starts_at, ends_at);
+
+	CREATE TABLE IF NOT EXISTS coupon_code_batches (
+		id TEXT PRIMARY KEY,
+		campaign_id TEXT NOT NULL,
+		name TEXT NOT NULL,
+		prefix TEXT NOT NULL DEFAULT '',
+		code_count INTEGER NOT NULL DEFAULT 0,
+		code_length INTEGER NOT NULL DEFAULT 0,
+		created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+		updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+		FOREIGN KEY (campaign_id) REFERENCES coupon_campaigns(id) ON DELETE CASCADE
+	);
+	CREATE INDEX IF NOT EXISTS idx_coupon_code_batches_campaign_created ON coupon_code_batches(campaign_id, created_at DESC);
+
+	CREATE TABLE IF NOT EXISTS coupon_codes (
+		id TEXT PRIMARY KEY,
+		campaign_id TEXT NOT NULL,
+		batch_id TEXT,
+		code_mode TEXT NOT NULL CHECK (code_mode IN ('shared', 'single_use')),
+		code_value TEXT NOT NULL UNIQUE,
+		code_hash TEXT NOT NULL UNIQUE,
+		code_mask TEXT NOT NULL,
+		status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'disabled', 'consumed')),
+		max_usages INTEGER NOT NULL DEFAULT 1,
+		used_count INTEGER NOT NULL DEFAULT 0,
+		last_used_at DATETIME,
+		created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+		updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+		FOREIGN KEY (campaign_id) REFERENCES coupon_campaigns(id) ON DELETE CASCADE,
+		FOREIGN KEY (batch_id) REFERENCES coupon_code_batches(id) ON DELETE CASCADE
+	);
+	CREATE INDEX IF NOT EXISTS idx_coupon_codes_campaign_status_created ON coupon_codes(campaign_id, status, created_at DESC);
+	CREATE INDEX IF NOT EXISTS idx_coupon_codes_batch_created ON coupon_codes(batch_id, created_at DESC);
+
+	CREATE TABLE IF NOT EXISTS coupon_usages (
+		id TEXT PRIMARY KEY,
+		campaign_id TEXT NOT NULL,
+		code_id TEXT NOT NULL,
+		user_id TEXT NOT NULL,
+		order_id TEXT NOT NULL,
+		order_no TEXT NOT NULL,
+		status TEXT NOT NULL CHECK (status IN ('applied', 'reversed')),
+		discount_cny_cent BIGINT NOT NULL DEFAULT 0,
+		final_amount_cny_cent BIGINT NOT NULL DEFAULT 0,
+		created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+		updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+		FOREIGN KEY (campaign_id) REFERENCES coupon_campaigns(id) ON DELETE CASCADE,
+		FOREIGN KEY (code_id) REFERENCES coupon_codes(id) ON DELETE CASCADE,
+		FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+		FOREIGN KEY (order_id) REFERENCES purchase_orders(id) ON DELETE CASCADE
+	);
+	CREATE UNIQUE INDEX IF NOT EXISTS idx_coupon_usages_order_unique ON coupon_usages(order_id);
+	CREATE INDEX IF NOT EXISTS idx_coupon_usages_user_campaign_status ON coupon_usages(user_id, campaign_id, status, created_at DESC);
+	CREATE INDEX IF NOT EXISTS idx_coupon_usages_campaign_status ON coupon_usages(campaign_id, status, created_at DESC);
 
 	CREATE TABLE IF NOT EXISTS redeem_campaigns (
 		id TEXT PRIMARY KEY,
@@ -2096,6 +2222,9 @@ func ensureCriticalSchema() error {
 	if err := ensurePurchaseSchema(); err != nil {
 		return err
 	}
+	if err := ensureInviteCouponSchema(); err != nil {
+		return err
+	}
 	return nil
 }
 
@@ -2389,6 +2518,153 @@ func ensurePurchaseSchema() error {
 	}
 	if err := ensureColumnWithDefault("purchase_manual_settlement_batches", "debug_settlement", "INTEGER NOT NULL DEFAULT 0"); err != nil {
 		return err
+	}
+	return nil
+}
+
+func ensureInviteCouponSchema() error {
+	if err := ensureColumnWithDefault("users", "invite_code", "TEXT NOT NULL DEFAULT ''"); err != nil {
+		return err
+	}
+	if _, err := db.Exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_users_invite_code_unique ON users(invite_code) WHERE invite_code <> ''`); err != nil {
+		return fmt.Errorf("create idx_users_invite_code_unique failed: %w", err)
+	}
+
+	statements := []string{
+		`CREATE TABLE IF NOT EXISTS invite_relationships (
+			id TEXT PRIMARY KEY,
+			inviter_user_id TEXT NOT NULL,
+			inviter_code TEXT NOT NULL,
+			invitee_user_id TEXT NOT NULL UNIQUE,
+			status TEXT NOT NULL DEFAULT 'pending',
+			first_paid_order_id TEXT NOT NULL DEFAULT '',
+			first_paid_order_no TEXT NOT NULL DEFAULT '',
+			first_paid_order_kind TEXT NOT NULL DEFAULT '',
+			first_paid_amount_cny_cent BIGINT NOT NULL DEFAULT 0,
+			first_paid_at DATETIME,
+			rewarded_at DATETIME,
+			last_reversed_at DATETIME,
+			created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+			updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+			FOREIGN KEY (inviter_user_id) REFERENCES users(id) ON DELETE CASCADE,
+			FOREIGN KEY (invitee_user_id) REFERENCES users(id) ON DELETE CASCADE
+		)`,
+		`CREATE INDEX IF NOT EXISTS idx_invite_relationships_inviter_status ON invite_relationships(inviter_user_id, status, created_at DESC)`,
+		`CREATE INDEX IF NOT EXISTS idx_invite_relationships_invitee ON invite_relationships(invitee_user_id)`,
+		`CREATE INDEX IF NOT EXISTS idx_invite_relationships_first_paid_order_no ON invite_relationships(first_paid_order_no)`,
+		`CREATE TABLE IF NOT EXISTS invite_reward_events (
+			id TEXT PRIMARY KEY,
+			relation_id TEXT NOT NULL,
+			beneficiary_user_id TEXT NOT NULL,
+			beneficiary_role TEXT NOT NULL,
+			order_id TEXT NOT NULL DEFAULT '',
+			order_no TEXT NOT NULL DEFAULT '',
+			status TEXT NOT NULL,
+			amount_micros BIGINT NOT NULL DEFAULT 0,
+			order_paid_amount_cny_cent BIGINT NOT NULL DEFAULT 0,
+			created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+			FOREIGN KEY (relation_id) REFERENCES invite_relationships(id) ON DELETE CASCADE,
+			FOREIGN KEY (beneficiary_user_id) REFERENCES users(id) ON DELETE CASCADE
+		)`,
+		`CREATE UNIQUE INDEX IF NOT EXISTS idx_invite_reward_events_unique ON invite_reward_events(relation_id, beneficiary_role, status, order_no)`,
+		`CREATE INDEX IF NOT EXISTS idx_invite_reward_events_user_created ON invite_reward_events(beneficiary_user_id, created_at DESC)`,
+		`CREATE TABLE IF NOT EXISTS coupon_campaigns (
+			id TEXT PRIMARY KEY,
+			name TEXT NOT NULL,
+			description TEXT NOT NULL DEFAULT '',
+			code_mode TEXT NOT NULL,
+			shared_code TEXT NOT NULL DEFAULT '',
+			discount_type TEXT NOT NULL,
+			fixed_discount_cny_cent BIGINT NOT NULL DEFAULT 0,
+			percent_off_bps INTEGER NOT NULL DEFAULT 0,
+			max_discount_cny_cent BIGINT NOT NULL DEFAULT 0,
+			total_usage_limit INTEGER NOT NULL DEFAULT 0,
+			used_count INTEGER NOT NULL DEFAULT 0,
+			per_user_limit INTEGER NOT NULL DEFAULT 1,
+			starts_at DATETIME,
+			ends_at DATETIME,
+			enabled INTEGER NOT NULL DEFAULT 1,
+			created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+			updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+		)`,
+		`CREATE INDEX IF NOT EXISTS idx_coupon_campaigns_enabled_window ON coupon_campaigns(enabled, starts_at, ends_at)`,
+		`CREATE TABLE IF NOT EXISTS coupon_code_batches (
+			id TEXT PRIMARY KEY,
+			campaign_id TEXT NOT NULL,
+			name TEXT NOT NULL,
+			prefix TEXT NOT NULL DEFAULT '',
+			code_count INTEGER NOT NULL DEFAULT 0,
+			code_length INTEGER NOT NULL DEFAULT 0,
+			created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+			updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+			FOREIGN KEY (campaign_id) REFERENCES coupon_campaigns(id) ON DELETE CASCADE
+		)`,
+		`CREATE INDEX IF NOT EXISTS idx_coupon_code_batches_campaign_created ON coupon_code_batches(campaign_id, created_at DESC)`,
+		`CREATE TABLE IF NOT EXISTS coupon_codes (
+			id TEXT PRIMARY KEY,
+			campaign_id TEXT NOT NULL,
+			batch_id TEXT,
+			code_mode TEXT NOT NULL,
+			code_value TEXT NOT NULL UNIQUE,
+			code_hash TEXT NOT NULL UNIQUE,
+			code_mask TEXT NOT NULL,
+			status TEXT NOT NULL DEFAULT 'active',
+			max_usages INTEGER NOT NULL DEFAULT 1,
+			used_count INTEGER NOT NULL DEFAULT 0,
+			last_used_at DATETIME,
+			created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+			updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+			FOREIGN KEY (campaign_id) REFERENCES coupon_campaigns(id) ON DELETE CASCADE,
+			FOREIGN KEY (batch_id) REFERENCES coupon_code_batches(id) ON DELETE CASCADE
+		)`,
+		`CREATE INDEX IF NOT EXISTS idx_coupon_codes_campaign_status_created ON coupon_codes(campaign_id, status, created_at DESC)`,
+		`CREATE INDEX IF NOT EXISTS idx_coupon_codes_batch_created ON coupon_codes(batch_id, created_at DESC)`,
+		`CREATE TABLE IF NOT EXISTS coupon_usages (
+			id TEXT PRIMARY KEY,
+			campaign_id TEXT NOT NULL,
+			code_id TEXT NOT NULL,
+			user_id TEXT NOT NULL,
+			order_id TEXT NOT NULL,
+			order_no TEXT NOT NULL,
+			status TEXT NOT NULL,
+			discount_cny_cent BIGINT NOT NULL DEFAULT 0,
+			final_amount_cny_cent BIGINT NOT NULL DEFAULT 0,
+			created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+			updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+			FOREIGN KEY (campaign_id) REFERENCES coupon_campaigns(id) ON DELETE CASCADE,
+			FOREIGN KEY (code_id) REFERENCES coupon_codes(id) ON DELETE CASCADE,
+			FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+			FOREIGN KEY (order_id) REFERENCES purchase_orders(id) ON DELETE CASCADE
+		)`,
+		`CREATE UNIQUE INDEX IF NOT EXISTS idx_coupon_usages_order_unique ON coupon_usages(order_id)`,
+		`CREATE INDEX IF NOT EXISTS idx_coupon_usages_user_campaign_status ON coupon_usages(user_id, campaign_id, status, created_at DESC)`,
+		`CREATE INDEX IF NOT EXISTS idx_coupon_usages_campaign_status ON coupon_usages(campaign_id, status, created_at DESC)`,
+	}
+	for _, statement := range statements {
+		if _, err := db.Exec(adaptCriticalSchemaSQL(statement)); err != nil {
+			return err
+		}
+	}
+
+	orderColumns := []struct {
+		name       string
+		definition string
+	}{
+		{name: "original_amount_cny_cent", definition: "BIGINT NOT NULL DEFAULT 0"},
+		{name: "discount_cny_cent", definition: "BIGINT NOT NULL DEFAULT 0"},
+		{name: "coupon_campaign_id", definition: "TEXT NOT NULL DEFAULT ''"},
+		{name: "coupon_campaign_name", definition: "TEXT NOT NULL DEFAULT ''"},
+		{name: "coupon_code_id", definition: "TEXT NOT NULL DEFAULT ''"},
+		{name: "coupon_code_value", definition: "TEXT NOT NULL DEFAULT ''"},
+		{name: "coupon_discount_type", definition: "TEXT NOT NULL DEFAULT ''"},
+		{name: "coupon_percent_off_bps", definition: "INTEGER NOT NULL DEFAULT 0"},
+		{name: "coupon_fixed_discount_cny_cent", definition: "BIGINT NOT NULL DEFAULT 0"},
+		{name: "coupon_max_discount_cny_cent", definition: "BIGINT NOT NULL DEFAULT 0"},
+	}
+	for _, column := range orderColumns {
+		if err := ensureColumnWithDefault("purchase_orders", column.name, column.definition); err != nil {
+			return err
+		}
 	}
 	return nil
 }

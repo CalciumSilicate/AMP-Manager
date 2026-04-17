@@ -105,11 +105,12 @@ type SiteContactConfig struct {
 }
 
 type SiteConfigResponse struct {
-	SiteName               string            `json:"siteName"`
-	TimeZone               string            `json:"timeZone"`
-	AmpProxySettingsPolicy string            `json:"ampProxySettingsPolicy"`
-	AmpSettingsPolicy      string            `json:"ampSettingsPolicy"`
-	Contact                SiteContactConfig `json:"contact"`
+	SiteName               string                     `json:"siteName"`
+	TimeZone               string                     `json:"timeZone"`
+	AmpProxySettingsPolicy string                     `json:"ampProxySettingsPolicy"`
+	AmpSettingsPolicy      string                     `json:"ampSettingsPolicy"`
+	Contact                SiteContactConfig          `json:"contact"`
+	InviteEnabled          bool                       `json:"inviteEnabled"`
 	SessionSticky          *SessionStickyPublicConfig `json:"sessionSticky,omitempty"`
 }
 

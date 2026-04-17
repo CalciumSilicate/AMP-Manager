@@ -68,6 +68,30 @@ func (s *RewardGrantService) SyncBillingState(ctx context.Context, action Billin
 	return nil
 }
 
+func SyncBillingStateActions(ctx context.Context, grantSvc *RewardGrantService, actions []BillingStateSyncAction) error {
+	if grantSvc == nil {
+		grantSvc = NewRewardGrantService()
+	}
+	merged := make(map[string]BillingStateSyncAction, len(actions))
+	for _, action := range actions {
+		userID := strings.TrimSpace(action.UserID)
+		if userID == "" {
+			continue
+		}
+		current := merged[userID]
+		current.UserID = userID
+		current.RefreshUserState = current.RefreshUserState || action.RefreshUserState
+		current.BalanceDeltaMicros += action.BalanceDeltaMicros
+		merged[userID] = current
+	}
+	for _, action := range merged {
+		if err := grantSvc.SyncBillingState(ctx, action); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func (s *RewardGrantService) GrantSubscriptionTx(tx *sql.Tx, userID, planID string, durationDays int, now time.Time) (*model.UserSubscription, error) {
 	return s.GrantSubscriptionTxWithSource(tx, userID, planID, durationDays, model.SubscriptionEntitlementSourcePurchase, "", now)
 }
@@ -184,10 +208,20 @@ func (s *RewardGrantService) GrantBalanceTx(tx *sql.Tx, userID string, amountMic
 	if amountMicros <= 0 {
 		return s.queryBalanceTx(tx, userID)
 	}
+	return s.AdjustBalanceTx(tx, userID, amountMicros, now)
+}
+
+func (s *RewardGrantService) AdjustBalanceTx(tx *sql.Tx, userID string, deltaMicros int64, now time.Time) (int64, error) {
+	if tx == nil {
+		return 0, fmt.Errorf("adjust balance: nil tx")
+	}
+	if deltaMicros == 0 {
+		return s.queryBalanceTx(tx, userID)
+	}
 
 	result, err := tx.Exec(
 		`UPDATE users SET balance_micros = balance_micros + ?, updated_at = ? WHERE id = ?`,
-		amountMicros,
+		deltaMicros,
 		now,
 		userID,
 	)
@@ -211,7 +245,7 @@ func (s *RewardGrantService) GrantBalanceTx(tx *sql.Tx, userID string, amountMic
 		nil,
 		model.BillingSourceBalance,
 		"adjustment",
-		amountMicros,
+		deltaMicros,
 		now,
 	); err != nil {
 		return 0, err

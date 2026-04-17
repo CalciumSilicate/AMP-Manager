@@ -59,6 +59,8 @@ type PurchaseService struct {
 	settingsSvc *PurchaseSettingsService
 	payment     purchasePaymentGateway
 	grantSvc    *RewardGrantService
+	couponSvc   *CouponService
+	inviteSvc   *InviteService
 	runtimeRepo *repository.SubscriptionRuntimeRepository
 }
 
@@ -81,6 +83,8 @@ func NewPurchaseService() *PurchaseService {
 		settingsSvc: NewPurchaseSettingsService(),
 		payment:     NewAlipayService(),
 		grantSvc:    NewRewardGrantService(),
+		couponSvc:   NewCouponService(),
+		inviteSvc:   NewInviteService(),
 		runtimeRepo: repository.NewSubscriptionRuntimeRepository(),
 	}
 }
@@ -108,6 +112,8 @@ func NewPurchaseServiceWithDeps(
 		settingsSvc: settingsSvc,
 		payment:     payment,
 		grantSvc:    NewRewardGrantService(),
+		couponSvc:   NewCouponService(),
+		inviteSvc:   NewInviteService(),
 		runtimeRepo: repository.NewSubscriptionRuntimeRepository(),
 	}
 }
@@ -164,6 +170,18 @@ func (s *PurchaseService) GetCatalog(userID string) (*model.PurchaseCatalogRespo
 		BalanceTopupPriceCnyPerUsd:     float64(settings.BalanceTopupPriceCnyCentPerUSD) / 100,
 		BalanceTopupPriceCnyCentPerUsd: settings.BalanceTopupPriceCnyCentPerUSD,
 	}, nil
+}
+
+func (s *PurchaseService) QuoteOrder(ctx context.Context, userID string, req *model.PurchaseQuoteRequest) (*model.PurchaseQuoteResponse, error) {
+	if req == nil {
+		return nil, errors.New("请求参数错误")
+	}
+	switch req.Kind {
+	case model.PurchaseOrderKindBalanceTopup:
+		return s.quoteBalanceTopupOrder(ctx, userID, req.AmountUsd, req.CouponCode)
+	default:
+		return s.quoteSubscriptionOrder(ctx, userID, req.ProductID, req.DeliveryMode, req.CouponCode)
+	}
 }
 
 func (s *PurchaseService) ListProductsAdmin() ([]*model.PurchaseProductResponse, error) {
@@ -270,7 +288,11 @@ func (s *PurchaseService) SetProductEnabled(id string, enabled bool) error {
 	return s.productRepo.SetEnabled(id, enabled)
 }
 
-func (s *PurchaseService) CreateOrder(ctx context.Context, userID, username, productID string, deliveryMode model.PurchaseDeliveryMode) (*model.PurchaseOrderResponse, error) {
+func (s *PurchaseService) CreateOrder(ctx context.Context, userID, username, productID string, deliveryMode model.PurchaseDeliveryMode, couponCode ...string) (*model.PurchaseOrderResponse, error) {
+	requestCouponCode := ""
+	if len(couponCode) > 0 {
+		requestCouponCode = couponCode[0]
+	}
 	settings, err := s.settingsSvc.Get()
 	if err != nil {
 		return nil, err
@@ -353,14 +375,14 @@ func (s *PurchaseService) CreateOrder(ctx context.Context, userID, username, pro
 		return nil, err
 	}
 
-	amountCNYCent := product.PriceCNYCent
+	originalAmountCNYCent := product.PriceCNYCent
 	upgradeSourcePlanID := ""
 	var upgradeSourceExpiresAt *time.Time
 	upgradeCreditCNYCent := int64(0)
 	upgradeLockedTargetSeconds := int64(0)
 	upgradeStateToken := ""
 	if upgradeQuote != nil {
-		amountCNYCent = upgradeQuote.PayableCNYCent
+		originalAmountCNYCent = upgradeQuote.PayableCNYCent
 		upgradeSourcePlanID = upgradeQuote.SourcePlanID
 		upgradeSourceExpiresAt = upgradeQuote.SourceExpiresAt
 		upgradeCreditCNYCent = upgradeQuote.CreditCNYCent
@@ -375,7 +397,8 @@ func (s *PurchaseService) CreateOrder(ctx context.Context, userID, username, pro
 		ProductID:               product.ID,
 		SubscriptionPlanID:      product.SubscriptionPlanID,
 		DurationDays:            product.DurationDays,
-		AmountCNYCent:           amountCNYCent,
+		OriginalAmountCNYCent:   originalAmountCNYCent,
+		AmountCNYCent:           originalAmountCNYCent,
 		OrderKind:               model.PurchaseOrderKindSubscription,
 		DeliveryMode:            deliveryMode,
 		PaymentChannel:          model.PaymentChannelAlipay,
@@ -391,15 +414,33 @@ func (s *PurchaseService) CreateOrder(ctx context.Context, userID, username, pro
 		CreatedAt:               now,
 		UpdatedAt:               now,
 	}
-	if err := s.orderRepo.Create(order); err != nil {
+	db := database.GetDB()
+	tx, err := db.Begin()
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback()
+
+	appliedCoupon, err := s.couponSvc.EvaluateCodeTx(tx, userID, requestCouponCode, originalAmountCNYCent, now)
+	if err != nil {
+		return nil, err
+	}
+	s.couponSvc.ApplyQuoteToOrder(order, originalAmountCNYCent, appliedCoupon)
+	if !settings.DebugAutoPaid && order.AmountCNYCent > 0 && !s.settingsSvc.CanCreateOrders(settings) {
+		return nil, ErrPaymentUnavailable
+	}
+	if err := s.orderRepo.CreateTx(tx, order); err != nil {
+		return nil, err
+	}
+	if err := s.couponSvc.CommitUsageTx(tx, userID, order, appliedCoupon, now); err != nil {
+		return nil, err
+	}
+	if err := tx.Commit(); err != nil {
 		return nil, err
 	}
 
 	if settings.DebugAutoPaid || order.AmountCNYCent == 0 {
 		return s.applySuccessfulPayment(order.OrderNo, "debug-"+order.OrderNo, &now)
-	}
-	if !s.settingsSvc.CanCreateOrders(settings) {
-		return nil, ErrPaymentUnavailable
 	}
 
 	paymentResult, err := s.payment.CreateOrder(ctx, order, productResp, username)
@@ -414,7 +455,11 @@ func (s *PurchaseService) CreateOrder(ctx context.Context, userID, username, pro
 	return s.GetOrderForUser(userID, order.OrderNo)
 }
 
-func (s *PurchaseService) CreateBalanceTopupOrder(ctx context.Context, userID, username string, amountUsd precision.DecimalString) (*model.PurchaseOrderResponse, error) {
+func (s *PurchaseService) CreateBalanceTopupOrder(ctx context.Context, userID, username string, amountUsd precision.DecimalString, couponCode ...string) (*model.PurchaseOrderResponse, error) {
+	requestCouponCode := ""
+	if len(couponCode) > 0 {
+		requestCouponCode = couponCode[0]
+	}
 	settings, err := s.settingsSvc.Get()
 	if err != nil {
 		return nil, err
@@ -430,8 +475,8 @@ func (s *PurchaseService) CreateBalanceTopupOrder(ctx context.Context, userID, u
 	if balanceTopupMicros <= 0 {
 		return nil, ErrInvalidBalanceTopupAmount
 	}
-	amountCnyCent := int64(math.Round((float64(balanceTopupMicros) / 1_000_000) * float64(settings.BalanceTopupPriceCnyCentPerUSD)))
-	if amountCnyCent <= 0 {
+	originalAmountCNYCent := int64(math.Round((float64(balanceTopupMicros) / 1_000_000) * float64(settings.BalanceTopupPriceCnyCentPerUSD)))
+	if originalAmountCNYCent <= 0 {
 		return nil, ErrInvalidBalanceTopupAmount
 	}
 
@@ -441,24 +486,46 @@ func (s *PurchaseService) CreateBalanceTopupOrder(ctx context.Context, userID, u
 
 	now := time.Now().UTC()
 	order := &model.PurchaseOrder{
-		ID:                 uuid.New().String(),
-		OrderNo:            newPurchaseOrderNo(now),
-		UserID:             userID,
-		ProductID:          balanceTopupProductID,
-		SubscriptionPlanID: balanceTopupPlanID,
-		DurationDays:       1,
-		AmountCNYCent:      amountCnyCent,
-		OrderKind:          model.PurchaseOrderKindBalanceTopup,
-		DeliveryMode:       model.PurchaseDeliveryModeAccount,
-		BalanceTopupMicros: balanceTopupMicros,
-		PaymentChannel:     model.PaymentChannelAlipay,
-		PaymentStatus:      model.PurchasePaymentStatusPending,
-		FulfillmentStatus:  model.PurchaseFulfillmentStatusPending,
-		FailureReason:      "",
-		CreatedAt:          now,
-		UpdatedAt:          now,
+		ID:                    uuid.New().String(),
+		OrderNo:               newPurchaseOrderNo(now),
+		UserID:                userID,
+		ProductID:             balanceTopupProductID,
+		SubscriptionPlanID:    balanceTopupPlanID,
+		DurationDays:          1,
+		OriginalAmountCNYCent: originalAmountCNYCent,
+		AmountCNYCent:         originalAmountCNYCent,
+		OrderKind:             model.PurchaseOrderKindBalanceTopup,
+		DeliveryMode:          model.PurchaseDeliveryModeAccount,
+		BalanceTopupMicros:    balanceTopupMicros,
+		PaymentChannel:        model.PaymentChannelAlipay,
+		PaymentStatus:         model.PurchasePaymentStatusPending,
+		FulfillmentStatus:     model.PurchaseFulfillmentStatusPending,
+		FailureReason:         "",
+		CreatedAt:             now,
+		UpdatedAt:             now,
 	}
-	if err := s.orderRepo.Create(order); err != nil {
+	db := database.GetDB()
+	tx, err := db.Begin()
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback()
+
+	appliedCoupon, err := s.couponSvc.EvaluateCodeTx(tx, userID, requestCouponCode, originalAmountCNYCent, now)
+	if err != nil {
+		return nil, err
+	}
+	s.couponSvc.ApplyQuoteToOrder(order, originalAmountCNYCent, appliedCoupon)
+	if !settings.DebugAutoPaid && order.AmountCNYCent > 0 && !s.settingsSvc.CanCreateOrders(settings) {
+		return nil, ErrPaymentUnavailable
+	}
+	if err := s.orderRepo.CreateTx(tx, order); err != nil {
+		return nil, err
+	}
+	if err := s.couponSvc.CommitUsageTx(tx, userID, order, appliedCoupon, now); err != nil {
+		return nil, err
+	}
+	if err := tx.Commit(); err != nil {
 		return nil, err
 	}
 
@@ -470,13 +537,13 @@ func (s *PurchaseService) CreateBalanceTopupOrder(ctx context.Context, userID, u
 		SubscriptionPlanName:        "余额充值",
 		SubscriptionPlanUpgradeRank: 0,
 		DurationDays:                1,
-		PriceCNYCent:                amountCnyCent,
+		PriceCNYCent:                order.AmountCNYCent,
 		GroupName:                   "",
 		GroupSort:                   0,
 		Enabled:                     false,
 	}
 
-	if settings.DebugAutoPaid {
+	if settings.DebugAutoPaid || order.AmountCNYCent == 0 {
 		return s.applySuccessfulPayment(order.OrderNo, "debug-"+order.OrderNo, &now)
 	}
 
@@ -489,6 +556,135 @@ func (s *PurchaseService) CreateBalanceTopupOrder(ctx context.Context, userID, u
 		return nil, err
 	}
 	return s.GetOrderForUser(userID, order.OrderNo)
+}
+
+func (s *PurchaseService) quoteSubscriptionOrder(ctx context.Context, userID, productID string, deliveryMode model.PurchaseDeliveryMode, couponCode string) (*model.PurchaseQuoteResponse, error) {
+	if deliveryMode == "" {
+		deliveryMode = model.PurchaseDeliveryModeAccount
+	}
+	product, plan, _, err := s.loadPurchasableProduct(productID)
+	if err != nil {
+		return nil, err
+	}
+	if !product.Enabled || plan == nil || !plan.Enabled {
+		return nil, ErrPurchaseProductDisabled
+	}
+	activeSubscription, err := s.subRepo.GetActiveByUserID(userID)
+	if err != nil {
+		return nil, err
+	}
+	now := time.Now().UTC()
+	var upgradeQuote *purchaseUpgradeQuote
+	if deliveryMode == model.PurchaseDeliveryModeAccount && product.ProductKind == model.PurchaseProductKindBoostQuota && (activeSubscription == nil || activeSubscription.ExpiresAt == nil) {
+		return nil, ErrBoostRequiresSubscription
+	}
+	if activeSubscription != nil && deliveryMode == model.PurchaseDeliveryModeAccount && product.ProductKind == model.PurchaseProductKindSubscription {
+		currentPlan, _, err := s.planRepo.GetByID(activeSubscription.PlanID)
+		if err != nil {
+			return nil, err
+		}
+		if currentPlan == nil {
+			return nil, ErrPlanNotFound
+		}
+		if activeSubscription.ExpiresAt == nil {
+			return nil, ErrPermanentSubscription
+		}
+		switch {
+		case plan.UpgradeRank < currentPlan.UpgradeRank:
+			return nil, ErrDowngradeNotAllowed
+		case plan.UpgradeRank == currentPlan.UpgradeRank && activeSubscription.PlanID != product.SubscriptionPlanID:
+			return nil, ErrSameRankPlanSwitch
+		case plan.UpgradeRank > currentPlan.UpgradeRank:
+			upgradeQuote, err = s.buildUpgradeQuote(ctx, userID, activeSubscription, currentPlan, plan, product, now)
+			if err != nil {
+				return nil, err
+			}
+		case activeSubscription.PlanID != product.SubscriptionPlanID:
+			return nil, ErrDifferentPlanActive
+		}
+	}
+	originalAmount := product.PriceCNYCent
+	upgradeCredit := int64(0)
+	if upgradeQuote != nil {
+		originalAmount = upgradeQuote.PayableCNYCent
+		upgradeCredit = upgradeQuote.CreditCNYCent
+	}
+	resp := &model.PurchaseQuoteResponse{
+		Kind:                  model.PurchaseOrderKindSubscription,
+		ProductID:             product.ID,
+		ProductName:           product.Name,
+		OrderKindLabel:        "订阅购买",
+		DeliveryMode:          deliveryMode,
+		OriginalAmountCNYCent: originalAmount,
+		UpgradeCreditCNYCent:  upgradeCredit,
+		FinalAmountCNYCent:    originalAmount,
+	}
+	if strings.TrimSpace(couponCode) == "" {
+		return resp, nil
+	}
+	db := database.GetDB()
+	tx, err := db.Begin()
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback()
+	applied, err := s.couponSvc.EvaluateCodeTx(tx, userID, couponCode, originalAmount, now)
+	if err != nil {
+		return nil, err
+	}
+	if applied != nil {
+		resp.Coupon = applied.Quote
+		resp.DiscountCNYCent = applied.Quote.DiscountCNYCent
+		resp.FinalAmountCNYCent = maxInt64(originalAmount-applied.Quote.DiscountCNYCent, 0)
+	}
+	return resp, nil
+}
+
+func (s *PurchaseService) quoteBalanceTopupOrder(_ context.Context, userID string, amountUsd string, couponCode string) (*model.PurchaseQuoteResponse, error) {
+	settings, err := s.settingsSvc.Get()
+	if err != nil {
+		return nil, err
+	}
+	if !s.settingsSvc.CanCreateBalanceTopup(settings) {
+		return nil, ErrBalanceTopupUnavailable
+	}
+	balanceTopupMicros, err := precision.ParseUSDToMicros(precision.DecimalString(amountUsd))
+	if err != nil || balanceTopupMicros <= 0 {
+		return nil, ErrInvalidBalanceTopupAmount
+	}
+	originalAmount := int64(math.Round((float64(balanceTopupMicros) / 1_000_000) * float64(settings.BalanceTopupPriceCnyCentPerUSD)))
+	if originalAmount <= 0 {
+		return nil, ErrInvalidBalanceTopupAmount
+	}
+	resp := &model.PurchaseQuoteResponse{
+		Kind:                  model.PurchaseOrderKindBalanceTopup,
+		ProductID:             balanceTopupProductID,
+		ProductName:           "余额充值",
+		OrderKindLabel:        "余额充值",
+		DeliveryMode:          model.PurchaseDeliveryModeAccount,
+		OriginalAmountCNYCent: originalAmount,
+		FinalAmountCNYCent:    originalAmount,
+		BalanceTopupMicros:    balanceTopupMicros,
+	}
+	if strings.TrimSpace(couponCode) == "" {
+		return resp, nil
+	}
+	db := database.GetDB()
+	tx, err := db.Begin()
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback()
+	applied, err := s.couponSvc.EvaluateCodeTx(tx, userID, couponCode, originalAmount, time.Now().UTC())
+	if err != nil {
+		return nil, err
+	}
+	if applied != nil {
+		resp.Coupon = applied.Quote
+		resp.DiscountCNYCent = applied.Quote.DiscountCNYCent
+		resp.FinalAmountCNYCent = maxInt64(originalAmount-applied.Quote.DiscountCNYCent, 0)
+	}
+	return resp, nil
 }
 
 func (s *PurchaseService) GetOrderForUser(userID, orderNo string) (*model.PurchaseOrderResponse, error) {
@@ -900,6 +1096,10 @@ func (s *PurchaseService) applySuccessfulPayment(orderNo, tradeNo string, paidAt
 	if err != nil {
 		return nil, err
 	}
+	inviteActions, err := s.inviteSvc.HandlePaidOrderTx(tx, order, now)
+	if err != nil {
+		return nil, err
+	}
 	if err := s.adminRepo.QueueWebhookEventsTx(tx, order.ID, order.OrderNo); err != nil {
 		return nil, err
 	}
@@ -907,7 +1107,8 @@ func (s *PurchaseService) applySuccessfulPayment(orderNo, tradeNo string, paidAt
 	if err := tx.Commit(); err != nil {
 		return nil, err
 	}
-	if err := s.grantSvc.SyncBillingState(context.Background(), syncAction); err != nil {
+	allSyncActions := append([]BillingStateSyncAction{syncAction}, inviteActions...)
+	if err := SyncBillingStateActions(context.Background(), s.grantSvc, allSyncActions); err != nil {
 		return nil, err
 	}
 
@@ -1173,8 +1374,9 @@ func (s *PurchaseService) generatePurchaseRedeemCodeTx(tx *sql.Tx) (string, erro
 func (s *PurchaseService) getOrderByOrderNoTx(tx *sql.Tx, orderNo string) (*model.PurchaseOrder, error) {
 	order := &model.PurchaseOrder{}
 	err := tx.QueryRow(
-		`SELECT id, order_no, user_id, product_id, subscription_plan_id, duration_days, amount_cny_cent, order_kind, delivery_mode, balance_topup_micros, payment_channel, payment_status,
+		`SELECT id, order_no, user_id, product_id, subscription_plan_id, duration_days, original_amount_cny_cent, discount_cny_cent, amount_cny_cent, order_kind, delivery_mode, balance_topup_micros, payment_channel, payment_status,
 		        fulfillment_status, generated_redeem_code_id, upgrade_source_plan_id, upgrade_source_expires_at, upgrade_credit_cny_cent, upgrade_locked_target_seconds, upgrade_state_token,
+		        coupon_campaign_id, coupon_campaign_name, coupon_code_id, coupon_code_value, coupon_discount_type, coupon_percent_off_bps, coupon_fixed_discount_cny_cent, coupon_max_discount_cny_cent,
 		        manual_settlement_done, alipay_trade_no, alipay_qr_code, alipay_qr_url, expires_at, paid_at, fulfilled_at, failure_reason,
 		        created_at, updated_at
 		   FROM purchase_orders
@@ -1187,6 +1389,8 @@ func (s *PurchaseService) getOrderByOrderNoTx(tx *sql.Tx, orderNo string) (*mode
 		&order.ProductID,
 		&order.SubscriptionPlanID,
 		&order.DurationDays,
+		&order.OriginalAmountCNYCent,
+		&order.DiscountCNYCent,
 		&order.AmountCNYCent,
 		&order.OrderKind,
 		&order.DeliveryMode,
@@ -1200,6 +1404,14 @@ func (s *PurchaseService) getOrderByOrderNoTx(tx *sql.Tx, orderNo string) (*mode
 		&order.UpgradeCreditCNYCent,
 		&order.UpgradeLockedTargetSecs,
 		&order.UpgradeStateToken,
+		&order.CouponCampaignID,
+		&order.CouponCampaignName,
+		&order.CouponCodeID,
+		&order.CouponCodeValue,
+		&order.CouponDiscountType,
+		&order.CouponPercentOffBPS,
+		&order.CouponFixedDiscountCNYCent,
+		&order.CouponMaxDiscountCNYCent,
 		&order.ManualSettlementDone,
 		&order.AlipayTradeNo,
 		&order.AlipayQRCode,
@@ -1237,29 +1449,66 @@ func (s *PurchaseService) updateOrderPrecreateData(orderNo string, paymentResult
 
 func (s *PurchaseService) markOrderFailed(orderNo, reason string) error {
 	db := database.GetDB()
-	_, err := db.Exec(
+	tx, err := db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	now := time.Now().UTC()
+	if _, err := tx.Exec(
 		`UPDATE purchase_orders SET payment_status = ?, failure_reason = ?, updated_at = ? WHERE order_no = ?`,
 		model.PurchasePaymentStatusFailed,
 		strings.TrimSpace(reason),
-		time.Now().UTC(),
+		now,
 		orderNo,
-	)
-	return err
+	); err != nil {
+		return err
+	}
+	order, err := s.getOrderByOrderNoTx(tx, orderNo)
+	if err != nil {
+		return err
+	}
+	if err := s.couponSvc.ReverseUsageForOrderTx(tx, order, now); err != nil {
+		return err
+	}
+	return tx.Commit()
 }
 
 func (s *PurchaseService) markOrderExpired(orderNo string) error {
 	db := database.GetDB()
-	_, err := db.Exec(
+	tx, err := db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	now := time.Now().UTC()
+	result, err := tx.Exec(
 		`UPDATE purchase_orders
 		    SET payment_status = CASE WHEN payment_status = ? THEN ? ELSE payment_status END,
 		        updated_at = ?
 		  WHERE order_no = ?`,
 		model.PurchasePaymentStatusPending,
 		model.PurchasePaymentStatusExpired,
-		time.Now().UTC(),
+		now,
 		orderNo,
 	)
-	return err
+	if err != nil {
+		return err
+	}
+	affected, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if affected > 0 {
+		order, err := s.getOrderByOrderNoTx(tx, orderNo)
+		if err != nil {
+			return err
+		}
+		if err := s.couponSvc.ReverseUsageForOrderTx(tx, order, now); err != nil {
+			return err
+		}
+	}
+	return tx.Commit()
 }
 
 func (s *PurchaseService) markOrderClosed(orderNo, tradeNo string, expired bool) error {
@@ -1268,18 +1517,40 @@ func (s *PurchaseService) markOrderClosed(orderNo, tradeNo string, expired bool)
 	if expired {
 		status = model.PurchasePaymentStatusExpired
 	}
-	_, err := db.Exec(
+	tx, err := db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	now := time.Now().UTC()
+	result, err := tx.Exec(
 		`UPDATE purchase_orders
 		    SET payment_status = ?, alipay_trade_no = CASE WHEN ? <> '' THEN ? ELSE alipay_trade_no END, updated_at = ?
 		  WHERE order_no = ? AND payment_status = ?`,
 		status,
 		tradeNo,
 		tradeNo,
-		time.Now().UTC(),
+		now,
 		orderNo,
 		model.PurchasePaymentStatusPending,
 	)
-	return err
+	if err != nil {
+		return err
+	}
+	affected, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if affected > 0 {
+		order, err := s.getOrderByOrderNoTx(tx, orderNo)
+		if err != nil {
+			return err
+		}
+		if err := s.couponSvc.ReverseUsageForOrderTx(tx, order, now); err != nil {
+			return err
+		}
+	}
+	return tx.Commit()
 }
 
 func (s *PurchaseService) loadPurchasableProduct(productID string) (*model.PurchaseProduct, *model.SubscriptionPlan, *model.PurchaseProductResponse, error) {

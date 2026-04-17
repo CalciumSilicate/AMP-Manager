@@ -43,6 +43,13 @@ func (h *UserHandler) Register(c *gin.Context) {
 		if errors.Is(err, service.ErrUsernameExists) {
 			status = http.StatusConflict
 			msg = err.Error()
+		} else if errors.Is(err, service.ErrInviteDisabled) ||
+			errors.Is(err, service.ErrInviteCodeInvalid) ||
+			errors.Is(err, service.ErrInviteAlreadyBound) ||
+			errors.Is(err, service.ErrInviteSelfNotAllowed) ||
+			errors.Is(err, service.ErrInviteConfigIncomplete) {
+			status = http.StatusBadRequest
+			msg = err.Error()
 		}
 
 		c.JSON(status, gin.H{"error": msg})
