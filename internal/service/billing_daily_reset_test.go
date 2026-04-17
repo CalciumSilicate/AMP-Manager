@@ -122,6 +122,35 @@ func TestGetBillingStateMarksSlidingDailyResetUnsupported(t *testing.T) {
 	}
 }
 
+func TestGetBillingStateHidesDailyResetWhenDisabled(t *testing.T) {
+	db := setupBillingDailyResetTestDB(t)
+	svc := NewBillingService()
+	now := time.Now().UTC()
+	expiresAt := now.Add(5 * 24 * time.Hour).Truncate(time.Second)
+	startsAt := now.Add(-48 * time.Hour).Truncate(time.Second)
+
+	mustExecBillingService(t, db, `INSERT INTO system_config (key, value, updated_at) VALUES ('billing_daily_reset_enabled', 'false', ?)`, now)
+	mustExecBillingService(t, db, `INSERT INTO users (id, username, password_hash, is_admin, balance_micros) VALUES (?, 'cathy', 'x', 0, 0)`, "user-3")
+	mustExecBillingService(t, db, `INSERT INTO subscription_plans (id, name) VALUES (?, 'fixed')`, "plan-3")
+	mustExecBillingService(t, db, `INSERT INTO subscription_plan_limits (id, plan_id, limit_type, window_mode, limit_micros, fixed_reset_minute, created_at, updated_at) VALUES (?, ?, 'daily', 'fixed', 100000000, 0, ?, ?)`, "limit-daily-fixed", "plan-3", now, now)
+	mustExecBillingService(t, db, `INSERT INTO user_subscriptions (id, user_id, plan_id, starts_at, expires_at, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, 'active', ?, ?)`, "sub-3", "user-3", "plan-3", startsAt, expiresAt, now, now)
+	mustExecBillingService(t, db, `INSERT INTO billing_events (id, user_id, user_subscription_id, source, event_type, amount_micros, created_at) VALUES (?, ?, ?, 'subscription', 'charge', 95000000, ?)`, "event-daily-fixed", "user-3", "sub-3", now.Add(-time.Hour))
+
+	state, err := svc.GetBillingState("user-3")
+	if err != nil {
+		t.Fatalf("GetBillingState returned error: %v", err)
+	}
+	if state.DailyReset.Supported {
+		t.Fatalf("daily reset should be hidden when disabled, got %+v", state.DailyReset)
+	}
+	if state.DailyReset.Allowed {
+		t.Fatalf("daily reset should not be allowed when disabled, got %+v", state.DailyReset)
+	}
+	if state.DailyReset.Message != "系统未启用今日计费重置" {
+		t.Fatalf("unexpected daily reset message: %q", state.DailyReset.Message)
+	}
+}
+
 func setupBillingDailyResetTestDB(t *testing.T) *sql.DB {
 	t.Helper()
 

@@ -161,13 +161,15 @@ type BillingRuntimeStatsResponse struct {
 }
 
 type BillingDailyResetConfigResponse struct {
-	MinRemainingDays      int `json:"minRemainingDays"`
-	UsageThresholdPercent int `json:"usageThresholdPercent"`
-	DailyLimit            int `json:"dailyLimit"`
+	Enabled               bool `json:"enabled"`
+	MinRemainingDays      int  `json:"minRemainingDays"`
+	UsageThresholdPercent int  `json:"usageThresholdPercent"`
+	DailyLimit            int  `json:"dailyLimit"`
 }
 
 type BillingDailyResetConfigRequest struct {
-	MinRemainingDays      int `json:"minRemainingDays"`
-	UsageThresholdPercent int `json:"usageThresholdPercent"`
-	DailyLimit            int `json:"dailyLimit"`
+	Enabled               bool `json:"enabled"`
+	MinRemainingDays      int  `json:"minRemainingDays"`
+	UsageThresholdPercent int  `json:"usageThresholdPercent"`
+	DailyLimit            int  `json:"dailyLimit"`
 }

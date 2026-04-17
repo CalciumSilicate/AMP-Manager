@@ -343,8 +343,9 @@ export default function Overview() {
           initial={{ opacity: 0, y: 30, scale: 0.95 }}
           animate={{ opacity: 1, y: 0, scale: 1 }}
           transition={{ type: 'spring', bounce: 0.25, duration: 0.7, delay: 0.15 }}
+          className="h-full"
         >
-          <Card>
+          <Card className="flex h-full flex-col">
             <CardHeader className="pb-2">
               <div className="flex items-center justify-between gap-3">
                 <div className="min-w-0">
@@ -366,26 +367,28 @@ export default function Overview() {
                       <CreditCard className="mr-2 h-4 w-4" />
                       购买订阅
                     </Button>
-                    <Tooltip>
-                      <TooltipTrigger asChild>
-                        <span className="inline-flex">
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            className="h-9 rounded-md px-3"
-                            onClick={() => void handleResetBillingDaily()}
-                            disabled={!billingState.dailyReset.allowed || billingResetting}
-                          >
-                            <RotateCcw className={`mr-2 h-4 w-4 ${billingResetting ? 'animate-spin' : ''}`} />
-                            重置今日计费
-                          </Button>
-                        </span>
-                      </TooltipTrigger>
-                      <TooltipContent side="bottom" className="space-y-1 border bg-popover px-3 py-2 text-xs text-popover-foreground shadow-md">
-                        <p>{billingState.dailyReset.message}</p>
-                        <p>今日已重置 {billingState.dailyReset.usedToday}/{billingState.dailyReset.dailyLimit}</p>
-                      </TooltipContent>
-                    </Tooltip>
+                    {billingState.dailyReset.supported ? (
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <span className="inline-flex">
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              className="h-9 rounded-md px-3"
+                              onClick={() => void handleResetBillingDaily()}
+                              disabled={!billingState.dailyReset.allowed || billingResetting}
+                            >
+                              <RotateCcw className={`mr-2 h-4 w-4 ${billingResetting ? 'animate-spin' : ''}`} />
+                              重置今日计费
+                            </Button>
+                          </span>
+                        </TooltipTrigger>
+                        <TooltipContent side="bottom" className="space-y-1 border bg-popover px-3 py-2 text-xs text-popover-foreground shadow-md">
+                          <p>{billingState.dailyReset.message}</p>
+                          <p>今日已重置 {billingState.dailyReset.usedToday}/{billingState.dailyReset.dailyLimit}</p>
+                        </TooltipContent>
+                      </Tooltip>
+                    ) : null}
                     <Popover open={priorityPopoverOpen} onOpenChange={setPriorityPopoverOpen}>
                       <PopoverTrigger asChild>
                         <Button variant="outline" size="sm" className="h-9 rounded-md px-3">
@@ -451,7 +454,7 @@ export default function Overview() {
                 )}
               </div>
             </CardHeader>
-            <CardContent className="space-y-2.5">
+            <CardContent className="flex-1 space-y-2.5">
               {billingLoading ? (
                 <div className="space-y-2.5">
                   <div className="grid gap-4 border-b pb-2.5 sm:grid-cols-[minmax(0,1fr)_200px]">
@@ -571,8 +574,9 @@ export default function Overview() {
           initial={{ opacity: 0, y: 30, scale: 0.97 }}
           animate={{ opacity: 1, y: 0, scale: 1 }}
           transition={{ type: 'spring', bounce: 0.25, duration: 0.7, delay: 0.22 }}
+          className="h-full"
         >
-          <Card className="h-full">
+          <Card className="flex h-full flex-col">
             <CardHeader className="pb-3">
               <CardTitle className="text-base flex items-center gap-2">
                 <DollarSign className="h-4 w-4 text-emerald-500" />
@@ -580,7 +584,7 @@ export default function Overview() {
               </CardTitle>
               <CardDescription>近 14 天成本变化 (USD)</CardDescription>
             </CardHeader>
-            <CardContent>
+            <CardContent className="flex-1">
               {trendData.length === 0 ? (
                 <p className="text-center text-muted-foreground py-12">暂无数据</p>
               ) : (

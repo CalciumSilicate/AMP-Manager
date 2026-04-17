@@ -400,6 +400,7 @@ export default function SystemSettings({
     setBillingDailyResetSaving(true)
     try {
       const result = await updateBillingDailyResetConfig({
+        enabled: billingDailyResetConfig.enabled,
         minRemainingDays: Math.max(2, Math.round(billingDailyResetConfig.minRemainingDays || 2)),
         usageThresholdPercent: Math.min(100, Math.max(0, Math.round(billingDailyResetConfig.usageThresholdPercent || 0))),
         dailyLimit: Math.max(0, Math.round(billingDailyResetConfig.dailyLimit || 0)),
@@ -871,6 +872,17 @@ export default function SystemSettings({
                 <CardContent className="space-y-4">
                   {billingDailyResetConfig ? (
                     <>
+                      <div className="flex items-center justify-between rounded-lg border px-4 py-3">
+                        <div className="space-y-1">
+                          <Label htmlFor="billingDailyResetEnabled">启用计费重置</Label>
+                          <p className="text-xs text-muted-foreground">关闭后概览页不显示“重置今日计费”按钮，接口也会拒绝重置。</p>
+                        </div>
+                        <Switch
+                          id="billingDailyResetEnabled"
+                          checked={billingDailyResetConfig.enabled}
+                          onCheckedChange={(checked) => setBillingDailyResetConfig({ ...billingDailyResetConfig, enabled: checked })}
+                        />
+                      </div>
                       <div className="grid gap-4 md:grid-cols-3">
                         <div className="space-y-2">
                           <Label htmlFor="billingDailyResetMinRemainingDays">重置前最少时长 (天)</Label>
@@ -907,7 +919,7 @@ export default function SystemSettings({
                             value={billingDailyResetConfig.dailyLimit}
                             onChange={(e) => handleBillingDailyResetConfigChange('dailyLimit', parseInt(e.target.value) || 0)}
                           />
-                          <p className="text-xs text-muted-foreground">填 0 表示完全禁用今日计费重置。</p>
+                          <p className="text-xs text-muted-foreground">填 0 表示启用状态下也不允许任何重置。</p>
                         </div>
                       </div>
                       <div className="flex justify-end">

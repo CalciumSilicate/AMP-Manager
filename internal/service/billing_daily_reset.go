@@ -208,6 +208,11 @@ func (s *BillingService) evaluateBillingDailyReset(
 		now:          now,
 	}
 
+	if !config.Enabled {
+		evaluation.state.Message = "系统未启用今日计费重置"
+		return evaluation, nil
+	}
+
 	if subscription == nil {
 		evaluation.state.Message = "当前没有可重置的活跃订阅"
 		return evaluation, nil
@@ -230,7 +235,7 @@ func (s *BillingService) evaluateBillingDailyReset(
 	}
 
 	if config.DailyLimit == 0 {
-		evaluation.state.Message = "系统未启用今日计费重置"
+		evaluation.state.Message = "当前配置不允许重置今日计费"
 		return evaluation, nil
 	}
 
@@ -263,11 +268,14 @@ func (s *BillingService) revalidateBillingDailyReset(
 	if evaluation.window == nil {
 		return newBillingDailyResetRuleError("当前订阅没有固定日额度")
 	}
+	if !evaluation.config.Enabled {
+		return newBillingDailyResetRuleError("系统未启用今日计费重置")
+	}
 	if sub.ExpiresAt == nil {
 		return newBillingDailyResetRuleError("当前订阅未设置到期时间，无法重置")
 	}
 	if evaluation.config.DailyLimit == 0 {
-		return newBillingDailyResetRuleError("系统未启用今日计费重置")
+		return newBillingDailyResetRuleError("当前配置不允许重置今日计费")
 	}
 	if sub.ExpiresAt.UTC().Sub(time.Now().UTC()) <= time.Duration(evaluation.config.MinRemainingDays)*24*time.Hour {
 		return newBillingDailyResetRuleError(fmt.Sprintf("剩余时长需超过 %d 天", evaluation.config.MinRemainingDays))

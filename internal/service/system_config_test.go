@@ -140,6 +140,9 @@ func TestSystemConfigServiceBillingDailyResetDefaultsAndPersistence(t *testing.T
 	if err != nil {
 		t.Fatalf("GetBillingDailyResetConfig returned error: %v", err)
 	}
+	if defaultCfg.Enabled != defaultBillingDailyResetEnabled {
+		t.Fatalf("default enabled mismatch: got %v want %v", defaultCfg.Enabled, defaultBillingDailyResetEnabled)
+	}
 	if defaultCfg.MinRemainingDays != defaultBillingDailyResetMinDays {
 		t.Fatalf("default minRemainingDays mismatch: got %d want %d", defaultCfg.MinRemainingDays, defaultBillingDailyResetMinDays)
 	}
@@ -151,6 +154,7 @@ func TestSystemConfigServiceBillingDailyResetDefaultsAndPersistence(t *testing.T
 	}
 
 	updatedCfg, err := svc.SetBillingDailyResetConfig(model.BillingDailyResetConfigRequest{
+		Enabled:               false,
 		MinRemainingDays:      5,
 		UsageThresholdPercent: 95,
 		DailyLimit:            1,
@@ -158,7 +162,7 @@ func TestSystemConfigServiceBillingDailyResetDefaultsAndPersistence(t *testing.T
 	if err != nil {
 		t.Fatalf("SetBillingDailyResetConfig returned error: %v", err)
 	}
-	if updatedCfg.MinRemainingDays != 5 || updatedCfg.UsageThresholdPercent != 95 || updatedCfg.DailyLimit != 1 {
+	if updatedCfg.Enabled || updatedCfg.MinRemainingDays != 5 || updatedCfg.UsageThresholdPercent != 95 || updatedCfg.DailyLimit != 1 {
 		t.Fatalf("unexpected updated billing daily reset config: %+v", updatedCfg)
 	}
 

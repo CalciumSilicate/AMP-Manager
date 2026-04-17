@@ -28,6 +28,7 @@ const (
 	cacheTTLOverrideKey                  = "cache_ttl_override"
 	siteNameKey                          = "site_name"
 	allowAmpProxySettingsKey             = "allow_amp_proxy_settings"
+	billingDailyResetEnabledKey          = "billing_daily_reset_enabled"
 	billingDailyResetMinDaysKey          = "billing_daily_reset_min_remaining_days"
 	billingDailyResetThresholdPctKey     = "billing_daily_reset_usage_threshold_percent"
 	billingDailyResetDailyLimitKey       = "billing_daily_reset_daily_limit"
@@ -44,6 +45,7 @@ const (
 	siteTimeZoneKey                      = "site_time_zone"
 	defaultSiteTimeZone                  = "Asia/Shanghai"
 	defaultAmpProxySettingsPolicy        = model.AmpProxySettingsPolicyAll
+	defaultBillingDailyResetEnabled      = true
 	defaultBillingDailyResetMinDays      = 2
 	defaultBillingDailyResetThresholdPct = 90
 	defaultBillingDailyResetDailyLimit   = 2
@@ -384,6 +386,7 @@ func (s *SystemConfigService) GetSiteLocation() (*time.Location, error) {
 
 func defaultBillingDailyResetConfig() model.BillingDailyResetConfigResponse {
 	return model.BillingDailyResetConfigResponse{
+		Enabled:               defaultBillingDailyResetEnabled,
 		MinRemainingDays:      defaultBillingDailyResetMinDays,
 		UsageThresholdPercent: defaultBillingDailyResetThresholdPct,
 		DailyLimit:            defaultBillingDailyResetDailyLimit,
@@ -410,7 +413,15 @@ func normalizeBillingDailyResetConfig(cfg model.BillingDailyResetConfigResponse)
 func (s *SystemConfigService) GetBillingDailyResetConfig() (model.BillingDailyResetConfigResponse, error) {
 	resp := defaultBillingDailyResetConfig()
 
-	value, err := s.repo.Get(billingDailyResetMinDaysKey)
+	value, err := s.repo.Get(billingDailyResetEnabledKey)
+	if err != nil {
+		return resp, err
+	}
+	if value != "" {
+		resp.Enabled = value != "false"
+	}
+
+	value, err = s.repo.Get(billingDailyResetMinDaysKey)
 	if err != nil {
 		return resp, err
 	}
@@ -445,11 +456,20 @@ func (s *SystemConfigService) GetBillingDailyResetConfig() (model.BillingDailyRe
 
 func (s *SystemConfigService) SetBillingDailyResetConfig(req model.BillingDailyResetConfigRequest) (model.BillingDailyResetConfigResponse, error) {
 	resp := normalizeBillingDailyResetConfig(model.BillingDailyResetConfigResponse{
+		Enabled:               req.Enabled,
 		MinRemainingDays:      req.MinRemainingDays,
 		UsageThresholdPercent: req.UsageThresholdPercent,
 		DailyLimit:            req.DailyLimit,
 	})
 	defaults := defaultBillingDailyResetConfig()
+
+	if resp.Enabled == defaults.Enabled {
+		if err := s.repo.Delete(billingDailyResetEnabledKey); err != nil {
+			return model.BillingDailyResetConfigResponse{}, err
+		}
+	} else if err := s.repo.Set(billingDailyResetEnabledKey, boolToConfigString(resp.Enabled)); err != nil {
+		return model.BillingDailyResetConfigResponse{}, err
+	}
 
 	if resp.MinRemainingDays == defaults.MinRemainingDays {
 		if err := s.repo.Delete(billingDailyResetMinDaysKey); err != nil {

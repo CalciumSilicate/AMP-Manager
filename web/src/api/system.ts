@@ -396,6 +396,7 @@ export async function getSiteConfig(): Promise<SiteConfig> {
 }
 
 export interface BillingDailyResetConfig {
+  enabled: boolean
   minRemainingDays: number
   usageThresholdPercent: number
   dailyLimit: number
