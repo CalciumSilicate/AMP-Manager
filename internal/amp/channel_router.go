@@ -207,6 +207,19 @@ func sanitizeURL(rawURL string) string {
 
 func ChannelRouterMiddleware() gin.HandlerFunc {
 	return func(c *gin.Context) {
+		if payload, err := ensureRequestBody(c); err == nil {
+			updatedHeaders, updatedBody, filterErr := ApplyGlobalGuardRequestFilters(c.Request.Header, payload.Body)
+			if filterErr != nil {
+				log.Warnf("channel router: global guard filter failed: %v", filterErr)
+			} else {
+				c.Request.Header = updatedHeaders
+				payload.Body = updatedBody
+				payload.JSON = nil
+				payload.jsonParsed = false
+				restoreRequestBody(c.Request, updatedBody)
+			}
+		}
+
 		modelName := extractModelName(c)
 		if modelName == "" {
 			c.Next()
@@ -317,7 +330,8 @@ func extractModelName(c *gin.Context) string {
 func ChannelProxyHandler() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		// Security guard: ensure authentication was performed via proxy middleware
-		if GetProxyConfig(c.Request.Context()) == nil {
+		proxyCfg := GetProxyConfig(c.Request.Context())
+		if proxyCfg == nil {
 			c.JSON(http.StatusUnauthorized, gin.H{
 				"error": "authentication required",
 			})
@@ -368,9 +382,9 @@ func ChannelProxyHandler() gin.HandlerFunc {
 		isStreaming := false
 		// Some clients send JSON bodies with chunked transfer encoding (Content-Length = -1).
 		// We still need to buffer the body so /v1/responses SSE retry can replay it.
-		if c.Request.Body != nil {
-			requestPayload, err := ensureRequestBody(c)
-			if err != nil {
+			if c.Request.Body != nil {
+				requestPayload, err := ensureRequestBody(c)
+				if err != nil {
 				if isRequestBodyTooLarge(err) {
 					log.Warnf("channel proxy: request body too large: %v", err)
 					c.JSON(http.StatusRequestEntityTooLarge, NewStandardError(http.StatusRequestEntityTooLarge, "request body too large"))
@@ -379,13 +393,26 @@ func ChannelProxyHandler() gin.HandlerFunc {
 				log.Errorf("channel proxy: failed to read request body: %v", err)
 				c.JSON(http.StatusInternalServerError, NewStandardError(http.StatusInternalServerError, "failed to read request body"))
 				return
-			}
-			bodyBytes := requestPayload.Body
-			originalRequestBody = bodyBytes
-			convertedBody = bodyBytes
+				}
+				bodyBytes := requestPayload.Body
+				originalRequestBody = bodyBytes
+				convertedBody = bodyBytes
 
-			// Check if streaming without forcing a full JSON parse.
-			if stream := gjson.GetBytes(bodyBytes, "stream"); stream.Exists() {
+				filteredHeaders, filteredBody, filterErr := ApplyBoundGuardRequestFilters(channel.ID, proxyCfg.GroupIDs, c.Request.Header, bodyBytes)
+				if filterErr != nil {
+					log.Warnf("channel proxy: bound guard filter failed: %v", filterErr)
+				} else {
+					c.Request.Header = filteredHeaders
+					bodyBytes = filteredBody
+					requestPayload.Body = filteredBody
+					requestPayload.JSON = nil
+					requestPayload.jsonParsed = false
+					originalRequestBody = filteredBody
+					convertedBody = filteredBody
+				}
+
+				// Check if streaming without forcing a full JSON parse.
+				if stream := gjson.GetBytes(bodyBytes, "stream"); stream.Exists() {
 				if stream.Type == gjson.True || stream.Type == gjson.False {
 					clientWantsStream = stream.Bool()
 					isStreaming = clientWantsStream
@@ -403,12 +430,12 @@ func ChannelProxyHandler() gin.HandlerFunc {
 			}
 
 			// Apply outgoing format filters (e.g., Claude system string to array)
-			filteredBody, filterErr := filters.ApplyFilters(outgoingFormat, convertedBody)
-			if filterErr != nil {
-				log.Warnf("channel proxy: filter application failed: %v, using unfiltered body", filterErr)
-				filteredBody = convertedBody
-			}
-			convertedBody = filteredBody
+				translatedFilteredBody, filterErr := filters.ApplyFilters(outgoingFormat, convertedBody)
+				if filterErr != nil {
+					log.Warnf("channel proxy: filter application failed: %v, using unfiltered body", filterErr)
+					translatedFilteredBody = convertedBody
+				}
+				convertedBody = translatedFilteredBody
 
 			// CopilotAPI mode: save X-Amp-Thread-Id for x-session-id injection in Director.
 			// Also normalize user message string content → array blocks so copilot-api's
@@ -431,10 +458,8 @@ func ChannelProxyHandler() gin.HandlerFunc {
 					convertedBody = newBody
 				}
 
-				if cfg := GetProxyConfig(c.Request.Context()); cfg != nil {
-					if newBody, injected := ensureClaudeMetadataUserID(convertedBody, c.Request.Header.Get("User-Agent"), channel.APIKey); injected {
-						convertedBody = newBody
-					}
+				if newBody, injected := ensureClaudeMetadataUserID(convertedBody, c.Request.Header.Get("User-Agent"), channel.APIKey); injected {
+					convertedBody = newBody
 				}
 
 				// Apply system prompt simulation: move original system to messages, replace with official Claude Code system prompt
@@ -460,10 +485,10 @@ func ChannelProxyHandler() gin.HandlerFunc {
 				log.Debugf("channel proxy: applied S2T traditional Chinese conversion to request body")
 			}
 
-			if !bytes.Equal(convertedBody, bodyBytes) {
-				c.Request.Body = io.NopCloser(bytes.NewReader(convertedBody))
-				c.Request.ContentLength = int64(len(convertedBody))
-				c.Request.Header.Set("Content-Length", fmt.Sprintf("%d", len(convertedBody)))
+				if !bytes.Equal(convertedBody, bodyBytes) {
+					c.Request.Body = io.NopCloser(bytes.NewReader(convertedBody))
+					c.Request.ContentLength = int64(len(convertedBody))
+					c.Request.Header.Set("Content-Length", fmt.Sprintf("%d", len(convertedBody)))
 			} else {
 				c.Request.Body = io.NopCloser(bytes.NewReader(bodyBytes))
 			}
@@ -621,6 +646,24 @@ func ChannelProxyHandler() gin.HandlerFunc {
 				// CopilotAPI mode: X-Amp-Thread-Id → x-session-id
 				if ampInfo := GetAmpSubagentInfo(req.Context()); ampInfo != nil && ampInfo.ThreadID != "" {
 					req.Header.Set("x-session-id", ampInfo.ThreadID)
+				}
+
+				if transInfo := GetTranslationInfo(req.Context()); transInfo != nil {
+					groupIDs := []string(nil)
+					if cfg := GetProxyConfig(req.Context()); cfg != nil {
+						groupIDs = cfg.GroupIDs
+					}
+					filteredHeaders, filteredBody, filterErr := ApplyFinalRequestFilters(channel.ID, groupIDs, req.Header, transInfo.ConvertedBody)
+					if filterErr != nil {
+						log.Warnf("channel proxy: final request filter failed: %v", filterErr)
+					} else {
+						req.Header = filteredHeaders
+						transInfo.ConvertedBody = filteredBody
+						req.Body = io.NopCloser(bytes.NewReader(filteredBody))
+						req.ContentLength = int64(len(filteredBody))
+						req.TransferEncoding = nil
+						req.Header.Set("Content-Length", strconv.Itoa(len(filteredBody)))
+					}
 				}
 
 				// Capture translated request headers after all Director modifications
@@ -896,17 +939,21 @@ func ChannelProxyHandler() gin.HandlerFunc {
 				}
 				// 使用清理后的错误消息，防止泄露敏感信息
 				safeMsg := SanitizeError(err)
-				if statusCode != 499 {
-					message = message + ": " + safeMsg
-				}
-				if matched := MatchErrorRule(requestFormat, statusCode, []byte(safeMsg)); matched != nil {
-					statusCode = matched.Rule.OverrideStatus
-					message = matched.Rule.OverrideMessage
-				}
-				body := BuildProtocolErrorResponseBody(requestTypeFromFormat(requestFormat), statusCode, message)
-				if IsRequestDetailCaptureEnabled(req.Context()) && requestID != "" {
-					StoreErrorResponseDetail(requestID, statusCode, body)
-				}
+					if statusCode != 499 {
+						message = message + ": " + safeMsg
+					}
+					var overrideBody json.RawMessage
+					if matched := MatchErrorRule(requestFormat, statusCode, []byte(safeMsg)); matched != nil {
+						if matched.Rule.OverrideStatusCode != nil {
+							statusCode = *matched.Rule.OverrideStatusCode
+						}
+						message = matched.Rule.OverrideMessage
+						overrideBody = matched.Rule.OverrideResponse
+					}
+					body := BuildProtocolErrorResponseBodyWithOverride(requestTypeFromFormat(requestFormat), statusCode, message, overrideBody)
+					if IsRequestDetailCaptureEnabled(req.Context()) && requestID != "" {
+						StoreErrorResponseDetail(requestID, statusCode, body)
+					}
 				rw.Header().Set("Content-Type", "application/json")
 				rw.WriteHeader(statusCode)
 				_, _ = rw.Write(body)
@@ -1247,10 +1294,14 @@ func normalizeNonStreamingErrorResponse(resp *http.Response, transInfo *Translat
 	}
 
 	if matched := MatchErrorRule(incomingFormat, resp.StatusCode, body); matched != nil {
-		resp.StatusCode = matched.Rule.OverrideStatus
-		resp.Status = fmt.Sprintf("%d %s", matched.Rule.OverrideStatus, http.StatusText(matched.Rule.OverrideStatus))
+		statusCode := resp.StatusCode
+		if matched.Rule.OverrideStatusCode != nil {
+			statusCode = *matched.Rule.OverrideStatusCode
+		}
+		resp.StatusCode = statusCode
+		resp.Status = fmt.Sprintf("%d %s", statusCode, http.StatusText(statusCode))
 		resp.Header.Set("Content-Type", "application/json")
-		return BuildProtocolErrorResponseBody(matched.RequestType, matched.Rule.OverrideStatus, matched.Rule.OverrideMessage), true
+		return BuildProtocolErrorResponseBodyWithOverride(matched.RequestType, statusCode, matched.Rule.OverrideMessage, matched.Rule.OverrideResponse), true
 	}
 
 	if resp.StatusCode >= 200 && resp.StatusCode < 300 {

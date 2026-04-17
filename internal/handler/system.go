@@ -166,7 +166,7 @@ func (h *SystemHandler) UpdateSiteConfig(c *gin.Context) {
 }
 
 func (h *SystemHandler) GetErrorRules(c *gin.Context) {
-	rules, err := service.NewSystemConfigService().GetErrorRules()
+	rules, err := service.NewErrorRuleService().List()
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "获取错误规则失败"})
 		return
@@ -175,20 +175,7 @@ func (h *SystemHandler) GetErrorRules(c *gin.Context) {
 }
 
 func (h *SystemHandler) UpdateErrorRules(c *gin.Context) {
-	var req model.ErrorRuleListRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "参数错误"})
-		return
-	}
-
-	rules, err := service.NewSystemConfigService().SetErrorRules(req.Rules)
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-		return
-	}
-
-	amp.SetErrorRules(rules)
-	c.JSON(http.StatusOK, gin.H{"message": "错误规则已更新", "rules": rules})
+	c.JSON(http.StatusMethodNotAllowed, gin.H{"error": "请改用错误规则 CRUD 接口"})
 }
 
 func maskDatabaseURL(raw string) string {

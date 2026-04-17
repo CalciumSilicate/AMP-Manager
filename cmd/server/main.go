@@ -43,6 +43,17 @@ func main() {
 	defer database.Close()
 
 	sysConfigService := service.NewSystemConfigService()
+	if err := service.NewErrorRuleService().SyncDefaultErrorRules(); err != nil {
+		log.Printf("warning: error rule sync failed at startup: %v", err)
+	}
+	amp.StartErrorRuleRuntime()
+	if err := amp.ReloadErrorRules(); err != nil {
+		log.Printf("warning: error rule runtime reload failed at startup: %v", err)
+	}
+	amp.StartRequestFilterRuntime()
+	if err := amp.ReloadRequestFilters(); err != nil {
+		log.Printf("warning: request filter runtime reload failed at startup: %v", err)
+	}
 	sysConfigService.ReloadBillingRuntimeFromSystemConfigBestEffort("server startup")
 	middleware.LoadUserPanelRateLimitConfigBestEffort("server startup")
 	defer billingstate.Close()
