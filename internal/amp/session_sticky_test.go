@@ -26,6 +26,21 @@ func TestResolveSessionIDPrefersExplicitHeader(t *testing.T) {
 	}
 }
 
+func TestResolveSessionIDPrefersSessionUnderscoreHeaderAboveOthers(t *testing.T) {
+	StopSessionStickyRuntime()
+	defer StopSessionStickyRuntime()
+
+	headers := http.Header{}
+	headers.Set("Session_id", "sess-codex")
+	headers.Set("X-Session-Id", "sess-x-session")
+	body := []byte(`{"session_id":"sess-body","messages":[{"content":"hello"}]}`)
+
+	got := resolveSessionIDFromHeadersAndBody(context.Background(), headers, body, "", "key-1", "1.2.3.4")
+	if got != "sess-codex" {
+		t.Fatalf("session id = %q, want Session_id header", got)
+	}
+}
+
 func TestResolveSessionIDReusesFingerprintSeed(t *testing.T) {
 	mr := miniredis.RunT(t)
 	StopSessionStickyRuntime()

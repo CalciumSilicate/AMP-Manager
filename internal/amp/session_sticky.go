@@ -379,6 +379,9 @@ func requestBodyBytes(c *gin.Context) []byte {
 }
 
 func resolveSessionIDFromHeadersAndBody(ctx context.Context, headers http.Header, body []byte, fallback string, apiKeyID string, clientIP string) string {
+	if sessionID := firstNonEmptyHeader(headers, "Session_id", "session_id"); sessionID != "" {
+		return sessionID
+	}
 	if sessionID := firstNonEmptyHeader(headers, "X-Session-Id", "x-session-id"); sessionID != "" {
 		return sessionID
 	}
