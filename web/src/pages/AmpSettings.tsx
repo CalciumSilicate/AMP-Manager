@@ -240,40 +240,39 @@ export default function AmpSettings() {
         message={message}
       >
         {activeTab === 'route-mapping' ? (
-          <Card>
-            <CardHeader>
-              <CardTitle>路由映射</CardTitle>
-              <CardDescription>配置模型映射、目标渠道和规则扩展。</CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="flex items-start justify-between gap-4 rounded-md border border-input px-4 py-3">
-                <div className="space-y-1">
-                  <Label htmlFor="routeMappingsEnabled">启用路由映射</Label>
-                  <p className="text-sm text-muted-foreground">关闭后保留配置，但不再改写模型或绑定目标渠道。</p>
+          <div className="space-y-4">
+            <div className="flex items-center justify-between gap-4 rounded-md border border-input bg-background px-4 py-3">
+              <Label htmlFor="routeMappingsEnabled">启用路由映射</Label>
+              <Switch
+                id="routeMappingsEnabled"
+                checked={draft.routeMappingsEnabled}
+                onCheckedChange={(routeMappingsEnabled) => setDraft((current) => ({ ...current, routeMappingsEnabled }))}
+              />
+            </div>
+
+            <Card>
+              <CardHeader>
+                <CardTitle>路由映射</CardTitle>
+                <CardDescription>配置模型映射、目标渠道和规则扩展。</CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                {draft.nativeMode ? (
+                  <Alert className="border-amber-200 bg-amber-50 text-amber-800">
+                    <AlertDescription>原生模式开启时路由映射不生效。</AlertDescription>
+                  </Alert>
+                ) : null}
+
+                <div className={draft.nativeMode ? 'opacity-50 pointer-events-none' : ''}>
+                  <ModelMappingEditor mappings={draft.modelMappings} onChange={handleRouteMappingChange} />
                 </div>
-                <Switch
-                  id="routeMappingsEnabled"
-                  checked={draft.routeMappingsEnabled}
-                  onCheckedChange={(routeMappingsEnabled) => setDraft((current) => ({ ...current, routeMappingsEnabled }))}
-                />
-              </div>
-
-              {draft.nativeMode ? (
-                <Alert className="border-amber-200 bg-amber-50 text-amber-800">
-                  <AlertDescription>原生模式开启时路由映射不生效。</AlertDescription>
-                </Alert>
-              ) : null}
-
-              <div className={draft.nativeMode ? 'opacity-50 pointer-events-none' : ''}>
-                <ModelMappingEditor mappings={draft.modelMappings} onChange={handleRouteMappingChange} />
-              </div>
-            </CardContent>
-            <CardFooter className="justify-end">
-              <Button type="button" onClick={() => void handleSaveRouteMappings()} disabled={routeSaving}>
-                {routeSaving ? '保存中...' : '保存路由设置'}
-              </Button>
-            </CardFooter>
-          </Card>
+              </CardContent>
+              <CardFooter className="justify-end">
+                <Button type="button" onClick={() => void handleSaveRouteMappings()} disabled={routeSaving}>
+                  {routeSaving ? '保存中...' : '保存路由设置'}
+                </Button>
+              </CardFooter>
+            </Card>
+          </div>
         ) : (
           <div className="space-y-6">
             <Card>
