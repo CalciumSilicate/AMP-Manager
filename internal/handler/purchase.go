@@ -54,14 +54,22 @@ func (h *PurchaseHandler) CreateOrder(c *gin.Context) {
 		return
 	}
 
-	order, err := h.purchaseService.CreateOrder(c.Request.Context(), userID, username, req.ProductID)
+	if req.DeliveryMode == "" {
+		req.DeliveryMode = model.PurchaseDeliveryModeAccount
+	}
+
+	order, err := h.purchaseService.CreateOrder(c.Request.Context(), userID, username, req.ProductID, req.DeliveryMode)
 	if err != nil {
 		switch {
 		case errors.Is(err, service.ErrPurchaseDisabled),
 			errors.Is(err, service.ErrPaymentUnavailable),
 			errors.Is(err, service.ErrPurchaseProductDisabled),
 			errors.Is(err, service.ErrDifferentPlanActive),
-			errors.Is(err, service.ErrPermanentSubscription):
+			errors.Is(err, service.ErrPermanentSubscription),
+			errors.Is(err, service.ErrPendingSubscriptionOrder),
+			errors.Is(err, service.ErrDowngradeNotAllowed),
+			errors.Is(err, service.ErrSameRankPlanSwitch),
+			errors.Is(err, service.ErrUpgradeValuationMissing):
 			c.JSON(http.StatusConflict, gin.H{"error": err.Error()})
 		case errors.Is(err, repository.ErrPurchaseProductNotFound),
 			errors.Is(err, service.ErrPlanNotFound):

@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react'
 import {
   createRedeemBatch,
   createRedeemCampaign,
+  createManualRedeemCode,
   deleteRedeemCampaign,
   downloadRedeemBatchCSV,
   listRedeemBatches,
@@ -16,6 +17,7 @@ import {
   type RedeemCampaign,
   type RedeemCampaignRequest,
   type RedeemCode,
+  type ManualRedeemCodeRequest,
   type RedeemRedemption,
 } from '@/api/redeem'
 import { getPlans, type SubscriptionPlanResponse } from '@/api/subscription'
@@ -69,6 +71,17 @@ const initialBatchForm = (): RedeemBatchRequest => ({
   prefix: '',
   codeCount: 50,
   codeLength: 10,
+})
+
+const initialManualCodeForm = (): ManualRedeemCodeRequest => ({
+  campaignId: '',
+  codeValue: '',
+  subscriptionPlanId: '',
+  subscriptionDurationDays: 30,
+  balanceMicros: 0,
+  perUserLimit: 1,
+  maxRedemptions: 1,
+  enabled: true,
 })
 
 function microsToUsdLabel(value: number): string {
@@ -164,6 +177,10 @@ export default function RedeemManagement() {
   const [batchForm, setBatchForm] = useState<RedeemBatchRequest>(initialBatchForm())
   const [savingBatch, setSavingBatch] = useState(false)
   const [latestBatchCodes, setLatestBatchCodes] = useState<string[]>([])
+  const [manualCodeDialogOpen, setManualCodeDialogOpen] = useState(false)
+  const [manualCodeForm, setManualCodeForm] = useState<ManualRedeemCodeRequest>(initialManualCodeForm())
+  const [manualCodeBalanceUsd, setManualCodeBalanceUsd] = useState('')
+  const [savingManualCode, setSavingManualCode] = useState(false)
 
   const [codeFilters, setCodeFilters] = useState({
     campaignId: 'all',
@@ -319,6 +336,44 @@ export default function RedeemManagement() {
       showMessage('error', error instanceof Error ? error.message : '生成失败')
     } finally {
       setSavingBatch(false)
+    }
+  }
+
+  const handleOpenCreateManualCode = () => {
+    setManualCodeForm(initialManualCodeForm())
+    setManualCodeBalanceUsd('')
+    setManualCodeDialogOpen(true)
+  }
+
+  const handleSaveManualCode = async () => {
+    if (!manualCodeForm.codeValue.trim()) {
+      showMessage('error', '请填写兑换码')
+      return
+    }
+    if (!manualCodeForm.campaignId && !manualCodeForm.subscriptionPlanId && !manualCodeBalanceUsd.trim()) {
+      showMessage('error', '自由码至少需要一种奖励')
+      return
+    }
+
+    setSavingManualCode(true)
+    try {
+      await createManualRedeemCode({
+        ...manualCodeForm,
+        campaignId: manualCodeForm.campaignId || '',
+        codeValue: manualCodeForm.codeValue.trim().toUpperCase(),
+        subscriptionPlanId: manualCodeForm.campaignId ? '' : manualCodeForm.subscriptionPlanId,
+        subscriptionDurationDays: manualCodeForm.campaignId ? 0 : manualCodeForm.subscriptionDurationDays,
+        balanceMicros: manualCodeForm.campaignId ? 0 : usdToMicros(manualCodeBalanceUsd),
+        startsAt: manualCodeForm.campaignId ? undefined : normalizeDatetimeLocal(manualCodeForm.startsAt || ''),
+        endsAt: manualCodeForm.campaignId ? undefined : normalizeDatetimeLocal(manualCodeForm.endsAt || ''),
+      })
+      setManualCodeDialogOpen(false)
+      showMessage('success', '兑换码已创建')
+      await loadAll()
+    } catch (error) {
+      showMessage('error', error instanceof Error ? error.message : '创建失败')
+    } finally {
+      setSavingManualCode(false)
     }
   }
 
@@ -574,10 +629,16 @@ export default function RedeemManagement() {
                 <div className="space-y-1">
                   <CardTitle>兑换码明细</CardTitle>
                 </div>
-                <Button type="button" variant="outline" size="sm" onClick={() => void refreshCodes()}>
-                  <RefreshCw className="mr-2 h-4 w-4" />
-                  刷新
-                </Button>
+                <div className="flex flex-wrap gap-2">
+                  <Button type="button" size="sm" onClick={handleOpenCreateManualCode}>
+                    <Plus className="mr-2 h-4 w-4" />
+                    新建兑换码
+                  </Button>
+                  <Button type="button" variant="outline" size="sm" onClick={() => void refreshCodes()}>
+                    <RefreshCw className="mr-2 h-4 w-4" />
+                    刷新
+                  </Button>
+                </div>
               </div>
             </CardHeader>
             <CardContent className="space-y-4">
@@ -612,8 +673,10 @@ export default function RedeemManagement() {
                   <TableHeader>
                     <TableRow>
                       <TableHead>兑换码</TableHead>
+                      <TableHead>类型</TableHead>
                       <TableHead>活动</TableHead>
                       <TableHead>批次</TableHead>
+                      <TableHead>奖励</TableHead>
                       <TableHead>次数</TableHead>
                       <TableHead>状态</TableHead>
                       <TableHead className="text-right">操作</TableHead>
@@ -623,8 +686,13 @@ export default function RedeemManagement() {
                     {visibleCodes.map((item) => (
                       <TableRow key={item.id}>
                         <TableCell className="font-mono text-xs">{item.codeValue}</TableCell>
-                        <TableCell>{item.campaignName}</TableCell>
+                        <TableCell>{item.sourceType === 'purchase_order' ? '购后码' : item.sourceType === 'free' ? '自由码' : '活动码'}</TableCell>
+                        <TableCell>{item.campaignName || '-'}</TableCell>
                         <TableCell>{item.batchName || '-'}</TableCell>
+                        <TableCell className="text-sm text-muted-foreground">
+                          <div>{item.subscriptionPlanName ? `${item.subscriptionPlanName} ${item.subscriptionDurationDays}天` : '-'}</div>
+                          {item.balanceMicros > 0 ? <div>{microsToUsdLabel(item.balanceMicros)}</div> : null}
+                        </TableCell>
                         <TableCell>{item.redeemedCount} / {item.maxRedemptions > 0 ? item.maxRedemptions : '∞'}</TableCell>
                         <TableCell>
                           <Badge variant={item.status === 'active' ? 'default' : 'secondary'}>{item.status}</Badge>
@@ -762,6 +830,136 @@ export default function RedeemManagement() {
           </Card>
         )}
       </TabbedSettingsPage>
+
+      <Dialog open={manualCodeDialogOpen} onOpenChange={setManualCodeDialogOpen}>
+        <DialogContent className="sm:max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>新建兑换码</DialogTitle>
+          </DialogHeader>
+          <div className="grid gap-4 py-2 sm:grid-cols-2">
+            <div className="space-y-2 sm:col-span-2">
+              <Label htmlFor="manualCodeValue">兑换码</Label>
+              <Input
+                id="manualCodeValue"
+                value={manualCodeForm.codeValue}
+                onChange={(event) => setManualCodeForm((current) => ({ ...current, codeValue: event.target.value.toUpperCase() }))}
+                placeholder="输入自定义码值"
+              />
+            </div>
+            <div className="space-y-2 sm:col-span-2">
+              <Label>所属活动</Label>
+              <Select
+                value={manualCodeForm.campaignId || 'none'}
+                onValueChange={(value) => setManualCodeForm((current) => ({ ...current, campaignId: value === 'none' ? '' : value }))}
+              >
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="none">自由码</SelectItem>
+                  {campaigns.map((campaign) => (
+                    <SelectItem key={campaign.id} value={campaign.id}>{campaign.name}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            {!manualCodeForm.campaignId ? (
+              <>
+                <div className="space-y-2">
+                  <Label>订阅套餐</Label>
+                  <Select
+                    value={manualCodeForm.subscriptionPlanId || 'none'}
+                    onValueChange={(value) => setManualCodeForm((current) => ({ ...current, subscriptionPlanId: value === 'none' ? '' : value }))}
+                  >
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="none">不发订阅</SelectItem>
+                      {plans.map((plan) => (
+                        <SelectItem key={plan.id} value={plan.id}>{plan.name}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="manualDurationDays">订阅时长</Label>
+                  <Input
+                    id="manualDurationDays"
+                    type="number"
+                    min="0"
+                    value={manualCodeForm.subscriptionDurationDays}
+                    onChange={(event) => setManualCodeForm((current) => ({ ...current, subscriptionDurationDays: Number(event.target.value || 0) }))}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="manualBalanceUsd">余额奖励 (USD)</Label>
+                  <Input
+                    id="manualBalanceUsd"
+                    value={manualCodeBalanceUsd}
+                    onChange={(event) => setManualCodeBalanceUsd(event.target.value)}
+                    placeholder="例如 5"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="manualPerUserLimit">单用户次数</Label>
+                  <Input
+                    id="manualPerUserLimit"
+                    type="number"
+                    min="1"
+                    value={manualCodeForm.perUserLimit}
+                    onChange={(event) => setManualCodeForm((current) => ({ ...current, perUserLimit: Number(event.target.value || 1) }))}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="manualStartsAt">开始时间</Label>
+                  <Input
+                    id="manualStartsAt"
+                    type="datetime-local"
+                    value={manualCodeForm.startsAt || ''}
+                    onChange={(event) => setManualCodeForm((current) => ({ ...current, startsAt: event.target.value }))}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="manualEndsAt">结束时间</Label>
+                  <Input
+                    id="manualEndsAt"
+                    type="datetime-local"
+                    value={manualCodeForm.endsAt || ''}
+                    onChange={(event) => setManualCodeForm((current) => ({ ...current, endsAt: event.target.value }))}
+                  />
+                </div>
+              </>
+            ) : null}
+            <div className="space-y-2">
+              <Label htmlFor="manualMaxRedemptions">最大次数</Label>
+              <Input
+                id="manualMaxRedemptions"
+                type="number"
+                min="1"
+                value={manualCodeForm.maxRedemptions}
+                onChange={(event) => setManualCodeForm((current) => ({ ...current, maxRedemptions: Number(event.target.value || 1) }))}
+              />
+            </div>
+            <div className="flex items-center justify-between rounded-xl border border-border/70 px-4 py-3">
+              <div>
+                <p className="text-sm font-medium">启用</p>
+              </div>
+              <Switch
+                checked={manualCodeForm.enabled}
+                onCheckedChange={(checked) => setManualCodeForm((current) => ({ ...current, enabled: checked }))}
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setManualCodeDialogOpen(false)}>取消</Button>
+            <Button onClick={() => void handleSaveManualCode()} disabled={savingManualCode}>
+              {savingManualCode ? <RefreshCw className="mr-2 h-4 w-4 animate-spin" /> : null}
+              保存
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <Dialog open={campaignDialogOpen} onOpenChange={setCampaignDialogOpen}>
           <DialogContent className="sm:max-w-2xl">

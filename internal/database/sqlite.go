@@ -553,6 +553,8 @@ func createTables() error {
 		name TEXT UNIQUE NOT NULL,
 		description TEXT NOT NULL DEFAULT '',
 		enabled INTEGER NOT NULL DEFAULT 1,
+		upgrade_rank INTEGER NOT NULL DEFAULT 0,
+		upgrade_valuation_cny_cent_per_day BIGINT NOT NULL DEFAULT 0,
 		created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
 		updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
 	);
@@ -588,6 +590,26 @@ func createTables() error {
 	CREATE INDEX IF NOT EXISTS idx_user_subs_status ON user_subscriptions(status);
 	CREATE UNIQUE INDEX IF NOT EXISTS idx_user_subs_active_unique ON user_subscriptions(user_id) WHERE status = 'active';
 
+	CREATE TABLE IF NOT EXISTS subscription_entitlements (
+		id TEXT PRIMARY KEY,
+		user_id TEXT NOT NULL,
+		plan_id TEXT NOT NULL,
+		source_type TEXT NOT NULL CHECK (source_type IN ('legacy_snapshot', 'purchase', 'redeem', 'admin_assign', 'admin_adjust', 'upgrade')),
+		source_ref_id TEXT NOT NULL DEFAULT '',
+		valuation_cny_cent_per_day BIGINT NOT NULL DEFAULT 0 CHECK (valuation_cny_cent_per_day >= 0),
+		starts_at DATETIME NOT NULL,
+		expires_at DATETIME,
+		status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'consumed', 'cancelled')),
+		consumed_by_purchase_order_no TEXT NOT NULL DEFAULT '',
+		consumed_at DATETIME,
+		created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+		updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+		FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+		FOREIGN KEY (plan_id) REFERENCES subscription_plans(id) ON DELETE RESTRICT
+	);
+	CREATE INDEX IF NOT EXISTS idx_subscription_entitlements_user_status_expiry ON subscription_entitlements(user_id, status, expires_at);
+	CREATE INDEX IF NOT EXISTS idx_subscription_entitlements_plan_status ON subscription_entitlements(plan_id, status);
+
 	CREATE TABLE IF NOT EXISTS user_billing_settings (
 		user_id TEXT PRIMARY KEY,
 		primary_source TEXT NOT NULL DEFAULT 'subscription' CHECK (primary_source IN ('subscription', 'balance')),
@@ -605,6 +627,8 @@ func createTables() error {
 		subscription_plan_id TEXT NOT NULL,
 		duration_days INTEGER NOT NULL CHECK (duration_days > 0),
 		price_cny_cent BIGINT NOT NULL CHECK (price_cny_cent > 0),
+		group_name TEXT NOT NULL DEFAULT '',
+		group_sort INTEGER NOT NULL DEFAULT 0,
 		is_recommended INTEGER NOT NULL DEFAULT 0,
 		sort_order INTEGER NOT NULL DEFAULT 0,
 		enabled INTEGER NOT NULL DEFAULT 1,
@@ -622,10 +646,17 @@ func createTables() error {
 			product_id TEXT NOT NULL,
 			subscription_plan_id TEXT NOT NULL,
 			duration_days INTEGER NOT NULL CHECK (duration_days > 0),
-			amount_cny_cent BIGINT NOT NULL CHECK (amount_cny_cent > 0),
+			amount_cny_cent BIGINT NOT NULL CHECK (amount_cny_cent >= 0),
 			order_kind TEXT NOT NULL DEFAULT 'subscription' CHECK (order_kind IN ('subscription', 'balance_topup')),
+			delivery_mode TEXT NOT NULL DEFAULT 'account' CHECK (delivery_mode IN ('account', 'redeem_code')),
 			balance_topup_micros BIGINT NOT NULL DEFAULT 0,
 			payment_channel TEXT NOT NULL CHECK (payment_channel IN ('alipay')),
+		generated_redeem_code_id TEXT NOT NULL DEFAULT '',
+		upgrade_source_plan_id TEXT NOT NULL DEFAULT '',
+		upgrade_source_expires_at DATETIME,
+		upgrade_credit_cny_cent BIGINT NOT NULL DEFAULT 0,
+		upgrade_locked_target_seconds BIGINT NOT NULL DEFAULT 0,
+		upgrade_state_token TEXT NOT NULL DEFAULT '',
 		payment_status TEXT NOT NULL DEFAULT 'pending' CHECK (payment_status IN ('pending', 'paid', 'expired', 'closed', 'failed')),
 		fulfillment_status TEXT NOT NULL DEFAULT 'pending' CHECK (fulfillment_status IN ('pending', 'fulfilled', 'failed')),
 		alipay_trade_no TEXT NOT NULL DEFAULT '',
@@ -683,19 +714,28 @@ func createTables() error {
 
 	CREATE TABLE IF NOT EXISTS redeem_codes (
 		id TEXT PRIMARY KEY,
-		campaign_id TEXT NOT NULL,
+		campaign_id TEXT,
 		batch_id TEXT,
+		source_type TEXT NOT NULL DEFAULT 'campaign' CHECK (source_type IN ('campaign', 'free', 'purchase_order')),
+		source_ref_id TEXT NOT NULL DEFAULT '',
 		code_value TEXT NOT NULL UNIQUE,
 		code_hash TEXT NOT NULL UNIQUE,
 		code_mask TEXT NOT NULL,
+		subscription_plan_id TEXT,
+		subscription_duration_days INTEGER NOT NULL DEFAULT 0 CHECK (subscription_duration_days >= 0),
+		balance_micros BIGINT NOT NULL DEFAULT 0 CHECK (balance_micros >= 0),
+		per_user_limit INTEGER NOT NULL DEFAULT 1 CHECK (per_user_limit > 0),
+		starts_at DATETIME,
+		ends_at DATETIME,
 		status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'disabled', 'consumed')),
 		max_redemptions INTEGER NOT NULL DEFAULT 1 CHECK (max_redemptions >= 0),
 		redeemed_count INTEGER NOT NULL DEFAULT 0 CHECK (redeemed_count >= 0),
 		last_redeemed_at DATETIME,
 		created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
 		updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-		FOREIGN KEY (campaign_id) REFERENCES redeem_campaigns(id) ON DELETE CASCADE,
-		FOREIGN KEY (batch_id) REFERENCES redeem_code_batches(id) ON DELETE CASCADE
+		FOREIGN KEY (campaign_id) REFERENCES redeem_campaigns(id) ON DELETE SET NULL,
+		FOREIGN KEY (batch_id) REFERENCES redeem_code_batches(id) ON DELETE CASCADE,
+		FOREIGN KEY (subscription_plan_id) REFERENCES subscription_plans(id) ON DELETE RESTRICT
 	);
 	CREATE INDEX IF NOT EXISTS idx_redeem_codes_campaign_status_created ON redeem_codes(campaign_id, status, created_at DESC);
 	CREATE INDEX IF NOT EXISTS idx_redeem_codes_batch_created ON redeem_codes(batch_id, created_at DESC);
@@ -1597,6 +1637,44 @@ func runMigrations() error {
 			sql:  `ALTER TABLE purchase_orders ADD COLUMN balance_topup_micros BIGINT NOT NULL DEFAULT 0`,
 		},
 		{
+			name: "add_subscription_plan_upgrade_fields",
+			sql: `
+				ALTER TABLE subscription_plans ADD COLUMN upgrade_rank INTEGER NOT NULL DEFAULT 0;
+				ALTER TABLE subscription_plans ADD COLUMN upgrade_valuation_cny_cent_per_day BIGINT NOT NULL DEFAULT 0
+			`,
+		},
+		{
+			name: "create_subscription_entitlements",
+			sql: `
+				CREATE TABLE IF NOT EXISTS subscription_entitlements (
+					id TEXT PRIMARY KEY,
+					user_id TEXT NOT NULL,
+					plan_id TEXT NOT NULL,
+					source_type TEXT NOT NULL CHECK (source_type IN ('legacy_snapshot', 'purchase', 'redeem', 'admin_assign', 'admin_adjust', 'upgrade')),
+					source_ref_id TEXT NOT NULL DEFAULT '',
+					valuation_cny_cent_per_day BIGINT NOT NULL DEFAULT 0 CHECK (valuation_cny_cent_per_day >= 0),
+					starts_at DATETIME NOT NULL,
+					expires_at DATETIME,
+					status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'consumed', 'cancelled')),
+					consumed_by_purchase_order_no TEXT NOT NULL DEFAULT '',
+					consumed_at DATETIME,
+					created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+					updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+					FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+					FOREIGN KEY (plan_id) REFERENCES subscription_plans(id) ON DELETE RESTRICT
+				);
+				CREATE INDEX IF NOT EXISTS idx_subscription_entitlements_user_status_expiry ON subscription_entitlements(user_id, status, expires_at);
+				CREATE INDEX IF NOT EXISTS idx_subscription_entitlements_plan_status ON subscription_entitlements(plan_id, status)
+			`,
+		},
+		{
+			name: "add_purchase_products_group_fields",
+			sql: `
+				ALTER TABLE purchase_products ADD COLUMN group_name TEXT NOT NULL DEFAULT '';
+				ALTER TABLE purchase_products ADD COLUMN group_sort INTEGER NOT NULL DEFAULT 0
+			`,
+		},
+		{
 			name: "create_redeem_tables",
 			sql: `
 				CREATE TABLE IF NOT EXISTS redeem_campaigns (
@@ -1692,6 +1770,14 @@ func runMigrations() error {
 				CREATE INDEX IF NOT EXISTS idx_redeem_redemptions_status_created ON redeem_redemptions(status, created_at DESC)
 			`,
 		},
+		{
+			name: "rebuild_purchase_orders_for_delivery_mode",
+			sql:  ``,
+		},
+		{
+			name: "rebuild_redeem_codes_for_free_codes",
+			sql:  ``,
+		},
 	}
 
 	for _, m := range migrations {
@@ -1754,6 +1840,122 @@ func adaptMigrationSQL(name string, sqlText string) string {
 	case "add_request_log_details_archive_translated_request_headers":
 		if dbType != DBTypePostgres {
 			adapted = ""
+		}
+	case "rebuild_purchase_orders_for_delivery_mode":
+		adapted = `
+			ALTER TABLE purchase_orders RENAME TO purchase_orders_old;
+			CREATE TABLE purchase_orders (
+				id TEXT PRIMARY KEY,
+				order_no TEXT UNIQUE NOT NULL,
+				user_id TEXT NOT NULL,
+				product_id TEXT NOT NULL,
+				subscription_plan_id TEXT NOT NULL,
+				duration_days INTEGER NOT NULL CHECK (duration_days > 0),
+				amount_cny_cent BIGINT NOT NULL CHECK (amount_cny_cent >= 0),
+				order_kind TEXT NOT NULL DEFAULT 'subscription' CHECK (order_kind IN ('subscription', 'balance_topup')),
+				delivery_mode TEXT NOT NULL DEFAULT 'account' CHECK (delivery_mode IN ('account', 'redeem_code')),
+				balance_topup_micros BIGINT NOT NULL DEFAULT 0,
+				payment_channel TEXT NOT NULL CHECK (payment_channel IN ('alipay')),
+				generated_redeem_code_id TEXT NOT NULL DEFAULT '',
+				upgrade_source_plan_id TEXT NOT NULL DEFAULT '',
+				upgrade_source_expires_at DATETIME,
+				upgrade_credit_cny_cent BIGINT NOT NULL DEFAULT 0,
+				upgrade_locked_target_seconds BIGINT NOT NULL DEFAULT 0,
+				upgrade_state_token TEXT NOT NULL DEFAULT '',
+				payment_status TEXT NOT NULL DEFAULT 'pending' CHECK (payment_status IN ('pending', 'paid', 'expired', 'closed', 'failed')),
+				fulfillment_status TEXT NOT NULL DEFAULT 'pending' CHECK (fulfillment_status IN ('pending', 'fulfilled', 'failed')),
+				alipay_trade_no TEXT NOT NULL DEFAULT '',
+				alipay_qr_code TEXT NOT NULL DEFAULT '',
+				alipay_qr_url TEXT NOT NULL DEFAULT '',
+				expires_at DATETIME,
+				paid_at DATETIME,
+				fulfilled_at DATETIME,
+				failure_reason TEXT NOT NULL DEFAULT '',
+				created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+				updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+				FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+				FOREIGN KEY (product_id) REFERENCES purchase_products(id) ON DELETE RESTRICT,
+				FOREIGN KEY (subscription_plan_id) REFERENCES subscription_plans(id) ON DELETE RESTRICT
+			);
+			INSERT INTO purchase_orders (
+				id, order_no, user_id, product_id, subscription_plan_id, duration_days, amount_cny_cent,
+				order_kind, delivery_mode, balance_topup_micros, payment_channel, generated_redeem_code_id,
+				upgrade_source_plan_id, upgrade_source_expires_at, upgrade_credit_cny_cent, upgrade_locked_target_seconds, upgrade_state_token,
+				payment_status, fulfillment_status, alipay_trade_no, alipay_qr_code, alipay_qr_url,
+				expires_at, paid_at, fulfilled_at, failure_reason, created_at, updated_at
+			)
+			SELECT
+				id, order_no, user_id, product_id, subscription_plan_id, duration_days, amount_cny_cent,
+				order_kind, 'account', balance_topup_micros, payment_channel, '',
+				'', NULL, 0, 0, '',
+				payment_status, fulfillment_status, alipay_trade_no, alipay_qr_code, alipay_qr_url,
+				expires_at, paid_at, fulfilled_at, failure_reason, created_at, updated_at
+			FROM purchase_orders_old;
+			DROP TABLE purchase_orders_old;
+			CREATE INDEX IF NOT EXISTS idx_purchase_orders_user_created ON purchase_orders(user_id, created_at DESC);
+			CREATE INDEX IF NOT EXISTS idx_purchase_orders_payment_created ON purchase_orders(payment_status, created_at DESC);
+			CREATE INDEX IF NOT EXISTS idx_purchase_orders_fulfillment_created ON purchase_orders(fulfillment_status, created_at DESC);
+			CREATE INDEX IF NOT EXISTS idx_purchase_orders_product_created ON purchase_orders(product_id, created_at DESC);
+			CREATE INDEX IF NOT EXISTS idx_purchase_orders_trade_no ON purchase_orders(alipay_trade_no)
+		`
+	case "rebuild_redeem_codes_for_free_codes":
+		if dbType == DBTypePostgres {
+			adapted = `
+				ALTER TABLE redeem_codes ALTER COLUMN campaign_id DROP NOT NULL;
+				ALTER TABLE redeem_codes ADD COLUMN source_type TEXT NOT NULL DEFAULT 'campaign';
+				ALTER TABLE redeem_codes ADD COLUMN source_ref_id TEXT NOT NULL DEFAULT '';
+				ALTER TABLE redeem_codes ADD COLUMN subscription_plan_id TEXT;
+				ALTER TABLE redeem_codes ADD COLUMN subscription_duration_days INTEGER NOT NULL DEFAULT 0;
+				ALTER TABLE redeem_codes ADD COLUMN balance_micros BIGINT NOT NULL DEFAULT 0;
+				ALTER TABLE redeem_codes ADD COLUMN per_user_limit INTEGER NOT NULL DEFAULT 1;
+				ALTER TABLE redeem_codes ADD COLUMN starts_at TIMESTAMPTZ;
+				ALTER TABLE redeem_codes ADD COLUMN ends_at TIMESTAMPTZ;
+				ALTER TABLE redeem_codes ADD CONSTRAINT redeem_codes_source_type_check CHECK (source_type IN ('campaign', 'free', 'purchase_order'))
+			`
+		} else {
+			adapted = `
+				PRAGMA foreign_keys = OFF;
+				CREATE TABLE redeem_codes_new (
+					id TEXT PRIMARY KEY,
+					campaign_id TEXT,
+					batch_id TEXT,
+					source_type TEXT NOT NULL DEFAULT 'campaign' CHECK (source_type IN ('campaign', 'free', 'purchase_order')),
+					source_ref_id TEXT NOT NULL DEFAULT '',
+					code_value TEXT NOT NULL UNIQUE,
+					code_hash TEXT NOT NULL UNIQUE,
+					code_mask TEXT NOT NULL,
+					subscription_plan_id TEXT,
+					subscription_duration_days INTEGER NOT NULL DEFAULT 0 CHECK (subscription_duration_days >= 0),
+					balance_micros BIGINT NOT NULL DEFAULT 0 CHECK (balance_micros >= 0),
+					per_user_limit INTEGER NOT NULL DEFAULT 1 CHECK (per_user_limit > 0),
+					starts_at DATETIME,
+					ends_at DATETIME,
+					status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'disabled', 'consumed')),
+					max_redemptions INTEGER NOT NULL DEFAULT 1 CHECK (max_redemptions >= 0),
+					redeemed_count INTEGER NOT NULL DEFAULT 0 CHECK (redeemed_count >= 0),
+					last_redeemed_at DATETIME,
+					created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+					updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+					FOREIGN KEY (campaign_id) REFERENCES redeem_campaigns(id) ON DELETE SET NULL,
+					FOREIGN KEY (batch_id) REFERENCES redeem_code_batches(id) ON DELETE CASCADE,
+					FOREIGN KEY (subscription_plan_id) REFERENCES subscription_plans(id) ON DELETE RESTRICT
+				);
+				INSERT INTO redeem_codes_new (
+					id, campaign_id, batch_id, source_type, source_ref_id, code_value, code_hash, code_mask,
+					subscription_plan_id, subscription_duration_days, balance_micros, per_user_limit, starts_at, ends_at,
+					status, max_redemptions, redeemed_count, last_redeemed_at, created_at, updated_at
+				)
+				SELECT
+					id, campaign_id, batch_id, 'campaign', '', code_value, code_hash, code_mask,
+					NULL, 0, 0, 1, NULL, NULL,
+					status, max_redemptions, redeemed_count, last_redeemed_at, created_at, updated_at
+				FROM redeem_codes;
+				DROP TABLE redeem_codes;
+				ALTER TABLE redeem_codes_new RENAME TO redeem_codes;
+				CREATE INDEX IF NOT EXISTS idx_redeem_codes_campaign_status_created ON redeem_codes(campaign_id, status, created_at DESC);
+				CREATE INDEX IF NOT EXISTS idx_redeem_codes_batch_created ON redeem_codes(batch_id, created_at DESC);
+				PRAGMA foreign_keys = ON
+			`
 		}
 	case "postgres_widen_users_balance_micros", "postgres_widen_request_logs_micros_columns", "postgres_widen_request_logs_token_columns", "postgres_widen_subscription_plan_limits_limit_micros", "postgres_widen_billing_events_amount_micros":
 		if dbType != DBTypePostgres {

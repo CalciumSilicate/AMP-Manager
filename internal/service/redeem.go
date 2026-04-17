@@ -54,6 +54,8 @@ type redeemLookup struct {
 	CampaignID               string
 	CampaignName             string
 	CampaignDescription      string
+	SourceType               model.RedeemCodeSourceType
+	SourceRefID              string
 	CodeMode                 model.RedeemCodeMode
 	CodeValue                string
 	CodeMask                 string
@@ -64,11 +66,14 @@ type redeemLookup struct {
 	SubscriptionPlanName     string
 	SubscriptionDurationDays int
 	BalanceMicros            int64
+	CodePerUserLimit         int
+	CodeStartsAt             *time.Time
+	CodeEndsAt               *time.Time
 	TotalRedemptionsLimit    int
 	CampaignRedeemedCount    int
-	PerUserLimit             int
-	StartsAt                 *time.Time
-	EndsAt                   *time.Time
+	CampaignPerUserLimit     int
+	CampaignStartsAt         *time.Time
+	CampaignEndsAt           *time.Time
 	CampaignEnabled          bool
 }
 
@@ -264,14 +269,24 @@ func (s *RedeemService) CreateBatch(campaignID string, req *model.RedeemCodeBatc
 		generated = append(generated, value)
 		if _, err := tx.Exec(
 			`INSERT INTO redeem_codes (
-				id, campaign_id, batch_id, code_value, code_hash, code_mask, status, max_redemptions, redeemed_count, last_redeemed_at, created_at, updated_at
-			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, NULL, ?, ?)`,
+				id, campaign_id, batch_id, source_type, source_ref_id, code_value, code_hash, code_mask,
+				subscription_plan_id, subscription_duration_days, balance_micros, per_user_limit, starts_at, ends_at,
+				status, max_redemptions, redeemed_count, last_redeemed_at, created_at, updated_at
+			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, NULL, ?, ?)`,
 			uuid.New().String(),
 			campaignID,
 			batchID,
+			model.RedeemCodeSourceTypeCampaign,
+			"",
 			value,
 			hashRedeemCode(value),
 			maskRedeemCode(value),
+			nil,
+			0,
+			0,
+			1,
+			nil,
+			nil,
 			codeStatus,
 			1,
 			now,
@@ -295,6 +310,109 @@ func (s *RedeemService) CreateBatch(campaignID string, req *model.RedeemCodeBatc
 		}
 	}
 	return nil, generated, ErrRedeemBatchNotFound
+}
+
+func (s *RedeemService) CreateManualCode(req *model.ManualRedeemCodeRequest) (*model.RedeemCodeResponse, error) {
+	if err := s.validateManualCodeRequest(req); err != nil {
+		return nil, err
+	}
+
+	now := time.Now().UTC()
+	db := database.GetDB()
+	tx, err := db.Begin()
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback()
+
+	normalizedCode := normalizeRedeemCode(req.CodeValue)
+	if err := s.ensureCodeValueUniqueTx(tx, normalizedCode); err != nil {
+		return nil, err
+	}
+
+	var campaign *model.RedeemCampaign
+	var campaignID any
+	sourceType := model.RedeemCodeSourceTypeFree
+	if trimmedCampaignID := strings.TrimSpace(req.CampaignID); trimmedCampaignID != "" {
+		campaign, err = s.repo.GetCampaign(trimmedCampaignID)
+		if err != nil {
+			return nil, err
+		}
+		if campaign == nil {
+			return nil, ErrRedeemCampaignNotFound
+		}
+		campaignID = trimmedCampaignID
+		sourceType = model.RedeemCodeSourceTypeCampaign
+	}
+
+	var subscriptionPlanID any
+	subscriptionDurationDays := 0
+	balanceMicros := int64(0)
+	perUserLimit := req.PerUserLimit
+	startsAt := req.StartsAt
+	endsAt := req.EndsAt
+	if campaign != nil {
+		perUserLimit = campaign.PerUserLimit
+		startsAt = nil
+		endsAt = nil
+	} else {
+		if trimmedPlanID := strings.TrimSpace(req.SubscriptionPlanID); trimmedPlanID != "" {
+			subscriptionPlanID = trimmedPlanID
+		}
+		subscriptionDurationDays = req.SubscriptionDurationDays
+		balanceMicros = req.BalanceMicros
+	}
+
+	status := model.RedeemCodeStatusDisabled
+	if req.Enabled {
+		status = model.RedeemCodeStatusActive
+	}
+	if campaign != nil && !campaign.Enabled {
+		status = model.RedeemCodeStatusDisabled
+	}
+
+	codeID := uuid.New().String()
+	if _, err := tx.Exec(
+		`INSERT INTO redeem_codes (
+			id, campaign_id, batch_id, source_type, source_ref_id, code_value, code_hash, code_mask,
+			subscription_plan_id, subscription_duration_days, balance_micros, per_user_limit, starts_at, ends_at,
+			status, max_redemptions, redeemed_count, last_redeemed_at, created_at, updated_at
+		) VALUES (?, ?, NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, NULL, ?, ?)`,
+		codeID,
+		campaignID,
+		sourceType,
+		"",
+		normalizedCode,
+		hashRedeemCode(normalizedCode),
+		maskRedeemCode(normalizedCode),
+		subscriptionPlanID,
+		subscriptionDurationDays,
+		balanceMicros,
+		perUserLimit,
+		startsAt,
+		endsAt,
+		status,
+		req.MaxRedemptions,
+		now,
+		now,
+	); err != nil {
+		return nil, err
+	}
+
+	if err := tx.Commit(); err != nil {
+		return nil, err
+	}
+
+	items, err := s.repo.ListCodes(strings.TrimSpace(req.CampaignID), "", "", normalizedCode, 20)
+	if err != nil {
+		return nil, err
+	}
+	for _, item := range items {
+		if item.ID == codeID {
+			return item, nil
+		}
+	}
+	return nil, ErrRedeemCodeNotFound
 }
 
 func (s *RedeemService) ListBatches(campaignID string) ([]*model.RedeemCodeBatchResponse, error) {
@@ -433,7 +551,15 @@ func (s *RedeemService) Redeem(_ context.Context, userID, username, rawCode stri
 
 	var grantedSub *model.UserSubscription
 	if lookup.SubscriptionDurationDays > 0 {
-		grantedSub, err = s.grantSvc.GrantSubscriptionTx(tx, userID, lookup.SubscriptionPlanID, lookup.SubscriptionDurationDays, now)
+		grantedSub, err = s.grantSvc.GrantSubscriptionTxWithSource(
+			tx,
+			userID,
+			lookup.SubscriptionPlanID,
+			lookup.SubscriptionDurationDays,
+			model.SubscriptionEntitlementSourceRedeem,
+			lookup.CodeID,
+			now,
+		)
 		if err != nil {
 			return nil, err
 		}
@@ -444,7 +570,7 @@ func (s *RedeemService) Redeem(_ context.Context, userID, username, rawCode stri
 		return nil, err
 	}
 
-	if err := s.reserveUserRedemptionTx(tx, lookup.CodeID, userID, lookup.PerUserLimit, now); err != nil {
+	if err := s.reserveUserRedemptionTx(tx, lookup.CodeID, userID, lookup.perUserLimit(), now); err != nil {
 		if err := s.insertRejectedLookupTx(tx, lookup, userID, username, codeInput, err.Error(), now); err != nil {
 			return nil, err
 		}
@@ -453,14 +579,16 @@ func (s *RedeemService) Redeem(_ context.Context, userID, username, rawCode stri
 		}
 		return nil, err
 	}
-	if err := s.reserveCampaignRedemptionTx(tx, lookup.CampaignID, now); err != nil {
-		if err := s.insertRejectedLookupTx(tx, lookup, userID, username, codeInput, err.Error(), now); err != nil {
+	if lookup.CampaignID != "" {
+		if err := s.reserveCampaignRedemptionTx(tx, lookup.CampaignID, now); err != nil {
+			if err := s.insertRejectedLookupTx(tx, lookup, userID, username, codeInput, err.Error(), now); err != nil {
+				return nil, err
+			}
+			if err := tx.Commit(); err != nil {
+				return nil, err
+			}
 			return nil, err
 		}
-		if err := tx.Commit(); err != nil {
-			return nil, err
-		}
-		return nil, err
 	}
 	if err := s.reserveCodeRedemptionTx(tx, lookup.CodeID, now); err != nil {
 		if err := s.insertRejectedLookupTx(tx, lookup, userID, username, codeInput, err.Error(), now); err != nil {
@@ -472,11 +600,9 @@ func (s *RedeemService) Redeem(_ context.Context, userID, username, rawCode stri
 		return nil, err
 	}
 
-	campaignID := lookup.CampaignID
 	codeID := lookup.CodeID
 	redemption := &model.RedeemRedemption{
 		ID:                       uuid.New().String(),
-		CampaignID:               &campaignID,
 		CodeID:                   &codeID,
 		UserID:                   userID,
 		Username:                 username,
@@ -489,6 +615,10 @@ func (s *RedeemService) Redeem(_ context.Context, userID, username, rawCode stri
 		GrantedSubscriptionID:    "",
 		BalanceAfterMicros:       balanceAfterMicros,
 		CreatedAt:                now,
+	}
+	if lookup.CampaignID != "" {
+		campaignID := lookup.CampaignID
+		redemption.CampaignID = &campaignID
 	}
 	if grantedSub != nil {
 		redemption.GrantedSubscriptionID = grantedSub.ID
@@ -528,9 +658,12 @@ func (s *RedeemService) Redeem(_ context.Context, userID, username, rawCode stri
 			return nil, err
 		}
 	}
-	campaignResponse, err := s.repo.GetCampaignResponse(lookup.CampaignID)
-	if err != nil {
-		return nil, err
+	var campaignResponse *model.RedeemCampaignResponse
+	if lookup.CampaignID != "" {
+		campaignResponse, err = s.repo.GetCampaignResponse(lookup.CampaignID)
+		if err != nil {
+			return nil, err
+		}
 	}
 	responseRedemption := &model.RedeemRedemptionResponse{
 		ID:                       redemption.ID,
@@ -599,21 +732,71 @@ func (s *RedeemService) validateCampaignRequest(req *model.RedeemCampaignRequest
 	return nil
 }
 
+func (s *RedeemService) validateManualCodeRequest(req *model.ManualRedeemCodeRequest) error {
+	if req == nil {
+		return ErrRedeemCodeNotFound
+	}
+	if normalizeRedeemCode(req.CodeValue) == "" {
+		return ErrRedeemCodeNotFound
+	}
+	if req.MaxRedemptions <= 0 {
+		return ErrRedeemRewardInvalid
+	}
+	if strings.TrimSpace(req.CampaignID) != "" {
+		return nil
+	}
+	if req.SubscriptionDurationDays > 0 && strings.TrimSpace(req.SubscriptionPlanID) == "" {
+		return ErrRedeemRewardInvalid
+	}
+	if strings.TrimSpace(req.SubscriptionPlanID) != "" && req.SubscriptionDurationDays <= 0 {
+		return ErrRedeemRewardInvalid
+	}
+	if req.SubscriptionDurationDays <= 0 && req.BalanceMicros <= 0 {
+		return ErrRedeemRewardRequired
+	}
+	if req.StartsAt != nil && req.EndsAt != nil && req.StartsAt.After(*req.EndsAt) {
+		return ErrRedeemRewardInvalid
+	}
+	if strings.TrimSpace(req.SubscriptionPlanID) != "" {
+		plan, _, err := s.planRepo.GetByID(strings.TrimSpace(req.SubscriptionPlanID))
+		if err != nil {
+			return err
+		}
+		if plan == nil {
+			return ErrPlanNotFound
+		}
+	}
+	return nil
+}
+
 func (s *RedeemService) insertSharedCodeTx(tx *sql.Tx, campaignID, rawCode string, totalLimit int, enabled bool, now time.Time) error {
 	value := normalizeRedeemCode(rawCode)
+	if err := s.ensureCodeValueUniqueTx(tx, value); err != nil {
+		return err
+	}
 	status := model.RedeemCodeStatusDisabled
 	if enabled {
 		status = model.RedeemCodeStatusActive
 	}
 	_, err := tx.Exec(
 		`INSERT INTO redeem_codes (
-			id, campaign_id, batch_id, code_value, code_hash, code_mask, status, max_redemptions, redeemed_count, last_redeemed_at, created_at, updated_at
-		) VALUES (?, ?, NULL, ?, ?, ?, ?, ?, 0, NULL, ?, ?)`,
+			id, campaign_id, batch_id, source_type, source_ref_id, code_value, code_hash, code_mask,
+			subscription_plan_id, subscription_duration_days, balance_micros, per_user_limit, starts_at, ends_at,
+			status, max_redemptions, redeemed_count, last_redeemed_at, created_at, updated_at
+		) VALUES (?, ?, NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, NULL, ?, ?)`,
 		uuid.New().String(),
 		campaignID,
+		model.RedeemCodeSourceTypeCampaign,
+		"",
 		value,
 		hashRedeemCode(value),
 		maskRedeemCode(value),
+		nil,
+		0,
+		0,
+		1,
+		nil,
+		nil,
 		status,
 		totalLimit,
 		now,
@@ -636,6 +819,9 @@ func (s *RedeemService) upsertSharedCodeTx(tx *sql.Tx, campaignID, rawCode strin
 		return s.insertSharedCodeTx(tx, campaignID, value, totalLimit, enabled, now)
 	}
 	if value != item.CodeValue {
+		if err := s.ensureCodeValueUniqueExceptTx(tx, value, item.ID); err != nil {
+			return err
+		}
 		var count int
 		if err := tx.QueryRow(
 			`SELECT COUNT(*) FROM redeem_redemptions WHERE COALESCE(code_id, '') = ? AND status = 'success'`,
@@ -649,8 +835,9 @@ func (s *RedeemService) upsertSharedCodeTx(tx *sql.Tx, campaignID, rawCode strin
 	}
 	_, err = tx.Exec(
 		`UPDATE redeem_codes
-		    SET code_value = ?, code_hash = ?, code_mask = ?, status = ?, max_redemptions = ?, updated_at = ?
+		    SET source_type = ?, code_value = ?, code_hash = ?, code_mask = ?, status = ?, max_redemptions = ?, updated_at = ?
 		  WHERE id = ?`,
+		model.RedeemCodeSourceTypeCampaign,
 		value,
 		hashRedeemCode(value),
 		maskRedeemCode(value),
@@ -660,6 +847,27 @@ func (s *RedeemService) upsertSharedCodeTx(tx *sql.Tx, campaignID, rawCode strin
 		item.ID,
 	)
 	return err
+}
+
+func (s *RedeemService) ensureCodeValueUniqueTx(tx *sql.Tx, value string) error {
+	return s.ensureCodeValueUniqueExceptTx(tx, value, "")
+}
+
+func (s *RedeemService) ensureCodeValueUniqueExceptTx(tx *sql.Tx, value, excludeCodeID string) error {
+	var count int
+	query := `SELECT COUNT(*) FROM redeem_codes WHERE code_hash = ?`
+	args := []any{hashRedeemCode(value)}
+	if strings.TrimSpace(excludeCodeID) != "" {
+		query += ` AND id <> ?`
+		args = append(args, excludeCodeID)
+	}
+	if err := tx.QueryRow(query, args...).Scan(&count); err != nil {
+		return err
+	}
+	if count > 0 {
+		return fmt.Errorf("兑换码已存在")
+	}
+	return nil
 }
 
 func (s *RedeemService) generateUniqueCodeTx(tx *sql.Tx, prefix string, randomLength int, seen map[string]struct{}) (string, error) {
@@ -690,35 +898,47 @@ func (s *RedeemService) generateUniqueCodeTx(tx *sql.Tx, prefix string, randomLe
 
 func (s *RedeemService) loadLookupByCodeTx(tx *sql.Tx, codeValue string) (*redeemLookup, error) {
 	item := &redeemLookup{}
+	var campaignID sql.NullString
+	var subscriptionPlanID sql.NullString
 	err := tx.QueryRow(
-		`SELECT rc.id, c.id, c.name, c.description, c.code_mode, rc.code_value, rc.code_mask, rc.status, rc.max_redemptions, rc.redeemed_count,
-		        c.subscription_plan_id, COALESCE(sp.name, ''), c.subscription_duration_days, c.balance_micros,
-		        c.total_redemptions_limit, c.redeemed_count, c.per_user_limit, c.starts_at, c.ends_at, c.enabled
+		`SELECT rc.id, rc.campaign_id, COALESCE(c.name, ''), COALESCE(c.description, ''), COALESCE(rc.source_type, 'campaign'), COALESCE(rc.source_ref_id, ''),
+		        COALESCE(c.code_mode, 'single_use'), rc.code_value, rc.code_mask, rc.status, rc.max_redemptions, rc.redeemed_count,
+		        COALESCE(rc.subscription_plan_id, c.subscription_plan_id), COALESCE(sp.name, ''),
+		        CASE WHEN rc.campaign_id IS NULL THEN rc.subscription_duration_days ELSE c.subscription_duration_days END,
+		        CASE WHEN rc.campaign_id IS NULL THEN rc.balance_micros ELSE c.balance_micros END,
+		        CASE WHEN rc.campaign_id IS NULL THEN rc.per_user_limit ELSE 0 END,
+		        rc.starts_at, rc.ends_at,
+		        COALESCE(c.total_redemptions_limit, 0), COALESCE(c.redeemed_count, 0), COALESCE(c.per_user_limit, 0), c.starts_at, c.ends_at, COALESCE(c.enabled, 1)
 		   FROM redeem_codes rc
-		   INNER JOIN redeem_campaigns c ON c.id = rc.campaign_id
-		   LEFT JOIN subscription_plans sp ON sp.id = c.subscription_plan_id
+		   LEFT JOIN redeem_campaigns c ON c.id = rc.campaign_id
+		   LEFT JOIN subscription_plans sp ON sp.id = COALESCE(rc.subscription_plan_id, c.subscription_plan_id)
 		  WHERE rc.code_value = ?`,
 		codeValue,
 	).Scan(
 		&item.CodeID,
-		&item.CampaignID,
+		&campaignID,
 		&item.CampaignName,
 		&item.CampaignDescription,
+		&item.SourceType,
+		&item.SourceRefID,
 		&item.CodeMode,
 		&item.CodeValue,
 		&item.CodeMask,
 		&item.CodeStatus,
 		&item.CodeMaxRedemptions,
 		&item.CodeRedeemedCount,
-		&item.SubscriptionPlanID,
+		&subscriptionPlanID,
 		&item.SubscriptionPlanName,
 		&item.SubscriptionDurationDays,
 		&item.BalanceMicros,
+		&item.CodePerUserLimit,
+		&item.CodeStartsAt,
+		&item.CodeEndsAt,
 		&item.TotalRedemptionsLimit,
 		&item.CampaignRedeemedCount,
-		&item.PerUserLimit,
-		&item.StartsAt,
-		&item.EndsAt,
+		&item.CampaignPerUserLimit,
+		&item.CampaignStartsAt,
+		&item.CampaignEndsAt,
 		&item.CampaignEnabled,
 	)
 	if err == sql.ErrNoRows {
@@ -727,6 +947,12 @@ func (s *RedeemService) loadLookupByCodeTx(tx *sql.Tx, codeValue string) (*redee
 	if err != nil {
 		return nil, err
 	}
+	if campaignID.Valid {
+		item.CampaignID = campaignID.String
+	}
+	if subscriptionPlanID.Valid {
+		item.SubscriptionPlanID = subscriptionPlanID.String
+	}
 	return item, nil
 }
 
@@ -734,14 +960,23 @@ func (s *RedeemService) validateRedeemLookup(now time.Time, item *redeemLookup) 
 	if item == nil {
 		return ErrRedeemCodeNotFound
 	}
-	if !item.CampaignEnabled {
-		return ErrRedeemCampaignDisabled
-	}
-	if item.StartsAt != nil && now.Before(item.StartsAt.UTC()) {
-		return ErrRedeemCampaignNotStarted
-	}
-	if item.EndsAt != nil && now.After(item.EndsAt.UTC()) {
-		return ErrRedeemCampaignEnded
+	if item.CampaignID != "" {
+		if !item.CampaignEnabled {
+			return ErrRedeemCampaignDisabled
+		}
+		if item.CampaignStartsAt != nil && now.Before(item.CampaignStartsAt.UTC()) {
+			return ErrRedeemCampaignNotStarted
+		}
+		if item.CampaignEndsAt != nil && now.After(item.CampaignEndsAt.UTC()) {
+			return ErrRedeemCampaignEnded
+		}
+	} else {
+		if item.CodeStartsAt != nil && now.Before(item.CodeStartsAt.UTC()) {
+			return ErrRedeemCampaignNotStarted
+		}
+		if item.CodeEndsAt != nil && now.After(item.CodeEndsAt.UTC()) {
+			return ErrRedeemCampaignEnded
+		}
 	}
 	if item.CodeStatus == model.RedeemCodeStatusDisabled {
 		return ErrRedeemCodeDisabled
@@ -759,6 +994,16 @@ func (s *RedeemService) validateRedeemLookup(now time.Time, item *redeemLookup) 
 		return ErrRedeemRewardInvalid
 	}
 	return nil
+}
+
+func (l *redeemLookup) perUserLimit() int {
+	if l == nil {
+		return 0
+	}
+	if l.CampaignID != "" {
+		return l.CampaignPerUserLimit
+	}
+	return l.CodePerUserLimit
 }
 
 func (s *RedeemService) reserveUserRedemptionTx(tx *sql.Tx, codeID, userID string, perUserLimit int, now time.Time) error {
@@ -842,11 +1087,9 @@ func (s *RedeemService) reserveCodeRedemptionTx(tx *sql.Tx, codeID string, now t
 }
 
 func (s *RedeemService) insertRejectedLookupTx(tx *sql.Tx, lookup *redeemLookup, userID, username, codeInput, failureReason string, now time.Time) error {
-	campaignID := lookup.CampaignID
 	codeID := lookup.CodeID
-	return s.insertRedemptionTx(tx, &model.RedeemRedemption{
+	item := &model.RedeemRedemption{
 		ID:                       uuid.New().String(),
-		CampaignID:               &campaignID,
 		CodeID:                   &codeID,
 		UserID:                   userID,
 		Username:                 username,
@@ -858,7 +1101,12 @@ func (s *RedeemService) insertRejectedLookupTx(tx *sql.Tx, lookup *redeemLookup,
 		Status:                   model.RedeemRedemptionStatusRejected,
 		FailureReason:            failureReason,
 		CreatedAt:                now,
-	})
+	}
+	if lookup != nil && lookup.CampaignID != "" {
+		campaignID := lookup.CampaignID
+		item.CampaignID = &campaignID
+	}
+	return s.insertRedemptionTx(tx, item)
 }
 
 func (s *RedeemService) insertRedemptionTx(tx *sql.Tx, item *model.RedeemRedemption) error {
@@ -893,20 +1141,33 @@ func (s *RedeemService) insertRedemptionTx(tx *sql.Tx, item *model.RedeemRedempt
 
 func (s *RedeemService) loadSharedCodeTx(tx *sql.Tx, campaignID string) (*model.RedeemCode, error) {
 	item := &model.RedeemCode{}
+	var campaignIDValue sql.NullString
+	var batchID sql.NullString
+	var subscriptionPlanID sql.NullString
 	err := tx.QueryRow(
-		`SELECT id, campaign_id, batch_id, code_value, code_hash, code_mask, status, max_redemptions, redeemed_count, last_redeemed_at, created_at, updated_at
+		`SELECT id, campaign_id, batch_id, source_type, source_ref_id, code_value, code_hash, code_mask,
+		        subscription_plan_id, subscription_duration_days, balance_micros, per_user_limit, starts_at, ends_at,
+		        status, max_redemptions, redeemed_count, last_redeemed_at, created_at, updated_at
 		   FROM redeem_codes
-		  WHERE campaign_id = ? AND batch_id IS NULL
+		  WHERE campaign_id = ? AND batch_id IS NULL AND source_type = 'campaign'
 		  ORDER BY created_at ASC
 		  LIMIT 1`,
 		campaignID,
 	).Scan(
 		&item.ID,
-		&item.CampaignID,
-		new(sql.NullString),
+		&campaignIDValue,
+		&batchID,
+		&item.SourceType,
+		&item.SourceRefID,
 		&item.CodeValue,
 		&item.CodeHash,
 		&item.CodeMask,
+		&subscriptionPlanID,
+		&item.SubscriptionDurationDays,
+		&item.BalanceMicros,
+		&item.PerUserLimit,
+		&item.StartsAt,
+		&item.EndsAt,
 		&item.Status,
 		&item.MaxRedemptions,
 		&item.RedeemedCount,
@@ -916,6 +1177,18 @@ func (s *RedeemService) loadSharedCodeTx(tx *sql.Tx, campaignID string) (*model.
 	)
 	if err == sql.ErrNoRows {
 		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	if campaignIDValue.Valid {
+		item.CampaignID = &campaignIDValue.String
+	}
+	if batchID.Valid {
+		item.BatchID = &batchID.String
+	}
+	if subscriptionPlanID.Valid {
+		item.SubscriptionPlanID = &subscriptionPlanID.String
 	}
 	return item, err
 }

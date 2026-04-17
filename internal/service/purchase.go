@@ -30,6 +30,11 @@ var (
 	ErrPermanentSubscription     = errors.New("当前账号已有永久订阅，无法续费")
 	ErrBalanceTopupUnavailable   = errors.New("余额充值未开启")
 	ErrInvalidBalanceTopupAmount = errors.New("充值金额无效")
+	ErrPendingSubscriptionOrder  = errors.New("当前已有待支付的订阅相关订单，请先处理后再下单")
+	ErrDowngradeNotAllowed       = errors.New("当前仅允许购买更高级套餐升级，不允许降级")
+	ErrSameRankPlanSwitch        = errors.New("同级别不同套餐不支持直接切换，请选择兑换码交付或联系管理员")
+	ErrUpgradeConflict           = errors.New("升级报价已失效，请重新下单")
+	ErrUpgradeValuationMissing   = errors.New("套餐升级估值未配置，暂不支持升级")
 )
 
 const (
@@ -51,6 +56,15 @@ type PurchaseService struct {
 	settingsSvc *PurchaseSettingsService
 	payment     purchasePaymentGateway
 	grantSvc    *RewardGrantService
+}
+
+type purchaseUpgradeQuote struct {
+	SourcePlanID        string
+	SourceExpiresAt     *time.Time
+	CreditCNYCent       int64
+	LockedTargetSeconds int64
+	PayableCNYCent      int64
+	StateToken          string
 }
 
 func NewPurchaseService() *PurchaseService {
@@ -128,14 +142,14 @@ func (s *PurchaseService) GetCatalog(userID string) (*model.PurchaseCatalogRespo
 		if plan == nil || !plan.Enabled {
 			continue
 		}
-		responses = append(responses, s.toProductResponse(product, plan.Name))
+		responses = append(responses, s.toProductResponse(product, plan.Name, plan.UpgradeRank))
 	}
 
 	return &model.PurchaseCatalogResponse{
 		PurchaseEnabled:                settings.PurchaseEnabled,
 		DebugAutoPaid:                  settings.DebugAutoPaid,
 		PaymentConfigured:              s.settingsSvc.CanCreateOrders(settings),
-		RenewalRule:                    "同套餐续期，不同套餐不可购买",
+		RenewalRule:                    "同套餐续期，更高级套餐可升级，同级不同套餐与降级不可直充",
 		CurrentSubscription:            currentSubscription,
 		Products:                       responses,
 		BalanceTopupEnabled:            s.settingsSvc.CanCreateBalanceTopup(settings),
@@ -160,7 +174,11 @@ func (s *PurchaseService) ListProductsAdmin() ([]*model.PurchaseProductResponse,
 		if plan := plans[product.SubscriptionPlanID]; plan != nil {
 			planName = plan.Name
 		}
-		responses = append(responses, s.toProductResponse(product, planName))
+		planRank := 0
+		if plan := plans[product.SubscriptionPlanID]; plan != nil {
+			planRank = plan.UpgradeRank
+		}
+		responses = append(responses, s.toProductResponse(product, planName, planRank))
 	}
 	return responses, nil
 }
@@ -180,6 +198,8 @@ func (s *PurchaseService) CreateProduct(req *model.PurchaseProductRequest) (*mod
 		SubscriptionPlanID: req.SubscriptionPlanID,
 		DurationDays:       req.DurationDays,
 		PriceCNYCent:       req.PriceCNYCent,
+		GroupName:          strings.TrimSpace(req.GroupName),
+		GroupSort:          req.GroupSort,
 		IsRecommended:      req.IsRecommended,
 		SortOrder:          req.SortOrder,
 		Enabled:            req.Enabled,
@@ -187,7 +207,7 @@ func (s *PurchaseService) CreateProduct(req *model.PurchaseProductRequest) (*mod
 	if err := s.productRepo.Create(product); err != nil {
 		return nil, err
 	}
-	return s.toProductResponse(product, plan.Name), nil
+	return s.toProductResponse(product, plan.Name, plan.UpgradeRank), nil
 }
 
 func (s *PurchaseService) UpdateProduct(id string, req *model.PurchaseProductRequest) (*model.PurchaseProductResponse, error) {
@@ -204,6 +224,8 @@ func (s *PurchaseService) UpdateProduct(id string, req *model.PurchaseProductReq
 		SubscriptionPlanID: req.SubscriptionPlanID,
 		DurationDays:       req.DurationDays,
 		PriceCNYCent:       req.PriceCNYCent,
+		GroupName:          strings.TrimSpace(req.GroupName),
+		GroupSort:          req.GroupSort,
 		IsRecommended:      req.IsRecommended,
 		SortOrder:          req.SortOrder,
 		Enabled:            req.Enabled,
@@ -218,7 +240,7 @@ func (s *PurchaseService) UpdateProduct(id string, req *model.PurchaseProductReq
 	if updated == nil {
 		return nil, repository.ErrPurchaseProductNotFound
 	}
-	return s.toProductResponse(updated, plan.Name), nil
+	return s.toProductResponse(updated, plan.Name, plan.UpgradeRank), nil
 }
 
 func (s *PurchaseService) DeleteProduct(id string) error {
@@ -236,7 +258,7 @@ func (s *PurchaseService) SetProductEnabled(id string, enabled bool) error {
 	return s.productRepo.SetEnabled(id, enabled)
 }
 
-func (s *PurchaseService) CreateOrder(ctx context.Context, userID, username, productID string) (*model.PurchaseOrderResponse, error) {
+func (s *PurchaseService) CreateOrder(ctx context.Context, userID, username, productID string, deliveryMode model.PurchaseDeliveryMode) (*model.PurchaseOrderResponse, error) {
 	settings, err := s.settingsSvc.Get()
 	if err != nil {
 		return nil, err
@@ -244,8 +266,8 @@ func (s *PurchaseService) CreateOrder(ctx context.Context, userID, username, pro
 	if !settings.PurchaseEnabled {
 		return nil, ErrPurchaseDisabled
 	}
-	if !s.settingsSvc.CanCreateOrders(settings) {
-		return nil, ErrPaymentUnavailable
+	if deliveryMode == "" {
+		deliveryMode = model.PurchaseDeliveryModeAccount
 	}
 
 	product, plan, productResp, err := s.loadPurchasableProduct(productID)
@@ -256,42 +278,92 @@ func (s *PurchaseService) CreateOrder(ctx context.Context, userID, username, pro
 		return nil, ErrPurchaseProductDisabled
 	}
 
+	if count, err := s.orderRepo.CountPendingSubscriptionOrdersByUser(userID); err != nil {
+		return nil, err
+	} else if count > 0 {
+		return nil, ErrPendingSubscriptionOrder
+	}
+
 	activeSubscription, err := s.subRepo.GetActiveByUserID(userID)
 	if err != nil {
 		return nil, err
 	}
-	if activeSubscription != nil {
-		if activeSubscription.PlanID != product.SubscriptionPlanID {
-			return nil, ErrDifferentPlanActive
+
+	now := time.Now().UTC()
+	var upgradeQuote *purchaseUpgradeQuote
+	if activeSubscription != nil && deliveryMode == model.PurchaseDeliveryModeAccount {
+		currentPlan, _, err := s.planRepo.GetByID(activeSubscription.PlanID)
+		if err != nil {
+			return nil, err
 		}
-		if activeSubscription.ExpiresAt == nil {
+		if currentPlan == nil {
+			return nil, ErrPlanNotFound
+		}
+		if activeSubscription.ExpiresAt == nil && deliveryMode == model.PurchaseDeliveryModeAccount {
 			return nil, ErrPermanentSubscription
+		}
+
+		switch {
+		case plan.UpgradeRank < currentPlan.UpgradeRank:
+			return nil, ErrDowngradeNotAllowed
+		case plan.UpgradeRank == currentPlan.UpgradeRank && activeSubscription.PlanID != product.SubscriptionPlanID:
+			return nil, ErrSameRankPlanSwitch
+		case plan.UpgradeRank > currentPlan.UpgradeRank:
+			upgradeQuote, err = s.buildUpgradeQuote(ctx, userID, activeSubscription, currentPlan, plan, product, now)
+			if err != nil {
+				return nil, err
+			}
+		case activeSubscription.PlanID != product.SubscriptionPlanID:
+			return nil, ErrDifferentPlanActive
 		}
 	}
 
-	now := time.Now().UTC()
+	amountCNYCent := product.PriceCNYCent
+	upgradeSourcePlanID := ""
+	var upgradeSourceExpiresAt *time.Time
+	upgradeCreditCNYCent := int64(0)
+	upgradeLockedTargetSeconds := int64(0)
+	upgradeStateToken := ""
+	if upgradeQuote != nil {
+		amountCNYCent = upgradeQuote.PayableCNYCent
+		upgradeSourcePlanID = upgradeQuote.SourcePlanID
+		upgradeSourceExpiresAt = upgradeQuote.SourceExpiresAt
+		upgradeCreditCNYCent = upgradeQuote.CreditCNYCent
+		upgradeLockedTargetSeconds = upgradeQuote.LockedTargetSeconds
+		upgradeStateToken = upgradeQuote.StateToken
+	}
+
 	order := &model.PurchaseOrder{
-		ID:                 uuid.New().String(),
-		OrderNo:            newPurchaseOrderNo(now),
-		UserID:             userID,
-		ProductID:          product.ID,
-		SubscriptionPlanID: product.SubscriptionPlanID,
-		DurationDays:       product.DurationDays,
-		AmountCNYCent:      product.PriceCNYCent,
-		OrderKind:          model.PurchaseOrderKindSubscription,
-		PaymentChannel:     model.PaymentChannelAlipay,
-		PaymentStatus:      model.PurchasePaymentStatusPending,
-		FulfillmentStatus:  model.PurchaseFulfillmentStatusPending,
-		FailureReason:      "",
-		CreatedAt:          now,
-		UpdatedAt:          now,
+		ID:                      uuid.New().String(),
+		OrderNo:                 newPurchaseOrderNo(now),
+		UserID:                  userID,
+		ProductID:               product.ID,
+		SubscriptionPlanID:      product.SubscriptionPlanID,
+		DurationDays:            product.DurationDays,
+		AmountCNYCent:           amountCNYCent,
+		OrderKind:               model.PurchaseOrderKindSubscription,
+		DeliveryMode:            deliveryMode,
+		PaymentChannel:          model.PaymentChannelAlipay,
+		PaymentStatus:           model.PurchasePaymentStatusPending,
+		FulfillmentStatus:       model.PurchaseFulfillmentStatusPending,
+		UpgradeSourcePlanID:     upgradeSourcePlanID,
+		UpgradeSourceExpiresAt:  upgradeSourceExpiresAt,
+		UpgradeCreditCNYCent:    upgradeCreditCNYCent,
+		UpgradeLockedTargetSecs: upgradeLockedTargetSeconds,
+		UpgradeStateToken:       upgradeStateToken,
+		FailureReason:           "",
+		CreatedAt:               now,
+		UpdatedAt:               now,
 	}
 	if err := s.orderRepo.Create(order); err != nil {
 		return nil, err
 	}
 
-	if settings.DebugAutoPaid {
+	if settings.DebugAutoPaid || order.AmountCNYCent == 0 {
 		return s.applySuccessfulPayment(order.OrderNo, "debug-"+order.OrderNo, &now)
+	}
+	if !s.settingsSvc.CanCreateOrders(settings) {
+		return nil, ErrPaymentUnavailable
 	}
 
 	paymentResult, err := s.payment.CreateOrder(ctx, order, productResp, username)
@@ -341,6 +413,7 @@ func (s *PurchaseService) CreateBalanceTopupOrder(ctx context.Context, userID, u
 		DurationDays:       1,
 		AmountCNYCent:      amountCnyCent,
 		OrderKind:          model.PurchaseOrderKindBalanceTopup,
+		DeliveryMode:       model.PurchaseDeliveryModeAccount,
 		BalanceTopupMicros: balanceTopupMicros,
 		PaymentChannel:     model.PaymentChannelAlipay,
 		PaymentStatus:      model.PurchasePaymentStatusPending,
@@ -354,14 +427,17 @@ func (s *PurchaseService) CreateBalanceTopupOrder(ctx context.Context, userID, u
 	}
 
 	productResp := &model.PurchaseProductResponse{
-		ID:                   balanceTopupProductID,
-		Name:                 "余额充值",
-		Summary:              fmt.Sprintf("$%.2f", float64(balanceTopupMicros)/1e6),
-		SubscriptionPlanID:   balanceTopupPlanID,
-		SubscriptionPlanName: "余额充值",
-		DurationDays:         1,
-		PriceCNYCent:         amountCnyCent,
-		Enabled:              false,
+		ID:                          balanceTopupProductID,
+		Name:                        "余额充值",
+		Summary:                     fmt.Sprintf("$%.2f", float64(balanceTopupMicros)/1e6),
+		SubscriptionPlanID:          balanceTopupPlanID,
+		SubscriptionPlanName:        "余额充值",
+		SubscriptionPlanUpgradeRank: 0,
+		DurationDays:                1,
+		PriceCNYCent:                amountCnyCent,
+		GroupName:                   "",
+		GroupSort:                   0,
+		Enabled:                     false,
 	}
 
 	if settings.DebugAutoPaid {
@@ -551,6 +627,151 @@ func (s *PurchaseService) reloadOrderForRole(order *model.PurchaseOrderResponse)
 	return reloaded, nil
 }
 
+func (s *PurchaseService) buildUpgradeQuote(
+	_ context.Context,
+	userID string,
+	activeSub *model.UserSubscription,
+	currentPlan *model.SubscriptionPlan,
+	targetPlan *model.SubscriptionPlan,
+	product *model.PurchaseProduct,
+	now time.Time,
+) (*purchaseUpgradeQuote, error) {
+	if activeSub == nil || currentPlan == nil || targetPlan == nil || product == nil {
+		return nil, nil
+	}
+	if targetPlan.UpgradeValuationCnyCentPerDay <= 0 {
+		return nil, ErrUpgradeValuationMissing
+	}
+
+	db := database.GetDB()
+	tx, err := db.Begin()
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback()
+
+	if err := s.ensureLegacyEntitlementsTx(tx, userID, activeSub, currentPlan, now); err != nil {
+		return nil, err
+	}
+
+	entitlements, err := s.grantSvc.entitlementRepo.ListActiveByUserIDTx(tx, userID, now)
+	if err != nil {
+		return nil, err
+	}
+
+	currentPlanEntitlements := make([]*model.SubscriptionEntitlement, 0, len(entitlements))
+	for _, item := range entitlements {
+		if item == nil || item.PlanID != activeSub.PlanID {
+			continue
+		}
+		currentPlanEntitlements = append(currentPlanEntitlements, item)
+	}
+
+	creditCNYCent := int64(0)
+	for _, item := range currentPlanEntitlements {
+		creditCNYCent += remainingEntitlementValueCNYCent(item, now)
+	}
+
+	productTargetSeconds := int64(product.DurationDays) * 24 * 60 * 60
+	lockedTargetSeconds := productTargetSeconds
+	if creditCNYCent > 0 {
+		convertedSeconds := int64(math.Round(float64(creditCNYCent) * 86400 / float64(targetPlan.UpgradeValuationCnyCentPerDay)))
+		if convertedSeconds > lockedTargetSeconds {
+			lockedTargetSeconds = convertedSeconds
+		}
+	}
+
+	payableCNYCent := product.PriceCNYCent - creditCNYCent
+	if payableCNYCent < 0 {
+		payableCNYCent = 0
+	}
+
+	if err := tx.Commit(); err != nil {
+		return nil, err
+	}
+
+	return &purchaseUpgradeQuote{
+		SourcePlanID:        activeSub.PlanID,
+		SourceExpiresAt:     activeSub.ExpiresAt,
+		CreditCNYCent:       creditCNYCent,
+		LockedTargetSeconds: lockedTargetSeconds,
+		PayableCNYCent:      payableCNYCent,
+		StateToken:          buildUpgradeStateToken(activeSub, currentPlanEntitlements),
+	}, nil
+}
+
+func (s *PurchaseService) ensureLegacyEntitlementsTx(
+	tx *sql.Tx,
+	userID string,
+	activeSub *model.UserSubscription,
+	currentPlan *model.SubscriptionPlan,
+	now time.Time,
+) error {
+	if tx == nil || activeSub == nil || currentPlan == nil || activeSub.ExpiresAt == nil || !activeSub.ExpiresAt.After(now) {
+		return nil
+	}
+	count, err := s.grantSvc.entitlementRepo.CountByUserTx(tx, userID)
+	if err != nil {
+		return err
+	}
+	if count > 0 {
+		return nil
+	}
+	return s.grantSvc.entitlementRepo.CreateTx(tx, &model.SubscriptionEntitlement{
+		UserID:                 userID,
+		PlanID:                 activeSub.PlanID,
+		SourceType:             model.SubscriptionEntitlementSourceLegacySnapshot,
+		SourceRefID:            activeSub.ID,
+		ValuationCnyCentPerDay: currentPlan.UpgradeValuationCnyCentPerDay,
+		StartsAt:               now,
+		ExpiresAt:              activeSub.ExpiresAt,
+		Status:                 model.SubscriptionEntitlementStatusActive,
+	})
+}
+
+func buildUpgradeStateToken(activeSub *model.UserSubscription, entitlements []*model.SubscriptionEntitlement) string {
+	var builder strings.Builder
+	if activeSub != nil {
+		builder.WriteString(activeSub.ID)
+		builder.WriteByte('|')
+		builder.WriteString(activeSub.PlanID)
+		builder.WriteByte('|')
+		if activeSub.ExpiresAt != nil {
+			builder.WriteString(activeSub.ExpiresAt.UTC().Format(time.RFC3339Nano))
+		}
+	}
+	builder.WriteString("::")
+	for _, item := range entitlements {
+		if item == nil {
+			continue
+		}
+		builder.WriteString(item.ID)
+		builder.WriteByte('|')
+		builder.WriteString(item.PlanID)
+		builder.WriteByte('|')
+		builder.WriteString(string(item.Status))
+		builder.WriteByte('|')
+		builder.WriteString(item.UpdatedAt.UTC().Format(time.RFC3339Nano))
+		builder.WriteByte('|')
+		if item.ExpiresAt != nil {
+			builder.WriteString(item.ExpiresAt.UTC().Format(time.RFC3339Nano))
+		}
+		builder.WriteByte(',')
+	}
+	return builder.String()
+}
+
+func remainingEntitlementValueCNYCent(item *model.SubscriptionEntitlement, now time.Time) int64 {
+	if item == nil || item.ExpiresAt == nil || !item.ExpiresAt.After(now) || item.ValuationCnyCentPerDay <= 0 {
+		return 0
+	}
+	remainingSeconds := item.ExpiresAt.Sub(now).Seconds()
+	if remainingSeconds <= 0 {
+		return 0
+	}
+	return int64(math.Round(remainingSeconds * float64(item.ValuationCnyCentPerDay) / 86400))
+}
+
 func (s *PurchaseService) applySuccessfulPayment(orderNo, tradeNo string, paidAt *time.Time) (*model.PurchaseOrderResponse, error) {
 	db := database.GetDB()
 	tx, err := db.Begin()
@@ -630,7 +851,7 @@ func (s *PurchaseService) applySuccessfulPayment(orderNo, tradeNo string, paidAt
 
 func (s *PurchaseService) fulfillOrderTx(tx *sql.Tx, order *model.PurchaseOrder, now time.Time) (BillingStateSyncAction, error) {
 	if order.FulfillmentStatus == model.PurchaseFulfillmentStatusFulfilled {
-		if order.OrderKind == model.PurchaseOrderKindSubscription {
+		if order.OrderKind == model.PurchaseOrderKindSubscription && order.DeliveryMode == model.PurchaseDeliveryModeAccount {
 			return BillingStateSyncAction{
 				UserID:           order.UserID,
 				RefreshUserState: true,
@@ -650,22 +871,55 @@ func (s *PurchaseService) fulfillOrderTx(tx *sql.Tx, order *model.PurchaseOrder,
 			BalanceDeltaMicros: order.BalanceTopupMicros,
 		}
 	default:
-		if _, err := s.grantSvc.GrantSubscriptionTx(tx, order.UserID, order.SubscriptionPlanID, order.DurationDays, now); err != nil {
-			if errors.Is(err, ErrDifferentPlanActive) || errors.Is(err, ErrPermanentSubscription) {
-				_, updateErr := tx.Exec(
-					`UPDATE purchase_orders SET fulfillment_status = ?, failure_reason = ?, updated_at = ? WHERE order_no = ?`,
-					model.PurchaseFulfillmentStatusFailed,
-					err.Error(),
-					now,
-					order.OrderNo,
-				)
-				return BillingStateSyncAction{}, updateErr
+		switch {
+		case order.DeliveryMode == model.PurchaseDeliveryModeRedeemCode:
+			if err := s.createGeneratedRedeemCodeTx(tx, order, now); err != nil {
+				return BillingStateSyncAction{}, err
 			}
-			return BillingStateSyncAction{}, err
-		}
-		syncAction = BillingStateSyncAction{
-			UserID:           order.UserID,
-			RefreshUserState: true,
+		case order.UpgradeStateToken != "" && order.UpgradeLockedTargetSecs > 0:
+			if err := s.applyLockedUpgradeTx(tx, order, now); err != nil {
+				if errors.Is(err, ErrUpgradeConflict) || errors.Is(err, ErrPermanentSubscription) {
+					_, updateErr := tx.Exec(
+						`UPDATE purchase_orders SET fulfillment_status = ?, failure_reason = ?, updated_at = ? WHERE order_no = ?`,
+						model.PurchaseFulfillmentStatusFailed,
+						err.Error(),
+						now,
+						order.OrderNo,
+					)
+					return BillingStateSyncAction{}, updateErr
+				}
+				return BillingStateSyncAction{}, err
+			}
+			syncAction = BillingStateSyncAction{
+				UserID:           order.UserID,
+				RefreshUserState: true,
+			}
+		default:
+			if _, err := s.grantSvc.GrantSubscriptionTxWithSource(
+				tx,
+				order.UserID,
+				order.SubscriptionPlanID,
+				order.DurationDays,
+				model.SubscriptionEntitlementSourcePurchase,
+				order.OrderNo,
+				now,
+			); err != nil {
+				if errors.Is(err, ErrDifferentPlanActive) || errors.Is(err, ErrPermanentSubscription) {
+					_, updateErr := tx.Exec(
+						`UPDATE purchase_orders SET fulfillment_status = ?, failure_reason = ?, updated_at = ? WHERE order_no = ?`,
+						model.PurchaseFulfillmentStatusFailed,
+						err.Error(),
+						now,
+						order.OrderNo,
+					)
+					return BillingStateSyncAction{}, updateErr
+				}
+				return BillingStateSyncAction{}, err
+			}
+			syncAction = BillingStateSyncAction{
+				UserID:           order.UserID,
+				RefreshUserState: true,
+			}
 		}
 	}
 
@@ -684,11 +938,153 @@ func (s *PurchaseService) fulfillOrderTx(tx *sql.Tx, order *model.PurchaseOrder,
 	return syncAction, nil
 }
 
+func (s *PurchaseService) applyLockedUpgradeTx(tx *sql.Tx, order *model.PurchaseOrder, now time.Time) error {
+	activeSub, err := s.grantSvc.getActiveSubscriptionTx(tx, order.UserID, now)
+	if err != nil {
+		return err
+	}
+	if activeSub == nil || activeSub.ExpiresAt == nil || activeSub.PlanID != order.UpgradeSourcePlanID {
+		return ErrUpgradeConflict
+	}
+
+	currentPlan, _, err := s.planRepo.GetByID(activeSub.PlanID)
+	if err != nil {
+		return err
+	}
+	if currentPlan == nil {
+		return ErrPlanNotFound
+	}
+	if err := s.ensureLegacyEntitlementsTx(tx, order.UserID, activeSub, currentPlan, now); err != nil {
+		return err
+	}
+
+	entitlements, err := s.grantSvc.entitlementRepo.ListActiveByUserIDTx(tx, order.UserID, now)
+	if err != nil {
+		return err
+	}
+	currentPlanEntitlements := make([]*model.SubscriptionEntitlement, 0, len(entitlements))
+	for _, item := range entitlements {
+		if item == nil || item.PlanID != activeSub.PlanID {
+			continue
+		}
+		currentPlanEntitlements = append(currentPlanEntitlements, item)
+	}
+	if buildUpgradeStateToken(activeSub, currentPlanEntitlements) != order.UpgradeStateToken {
+		return ErrUpgradeConflict
+	}
+
+	targetPlan, _, err := s.planRepo.GetByID(order.SubscriptionPlanID)
+	if err != nil {
+		return err
+	}
+	if targetPlan == nil {
+		return ErrPlanNotFound
+	}
+
+	if err := s.grantSvc.entitlementRepo.ConsumeActiveByUserPlanTx(tx, order.UserID, activeSub.PlanID, order.OrderNo, now); err != nil {
+		return err
+	}
+
+	newExpiry := now.Add(time.Duration(order.UpgradeLockedTargetSecs) * time.Second)
+	if _, err := tx.Exec(
+		`UPDATE user_subscriptions SET plan_id = ?, starts_at = ?, expires_at = ?, updated_at = ? WHERE id = ?`,
+		order.SubscriptionPlanID,
+		now,
+		newExpiry,
+		now,
+		activeSub.ID,
+	); err != nil {
+		return err
+	}
+
+	return s.grantSvc.entitlementRepo.CreateTx(tx, &model.SubscriptionEntitlement{
+		UserID:                 order.UserID,
+		PlanID:                 order.SubscriptionPlanID,
+		SourceType:             model.SubscriptionEntitlementSourceUpgrade,
+		SourceRefID:            order.OrderNo,
+		ValuationCnyCentPerDay: targetPlan.UpgradeValuationCnyCentPerDay,
+		StartsAt:               now,
+		ExpiresAt:              &newExpiry,
+		Status:                 model.SubscriptionEntitlementStatusActive,
+	})
+}
+
+func (s *PurchaseService) createGeneratedRedeemCodeTx(tx *sql.Tx, order *model.PurchaseOrder, now time.Time) error {
+	codeValue, err := s.generatePurchaseRedeemCodeTx(tx)
+	if err != nil {
+		return err
+	}
+	_, err = tx.Exec(
+		`INSERT INTO redeem_codes (
+			id, campaign_id, batch_id, source_type, source_ref_id, code_value, code_hash, code_mask,
+			subscription_plan_id, subscription_duration_days, balance_micros, per_user_limit, starts_at, ends_at,
+			status, max_redemptions, redeemed_count, last_redeemed_at, created_at, updated_at
+		) VALUES (?, NULL, NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, NULL, ?, ?)`,
+		uuid.New().String(),
+		model.RedeemCodeSourceTypePurchaseOrder,
+		order.OrderNo,
+		codeValue,
+		hashRedeemCode(codeValue),
+		maskRedeemCode(codeValue),
+		order.SubscriptionPlanID,
+		order.DurationDays,
+		0,
+		1,
+		nil,
+		nil,
+		model.RedeemCodeStatusActive,
+		1,
+		now,
+		now,
+	)
+	if err != nil {
+		return err
+	}
+	if err := tx.QueryRow(
+		`SELECT id FROM redeem_codes WHERE source_type = ? AND source_ref_id = ? ORDER BY created_at DESC LIMIT 1`,
+		model.RedeemCodeSourceTypePurchaseOrder,
+		order.OrderNo,
+	).Scan(&order.GeneratedRedeemCodeID); err != nil {
+		return err
+	}
+	_, err = tx.Exec(
+		`UPDATE purchase_orders SET generated_redeem_code_id = ?, updated_at = ? WHERE order_no = ?`,
+		order.GeneratedRedeemCodeID,
+		now,
+		order.OrderNo,
+	)
+	return err
+}
+
+func (s *PurchaseService) generatePurchaseRedeemCodeTx(tx *sql.Tx) (string, error) {
+	seen := map[string]struct{}{}
+	for attempts := 0; attempts < 256; attempts++ {
+		randomPart, err := randomRedeemString(10)
+		if err != nil {
+			return "", err
+		}
+		value := "BUY-" + randomPart
+		if _, exists := seen[value]; exists {
+			continue
+		}
+		seen[value] = struct{}{}
+		var count int
+		if err := tx.QueryRow(`SELECT COUNT(*) FROM redeem_codes WHERE code_hash = ?`, hashRedeemCode(value)).Scan(&count); err != nil {
+			return "", err
+		}
+		if count == 0 {
+			return value, nil
+		}
+	}
+	return "", fmt.Errorf("生成购买兑换码失败")
+}
+
 func (s *PurchaseService) getOrderByOrderNoTx(tx *sql.Tx, orderNo string) (*model.PurchaseOrder, error) {
 	order := &model.PurchaseOrder{}
 	err := tx.QueryRow(
-		`SELECT id, order_no, user_id, product_id, subscription_plan_id, duration_days, amount_cny_cent, order_kind, balance_topup_micros, payment_channel, payment_status,
-		        fulfillment_status, alipay_trade_no, alipay_qr_code, alipay_qr_url, expires_at, paid_at, fulfilled_at, failure_reason,
+		`SELECT id, order_no, user_id, product_id, subscription_plan_id, duration_days, amount_cny_cent, order_kind, delivery_mode, balance_topup_micros, payment_channel, payment_status,
+		        fulfillment_status, generated_redeem_code_id, upgrade_source_plan_id, upgrade_source_expires_at, upgrade_credit_cny_cent, upgrade_locked_target_seconds, upgrade_state_token,
+		        alipay_trade_no, alipay_qr_code, alipay_qr_url, expires_at, paid_at, fulfilled_at, failure_reason,
 		        created_at, updated_at
 		   FROM purchase_orders
 		  WHERE order_no = ?`,
@@ -702,10 +1098,17 @@ func (s *PurchaseService) getOrderByOrderNoTx(tx *sql.Tx, orderNo string) (*mode
 		&order.DurationDays,
 		&order.AmountCNYCent,
 		&order.OrderKind,
+		&order.DeliveryMode,
 		&order.BalanceTopupMicros,
 		&order.PaymentChannel,
 		&order.PaymentStatus,
 		&order.FulfillmentStatus,
+		&order.GeneratedRedeemCodeID,
+		&order.UpgradeSourcePlanID,
+		&order.UpgradeSourceExpiresAt,
+		&order.UpgradeCreditCNYCent,
+		&order.UpgradeLockedTargetSecs,
+		&order.UpgradeStateToken,
 		&order.AlipayTradeNo,
 		&order.AlipayQRCode,
 		&order.AlipayQRURL,
@@ -804,7 +1207,7 @@ func (s *PurchaseService) loadPurchasableProduct(productID string) (*model.Purch
 		return nil, nil, nil, ErrPlanNotFound
 	}
 
-	return product, plan, s.toProductResponse(product, plan.Name), nil
+	return product, plan, s.toProductResponse(product, plan.Name, plan.UpgradeRank), nil
 }
 
 func (s *PurchaseService) listPlanMap() (map[string]*model.SubscriptionPlan, error) {
@@ -819,12 +1222,14 @@ func (s *PurchaseService) listPlanMap() (map[string]*model.SubscriptionPlan, err
 			continue
 		}
 		result[plan.ID] = &model.SubscriptionPlan{
-			ID:          plan.ID,
-			Name:        plan.Name,
-			Description: plan.Description,
-			Enabled:     plan.Enabled,
-			CreatedAt:   plan.CreatedAt,
-			UpdatedAt:   plan.UpdatedAt,
+			ID:                            plan.ID,
+			Name:                          plan.Name,
+			Description:                   plan.Description,
+			Enabled:                       plan.Enabled,
+			UpgradeRank:                   plan.UpgradeRank,
+			UpgradeValuationCnyCentPerDay: plan.UpgradeValuationCnyCentPerDay,
+			CreatedAt:                     plan.CreatedAt,
+			UpdatedAt:                     plan.UpdatedAt,
 		}
 	}
 	return result, nil
@@ -847,10 +1252,16 @@ func (s *PurchaseService) getCurrentSubscriptionResponse(userID string) (*model.
 		planName = plan.Name
 	}
 	return &model.UserSubscriptionResponse{
-		ID:        sub.ID,
-		UserID:    sub.UserID,
-		PlanID:    sub.PlanID,
-		PlanName:  planName,
+		ID:       sub.ID,
+		UserID:   sub.UserID,
+		PlanID:   sub.PlanID,
+		PlanName: planName,
+		PlanUpgradeRank: func() int {
+			if plan != nil {
+				return plan.UpgradeRank
+			}
+			return 0
+		}(),
 		StartsAt:  sub.StartsAt,
 		ExpiresAt: sub.ExpiresAt,
 		Status:    sub.Status,
@@ -860,23 +1271,26 @@ func (s *PurchaseService) getCurrentSubscriptionResponse(userID string) (*model.
 	}, nil
 }
 
-func (s *PurchaseService) toProductResponse(product *model.PurchaseProduct, planName string) *model.PurchaseProductResponse {
+func (s *PurchaseService) toProductResponse(product *model.PurchaseProduct, planName string, planRank int) *model.PurchaseProductResponse {
 	if product == nil {
 		return nil
 	}
 	return &model.PurchaseProductResponse{
-		ID:                   product.ID,
-		Name:                 product.Name,
-		Summary:              product.Summary,
-		SubscriptionPlanID:   product.SubscriptionPlanID,
-		SubscriptionPlanName: planName,
-		DurationDays:         product.DurationDays,
-		PriceCNYCent:         product.PriceCNYCent,
-		IsRecommended:        product.IsRecommended,
-		SortOrder:            product.SortOrder,
-		Enabled:              product.Enabled,
-		CreatedAt:            product.CreatedAt,
-		UpdatedAt:            product.UpdatedAt,
+		ID:                          product.ID,
+		Name:                        product.Name,
+		Summary:                     product.Summary,
+		SubscriptionPlanID:          product.SubscriptionPlanID,
+		SubscriptionPlanName:        planName,
+		SubscriptionPlanUpgradeRank: planRank,
+		DurationDays:                product.DurationDays,
+		PriceCNYCent:                product.PriceCNYCent,
+		GroupName:                   product.GroupName,
+		GroupSort:                   product.GroupSort,
+		IsRecommended:               product.IsRecommended,
+		SortOrder:                   product.SortOrder,
+		Enabled:                     product.Enabled,
+		CreatedAt:                   product.CreatedAt,
+		UpdatedAt:                   product.UpdatedAt,
 	}
 }
 
@@ -884,12 +1298,15 @@ func (s *PurchaseService) ensureBalanceTopupPlaceholders() error {
 	db := database.GetDB()
 	now := time.Now().UTC()
 	if _, err := db.Exec(
-		`INSERT OR IGNORE INTO subscription_plans (id, name, description, enabled, created_at, updated_at)
-		 VALUES (?, ?, ?, ?, ?, ?)`,
+		`INSERT INTO subscription_plans (id, name, description, enabled, upgrade_rank, upgrade_valuation_cny_cent_per_day, created_at, updated_at)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+		 ON CONFLICT (id) DO NOTHING`,
 		balanceTopupPlanID,
 		"余额充值",
 		"系统余额充值占位套餐",
 		false,
+		0,
+		0,
 		now,
 		now,
 	); err != nil {
@@ -897,14 +1314,17 @@ func (s *PurchaseService) ensureBalanceTopupPlaceholders() error {
 	}
 
 	if _, err := db.Exec(
-		`INSERT OR IGNORE INTO purchase_products (id, name, summary, subscription_plan_id, duration_days, price_cny_cent, is_recommended, sort_order, enabled, created_at, updated_at)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		`INSERT INTO purchase_products (id, name, summary, subscription_plan_id, duration_days, price_cny_cent, group_name, group_sort, is_recommended, sort_order, enabled, created_at, updated_at)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		 ON CONFLICT (id) DO NOTHING`,
 		balanceTopupProductID,
 		"余额充值",
 		"系统余额充值占位商品",
 		balanceTopupPlanID,
 		1,
 		1,
+		"",
+		0,
 		false,
 		0,
 		false,

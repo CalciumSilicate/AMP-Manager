@@ -79,12 +79,13 @@ func (r *RedeemRepository) GetCampaignResponse(id string) (*model.RedeemCampaign
 		   LEFT JOIN (
 		        SELECT campaign_id, MIN(code_value) AS code_value, MIN(code_mask) AS code_mask
 		          FROM redeem_codes
-		         WHERE batch_id IS NULL
+		         WHERE source_type = 'campaign' AND batch_id IS NULL
 		         GROUP BY campaign_id
 		   ) sc ON sc.campaign_id = c.id
 		   LEFT JOIN (
 		        SELECT campaign_id, COUNT(*) AS code_count
 		          FROM redeem_codes
+		         WHERE campaign_id IS NOT NULL
 		         GROUP BY campaign_id
 		   ) code_stats ON code_stats.campaign_id = c.id
 		   LEFT JOIN (
@@ -125,19 +126,31 @@ func (r *RedeemRepository) GetCampaignResponse(id string) (*model.RedeemCampaign
 func (r *RedeemRepository) GetCode(id string) (*model.RedeemCode, error) {
 	db := database.GetDB()
 	item := &model.RedeemCode{}
+	var campaignID sql.NullString
 	var batchID sql.NullString
+	var subscriptionPlanID sql.NullString
 	err := db.QueryRow(
-		`SELECT id, campaign_id, batch_id, code_value, code_hash, code_mask, status, max_redemptions, redeemed_count, last_redeemed_at, created_at, updated_at
+		`SELECT id, campaign_id, batch_id, source_type, source_ref_id, code_value, code_hash, code_mask,
+		        subscription_plan_id, subscription_duration_days, balance_micros, per_user_limit, starts_at, ends_at,
+		        status, max_redemptions, redeemed_count, last_redeemed_at, created_at, updated_at
 		   FROM redeem_codes
 		  WHERE id = ?`,
 		id,
 	).Scan(
 		&item.ID,
-		&item.CampaignID,
+		&campaignID,
 		&batchID,
+		&item.SourceType,
+		&item.SourceRefID,
 		&item.CodeValue,
 		&item.CodeHash,
 		&item.CodeMask,
+		&subscriptionPlanID,
+		&item.SubscriptionDurationDays,
+		&item.BalanceMicros,
+		&item.PerUserLimit,
+		&item.StartsAt,
+		&item.EndsAt,
 		&item.Status,
 		&item.MaxRedemptions,
 		&item.RedeemedCount,
@@ -151,8 +164,14 @@ func (r *RedeemRepository) GetCode(id string) (*model.RedeemCode, error) {
 	if err != nil {
 		return nil, err
 	}
+	if campaignID.Valid {
+		item.CampaignID = &campaignID.String
+	}
 	if batchID.Valid {
 		item.BatchID = &batchID.String
+	}
+	if subscriptionPlanID.Valid {
+		item.SubscriptionPlanID = &subscriptionPlanID.String
 	}
 	return item, nil
 }
@@ -160,21 +179,33 @@ func (r *RedeemRepository) GetCode(id string) (*model.RedeemCode, error) {
 func (r *RedeemRepository) GetSharedCodeByCampaign(campaignID string) (*model.RedeemCode, error) {
 	db := database.GetDB()
 	item := &model.RedeemCode{}
+	var campaignIDValue sql.NullString
 	var batchID sql.NullString
+	var subscriptionPlanID sql.NullString
 	err := db.QueryRow(
-		`SELECT id, campaign_id, batch_id, code_value, code_hash, code_mask, status, max_redemptions, redeemed_count, last_redeemed_at, created_at, updated_at
+		`SELECT id, campaign_id, batch_id, source_type, source_ref_id, code_value, code_hash, code_mask,
+		        subscription_plan_id, subscription_duration_days, balance_micros, per_user_limit, starts_at, ends_at,
+		        status, max_redemptions, redeemed_count, last_redeemed_at, created_at, updated_at
 		   FROM redeem_codes
-		  WHERE campaign_id = ? AND batch_id IS NULL
+		  WHERE campaign_id = ? AND batch_id IS NULL AND source_type = 'campaign'
 		  ORDER BY created_at ASC
 		  LIMIT 1`,
 		campaignID,
 	).Scan(
 		&item.ID,
-		&item.CampaignID,
+		&campaignIDValue,
 		&batchID,
+		&item.SourceType,
+		&item.SourceRefID,
 		&item.CodeValue,
 		&item.CodeHash,
 		&item.CodeMask,
+		&subscriptionPlanID,
+		&item.SubscriptionDurationDays,
+		&item.BalanceMicros,
+		&item.PerUserLimit,
+		&item.StartsAt,
+		&item.EndsAt,
 		&item.Status,
 		&item.MaxRedemptions,
 		&item.RedeemedCount,
@@ -188,8 +219,14 @@ func (r *RedeemRepository) GetSharedCodeByCampaign(campaignID string) (*model.Re
 	if err != nil {
 		return nil, err
 	}
+	if campaignIDValue.Valid {
+		item.CampaignID = &campaignIDValue.String
+	}
 	if batchID.Valid {
 		item.BatchID = &batchID.String
+	}
+	if subscriptionPlanID.Valid {
+		item.SubscriptionPlanID = &subscriptionPlanID.String
 	}
 	return item, nil
 }
@@ -208,12 +245,13 @@ func (r *RedeemRepository) ListCampaigns() ([]*model.RedeemCampaignResponse, err
 		   LEFT JOIN (
 		        SELECT campaign_id, MIN(code_value) AS code_value, MIN(code_mask) AS code_mask
 		          FROM redeem_codes
-		         WHERE batch_id IS NULL
+		         WHERE source_type = 'campaign' AND batch_id IS NULL
 		         GROUP BY campaign_id
 		   ) sc ON sc.campaign_id = c.id
 		   LEFT JOIN (
 		        SELECT campaign_id, COUNT(*) AS code_count
 		          FROM redeem_codes
+		         WHERE campaign_id IS NOT NULL
 		         GROUP BY campaign_id
 		   ) code_stats ON code_stats.campaign_id = c.id
 		   LEFT JOIN (
@@ -262,15 +300,18 @@ func (r *RedeemRepository) ListCampaigns() ([]*model.RedeemCampaignResponse, err
 
 func (r *RedeemRepository) ListBatches(campaignID string) ([]*model.RedeemCodeBatchResponse, error) {
 	db := database.GetDB()
-	rows, err := db.Query(
-		`SELECT b.id, b.campaign_id, COALESCE(c.name, ''), b.name, b.prefix, b.code_count, b.code_length, b.created_at, b.updated_at
-		   FROM redeem_code_batches b
-		   INNER JOIN redeem_campaigns c ON c.id = b.campaign_id
-		  WHERE (? = '' OR b.campaign_id = ?)
-		  ORDER BY b.created_at DESC`,
-		campaignID,
-		campaignID,
-	)
+	query := `
+		SELECT b.id, b.campaign_id, COALESCE(c.name, ''), b.name, b.prefix, b.code_count, b.code_length, b.created_at, b.updated_at
+		  FROM redeem_code_batches b
+		  INNER JOIN redeem_campaigns c ON c.id = b.campaign_id`
+	args := make([]any, 0, 1)
+	if trimmed := strings.TrimSpace(campaignID); trimmed != "" {
+		query += ` WHERE b.campaign_id = ?`
+		args = append(args, trimmed)
+	}
+	query += ` ORDER BY b.created_at DESC`
+
+	rows, err := db.Query(query, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -302,36 +343,47 @@ func (r *RedeemRepository) ListCodes(campaignID, batchID, status, keyword string
 	if limit <= 0 {
 		limit = 200
 	}
-	keyword = strings.TrimSpace(keyword)
-	search := ""
-	if keyword != "" {
-		search = "%" + keyword + "%"
+
+	var builder strings.Builder
+	builder.WriteString(`
+		SELECT rc.id, rc.campaign_id, COALESCE(c.name, ''), rc.batch_id, COALESCE(b.name, ''), rc.source_type, COALESCE(rc.source_ref_id, ''),
+		       COALESCE(c.code_mode, 'single_use'), rc.code_value, rc.code_mask,
+		       COALESCE(rc.subscription_plan_id, c.subscription_plan_id, ''), COALESCE(sp.name, ''),
+		       CASE WHEN rc.campaign_id IS NULL THEN rc.subscription_duration_days ELSE c.subscription_duration_days END,
+		       CASE WHEN rc.campaign_id IS NULL THEN rc.balance_micros ELSE c.balance_micros END,
+		       CASE WHEN rc.campaign_id IS NULL THEN rc.per_user_limit ELSE c.per_user_limit END,
+		       CASE WHEN rc.campaign_id IS NULL THEN rc.starts_at ELSE c.starts_at END,
+		       CASE WHEN rc.campaign_id IS NULL THEN rc.ends_at ELSE c.ends_at END,
+		       rc.status, rc.max_redemptions, rc.redeemed_count, rc.last_redeemed_at, rc.created_at, rc.updated_at
+		  FROM redeem_codes rc
+		  LEFT JOIN redeem_campaigns c ON c.id = rc.campaign_id
+		  LEFT JOIN redeem_code_batches b ON b.id = rc.batch_id
+		  LEFT JOIN subscription_plans sp ON sp.id = COALESCE(rc.subscription_plan_id, c.subscription_plan_id)
+		 WHERE 1 = 1`)
+	args := make([]any, 0, 6)
+
+	if trimmed := strings.TrimSpace(campaignID); trimmed != "" {
+		builder.WriteString(` AND rc.campaign_id = ?`)
+		args = append(args, trimmed)
+	}
+	if trimmed := strings.TrimSpace(batchID); trimmed != "" {
+		builder.WriteString(` AND COALESCE(rc.batch_id, '') = ?`)
+		args = append(args, trimmed)
+	}
+	if trimmed := strings.TrimSpace(status); trimmed != "" {
+		builder.WriteString(` AND rc.status = ?`)
+		args = append(args, trimmed)
+	}
+	if trimmed := strings.TrimSpace(keyword); trimmed != "" {
+		search := "%" + trimmed + "%"
+		builder.WriteString(` AND (rc.code_value LIKE ? OR rc.code_mask LIKE ? OR COALESCE(c.name, '') LIKE ? OR COALESCE(rc.source_ref_id, '') LIKE ?)`)
+		args = append(args, search, search, search, search)
 	}
 
-	rows, err := db.Query(
-		`SELECT rc.id, rc.campaign_id, COALESCE(c.name, ''), rc.batch_id, COALESCE(b.name, ''), c.code_mode,
-		        rc.code_value, rc.code_mask, rc.status, rc.max_redemptions, rc.redeemed_count, rc.last_redeemed_at, rc.created_at, rc.updated_at
-		   FROM redeem_codes rc
-		   INNER JOIN redeem_campaigns c ON c.id = rc.campaign_id
-		   LEFT JOIN redeem_code_batches b ON b.id = rc.batch_id
-		  WHERE (? = '' OR rc.campaign_id = ?)
-		    AND (? = '' OR COALESCE(rc.batch_id, '') = ?)
-		    AND (? = '' OR rc.status = ?)
-		    AND (? = '' OR rc.code_value LIKE ? OR rc.code_mask LIKE ? OR c.name LIKE ?)
-		  ORDER BY rc.created_at DESC
-		  LIMIT ?`,
-		campaignID,
-		campaignID,
-		batchID,
-		batchID,
-		status,
-		status,
-		search,
-		search,
-		search,
-		search,
-		limit,
-	)
+	builder.WriteString(` ORDER BY rc.created_at DESC LIMIT ?`)
+	args = append(args, limit)
+
+	rows, err := db.Query(builder.String(), args...)
 	if err != nil {
 		return nil, err
 	}
@@ -340,17 +392,28 @@ func (r *RedeemRepository) ListCodes(campaignID, batchID, status, keyword string
 	items := make([]*model.RedeemCodeResponse, 0)
 	for rows.Next() {
 		item := &model.RedeemCodeResponse{}
-		var batchName sql.NullString
+		var campaignIDValue sql.NullString
 		var batchIDValue sql.NullString
+		var startsAt sql.NullTime
+		var endsAt sql.NullTime
 		if err := rows.Scan(
 			&item.ID,
-			&item.CampaignID,
+			&campaignIDValue,
 			&item.CampaignName,
 			&batchIDValue,
-			&batchName,
+			&item.BatchName,
+			&item.SourceType,
+			&item.SourceRefID,
 			&item.CodeMode,
 			&item.CodeValue,
 			&item.CodeMask,
+			&item.SubscriptionPlanID,
+			&item.SubscriptionPlanName,
+			&item.SubscriptionDurationDays,
+			&item.BalanceMicros,
+			&item.PerUserLimit,
+			&startsAt,
+			&endsAt,
 			&item.Status,
 			&item.MaxRedemptions,
 			&item.RedeemedCount,
@@ -360,11 +423,17 @@ func (r *RedeemRepository) ListCodes(campaignID, batchID, status, keyword string
 		); err != nil {
 			return nil, err
 		}
+		if campaignIDValue.Valid {
+			item.CampaignID = &campaignIDValue.String
+		}
 		if batchIDValue.Valid {
 			item.BatchID = &batchIDValue.String
 		}
-		if batchName.Valid {
-			item.BatchName = batchName.String
+		if startsAt.Valid {
+			item.StartsAt = &startsAt.Time
+		}
+		if endsAt.Valid {
+			item.EndsAt = &endsAt.Time
 		}
 		items = append(items, item)
 	}
@@ -376,31 +445,33 @@ func (r *RedeemRepository) ListRedemptions(campaignID, status, username string, 
 	if limit <= 0 {
 		limit = 200
 	}
-	searchUser := ""
-	if trimmed := strings.TrimSpace(username); trimmed != "" {
-		searchUser = "%" + trimmed + "%"
-	}
 
-	rows, err := db.Query(
-		`SELECT rr.id, rr.campaign_id, COALESCE(c.name, ''), rr.code_id, rr.user_id, rr.username, rr.code_mask,
-		        rr.subscription_plan_id, COALESCE(sp.name, ''), rr.subscription_duration_days, rr.balance_micros,
-		        rr.status, rr.failure_reason, rr.granted_subscription_id, rr.granted_expires_at, rr.balance_after_micros, rr.created_at
-		   FROM redeem_redemptions rr
-		   LEFT JOIN redeem_campaigns c ON c.id = rr.campaign_id
-		   LEFT JOIN subscription_plans sp ON sp.id = rr.subscription_plan_id
-		  WHERE (? = '' OR COALESCE(rr.campaign_id, '') = ?)
-		    AND (? = '' OR rr.status = ?)
-		    AND (? = '' OR rr.username LIKE ?)
-		  ORDER BY rr.created_at DESC
-		  LIMIT ?`,
-		campaignID,
-		campaignID,
-		status,
-		status,
-		searchUser,
-		searchUser,
-		limit,
-	)
+	var builder strings.Builder
+	builder.WriteString(`
+		SELECT rr.id, rr.campaign_id, COALESCE(c.name, ''), rr.code_id, rr.user_id, rr.username, rr.code_mask,
+		       rr.subscription_plan_id, COALESCE(sp.name, ''), rr.subscription_duration_days, rr.balance_micros,
+		       rr.status, rr.failure_reason, rr.granted_subscription_id, rr.granted_expires_at, rr.balance_after_micros, rr.created_at
+		  FROM redeem_redemptions rr
+		  LEFT JOIN redeem_campaigns c ON c.id = rr.campaign_id
+		  LEFT JOIN subscription_plans sp ON sp.id = rr.subscription_plan_id
+		 WHERE 1 = 1`)
+	args := make([]any, 0, 4)
+	if trimmed := strings.TrimSpace(campaignID); trimmed != "" {
+		builder.WriteString(` AND COALESCE(rr.campaign_id, '') = ?`)
+		args = append(args, trimmed)
+	}
+	if trimmed := strings.TrimSpace(status); trimmed != "" {
+		builder.WriteString(` AND rr.status = ?`)
+		args = append(args, trimmed)
+	}
+	if trimmed := strings.TrimSpace(username); trimmed != "" {
+		builder.WriteString(` AND rr.username LIKE ?`)
+		args = append(args, "%"+trimmed+"%")
+	}
+	builder.WriteString(` ORDER BY rr.created_at DESC LIMIT ?`)
+	args = append(args, limit)
+
+	rows, err := db.Query(builder.String(), args...)
 	if err != nil {
 		return nil, err
 	}
@@ -520,7 +591,9 @@ func (r *RedeemRepository) SetCodeStatus(id string, status model.RedeemCodeStatu
 func (r *RedeemRepository) GetBatchCodes(batchID string) ([]*model.RedeemCode, error) {
 	db := database.GetDB()
 	rows, err := db.Query(
-		`SELECT id, campaign_id, batch_id, code_value, code_hash, code_mask, status, max_redemptions, redeemed_count, last_redeemed_at, created_at, updated_at
+		`SELECT id, campaign_id, batch_id, source_type, source_ref_id, code_value, code_hash, code_mask,
+		        subscription_plan_id, subscription_duration_days, balance_micros, per_user_limit, starts_at, ends_at,
+		        status, max_redemptions, redeemed_count, last_redeemed_at, created_at, updated_at
 		   FROM redeem_codes
 		  WHERE batch_id = ?
 		  ORDER BY created_at ASC`,
@@ -534,14 +607,24 @@ func (r *RedeemRepository) GetBatchCodes(batchID string) ([]*model.RedeemCode, e
 	items := make([]*model.RedeemCode, 0)
 	for rows.Next() {
 		item := &model.RedeemCode{}
+		var campaignID sql.NullString
 		var batchIDValue sql.NullString
+		var subscriptionPlanID sql.NullString
 		if err := rows.Scan(
 			&item.ID,
-			&item.CampaignID,
+			&campaignID,
 			&batchIDValue,
+			&item.SourceType,
+			&item.SourceRefID,
 			&item.CodeValue,
 			&item.CodeHash,
 			&item.CodeMask,
+			&subscriptionPlanID,
+			&item.SubscriptionDurationDays,
+			&item.BalanceMicros,
+			&item.PerUserLimit,
+			&item.StartsAt,
+			&item.EndsAt,
 			&item.Status,
 			&item.MaxRedemptions,
 			&item.RedeemedCount,
@@ -551,8 +634,14 @@ func (r *RedeemRepository) GetBatchCodes(batchID string) ([]*model.RedeemCode, e
 		); err != nil {
 			return nil, err
 		}
+		if campaignID.Valid {
+			item.CampaignID = &campaignID.String
+		}
 		if batchIDValue.Valid {
 			item.BatchID = &batchIDValue.String
+		}
+		if subscriptionPlanID.Valid {
+			item.SubscriptionPlanID = &subscriptionPlanID.String
 		}
 		items = append(items, item)
 	}

@@ -41,12 +41,14 @@ const (
 )
 
 type SubscriptionPlan struct {
-	ID          string    `json:"id"`
-	Name        string    `json:"name"`
-	Description string    `json:"description"`
-	Enabled     bool      `json:"enabled"`
-	CreatedAt   time.Time `json:"createdAt"`
-	UpdatedAt   time.Time `json:"updatedAt"`
+	ID                            string    `json:"id"`
+	Name                          string    `json:"name"`
+	Description                   string    `json:"description"`
+	Enabled                       bool      `json:"enabled"`
+	UpgradeRank                   int       `json:"upgradeRank"`
+	UpgradeValuationCnyCentPerDay int64     `json:"upgradeValuationCnyCentPerDay"`
+	CreatedAt                     time.Time `json:"createdAt"`
+	UpdatedAt                     time.Time `json:"updatedAt"`
 }
 
 type SubscriptionPlanLimit struct {
@@ -61,14 +63,50 @@ type SubscriptionPlanLimit struct {
 }
 
 type UserSubscription struct {
-	ID        string             `json:"id"`
-	UserID    string             `json:"userId"`
-	PlanID    string             `json:"planId"`
-	StartsAt  time.Time          `json:"startsAt"`
-	ExpiresAt *time.Time         `json:"expiresAt"`
-	Status    SubscriptionStatus `json:"status"`
-	CreatedAt time.Time          `json:"createdAt"`
-	UpdatedAt time.Time          `json:"updatedAt"`
+	ID              string             `json:"id"`
+	UserID          string             `json:"userId"`
+	PlanID          string             `json:"planId"`
+	PlanUpgradeRank int                `json:"planUpgradeRank"`
+	StartsAt        time.Time          `json:"startsAt"`
+	ExpiresAt       *time.Time         `json:"expiresAt"`
+	Status          SubscriptionStatus `json:"status"`
+	CreatedAt       time.Time          `json:"createdAt"`
+	UpdatedAt       time.Time          `json:"updatedAt"`
+}
+
+type SubscriptionEntitlementSourceType string
+
+const (
+	SubscriptionEntitlementSourceLegacySnapshot SubscriptionEntitlementSourceType = "legacy_snapshot"
+	SubscriptionEntitlementSourcePurchase       SubscriptionEntitlementSourceType = "purchase"
+	SubscriptionEntitlementSourceRedeem         SubscriptionEntitlementSourceType = "redeem"
+	SubscriptionEntitlementSourceAdminAssign    SubscriptionEntitlementSourceType = "admin_assign"
+	SubscriptionEntitlementSourceAdminAdjust    SubscriptionEntitlementSourceType = "admin_adjust"
+	SubscriptionEntitlementSourceUpgrade        SubscriptionEntitlementSourceType = "upgrade"
+)
+
+type SubscriptionEntitlementStatus string
+
+const (
+	SubscriptionEntitlementStatusActive    SubscriptionEntitlementStatus = "active"
+	SubscriptionEntitlementStatusConsumed  SubscriptionEntitlementStatus = "consumed"
+	SubscriptionEntitlementStatusCancelled SubscriptionEntitlementStatus = "cancelled"
+)
+
+type SubscriptionEntitlement struct {
+	ID                        string                            `json:"id"`
+	UserID                    string                            `json:"userId"`
+	PlanID                    string                            `json:"planId"`
+	SourceType                SubscriptionEntitlementSourceType `json:"sourceType"`
+	SourceRefID               string                            `json:"sourceRefId"`
+	ValuationCnyCentPerDay    int64                             `json:"valuationCnyCentPerDay"`
+	StartsAt                  time.Time                         `json:"startsAt"`
+	ExpiresAt                 *time.Time                        `json:"expiresAt"`
+	Status                    SubscriptionEntitlementStatus     `json:"status"`
+	ConsumedByPurchaseOrderNo string                            `json:"consumedByPurchaseOrderNo"`
+	ConsumedAt                *time.Time                        `json:"consumedAt"`
+	CreatedAt                 time.Time                         `json:"createdAt"`
+	UpdatedAt                 time.Time                         `json:"updatedAt"`
 }
 
 type UserBillingSetting struct {
@@ -116,10 +154,12 @@ type BillingDailyResetState struct {
 // --- Request / Response DTOs ---
 
 type SubscriptionPlanRequest struct {
-	Name        string             `json:"name" binding:"required,min=1,max=64"`
-	Description string             `json:"description" binding:"max=256"`
-	Enabled     bool               `json:"enabled"`
-	Limits      []PlanLimitRequest `json:"limits"`
+	Name                          string             `json:"name" binding:"required,min=1,max=64"`
+	Description                   string             `json:"description" binding:"max=256"`
+	Enabled                       bool               `json:"enabled"`
+	UpgradeRank                   int                `json:"upgradeRank" binding:"min=0,max=1000000"`
+	UpgradeValuationCnyCentPerDay int64              `json:"upgradeValuationCnyCentPerDay" binding:"min=0"`
+	Limits                        []PlanLimitRequest `json:"limits"`
 }
 
 type PlanLimitRequest struct {
@@ -130,13 +170,15 @@ type PlanLimitRequest struct {
 }
 
 type SubscriptionPlanResponse struct {
-	ID          string                  `json:"id"`
-	Name        string                  `json:"name"`
-	Description string                  `json:"description"`
-	Enabled     bool                    `json:"enabled"`
-	Limits      []SubscriptionPlanLimit `json:"limits"`
-	CreatedAt   time.Time               `json:"createdAt"`
-	UpdatedAt   time.Time               `json:"updatedAt"`
+	ID                            string                  `json:"id"`
+	Name                          string                  `json:"name"`
+	Description                   string                  `json:"description"`
+	Enabled                       bool                    `json:"enabled"`
+	UpgradeRank                   int                     `json:"upgradeRank"`
+	UpgradeValuationCnyCentPerDay int64                   `json:"upgradeValuationCnyCentPerDay"`
+	Limits                        []SubscriptionPlanLimit `json:"limits"`
+	CreatedAt                     time.Time               `json:"createdAt"`
+	UpdatedAt                     time.Time               `json:"updatedAt"`
 }
 
 type AssignSubscriptionRequest struct {
@@ -145,16 +187,17 @@ type AssignSubscriptionRequest struct {
 }
 
 type UserSubscriptionResponse struct {
-	ID        string                  `json:"id"`
-	UserID    string                  `json:"userId"`
-	PlanID    string                  `json:"planId"`
-	PlanName  string                  `json:"planName"`
-	StartsAt  time.Time               `json:"startsAt"`
-	ExpiresAt *time.Time              `json:"expiresAt"`
-	Status    SubscriptionStatus      `json:"status"`
-	Limits    []SubscriptionPlanLimit `json:"limits"`
-	CreatedAt time.Time               `json:"createdAt"`
-	UpdatedAt time.Time               `json:"updatedAt"`
+	ID              string                  `json:"id"`
+	UserID          string                  `json:"userId"`
+	PlanID          string                  `json:"planId"`
+	PlanName        string                  `json:"planName"`
+	PlanUpgradeRank int                     `json:"planUpgradeRank"`
+	StartsAt        time.Time               `json:"startsAt"`
+	ExpiresAt       *time.Time              `json:"expiresAt"`
+	Status          SubscriptionStatus      `json:"status"`
+	Limits          []SubscriptionPlanLimit `json:"limits"`
+	CreatedAt       time.Time               `json:"createdAt"`
+	UpdatedAt       time.Time               `json:"updatedAt"`
 }
 
 type WindowRemaining struct {

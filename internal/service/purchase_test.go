@@ -71,6 +71,22 @@ func createPurchaseTestPlan(t *testing.T, name string) *model.SubscriptionPlanRe
 	return plan
 }
 
+func createPurchaseTestPlanWithUpgrade(t *testing.T, name string, rank int, valuationPerDay int64) *model.SubscriptionPlanResponse {
+	t.Helper()
+
+	plan, err := NewSubscriptionPlanService().Create(&model.SubscriptionPlanRequest{
+		Name:                          name,
+		Description:                   name,
+		Enabled:                       true,
+		UpgradeRank:                   rank,
+		UpgradeValuationCnyCentPerDay: valuationPerDay,
+	})
+	if err != nil {
+		t.Fatalf("Create plan returned error: %v", err)
+	}
+	return plan
+}
+
 func createPurchaseTestProduct(t *testing.T, planID, name string, days int, cents int64) *model.PurchaseProduct {
 	t.Helper()
 
@@ -103,6 +119,7 @@ func createPendingPurchaseTestOrder(t *testing.T, userID string, product *model.
 		DurationDays:       product.DurationDays,
 		AmountCNYCent:      product.PriceCNYCent,
 		OrderKind:          kind,
+		DeliveryMode:       model.PurchaseDeliveryModeAccount,
 		BalanceTopupMicros: balanceTopupMicros,
 		PaymentChannel:     model.PaymentChannelAlipay,
 		PaymentStatus:      model.PurchasePaymentStatusPending,
@@ -147,7 +164,7 @@ func TestPurchaseServiceCreateOrderDebugAutoPaidCreatesSubscription(t *testing.T
 		fakePaymentGateway{},
 	)
 
-	order, err := svc.CreateOrder(context.Background(), user.ID, user.Username, product.ID)
+	order, err := svc.CreateOrder(context.Background(), user.ID, user.Username, product.ID, model.PurchaseDeliveryModeAccount)
 	if err != nil {
 		t.Fatalf("CreateOrder returned error: %v", err)
 	}
@@ -203,7 +220,7 @@ func TestPurchaseServiceCreateOrderExtendsSamePlan(t *testing.T) {
 		fakePaymentGateway{},
 	)
 
-	if _, err := svc.CreateOrder(context.Background(), user.ID, user.Username, product.ID); err != nil {
+	if _, err := svc.CreateOrder(context.Background(), user.ID, user.Username, product.ID, model.PurchaseDeliveryModeAccount); err != nil {
 		t.Fatalf("CreateOrder returned error: %v", err)
 	}
 
@@ -221,7 +238,7 @@ func TestPurchaseServiceCreateOrderExtendsSamePlan(t *testing.T) {
 	}
 }
 
-func TestPurchaseServiceRejectsDifferentActivePlan(t *testing.T) {
+func TestPurchaseServiceRejectsSameRankDifferentPlan(t *testing.T) {
 	setupPurchaseServiceTestDB(t)
 
 	settingsSvc := NewPurchaseSettingsService()
@@ -252,9 +269,9 @@ func TestPurchaseServiceRejectsDifferentActivePlan(t *testing.T) {
 		fakePaymentGateway{},
 	)
 
-	_, err := svc.CreateOrder(context.Background(), user.ID, user.Username, product.ID)
-	if !errors.Is(err, ErrDifferentPlanActive) {
-		t.Fatalf("expected ErrDifferentPlanActive, got %v", err)
+	_, err := svc.CreateOrder(context.Background(), user.ID, user.Username, product.ID, model.PurchaseDeliveryModeAccount)
+	if !errors.Is(err, ErrSameRankPlanSwitch) {
+		t.Fatalf("expected ErrSameRankPlanSwitch, got %v", err)
 	}
 }
 
@@ -387,5 +404,110 @@ func TestPurchaseServiceApplySuccessfulPaymentBalanceDeltaOnlyOnce(t *testing.T)
 	}
 	if balanceMicros != 2_000_000 {
 		t.Fatalf("unexpected balance after repeated payment apply: got %d want %d", balanceMicros, int64(2_000_000))
+	}
+}
+
+func TestPurchaseServiceRedeemCodeDeliveryIgnoresCurrentAccountPlanConflict(t *testing.T) {
+	setupPurchaseServiceTestDB(t)
+
+	settingsSvc := NewPurchaseSettingsService()
+	enableDebugPurchase(t, settingsSvc)
+
+	user := createPurchaseTestUser(t, "buyer-redeem-code")
+	activePlan := createPurchaseTestPlanWithUpgrade(t, "Active Plan", 10, 300)
+	targetPlan := createPurchaseTestPlanWithUpgrade(t, "Gift Plan", 20, 500)
+	product := createPurchaseTestProduct(t, targetPlan.ID, "升级礼品", 30, 1990)
+
+	activeExpiry := time.Now().UTC().AddDate(0, 0, 10)
+	if err := repository.NewUserSubscriptionRepository().Assign(&model.UserSubscription{
+		UserID:    user.ID,
+		PlanID:    activePlan.ID,
+		StartsAt:  time.Now().UTC().AddDate(0, 0, -20),
+		ExpiresAt: &activeExpiry,
+		Status:    model.SubscriptionStatusActive,
+	}); err != nil {
+		t.Fatalf("Assign subscription returned error: %v", err)
+	}
+
+	svc := NewPurchaseServiceWithDeps(
+		repository.NewPurchaseProductRepository(),
+		repository.NewPurchaseOrderRepository(),
+		repository.NewSubscriptionPlanRepository(),
+		repository.NewUserSubscriptionRepository(),
+		settingsSvc,
+		fakePaymentGateway{},
+	)
+
+	order, err := svc.CreateOrder(context.Background(), user.ID, user.Username, product.ID, model.PurchaseDeliveryModeRedeemCode)
+	if err != nil {
+		t.Fatalf("CreateOrder returned error: %v", err)
+	}
+	if order.DeliveryMode != model.PurchaseDeliveryModeRedeemCode {
+		t.Fatalf("delivery mode = %s, want redeem_code", order.DeliveryMode)
+	}
+	if order.GeneratedRedeemCode == "" {
+		t.Fatal("expected generated redeem code")
+	}
+
+	sub, err := repository.NewUserSubscriptionRepository().GetActiveByUserID(user.ID)
+	if err != nil {
+		t.Fatalf("GetActiveByUserID returned error: %v", err)
+	}
+	if sub == nil || sub.PlanID != activePlan.ID {
+		t.Fatalf("active subscription plan = %v, want %s", sub, activePlan.ID)
+	}
+}
+
+func TestPurchaseServiceUpgradeToHigherRankConsumesOldEntitlements(t *testing.T) {
+	setupPurchaseServiceTestDB(t)
+
+	settingsSvc := NewPurchaseSettingsService()
+	enableDebugPurchase(t, settingsSvc)
+
+	user := createPurchaseTestUser(t, "buyer-upgrade")
+	lowPlan := createPurchaseTestPlanWithUpgrade(t, "Starter", 10, 100)
+	highPlan := createPurchaseTestPlanWithUpgrade(t, "Pro", 20, 200)
+	product := createPurchaseTestProduct(t, highPlan.ID, "Pro 30 天", 30, 3000)
+
+	initialExpiry := time.Now().UTC().AddDate(0, 0, 10).Truncate(time.Second)
+	if err := repository.NewUserSubscriptionRepository().Assign(&model.UserSubscription{
+		UserID:    user.ID,
+		PlanID:    lowPlan.ID,
+		StartsAt:  time.Now().UTC().AddDate(0, 0, -20),
+		ExpiresAt: &initialExpiry,
+		Status:    model.SubscriptionStatusActive,
+	}); err != nil {
+		t.Fatalf("Assign subscription returned error: %v", err)
+	}
+
+	svc := NewPurchaseServiceWithDeps(
+		repository.NewPurchaseProductRepository(),
+		repository.NewPurchaseOrderRepository(),
+		repository.NewSubscriptionPlanRepository(),
+		repository.NewUserSubscriptionRepository(),
+		settingsSvc,
+		fakePaymentGateway{},
+	)
+
+	order, err := svc.CreateOrder(context.Background(), user.ID, user.Username, product.ID, model.PurchaseDeliveryModeAccount)
+	if err != nil {
+		t.Fatalf("CreateOrder returned error: %v", err)
+	}
+	if order.UpgradeSourcePlanID != lowPlan.ID {
+		t.Fatalf("upgrade source plan = %s, want %s", order.UpgradeSourcePlanID, lowPlan.ID)
+	}
+	if order.UpgradeCreditCnyCent <= 0 {
+		t.Fatalf("expected positive upgrade credit, got %d", order.UpgradeCreditCnyCent)
+	}
+
+	sub, err := repository.NewUserSubscriptionRepository().GetActiveByUserID(user.ID)
+	if err != nil {
+		t.Fatalf("GetActiveByUserID returned error: %v", err)
+	}
+	if sub == nil || sub.PlanID != highPlan.ID {
+		t.Fatalf("upgraded plan = %v, want %s", sub, highPlan.ID)
+	}
+	if sub.ExpiresAt == nil || !sub.ExpiresAt.After(time.Now().UTC()) {
+		t.Fatalf("expected upgraded subscription expiry in the future, got %v", sub.ExpiresAt)
 	}
 }

@@ -340,6 +340,7 @@ func Setup() *gin.Engine {
 				redeem.GET("/batches", redeemHandler.ListBatches)
 				redeem.POST("/campaigns/:id/batches", redeemHandler.CreateBatch)
 				redeem.GET("/batches/:id/export", redeemHandler.ExportBatch)
+				redeem.POST("/codes", redeemHandler.CreateCode)
 				redeem.GET("/codes", redeemHandler.ListCodes)
 				redeem.PATCH("/codes/:id/enabled", redeemHandler.SetCodeEnabled)
 				redeem.GET("/redemptions", redeemHandler.ListRedemptions)

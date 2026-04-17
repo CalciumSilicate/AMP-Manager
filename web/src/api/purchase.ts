@@ -56,8 +56,11 @@ export interface PurchaseProduct {
   summary: string
   subscriptionPlanId: string
   subscriptionPlanName: string
+  subscriptionPlanUpgradeRank: number
   durationDays: number
   priceCnyCent: number
+  groupName: string
+  groupSort: number
   isRecommended: boolean
   sortOrder: number
   enabled: boolean
@@ -71,6 +74,8 @@ export interface PurchaseProductRequest {
   subscriptionPlanId: string
   durationDays: number
   priceCnyCent: number
+  groupName: string
+  groupSort: number
   isRecommended: boolean
   sortOrder: number
   enabled: boolean
@@ -89,10 +94,21 @@ export interface PurchaseOrder {
   durationDays: number
   amountCnyCent: number
   orderKind: 'subscription' | 'balance_topup'
+  deliveryMode: 'account' | 'redeem_code'
   balanceTopupMicros: number
   paymentChannel: 'alipay'
   paymentStatus: PurchasePaymentStatus
   fulfillmentStatus: PurchaseFulfillmentStatus
+  upgradeSourcePlanId: string
+  upgradeSourcePlanName: string
+  upgradeSourceExpiresAt: string | null
+  upgradeCreditCnyCent: number
+  upgradeLockedTargetSeconds: number
+  generatedRedeemCodeId: string
+  generatedRedeemCode: string
+  generatedRedeemCodeMask: string
+  generatedRedeemCodeStatus: string
+  generatedRedeemedAt: string | null
   alipayTradeNo: string
   paymentQrCode: string
   paymentQrUrl: string
@@ -129,7 +145,14 @@ export async function getPurchaseCatalog(): Promise<PurchaseCatalogResponse> {
 export async function createPurchaseOrder(productId: string): Promise<PurchaseOrder> {
   return fetchJson<PurchaseOrder>(`${API_BASE}/me/purchase/orders`, {
     method: 'POST',
-    body: JSON.stringify({ productId }),
+    body: JSON.stringify({ productId, deliveryMode: 'account' }),
+  })
+}
+
+export async function createPurchaseOrderWithMode(productId: string, deliveryMode: 'account' | 'redeem_code'): Promise<PurchaseOrder> {
+  return fetchJson<PurchaseOrder>(`${API_BASE}/me/purchase/orders`, {
+    method: 'POST',
+    body: JSON.stringify({ productId, deliveryMode }),
   })
 }
 

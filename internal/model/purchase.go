@@ -37,6 +37,13 @@ const (
 	PurchaseOrderKindBalanceTopup PurchaseOrderKind = "balance_topup"
 )
 
+type PurchaseDeliveryMode string
+
+const (
+	PurchaseDeliveryModeAccount    PurchaseDeliveryMode = "account"
+	PurchaseDeliveryModeRedeemCode PurchaseDeliveryMode = "redeem_code"
+)
+
 type AlipayEnvironment string
 
 const (
@@ -89,6 +96,8 @@ type PurchaseProduct struct {
 	SubscriptionPlanID string    `json:"subscriptionPlanId"`
 	DurationDays       int       `json:"durationDays"`
 	PriceCNYCent       int64     `json:"priceCnyCent"`
+	GroupName          string    `json:"groupName"`
+	GroupSort          int       `json:"groupSort"`
 	IsRecommended      bool      `json:"isRecommended"`
 	SortOrder          int       `json:"sortOrder"`
 	Enabled            bool      `json:"enabled"`
@@ -102,78 +111,101 @@ type PurchaseProductRequest struct {
 	SubscriptionPlanID string `json:"subscriptionPlanId" binding:"required"`
 	DurationDays       int    `json:"durationDays" binding:"required,min=1,max=3650"`
 	PriceCNYCent       int64  `json:"priceCnyCent" binding:"required,min=1"`
+	GroupName          string `json:"groupName" binding:"max=64"`
+	GroupSort          int    `json:"groupSort"`
 	IsRecommended      bool   `json:"isRecommended"`
 	SortOrder          int    `json:"sortOrder"`
 	Enabled            bool   `json:"enabled"`
 }
 
 type PurchaseProductResponse struct {
-	ID                   string    `json:"id"`
-	Name                 string    `json:"name"`
-	Summary              string    `json:"summary"`
-	SubscriptionPlanID   string    `json:"subscriptionPlanId"`
-	SubscriptionPlanName string    `json:"subscriptionPlanName"`
-	DurationDays         int       `json:"durationDays"`
-	PriceCNYCent         int64     `json:"priceCnyCent"`
-	IsRecommended        bool      `json:"isRecommended"`
-	SortOrder            int       `json:"sortOrder"`
-	Enabled              bool      `json:"enabled"`
-	CreatedAt            time.Time `json:"createdAt"`
-	UpdatedAt            time.Time `json:"updatedAt"`
+	ID                          string    `json:"id"`
+	Name                        string    `json:"name"`
+	Summary                     string    `json:"summary"`
+	SubscriptionPlanID          string    `json:"subscriptionPlanId"`
+	SubscriptionPlanName        string    `json:"subscriptionPlanName"`
+	SubscriptionPlanUpgradeRank int       `json:"subscriptionPlanUpgradeRank"`
+	DurationDays                int       `json:"durationDays"`
+	PriceCNYCent                int64     `json:"priceCnyCent"`
+	GroupName                   string    `json:"groupName"`
+	GroupSort                   int       `json:"groupSort"`
+	IsRecommended               bool      `json:"isRecommended"`
+	SortOrder                   int       `json:"sortOrder"`
+	Enabled                     bool      `json:"enabled"`
+	CreatedAt                   time.Time `json:"createdAt"`
+	UpdatedAt                   time.Time `json:"updatedAt"`
 }
 
 type PurchaseOrder struct {
-	ID                 string                    `json:"id"`
-	OrderNo            string                    `json:"orderNo"`
-	UserID             string                    `json:"userId"`
-	ProductID          string                    `json:"productId"`
-	SubscriptionPlanID string                    `json:"subscriptionPlanId"`
-	DurationDays       int                       `json:"durationDays"`
-	AmountCNYCent      int64                     `json:"amountCnyCent"`
-	OrderKind          PurchaseOrderKind         `json:"orderKind"`
-	BalanceTopupMicros int64                     `json:"balanceTopupMicros"`
-	PaymentChannel     PaymentChannel            `json:"paymentChannel"`
-	PaymentStatus      PurchasePaymentStatus     `json:"paymentStatus"`
-	FulfillmentStatus  PurchaseFulfillmentStatus `json:"fulfillmentStatus"`
-	AlipayTradeNo      string                    `json:"alipayTradeNo"`
-	AlipayQRCode       string                    `json:"-"`
-	AlipayQRURL        string                    `json:"-"`
-	ExpiresAt          *time.Time                `json:"expiresAt"`
-	PaidAt             *time.Time                `json:"paidAt"`
-	FulfilledAt        *time.Time                `json:"fulfilledAt"`
-	FailureReason      string                    `json:"failureReason"`
-	CreatedAt          time.Time                 `json:"createdAt"`
-	UpdatedAt          time.Time                 `json:"updatedAt"`
+	ID                      string                    `json:"id"`
+	OrderNo                 string                    `json:"orderNo"`
+	UserID                  string                    `json:"userId"`
+	ProductID               string                    `json:"productId"`
+	SubscriptionPlanID      string                    `json:"subscriptionPlanId"`
+	DurationDays            int                       `json:"durationDays"`
+	AmountCNYCent           int64                     `json:"amountCnyCent"`
+	OrderKind               PurchaseOrderKind         `json:"orderKind"`
+	DeliveryMode            PurchaseDeliveryMode      `json:"deliveryMode"`
+	BalanceTopupMicros      int64                     `json:"balanceTopupMicros"`
+	PaymentChannel          PaymentChannel            `json:"paymentChannel"`
+	PaymentStatus           PurchasePaymentStatus     `json:"paymentStatus"`
+	FulfillmentStatus       PurchaseFulfillmentStatus `json:"fulfillmentStatus"`
+	GeneratedRedeemCodeID   string                    `json:"generatedRedeemCodeId"`
+	UpgradeSourcePlanID     string                    `json:"upgradeSourcePlanId"`
+	UpgradeSourceExpiresAt  *time.Time                `json:"upgradeSourceExpiresAt"`
+	UpgradeCreditCNYCent    int64                     `json:"upgradeCreditCnyCent"`
+	UpgradeLockedTargetSecs int64                     `json:"upgradeLockedTargetSeconds"`
+	UpgradeStateToken       string                    `json:"upgradeStateToken"`
+	AlipayTradeNo           string                    `json:"alipayTradeNo"`
+	AlipayQRCode            string                    `json:"-"`
+	AlipayQRURL             string                    `json:"-"`
+	ExpiresAt               *time.Time                `json:"expiresAt"`
+	PaidAt                  *time.Time                `json:"paidAt"`
+	FulfilledAt             *time.Time                `json:"fulfilledAt"`
+	FailureReason           string                    `json:"failureReason"`
+	CreatedAt               time.Time                 `json:"createdAt"`
+	UpdatedAt               time.Time                 `json:"updatedAt"`
 }
 
 type PurchaseOrderResponse struct {
-	ID                    string                    `json:"id"`
-	OrderNo               string                    `json:"orderNo"`
-	UserID                string                    `json:"userId"`
-	Username              string                    `json:"username,omitempty"`
-	ProductID             string                    `json:"productId"`
-	ProductName           string                    `json:"productName"`
-	ProductSummary        string                    `json:"productSummary"`
-	SubscriptionPlanID    string                    `json:"subscriptionPlanId"`
-	SubscriptionPlanName  string                    `json:"subscriptionPlanName"`
-	DurationDays          int                       `json:"durationDays"`
-	AmountCNYCent         int64                     `json:"amountCnyCent"`
-	OrderKind             PurchaseOrderKind         `json:"orderKind"`
-	BalanceTopupMicros    int64                     `json:"balanceTopupMicros"`
-	PaymentChannel        PaymentChannel            `json:"paymentChannel"`
-	PaymentStatus         PurchasePaymentStatus     `json:"paymentStatus"`
-	FulfillmentStatus     PurchaseFulfillmentStatus `json:"fulfillmentStatus"`
-	AlipayTradeNo         string                    `json:"alipayTradeNo"`
-	PaymentQRCode         string                    `json:"paymentQrCode"`
-	PaymentQRURL          string                    `json:"paymentQrUrl"`
-	PaymentQRImageDataURL string                    `json:"paymentQrImageDataUrl"`
-	ExpiresAt             *time.Time                `json:"expiresAt"`
-	PaidAt                *time.Time                `json:"paidAt"`
-	FulfilledAt           *time.Time                `json:"fulfilledAt"`
-	FailureReason         string                    `json:"failureReason"`
-	CanRefresh            bool                      `json:"canRefresh"`
-	CreatedAt             time.Time                 `json:"createdAt"`
-	UpdatedAt             time.Time                 `json:"updatedAt"`
+	ID                        string                    `json:"id"`
+	OrderNo                   string                    `json:"orderNo"`
+	UserID                    string                    `json:"userId"`
+	Username                  string                    `json:"username,omitempty"`
+	ProductID                 string                    `json:"productId"`
+	ProductName               string                    `json:"productName"`
+	ProductSummary            string                    `json:"productSummary"`
+	SubscriptionPlanID        string                    `json:"subscriptionPlanId"`
+	SubscriptionPlanName      string                    `json:"subscriptionPlanName"`
+	DurationDays              int                       `json:"durationDays"`
+	AmountCNYCent             int64                     `json:"amountCnyCent"`
+	OrderKind                 PurchaseOrderKind         `json:"orderKind"`
+	DeliveryMode              PurchaseDeliveryMode      `json:"deliveryMode"`
+	BalanceTopupMicros        int64                     `json:"balanceTopupMicros"`
+	PaymentChannel            PaymentChannel            `json:"paymentChannel"`
+	PaymentStatus             PurchasePaymentStatus     `json:"paymentStatus"`
+	FulfillmentStatus         PurchaseFulfillmentStatus `json:"fulfillmentStatus"`
+	UpgradeSourcePlanID       string                    `json:"upgradeSourcePlanId"`
+	UpgradeSourcePlanName     string                    `json:"upgradeSourcePlanName"`
+	UpgradeSourceExpiresAt    *time.Time                `json:"upgradeSourceExpiresAt"`
+	UpgradeCreditCnyCent      int64                     `json:"upgradeCreditCnyCent"`
+	UpgradeLockedTargetSecs   int64                     `json:"upgradeLockedTargetSeconds"`
+	GeneratedRedeemCodeID     string                    `json:"generatedRedeemCodeId"`
+	GeneratedRedeemCode       string                    `json:"generatedRedeemCode"`
+	GeneratedRedeemCodeMask   string                    `json:"generatedRedeemCodeMask"`
+	GeneratedRedeemCodeStatus string                    `json:"generatedRedeemCodeStatus"`
+	GeneratedRedeemedAt       *time.Time                `json:"generatedRedeemedAt"`
+	AlipayTradeNo             string                    `json:"alipayTradeNo"`
+	PaymentQRCode             string                    `json:"paymentQrCode"`
+	PaymentQRURL              string                    `json:"paymentQrUrl"`
+	PaymentQRImageDataURL     string                    `json:"paymentQrImageDataUrl"`
+	ExpiresAt                 *time.Time                `json:"expiresAt"`
+	PaidAt                    *time.Time                `json:"paidAt"`
+	FulfilledAt               *time.Time                `json:"fulfilledAt"`
+	FailureReason             string                    `json:"failureReason"`
+	CanRefresh                bool                      `json:"canRefresh"`
+	CreatedAt                 time.Time                 `json:"createdAt"`
+	UpdatedAt                 time.Time                 `json:"updatedAt"`
 }
 
 type PurchaseCatalogResponse struct {
@@ -194,7 +226,8 @@ type PurchaseOrderListResponse struct {
 }
 
 type CreatePurchaseOrderRequest struct {
-	ProductID string `json:"productId" binding:"required"`
+	ProductID    string               `json:"productId" binding:"required"`
+	DeliveryMode PurchaseDeliveryMode `json:"deliveryMode" binding:"omitempty,oneof=account redeem_code"`
 }
 
 type CreateBalanceTopupOrderRequest struct {

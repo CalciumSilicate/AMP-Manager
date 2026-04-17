@@ -39,14 +39,16 @@ func (r *PurchaseProductRepository) Create(product *model.PurchaseProduct) error
 
 	_, err := db.Exec(
 		`INSERT INTO purchase_products
-		 (id, name, summary, subscription_plan_id, duration_days, price_cny_cent, is_recommended, sort_order, enabled, created_at, updated_at)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		 (id, name, summary, subscription_plan_id, duration_days, price_cny_cent, group_name, group_sort, is_recommended, sort_order, enabled, created_at, updated_at)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		product.ID,
 		product.Name,
 		product.Summary,
 		product.SubscriptionPlanID,
 		product.DurationDays,
 		product.PriceCNYCent,
+		product.GroupName,
+		product.GroupSort,
 		product.IsRecommended,
 		product.SortOrder,
 		product.Enabled,
@@ -60,7 +62,7 @@ func (r *PurchaseProductRepository) GetByID(id string) (*model.PurchaseProduct, 
 	db := database.GetDB()
 	product := &model.PurchaseProduct{}
 	err := db.QueryRow(
-		`SELECT id, name, summary, subscription_plan_id, duration_days, price_cny_cent, is_recommended, sort_order, enabled, created_at, updated_at
+		`SELECT id, name, summary, subscription_plan_id, duration_days, price_cny_cent, group_name, group_sort, is_recommended, sort_order, enabled, created_at, updated_at
 		 FROM purchase_products WHERE id = ?`,
 		id,
 	).Scan(
@@ -70,6 +72,8 @@ func (r *PurchaseProductRepository) GetByID(id string) (*model.PurchaseProduct, 
 		&product.SubscriptionPlanID,
 		&product.DurationDays,
 		&product.PriceCNYCent,
+		&product.GroupName,
+		&product.GroupSort,
 		&product.IsRecommended,
 		&product.SortOrder,
 		&product.Enabled,
@@ -85,14 +89,14 @@ func (r *PurchaseProductRepository) GetByID(id string) (*model.PurchaseProduct, 
 func (r *PurchaseProductRepository) List(includeDisabled bool) ([]*model.PurchaseProduct, error) {
 	db := database.GetDB()
 
-	query := `SELECT id, name, summary, subscription_plan_id, duration_days, price_cny_cent, is_recommended, sort_order, enabled, created_at, updated_at
+	query := `SELECT id, name, summary, subscription_plan_id, duration_days, price_cny_cent, group_name, group_sort, is_recommended, sort_order, enabled, created_at, updated_at
 		FROM purchase_products`
 	args := make([]interface{}, 0)
 	if !includeDisabled {
 		query += ` WHERE enabled = ?`
 		args = append(args, true)
 	}
-	query += ` ORDER BY is_recommended DESC, sort_order ASC, created_at DESC`
+	query += ` ORDER BY group_sort ASC, group_name ASC, is_recommended DESC, sort_order ASC, created_at DESC`
 
 	rows, err := db.Query(query, args...)
 	if err != nil {
@@ -110,6 +114,8 @@ func (r *PurchaseProductRepository) List(includeDisabled bool) ([]*model.Purchas
 			&product.SubscriptionPlanID,
 			&product.DurationDays,
 			&product.PriceCNYCent,
+			&product.GroupName,
+			&product.GroupSort,
 			&product.IsRecommended,
 			&product.SortOrder,
 			&product.Enabled,
@@ -129,13 +135,15 @@ func (r *PurchaseProductRepository) Update(id string, product *model.PurchasePro
 	now := time.Now().UTC()
 	result, err := db.Exec(
 		`UPDATE purchase_products
-		 SET name = ?, summary = ?, subscription_plan_id = ?, duration_days = ?, price_cny_cent = ?, is_recommended = ?, sort_order = ?, enabled = ?, updated_at = ?
+		 SET name = ?, summary = ?, subscription_plan_id = ?, duration_days = ?, price_cny_cent = ?, group_name = ?, group_sort = ?, is_recommended = ?, sort_order = ?, enabled = ?, updated_at = ?
 		 WHERE id = ?`,
 		product.Name,
 		product.Summary,
 		product.SubscriptionPlanID,
 		product.DurationDays,
 		product.PriceCNYCent,
+		product.GroupName,
+		product.GroupSort,
 		product.IsRecommended,
 		product.SortOrder,
 		product.Enabled,

@@ -24,6 +24,14 @@ const (
 	RedeemRedemptionStatusRejected RedeemRedemptionStatus = "rejected"
 )
 
+type RedeemCodeSourceType string
+
+const (
+	RedeemCodeSourceTypeCampaign      RedeemCodeSourceType = "campaign"
+	RedeemCodeSourceTypeFree          RedeemCodeSourceType = "free"
+	RedeemCodeSourceTypePurchaseOrder RedeemCodeSourceType = "purchase_order"
+)
+
 type RedeemCampaign struct {
 	ID                       string         `json:"id"`
 	Name                     string         `json:"name"`
@@ -111,35 +119,65 @@ type RedeemCodeBatchResponse struct {
 }
 
 type RedeemCode struct {
-	ID             string           `json:"id"`
-	CampaignID     string           `json:"campaignId"`
-	BatchID        *string          `json:"batchId"`
-	CodeValue      string           `json:"codeValue"`
-	CodeHash       string           `json:"-"`
-	CodeMask       string           `json:"codeMask"`
-	Status         RedeemCodeStatus `json:"status"`
-	MaxRedemptions int              `json:"maxRedemptions"`
-	RedeemedCount  int              `json:"redeemedCount"`
-	LastRedeemedAt *time.Time       `json:"lastRedeemedAt"`
-	CreatedAt      time.Time        `json:"createdAt"`
-	UpdatedAt      time.Time        `json:"updatedAt"`
+	ID                       string               `json:"id"`
+	CampaignID               *string              `json:"campaignId"`
+	BatchID                  *string              `json:"batchId"`
+	SourceType               RedeemCodeSourceType `json:"sourceType"`
+	SourceRefID              string               `json:"sourceRefId"`
+	CodeValue                string               `json:"codeValue"`
+	CodeHash                 string               `json:"-"`
+	CodeMask                 string               `json:"codeMask"`
+	SubscriptionPlanID       *string              `json:"subscriptionPlanId"`
+	SubscriptionDurationDays int                  `json:"subscriptionDurationDays"`
+	BalanceMicros            int64                `json:"balanceMicros"`
+	PerUserLimit             int                  `json:"perUserLimit"`
+	StartsAt                 *time.Time           `json:"startsAt"`
+	EndsAt                   *time.Time           `json:"endsAt"`
+	Status                   RedeemCodeStatus     `json:"status"`
+	MaxRedemptions           int                  `json:"maxRedemptions"`
+	RedeemedCount            int                  `json:"redeemedCount"`
+	LastRedeemedAt           *time.Time           `json:"lastRedeemedAt"`
+	CreatedAt                time.Time            `json:"createdAt"`
+	UpdatedAt                time.Time            `json:"updatedAt"`
 }
 
 type RedeemCodeResponse struct {
-	ID             string           `json:"id"`
-	CampaignID     string           `json:"campaignId"`
-	CampaignName   string           `json:"campaignName"`
-	BatchID        *string          `json:"batchId"`
-	BatchName      string           `json:"batchName,omitempty"`
-	CodeMode       RedeemCodeMode   `json:"codeMode"`
-	CodeValue      string           `json:"codeValue"`
-	CodeMask       string           `json:"codeMask"`
-	Status         RedeemCodeStatus `json:"status"`
-	MaxRedemptions int              `json:"maxRedemptions"`
-	RedeemedCount  int              `json:"redeemedCount"`
-	LastRedeemedAt *time.Time       `json:"lastRedeemedAt"`
-	CreatedAt      time.Time        `json:"createdAt"`
-	UpdatedAt      time.Time        `json:"updatedAt"`
+	ID                       string               `json:"id"`
+	CampaignID               *string              `json:"campaignId"`
+	CampaignName             string               `json:"campaignName"`
+	BatchID                  *string              `json:"batchId"`
+	BatchName                string               `json:"batchName,omitempty"`
+	SourceType               RedeemCodeSourceType `json:"sourceType"`
+	SourceRefID              string               `json:"sourceRefId"`
+	CodeMode                 RedeemCodeMode       `json:"codeMode"`
+	CodeValue                string               `json:"codeValue"`
+	CodeMask                 string               `json:"codeMask"`
+	SubscriptionPlanID       string               `json:"subscriptionPlanId"`
+	SubscriptionPlanName     string               `json:"subscriptionPlanName"`
+	SubscriptionDurationDays int                  `json:"subscriptionDurationDays"`
+	BalanceMicros            int64                `json:"balanceMicros"`
+	PerUserLimit             int                  `json:"perUserLimit"`
+	StartsAt                 *time.Time           `json:"startsAt"`
+	EndsAt                   *time.Time           `json:"endsAt"`
+	Status                   RedeemCodeStatus     `json:"status"`
+	MaxRedemptions           int                  `json:"maxRedemptions"`
+	RedeemedCount            int                  `json:"redeemedCount"`
+	LastRedeemedAt           *time.Time           `json:"lastRedeemedAt"`
+	CreatedAt                time.Time            `json:"createdAt"`
+	UpdatedAt                time.Time            `json:"updatedAt"`
+}
+
+type ManualRedeemCodeRequest struct {
+	CampaignID               string     `json:"campaignId"`
+	CodeValue                string     `json:"codeValue" binding:"required,min=3,max=128"`
+	SubscriptionPlanID       string     `json:"subscriptionPlanId"`
+	SubscriptionDurationDays int        `json:"subscriptionDurationDays" binding:"min=0,max=3650"`
+	BalanceMicros            int64      `json:"balanceMicros" binding:"min=0"`
+	PerUserLimit             int        `json:"perUserLimit" binding:"min=1,max=10000"`
+	MaxRedemptions           int        `json:"maxRedemptions" binding:"min=1,max=1000000"`
+	StartsAt                 *time.Time `json:"startsAt"`
+	EndsAt                   *time.Time `json:"endsAt"`
+	Enabled                  bool       `json:"enabled"`
 }
 
 type RedeemRedemption struct {

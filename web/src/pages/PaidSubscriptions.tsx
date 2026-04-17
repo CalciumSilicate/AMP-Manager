@@ -98,6 +98,8 @@ function initialProductForm(): PurchaseProductRequest {
     subscriptionPlanId: '',
     durationDays: 30,
     priceCnyCent: 0,
+    groupName: '',
+    groupSort: 0,
     isRecommended: false,
     sortOrder: 0,
     enabled: true,
@@ -105,6 +107,8 @@ function initialProductForm(): PurchaseProductRequest {
 }
 
 type PaidSubscriptionsTab = 'products' | 'orders' | 'settings'
+
+const DEFAULT_ALIPAY_NOTIFY_URL = 'https://amphk.asxs.top/api/public/purchase/alipay/notify'
 
 const tabs: TabbedSettingsPageTab<PaidSubscriptionsTab>[] = [
   { key: 'products', label: '售卖商品' },
@@ -136,7 +140,7 @@ export default function PaidSubscriptions() {
     alipayAppId: '',
     alipayPid: '',
     alipayEnvironment: 'sandbox',
-    alipayNotifyUrl: '',
+    alipayNotifyUrl: DEFAULT_ALIPAY_NOTIFY_URL,
     alipayPublicKey: '',
   })
   const [alipayPrivateKeyInput, setAlipayPrivateKeyInput] = useState('')
@@ -183,7 +187,7 @@ export default function PaidSubscriptions() {
         alipayAppId: settingsData.alipayAppId,
         alipayPid: settingsData.alipayPid,
         alipayEnvironment: settingsData.alipayEnvironment,
-        alipayNotifyUrl: settingsData.alipayNotifyUrl,
+        alipayNotifyUrl: settingsData.alipayNotifyUrl || DEFAULT_ALIPAY_NOTIFY_URL,
         alipayPublicKey: settingsData.alipayPublicKey,
       })
       await loadOrders({
@@ -261,6 +265,8 @@ export default function PaidSubscriptions() {
       subscriptionPlanId: product.subscriptionPlanId,
       durationDays: product.durationDays,
       priceCnyCent: product.priceCnyCent,
+      groupName: product.groupName,
+      groupSort: product.groupSort,
       isRecommended: product.isRecommended,
       sortOrder: product.sortOrder,
       enabled: product.enabled,
@@ -407,6 +413,7 @@ export default function PaidSubscriptions() {
                         <TableHeader>
                           <TableRow>
                             <TableHead>商品</TableHead>
+                            <TableHead>分组</TableHead>
                             <TableHead>套餐</TableHead>
                             <TableHead>时长</TableHead>
                             <TableHead>售价</TableHead>
@@ -422,6 +429,12 @@ export default function PaidSubscriptions() {
                                 <div>
                                   <p className="font-medium">{product.name}</p>
                                   <p className="text-xs text-muted-foreground">{product.summary || '-'}</p>
+                                </div>
+                              </TableCell>
+                              <TableCell>
+                                <div>
+                                  <p>{product.groupName || '-'}</p>
+                                  <p className="text-xs text-muted-foreground">组序 {product.groupSort}</p>
                                 </div>
                               </TableCell>
                               <TableCell>{product.subscriptionPlanName || '-'}</TableCell>
@@ -815,6 +828,24 @@ export default function PaidSubscriptions() {
                 onChange={(event) => setProductPriceInput(event.target.value)}
               />
               <p className="text-xs text-muted-foreground">单位：元，支持两位小数</p>
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="groupName">分组</Label>
+              <Input
+                id="groupName"
+                value={productForm.groupName}
+                onChange={(event) => setProductForm((current) => ({ ...current, groupName: event.target.value }))}
+                placeholder="标准版"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="groupSort">组序</Label>
+              <Input
+                id="groupSort"
+                type="number"
+                value={productForm.groupSort}
+                onChange={(event) => setProductForm((current) => ({ ...current, groupSort: Number(event.target.value || 0) }))}
+              />
             </div>
             <div className="space-y-2">
               <Label htmlFor="sortOrder">排序</Label>

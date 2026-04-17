@@ -24,6 +24,7 @@ async function fetchJson<T>(url: string, options?: RequestInit): Promise<T> {
 export type RedeemCodeMode = 'single_use' | 'shared'
 export type RedeemCodeStatus = 'active' | 'disabled' | 'consumed'
 export type RedeemRedemptionStatus = 'success' | 'rejected'
+export type RedeemCodeSourceType = 'campaign' | 'free' | 'purchase_order'
 
 export interface RedeemCampaign {
   id: string
@@ -84,19 +85,41 @@ export interface RedeemBatchRequest {
 
 export interface RedeemCode {
   id: string
-  campaignId: string
+  campaignId?: string | null
   campaignName: string
   batchId?: string | null
   batchName?: string
+  sourceType: RedeemCodeSourceType
+  sourceRefId: string
   codeMode: RedeemCodeMode
   codeValue: string
   codeMask: string
+  subscriptionPlanId: string
+  subscriptionPlanName: string
+  subscriptionDurationDays: number
+  balanceMicros: number
+  perUserLimit: number
+  startsAt: string | null
+  endsAt: string | null
   status: RedeemCodeStatus
   maxRedemptions: number
   redeemedCount: number
   lastRedeemedAt: string | null
   createdAt: string
   updatedAt: string
+}
+
+export interface ManualRedeemCodeRequest {
+  campaignId?: string
+  codeValue: string
+  subscriptionPlanId: string
+  subscriptionDurationDays: number
+  balanceMicros: number
+  perUserLimit: number
+  maxRedemptions: number
+  startsAt?: string
+  endsAt?: string
+  enabled: boolean
 }
 
 export interface RedeemRedemption {
@@ -217,6 +240,13 @@ export async function setRedeemCodeEnabled(id: string, enabled: boolean): Promis
   await fetchJson<{ message: string }>(`${API_BASE}/admin/redeem/codes/${encodeURIComponent(id)}/enabled`, {
     method: 'PATCH',
     body: JSON.stringify({ enabled }),
+  })
+}
+
+export async function createManualRedeemCode(payload: ManualRedeemCodeRequest): Promise<RedeemCode> {
+  return fetchJson<RedeemCode>(`${API_BASE}/admin/redeem/codes`, {
+    method: 'POST',
+    body: JSON.stringify(payload),
   })
 }
 

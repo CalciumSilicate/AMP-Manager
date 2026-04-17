@@ -23,6 +23,8 @@ type BillingStateSyncAction struct {
 type RewardGrantService struct {
 	refreshUserState  func(ctx context.Context, userID string) error
 	applyBalanceDelta func(ctx context.Context, userID string, deltaMicros int64) error
+	entitlementRepo   repository.SubscriptionEntitlementRepositoryInterface
+	planRepo          repository.SubscriptionPlanRepositoryInterface
 }
 
 func NewRewardGrantService() *RewardGrantService {
@@ -39,6 +41,8 @@ func NewRewardGrantService() *RewardGrantService {
 			}
 			return nil
 		},
+		entitlementRepo: repository.NewSubscriptionEntitlementRepository(),
+		planRepo:        repository.NewSubscriptionPlanRepository(),
 	}
 }
 
@@ -62,11 +66,29 @@ func (s *RewardGrantService) SyncBillingState(ctx context.Context, action Billin
 }
 
 func (s *RewardGrantService) GrantSubscriptionTx(tx *sql.Tx, userID, planID string, durationDays int, now time.Time) (*model.UserSubscription, error) {
+	return s.GrantSubscriptionTxWithSource(tx, userID, planID, durationDays, model.SubscriptionEntitlementSourcePurchase, "", now)
+}
+
+func (s *RewardGrantService) GrantSubscriptionTxWithSource(
+	tx *sql.Tx,
+	userID, planID string,
+	durationDays int,
+	sourceType model.SubscriptionEntitlementSourceType,
+	sourceRefID string,
+	now time.Time,
+) (*model.UserSubscription, error) {
 	if tx == nil {
 		return nil, fmt.Errorf("grant subscription: nil tx")
 	}
 	if planID == "" || durationDays <= 0 {
 		return nil, fmt.Errorf("grant subscription: invalid reward config")
+	}
+	plan, _, err := s.planRepo.GetByID(planID)
+	if err != nil {
+		return nil, err
+	}
+	if plan == nil {
+		return nil, ErrPlanNotFound
 	}
 
 	activeSub, err := s.getActiveSubscriptionTx(tx, userID, now)
@@ -100,6 +122,18 @@ func (s *RewardGrantService) GrantSubscriptionTx(tx *sql.Tx, userID, planID stri
 		); err != nil {
 			return nil, err
 		}
+		if err := s.entitlementRepo.CreateTx(tx, &model.SubscriptionEntitlement{
+			UserID:                 userID,
+			PlanID:                 planID,
+			SourceType:             sourceType,
+			SourceRefID:            strings.TrimSpace(sourceRefID),
+			ValuationCnyCentPerDay: plan.UpgradeValuationCnyCentPerDay,
+			StartsAt:               now,
+			ExpiresAt:              sub.ExpiresAt,
+			Status:                 model.SubscriptionEntitlementStatusActive,
+		}); err != nil {
+			return nil, err
+		}
 		return sub, nil
 	}
 
@@ -121,6 +155,18 @@ func (s *RewardGrantService) GrantSubscriptionTx(tx *sql.Tx, userID, planID stri
 		now,
 		activeSub.ID,
 	); err != nil {
+		return nil, err
+	}
+	if err := s.entitlementRepo.CreateTx(tx, &model.SubscriptionEntitlement{
+		UserID:                 userID,
+		PlanID:                 planID,
+		SourceType:             sourceType,
+		SourceRefID:            strings.TrimSpace(sourceRefID),
+		ValuationCnyCentPerDay: plan.UpgradeValuationCnyCentPerDay,
+		StartsAt:               base,
+		ExpiresAt:              &expiresAt,
+		Status:                 model.SubscriptionEntitlementStatusActive,
+	}); err != nil {
 		return nil, err
 	}
 	activeSub.ExpiresAt = &expiresAt

@@ -123,6 +123,21 @@ func (h *RedeemHandler) CreateBatch(c *gin.Context) {
 	c.JSON(http.StatusCreated, gin.H{"batch": batch, "codes": codes})
 }
 
+func (h *RedeemHandler) CreateCode(c *gin.Context) {
+	var req model.ManualRedeemCodeRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "请求参数错误", "details": err.Error()})
+		return
+	}
+
+	item, err := h.redeemService.CreateManualCode(&req)
+	if err != nil {
+		h.writeAdminRedeemError(c, err, "创建兑换码失败")
+		return
+	}
+	c.JSON(http.StatusCreated, item)
+}
+
 func (h *RedeemHandler) ListBatches(c *gin.Context) {
 	items, err := h.redeemService.ListBatches(strings.TrimSpace(c.Query("campaignId")))
 	if err != nil {
@@ -214,7 +229,8 @@ func (h *RedeemHandler) writeAdminRedeemError(c *gin.Context, err error, fallbac
 	case errors.Is(err, service.ErrRedeemCampaignHasUsage),
 		errors.Is(err, service.ErrRedeemSingleUseOnly),
 		errors.Is(err, service.ErrRedeemSharedCodeLocked),
-		errors.Is(err, service.ErrRedeemCodeConsumed):
+		errors.Is(err, service.ErrRedeemCodeConsumed),
+		strings.Contains(err.Error(), "兑换码已存在"):
 		c.JSON(http.StatusConflict, gin.H{"error": err.Error()})
 	case errors.Is(err, service.ErrRedeemRewardRequired),
 		errors.Is(err, service.ErrRedeemRewardInvalid),
