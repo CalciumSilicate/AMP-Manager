@@ -1199,6 +1199,7 @@ export default function UserManagement() {
                         value={selectedExpiresAt}
                         onChange={setSelectedExpiresAt}
                         placeholder="选择到期时间"
+                        className="w-full justify-between"
                       />
                       <p className="text-xs text-muted-foreground">留空表示永不过期</p>
                     </div>

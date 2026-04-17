@@ -172,7 +172,7 @@ export function DateTimePicker({ value, onChange, placeholder = '选择时间', 
 
   return (
     <Popover open={open} onOpenChange={setOpen}>
-      <div className="relative inline-flex">
+      <div className="relative block">
         <PopoverTrigger asChild>
           <Button
             type="button"
