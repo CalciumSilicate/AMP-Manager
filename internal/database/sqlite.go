@@ -2089,11 +2089,18 @@ func ensurePurchaseSchema() error {
 		`CREATE INDEX IF NOT EXISTS idx_purchase_manual_settlement_item_batch ON purchase_manual_settlement_batch_items(batch_id, created_at DESC)`,
 	}
 	for _, statement := range statements {
-		if _, err := db.Exec(statement); err != nil {
+		if _, err := db.Exec(adaptCriticalSchemaSQL(statement)); err != nil {
 			return err
 		}
 	}
 	return nil
+}
+
+func adaptCriticalSchemaSQL(sqlText string) string {
+	if dbType == DBTypePostgres {
+		return strings.ReplaceAll(sqlText, "DATETIME", "TIMESTAMPTZ")
+	}
+	return sqlText
 }
 
 func ensureColumnWithDefault(tableName, columnName, definition string) error {

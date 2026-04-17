@@ -146,3 +146,19 @@ func TestAdaptMigrationSQLPostgresRewritesDatetimeInRebuiltMigrations(t *testing
 		t.Fatalf("expected Postgres migration SQL to contain TIMESTAMPTZ, got: %s", adapted)
 	}
 }
+
+func TestAdaptCriticalSchemaSQLPostgresRewritesDatetime(t *testing.T) {
+	previousDBType := dbType
+	dbType = DBTypePostgres
+	t.Cleanup(func() {
+		dbType = previousDBType
+	})
+
+	adapted := adaptCriticalSchemaSQL(`CREATE TABLE demo (created_at DATETIME DEFAULT CURRENT_TIMESTAMP, updated_at DATETIME)`)
+	if strings.Contains(strings.ToUpper(adapted), "DATETIME") {
+		t.Fatalf("expected critical schema SQL to rewrite DATETIME, got: %s", adapted)
+	}
+	if !strings.Contains(strings.ToUpper(adapted), "TIMESTAMPTZ") {
+		t.Fatalf("expected critical schema SQL to contain TIMESTAMPTZ, got: %s", adapted)
+	}
+}
