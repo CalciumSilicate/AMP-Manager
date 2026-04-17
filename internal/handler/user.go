@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"strconv"
+	"strings"
 
 	"ampmanager/internal/middleware"
 	"ampmanager/internal/model"
@@ -161,6 +162,7 @@ func (h *UserHandler) ListUsers(c *gin.Context) {
 func (h *UserHandler) ListUsersPaged(c *gin.Context) {
 	page := 1
 	pageSize := 20
+	keyword := strings.TrimSpace(c.Query("keyword"))
 
 	if value := c.Query("page"); value != "" {
 		parsed, err := strconv.Atoi(value)
@@ -180,7 +182,7 @@ func (h *UserHandler) ListUsersPaged(c *gin.Context) {
 		pageSize = parsed
 	}
 
-	result, err := h.userService.ListUsersPaged(page, pageSize)
+	result, err := h.userService.ListUsersPaged(page, pageSize, keyword)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "获取用户列表失败"})
 		return

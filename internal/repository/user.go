@@ -3,6 +3,7 @@ package repository
 import (
 	"database/sql"
 	"errors"
+	"strings"
 	"time"
 
 	"ampmanager/internal/database"
@@ -19,7 +20,7 @@ type UserRepositoryInterface interface {
 	ExistsByUsername(username string) (bool, error)
 	GetByID(id string) (*model.User, error)
 	List() ([]*model.User, error)
-	ListPaged(page, pageSize int) ([]*model.User, int64, error)
+	ListPaged(page, pageSize int, keyword string) ([]*model.User, int64, error)
 	UpdatePassword(id string, passwordHash string) error
 	UpdateUsername(id string, username string) error
 	SetAdmin(id string, isAdmin bool) error
@@ -111,7 +112,7 @@ func (r *UserRepository) List() ([]*model.User, error) {
 	return users, nil
 }
 
-func (r *UserRepository) ListPaged(page, pageSize int) ([]*model.User, int64, error) {
+func (r *UserRepository) ListPaged(page, pageSize int, keyword string) ([]*model.User, int64, error) {
 	db := database.GetDB()
 
 	if page < 1 {
@@ -124,18 +125,40 @@ func (r *UserRepository) ListPaged(page, pageSize int) ([]*model.User, int64, er
 		pageSize = 100
 	}
 
+	keyword = strings.ToLower(strings.TrimSpace(keyword))
+	args := make([]interface{}, 0, 6)
+	whereClause := ""
+	if keyword != "" {
+		search := "%" + keyword + "%"
+		whereClause = `
+		WHERE LOWER(users.username) LIKE ?
+			OR EXISTS (
+				SELECT 1
+				FROM user_api_keys
+				WHERE user_api_keys.user_id = users.id
+					AND (
+						LOWER(user_api_keys.name) LIKE ?
+						OR LOWER(user_api_keys.prefix) LIKE ?
+						OR LOWER(COALESCE(user_api_keys.api_key, '')) LIKE ?
+					)
+			)`
+		args = append(args, search, search, search, search)
+	}
+
 	var total int64
-	if err := db.QueryRow(`SELECT COUNT(*) FROM users`).Scan(&total); err != nil {
+	countQuery := `SELECT COUNT(*) FROM users` + whereClause
+	if err := db.QueryRow(countQuery, args...).Scan(&total); err != nil {
 		return nil, 0, err
 	}
 
 	offset := (page - 1) * pageSize
+	queryArgs := append(append([]interface{}{}, args...), pageSize, offset)
 	rows, err := db.Query(
 		`SELECT id, username, password_hash, is_admin, balance_micros, concurrency_limit, created_at, updated_at
-		 FROM users
+		 FROM users`+whereClause+`
 		 ORDER BY created_at DESC
 		 LIMIT ? OFFSET ?`,
-		pageSize, offset,
+		queryArgs...,
 	)
 	if err != nil {
 		return nil, 0, err

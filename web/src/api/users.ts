@@ -29,11 +29,14 @@ export async function listUsers(): Promise<UserInfo[]> {
   return res.json()
 }
 
-export async function listUsersPaged(page = 1, pageSize = 20): Promise<UserListPage> {
+export async function listUsersPaged(page = 1, pageSize = 20, keyword = ''): Promise<UserListPage> {
   const params = new URLSearchParams({
     page: String(page),
     pageSize: String(pageSize),
   })
+  if (keyword.trim()) {
+    params.set('keyword', keyword.trim())
+  }
   const res = await authFetch(`${API_BASE}/admin/users/paged?${params.toString()}`)
   if (!res.ok) throw new Error('获取用户列表失败')
   return res.json()

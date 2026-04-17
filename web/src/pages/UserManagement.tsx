@@ -137,6 +137,8 @@ export default function UserManagement() {
   const [page, setPage] = useState(1)
   const [pageSize, setPageSize] = useState(20)
   const [total, setTotal] = useState(0)
+  const [searchInput, setSearchInput] = useState('')
+  const [searchKeyword, setSearchKeyword] = useState('')
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
   const [resetPasswordModal, setResetPasswordModal] = useState<{ userId: string; username: string } | null>(null)
   const [newPassword, setNewPassword] = useState('')
@@ -202,14 +204,14 @@ export default function UserManagement() {
     setTimeout(() => setMessage(null), 3000)
   }, [])
 
-  const fetchUsers = useCallback(async (targetPage = page, targetPageSize = pageSize) => {
+  const fetchUsers = useCallback(async (targetPage = page, targetPageSize = pageSize, targetKeyword = searchKeyword) => {
     if (!hasLoadedUsers) {
       setLoading(true)
     } else {
       setFetching(true)
     }
     try {
-      const data = await listUsersPaged(targetPage, targetPageSize)
+      const data = await listUsersPaged(targetPage, targetPageSize, targetKeyword)
       setUsers(data.items || [])
       setTotal(data.total || 0)
     } catch (err) {
@@ -219,7 +221,7 @@ export default function UserManagement() {
       setFetching(false)
       setHasLoadedUsers(true)
     }
-  }, [hasLoadedUsers, page, pageSize, showMessage])
+  }, [hasLoadedUsers, page, pageSize, searchKeyword, showMessage])
 
   const fetchGroups = useCallback(async () => {
     try {
@@ -478,6 +480,18 @@ export default function UserManagement() {
   const handlePageSizeChange = (value: number) => {
     setPageSize(value)
     setPage(1)
+  }
+
+  const handleApplySearch = () => {
+    const nextKeyword = searchInput.trim()
+    setPage(1)
+    setSearchKeyword(nextKeyword)
+  }
+
+  const handleClearSearch = () => {
+    setSearchInput('')
+    setPage(1)
+    setSearchKeyword('')
   }
 
   const toggleSelectedUser = (userId: string, checked: boolean) => {
@@ -760,6 +774,38 @@ export default function UserManagement() {
                     </Button>
                   </div>
                 ) : null}
+                <div className="flex flex-wrap items-end gap-3">
+                  <div className="min-w-[260px] flex-1 space-y-2">
+                    <Label htmlFor="user-search">搜索用户</Label>
+                    <Input
+                      id="user-search"
+                      value={searchInput}
+                      onChange={(event) => setSearchInput(event.target.value)}
+                      onKeyDown={(event) => {
+                        if (event.key === 'Enter') {
+                          event.preventDefault()
+                          handleApplySearch()
+                        }
+                      }}
+                      placeholder="按用户名或 API Key 搜索"
+                    />
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Button variant="outline" onClick={handleApplySearch}>
+                      搜索
+                    </Button>
+                    {searchKeyword ? (
+                      <Button variant="ghost" onClick={handleClearSearch}>
+                        清除
+                      </Button>
+                    ) : null}
+                  </div>
+                </div>
+                {searchKeyword ? (
+                  <p className="text-sm text-muted-foreground">
+                    当前搜索: <span className="font-medium text-foreground">{searchKeyword}</span>
+                  </p>
+                ) : null}
                 <div className="border-b" />
               </div>
               <Table>
@@ -783,7 +829,13 @@ export default function UserManagement() {
                   </TableRow>
                 </TableHeader>
                 <motion.tbody key="user-table-body" variants={tableStaggerContainer} initial="hidden" animate="visible">
-                  {users.map((user) => {
+                  {users.length === 0 ? (
+                    <TableRow>
+                      <TableCell colSpan={9} className="py-10 text-center text-sm text-muted-foreground">
+                        {searchKeyword ? '未找到匹配的用户或 API Key' : '暂无用户'}
+                      </TableCell>
+                    </TableRow>
+                  ) : users.map((user) => {
                     const balanceValue = Number.parseFloat(user.balanceUsd || '0') || 0
 
                     return (

@@ -126,8 +126,8 @@ func (s *UserService) ListUsers() ([]*model.UserInfo, error) {
 	return s.buildUserInfos(users)
 }
 
-func (s *UserService) ListUsersPaged(page, pageSize int) (*model.UserListPage, error) {
-	users, total, err := s.repo.ListPaged(page, pageSize)
+func (s *UserService) ListUsersPaged(page, pageSize int, keyword string) (*model.UserListPage, error) {
+	users, total, err := s.repo.ListPaged(page, pageSize, keyword)
 	if err != nil {
 		return nil, err
 	}
