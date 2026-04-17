@@ -212,8 +212,8 @@ export function SecuritySettingsPanel({ onMessage }: Props) {
   return (
     <div className="space-y-6">
       {!managementStatus?.encryptionReady ? (
-        <Alert variant="destructive">
-          <AlertDescription>未配置 `DATA_ENCRYPTION_KEY`，当前只能查看状态，无法创建、查看或轮换管理 API Key。</AlertDescription>
+        <Alert>
+          <AlertDescription>未配置 `DATA_ENCRYPTION_KEY`。管理 API Key 仍可创建、查看和轮换，但会以明文形式存储。</AlertDescription>
         </Alert>
       ) : null}
 
@@ -260,15 +260,15 @@ export function SecuritySettingsPanel({ onMessage }: Props) {
 
           <div className="flex flex-wrap items-center gap-3">
             {!managementStatus?.keyExists ? (
-              <Button type="button" onClick={() => void handleCreate()} disabled={busyAction === 'create' || !managementStatus?.encryptionReady}>
+              <Button type="button" onClick={() => void handleCreate()} disabled={busyAction === 'create'}>
                 {busyAction === 'create' ? '创建中...' : '创建管理 API Key'}
               </Button>
             ) : (
               <>
-                <Button type="button" variant="outline" onClick={() => setPasswordAction('reveal')} disabled={busyAction === 'reveal' || !managementStatus.encryptionReady}>
+                <Button type="button" variant="outline" onClick={() => setPasswordAction('reveal')} disabled={busyAction === 'reveal'}>
                   查看明文
                 </Button>
-                <Button type="button" onClick={() => setPasswordAction('rotate')} disabled={busyAction === 'rotate' || !managementStatus.encryptionReady}>
+                <Button type="button" onClick={() => setPasswordAction('rotate')} disabled={busyAction === 'rotate'}>
                   轮换 Key
                 </Button>
                 <div className="flex items-center gap-3 rounded-lg border px-4 py-2">

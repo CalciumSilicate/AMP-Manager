@@ -26,8 +26,6 @@ func (h *SystemHandler) CreateManagementAPIKey(c *gin.Context) {
 		switch {
 		case errors.Is(err, service.ErrManagementAPIKeyAlreadyExists):
 			c.JSON(http.StatusConflict, gin.H{"error": err.Error()})
-		case errors.Is(err, service.ErrManagementAPIKeyEncryptionRequired):
-			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		default:
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "创建管理 API Key 失败"})
 		}
@@ -50,8 +48,7 @@ func (h *SystemHandler) RevealManagementAPIKey(c *gin.Context) {
 			c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
 		case errors.Is(err, service.ErrManagementAPIKeyPasswordInvalid):
 			c.JSON(http.StatusUnauthorized, gin.H{"error": err.Error()})
-		case errors.Is(err, service.ErrManagementAPIKeyPasswordRequired),
-			errors.Is(err, service.ErrManagementAPIKeyEncryptionRequired):
+		case errors.Is(err, service.ErrManagementAPIKeyPasswordRequired):
 			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		default:
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "查看管理 API Key 失败"})
@@ -75,8 +72,7 @@ func (h *SystemHandler) RotateManagementAPIKey(c *gin.Context) {
 			c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
 		case errors.Is(err, service.ErrManagementAPIKeyPasswordInvalid):
 			c.JSON(http.StatusUnauthorized, gin.H{"error": err.Error()})
-		case errors.Is(err, service.ErrManagementAPIKeyPasswordRequired),
-			errors.Is(err, service.ErrManagementAPIKeyEncryptionRequired):
+		case errors.Is(err, service.ErrManagementAPIKeyPasswordRequired):
 			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		default:
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "轮换管理 API Key 失败"})

@@ -22,13 +22,12 @@ const (
 )
 
 var (
-	ErrManagementAPIKeyNotFound           = errors.New("管理 API Key 不存在")
-	ErrManagementAPIKeyAlreadyExists      = errors.New("管理 API Key 已存在，请直接轮换")
-	ErrManagementAPIKeyEncryptionRequired = errors.New("未配置 DATA_ENCRYPTION_KEY，无法创建、查看或轮换管理 API Key")
-	ErrManagementAPIKeyPasswordRequired   = errors.New("当前密码不能为空")
-	ErrManagementAPIKeyPasswordInvalid    = errors.New("当前密码错误")
-	ErrManagementAPIKeyInvalid            = errors.New("管理 API Key 无效")
-	ErrManagementAPIKeyDisabled           = errors.New("管理 API Key 已停用")
+	ErrManagementAPIKeyNotFound         = errors.New("管理 API Key 不存在")
+	ErrManagementAPIKeyAlreadyExists    = errors.New("管理 API Key 已存在，请直接轮换")
+	ErrManagementAPIKeyPasswordRequired = errors.New("当前密码不能为空")
+	ErrManagementAPIKeyPasswordInvalid  = errors.New("当前密码错误")
+	ErrManagementAPIKeyInvalid          = errors.New("管理 API Key 无效")
+	ErrManagementAPIKeyDisabled         = errors.New("管理 API Key 已停用")
 )
 
 type AdminManagementKeyService struct {
@@ -70,10 +69,6 @@ func (s *AdminManagementKeyService) GetStatus(userID string) (*model.ManagementA
 }
 
 func (s *AdminManagementKeyService) Create(userID string) (*model.ManagementAPIKeyRevealResponse, error) {
-	if _, err := requireManagementKeyEncryptionKey(); err != nil {
-		return nil, err
-	}
-
 	item, err := s.repo.GetByUserID(userID)
 	if err != nil {
 		return nil, err
@@ -271,31 +266,24 @@ func hashManagementKey(rawKey string) string {
 }
 
 func encryptManagementKey(rawKey string) (string, error) {
-	key, err := requireManagementKeyEncryptionKey()
-	if err != nil {
-		return "", err
+	key := config.Get().GetEncryptionKey()
+	if key == nil {
+		return rawKey, nil
 	}
 	return crypto.Encrypt([]byte(rawKey), key)
 }
 
 func decryptManagementKey(ciphertext string) (string, error) {
-	key, err := requireManagementKeyEncryptionKey()
-	if err != nil {
-		return "", err
+	key := config.Get().GetEncryptionKey()
+	if key == nil {
+		return ciphertext, nil
 	}
 	value, err := crypto.Decrypt(ciphertext, key)
 	if err != nil {
-		return "", err
+		// Compatible with plaintext values created while encryption was disabled.
+		return ciphertext, nil
 	}
 	return string(value), nil
-}
-
-func requireManagementKeyEncryptionKey() ([]byte, error) {
-	key := config.Get().GetEncryptionKey()
-	if key == nil {
-		return nil, ErrManagementAPIKeyEncryptionRequired
-	}
-	return key, nil
 }
 
 func hasManagementKeyEncryptionKey() bool {
