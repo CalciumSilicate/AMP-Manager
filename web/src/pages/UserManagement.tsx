@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
-import { AnimatePresence, motion, tableRowVariants, tableStaggerContainer } from '@/lib/motion'
+import { motion, tableRowVariants, tableStaggerContainer } from '@/lib/motion'
 import { register } from '../api/auth'
 import {
   applyUserBatch,
@@ -42,7 +42,6 @@ import { AdminPageShell, AdminSurface } from '@/components/admin/AdminPageShell'
 import { Num } from '@/components/Num'
 import { OverflowCopyText } from '@/components/OverflowCopyText'
 import { PageSizeSlider } from '@/components/PageSizeSlider'
-import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
@@ -73,9 +72,9 @@ import {
 import { Switch } from '@/components/ui/switch'
 import { Table, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { DateTimePicker } from '@/components/ui/datetime-picker'
+import { useGlobalToast } from '@/components/ui/use-global-toast'
 import { formatDateTime, formatGroupedNumericString } from '@/lib/formatters'
 import {
-  CheckCircle2,
   CreditCard,
   Key,
   KeyRound,
@@ -139,7 +138,6 @@ export default function UserManagement() {
   const [total, setTotal] = useState(0)
   const [searchInput, setSearchInput] = useState('')
   const [searchKeyword, setSearchKeyword] = useState('')
-  const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
   const [resetPasswordModal, setResetPasswordModal] = useState<{ userId: string; username: string } | null>(null)
   const [newPassword, setNewPassword] = useState('')
   const [deleteConfirmModal, setDeleteConfirmModal] = useState<UserInfo | null>(null)
@@ -198,11 +196,11 @@ export default function UserManagement() {
   const [batchPreview, setBatchPreview] = useState<UserBatchPreviewResponse | null>(null)
   const [batchPreviewing, setBatchPreviewing] = useState(false)
   const [batchApplying, setBatchApplying] = useState(false)
+  const { showToast } = useGlobalToast()
 
   const showMessage = useCallback((type: 'success' | 'error', text: string) => {
-    setMessage({ type, text })
-    setTimeout(() => setMessage(null), 3000)
-  }, [])
+    showToast(type, text)
+  }, [showToast])
 
   const fetchUsers = useCallback(async (targetPage = page, targetPageSize = pageSize, targetKeyword = searchKeyword) => {
     if (!hasLoadedUsers) {
@@ -735,26 +733,6 @@ export default function UserManagement() {
           </div>
         )}
       >
-        <AnimatePresence>
-          {message ? (
-            <motion.div
-              initial={{ opacity: 0, y: -20, scale: 0.95 }}
-              animate={{ opacity: 1, y: 0, scale: 1 }}
-              exit={{ opacity: 0, y: -20, scale: 0.95 }}
-              transition={{ type: 'spring', bounce: 0.3, duration: 0.5 }}
-            >
-              <Alert variant={message.type === 'success' ? 'default' : 'destructive'}>
-                {message.type === 'success' ? (
-                  <CheckCircle2 className="h-4 w-4" />
-                ) : (
-                  <XCircle className="h-4 w-4" />
-                )}
-                <AlertDescription>{message.text}</AlertDescription>
-              </Alert>
-            </motion.div>
-          ) : null}
-        </AnimatePresence>
-
         <motion.div
           initial={{ opacity: 0, y: 30 }}
           animate={{ opacity: 1, y: 0 }}
@@ -808,7 +786,111 @@ export default function UserManagement() {
                 ) : null}
                 <div className="border-b" />
               </div>
-              <Table>
+              <div className="space-y-3 md:hidden">
+                {users.length === 0 ? (
+                  <div className="rounded-xl border border-dashed px-4 py-10 text-center text-sm text-muted-foreground">
+                    {searchKeyword ? '未找到匹配的用户或 API Key' : '暂无用户'}
+                  </div>
+                ) : users.map((user) => {
+                  const balanceValue = Number.parseFloat(user.balanceUsd || '0') || 0
+
+                  return (
+                    <div key={user.id} className="rounded-xl border border-border/70 px-4 py-4">
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="min-w-0">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <div className="font-medium">{user.username}</div>
+                            <Badge variant={user.isAdmin ? 'default' : 'secondary'}>
+                              {user.isAdmin ? '管理员' : '普通用户'}
+                            </Badge>
+                          </div>
+                          <div className="mt-1 text-xs text-muted-foreground">
+                            {user.groupNames && user.groupNames.length > 0 ? user.groupNames.join(' / ') : '未分组'}
+                          </div>
+                        </div>
+                        <Checkbox
+                          checked={selectedUserIds.includes(user.id)}
+                          onCheckedChange={(checked) => toggleSelectedUser(user.id, checked === true)}
+                          aria-label={`选择用户 ${user.username}`}
+                        />
+                      </div>
+
+                      <div className="mt-3 grid gap-2 text-sm text-muted-foreground">
+                        <div className="flex items-center justify-between gap-3">
+                          <span>余额</span>
+                          <Num
+                            value={balanceValue}
+                            interactive
+                            copyable
+                            className="font-mono text-sm text-foreground"
+                            fullTextOverride={formatUsdExact(balanceValue)}
+                          />
+                        </div>
+                        <div className="flex items-center justify-between gap-3">
+                          <span>并发限制</span>
+                          <span className="font-mono text-foreground">{user.concurrencyLimit > 0 ? user.concurrencyLimit : '不限制'}</span>
+                        </div>
+                        <div className="flex items-center justify-between gap-3">
+                          <span>创建时间</span>
+                          <span>{formatDateTime(user.createdAt)}</span>
+                        </div>
+                      </div>
+
+                      <div className="mt-3 flex flex-wrap gap-2">
+                        <Button variant="outline" size="sm" onClick={() => handleOpenEditSubscription(user.id, user.username)}>
+                          <CreditCard className="mr-1.5 h-4 w-4" />
+                          编辑订阅
+                        </Button>
+                        <Button variant="outline" size="sm" onClick={() => setConcurrencyModal({ user, value: String(user.concurrencyLimit ?? 0) })}>
+                          并发限制
+                        </Button>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => setTopUpModal({ userId: user.id, username: user.username })}
+                        >
+                          <Wallet className="mr-1.5 h-4 w-4" />
+                          充值
+                        </Button>
+                        <DropdownMenu>
+                          <DropdownMenuTrigger asChild>
+                            <Button variant="outline" size="sm">
+                              <MoreHorizontal className="mr-1.5 h-4 w-4" />
+                              更多
+                            </Button>
+                          </DropdownMenuTrigger>
+                          <DropdownMenuContent align="end" className="w-44">
+                            <DropdownMenuItem onClick={() => void handleOpenUserAPIKeys(user)}>
+                              <Key className="mr-2 h-4 w-4" />
+                              API Keys
+                            </DropdownMenuItem>
+                            <DropdownMenuItem onClick={() => setResetPasswordModal({ userId: user.id, username: user.username })}>
+                              <KeyRound className="mr-2 h-4 w-4" />
+                              重置密码
+                            </DropdownMenuItem>
+                            <DropdownMenuItem
+                              onClick={() => setCancelSubConfirm({ userId: user.id, username: user.username })}
+                              className="text-destructive focus:text-destructive"
+                            >
+                              <XCircle className="mr-2 h-4 w-4" />
+                              取消订阅
+                            </DropdownMenuItem>
+                            <DropdownMenuItem
+                              onClick={() => setDeleteConfirmModal(user)}
+                              className="text-destructive focus:text-destructive"
+                            >
+                              <Trash2 className="mr-2 h-4 w-4" />
+                              删除
+                            </DropdownMenuItem>
+                          </DropdownMenuContent>
+                        </DropdownMenu>
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
+
+              <Table className="hidden md:table">
                 <TableHeader>
                   <TableRow>
                     <TableHead className="w-12">

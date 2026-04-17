@@ -47,12 +47,12 @@ export function SessionDetailColumn({
   const selectedState = detail?.session.active ? 'Active' : (detail?.session.state || 'Idle')
 
   return (
-    <section className="flex min-h-[720px] flex-col">
+    <section className="flex min-h-[640px] flex-col overflow-hidden rounded-[24px] border border-border/70 bg-background/90 shadow-sm">
       <div className="border-b border-border/70 px-5 py-4">
         <div className="space-y-3">
           <div className="space-y-1">
             <h2 className="text-sm font-medium text-foreground">Session 详情</h2>
-            <p className="text-xs text-muted-foreground">单选搜索后查看摘要与时间线</p>
+            <p className="text-xs text-muted-foreground">摘要与时间线</p>
           </div>
           <Input
             value={searchValue}
@@ -108,12 +108,12 @@ export function SessionDetailColumn({
             </div>
 
             <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-              <SummaryItem label="请求" value={detail.session.requestCount} />
-              <SummaryItem label="API Keys" value={detail.distinctApiKeyCount ?? '-'} />
-              <SummaryItem label="模型" value={detail.distinctModelCount ?? '-'} />
-              <SummaryItem label="首次" value={detail.session.firstSeenAt ? formatDateTimeWithSeconds(detail.session.firstSeenAt) : '-'} />
-              <SummaryItem label="最近" value={detail.session.lastSeenAt ? formatDateTimeWithSeconds(detail.session.lastSeenAt) : '-'} />
-              <SummaryItem label="成本" value={detail.totalCostUsd ? `$${detail.totalCostUsd}` : '-'} />
+              <div className="rounded-2xl bg-muted/30 px-4 py-3"><SummaryItem label="请求" value={detail.session.requestCount} /></div>
+              <div className="rounded-2xl bg-muted/30 px-4 py-3"><SummaryItem label="API Keys" value={detail.distinctApiKeyCount ?? '-'} /></div>
+              <div className="rounded-2xl bg-muted/30 px-4 py-3"><SummaryItem label="模型" value={detail.distinctModelCount ?? '-'} /></div>
+              <div className="rounded-2xl bg-muted/30 px-4 py-3"><SummaryItem label="首次" value={detail.session.firstSeenAt ? formatDateTimeWithSeconds(detail.session.firstSeenAt) : '-'} /></div>
+              <div className="rounded-2xl bg-muted/30 px-4 py-3"><SummaryItem label="最近" value={detail.session.lastSeenAt ? formatDateTimeWithSeconds(detail.session.lastSeenAt) : '-'} /></div>
+              <div className="rounded-2xl bg-muted/30 px-4 py-3"><SummaryItem label="成本" value={detail.totalCostUsd ? `$${detail.totalCostUsd}` : '-'} /></div>
             </div>
 
             <Separator />

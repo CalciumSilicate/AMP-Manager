@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react'
-import { motion, AnimatePresence, tableStaggerContainer, tableRowVariants } from '@/lib/motion'
+import { motion, tableStaggerContainer, tableRowVariants } from '@/lib/motion'
 import {
   getPlans,
   createPlan,
@@ -15,7 +15,7 @@ import {
 import { AdminPageShell, AdminSurface } from '@/components/admin/AdminPageShell'
 import { Num } from '@/components/Num'
 import { OverflowCopyText } from '@/components/OverflowCopyText'
-import { Alert, AlertDescription } from '@/components/ui/alert'
+import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -43,8 +43,9 @@ import {
 } from '@/components/ui/select'
 import { Switch } from '@/components/ui/switch'
 import { Textarea } from '@/components/ui/textarea'
+import { useGlobalToast } from '@/components/ui/use-global-toast'
 import { formatDateTime } from '@/lib/formatters'
-import { CheckCircle2, XCircle, Plus, Trash2 } from 'lucide-react'
+import { Plus, Trash2 } from 'lucide-react'
 
 const LIMIT_TYPE_LABELS: Record<LimitType, string> = {
   daily: '日限制',
@@ -91,7 +92,6 @@ interface LimitRow {
 export default function SubscriptionPlans() {
   const [plans, setPlans] = useState<SubscriptionPlanResponse[]>([])
   const [loading, setLoading] = useState(true)
-  const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
   const [showForm, setShowForm] = useState(false)
   const [editingPlan, setEditingPlan] = useState<SubscriptionPlanResponse | null>(null)
   const [formName, setFormName] = useState('')
@@ -102,11 +102,11 @@ export default function SubscriptionPlans() {
   const [formLimits, setFormLimits] = useState<LimitRow[]>([])
   const [saving, setSaving] = useState(false)
   const [deleteConfirmModal, setDeleteConfirmModal] = useState<SubscriptionPlanResponse | null>(null)
+  const { showToast } = useGlobalToast()
 
   const showMsg = useCallback((type: 'success' | 'error', text: string) => {
-    setMessage({ type, text })
-    setTimeout(() => setMessage(null), 3000)
-  }, [])
+    showToast(type, text)
+  }, [showToast])
 
   const fetchPlans = useCallback(async () => {
     try {
@@ -265,22 +265,6 @@ export default function SubscriptionPlans() {
         description="配置可分配的订阅套餐与额度限制"
         actions={<Button onClick={handleCreate}>添加套餐</Button>}
       >
-        <AnimatePresence>
-          {message && (
-            <motion.div
-              initial={{ opacity: 0, y: -16, scale: 0.98 }}
-              animate={{ opacity: 1, y: 0, scale: 1 }}
-              exit={{ opacity: 0, y: -16, scale: 0.98 }}
-              transition={{ type: 'spring', bounce: 0.25, duration: 0.35 }}
-            >
-              <Alert variant={message.type === 'success' ? 'default' : 'destructive'}>
-                {message.type === 'success' ? <CheckCircle2 className="h-4 w-4" /> : <XCircle className="h-4 w-4" />}
-                <AlertDescription>{message.text}</AlertDescription>
-              </Alert>
-            </motion.div>
-          )}
-        </AnimatePresence>
-
         <motion.div initial={{ opacity: 0, y: 24 }} animate={{ opacity: 1, y: 0 }} transition={{ type: 'spring', bounce: 0.2, duration: 0.55 }}>
           <AdminSurface>
             {plans.length === 0 ? (
@@ -294,7 +278,75 @@ export default function SubscriptionPlans() {
                 <div className="admin-surface-header">
                   <p className="admin-inline-note">支持开关、编辑和删除</p>
                 </div>
-                <Table>
+                <div className="space-y-3 p-4 md:hidden">
+                  {plans.map((plan) => (
+                    <div key={plan.id} className="rounded-xl border border-border/70 px-4 py-4">
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="min-w-0">
+                          <div className="font-medium">{plan.name}</div>
+                          <div className="mt-1 text-xs text-muted-foreground">{plan.description || '-'}</div>
+                        </div>
+                        <Badge variant={plan.enabled ? 'default' : 'secondary'}>
+                          {plan.enabled ? '启用' : '停用'}
+                        </Badge>
+                      </div>
+
+                      <div className="mt-3 grid gap-2 text-sm">
+                        <div className="flex items-center justify-between gap-3">
+                          <span className="text-muted-foreground">升级级别</span>
+                          <span>{plan.upgradeRank}</span>
+                        </div>
+                        <div className="flex items-center justify-between gap-3">
+                          <span className="text-muted-foreground">估值/天</span>
+                          <span>¥{((plan.upgradeValuationCnyCentPerDay || 0) / 100).toFixed(2)}</span>
+                        </div>
+                        <div className="flex items-center justify-between gap-3">
+                          <span className="text-muted-foreground">创建时间</span>
+                          <span>{formatDateTime(plan.createdAt)}</span>
+                        </div>
+                      </div>
+
+                      <div className="mt-3 space-y-1.5">
+                        {(plan.limits || []).length === 0 ? (
+                          <div className="text-sm text-muted-foreground">暂无限制</div>
+                        ) : (
+                          (plan.limits || []).map((limit) => (
+                            <div key={limit.id} className="flex items-center justify-between gap-3 text-sm">
+                              <span className="text-muted-foreground">{LIMIT_TYPE_LABELS[limit.limitType]}</span>
+                              <Num
+                                value={limit.limitMicros / 1_000_000}
+                                fullTextOverride={formatUsdLabel(limit.limitMicros)}
+                                interactive
+                                copyable
+                                className="font-medium"
+                              />
+                            </div>
+                          ))
+                        )}
+                      </div>
+
+                      <div className="mt-3 flex flex-wrap gap-2">
+                        <div className="flex items-center gap-2 rounded-lg border px-3 py-2">
+                          <span className="text-sm text-muted-foreground">启用</span>
+                          <Switch checked={plan.enabled} onCheckedChange={() => handleToggleEnabled(plan)} />
+                        </div>
+                        <Button variant="outline" size="sm" onClick={() => handleEdit(plan)}>
+                          编辑
+                        </Button>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="text-destructive hover:text-destructive"
+                          onClick={() => setDeleteConfirmModal(plan)}
+                        >
+                          删除
+                        </Button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+
+                <Table className="hidden md:table">
                   <TableHeader>
                     <TableRow>
                       <TableHead>名称</TableHead>

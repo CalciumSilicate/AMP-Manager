@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { type ReactNode, useEffect, useState } from 'react'
 
 import {
   createRedeemBatch,
@@ -112,14 +112,68 @@ function toDatetimeLocal(value?: string | null): string {
 }
 
 function campaignReward(item: RedeemCampaign): string {
+  return rewardSummary(item.subscriptionPlanName, item.subscriptionDurationDays, item.balanceMicros)
+}
+
+function rewardSummary(subscriptionPlanName?: string | null, subscriptionDurationDays = 0, balanceMicros = 0): string {
   const parts: string[] = []
-  if (item.subscriptionPlanName) {
-    parts.push(`${item.subscriptionPlanName} ${item.subscriptionDurationDays}天`)
+  if (subscriptionPlanName) {
+    parts.push(`${subscriptionPlanName} ${subscriptionDurationDays}天`)
   }
-  if (item.balanceMicros > 0) {
-    parts.push(microsToUsdLabel(item.balanceMicros))
+  if (balanceMicros > 0) {
+    parts.push(microsToUsdLabel(balanceMicros))
   }
   return parts.join(' + ') || '-'
+}
+
+function formatRedeemWindow(startsAt?: string | null, endsAt?: string | null): string {
+  if (!startsAt && !endsAt) return '长期有效'
+  if (startsAt && endsAt) return `${formatDateTime(startsAt)} - ${formatDateTime(endsAt)}`
+  if (startsAt) return `${formatDateTime(startsAt)} 起`
+  return endsAt ? `${formatDateTime(endsAt)} 止` : '长期有效'
+}
+
+function getCodeSourceLabel(sourceType: RedeemCode['sourceType']): string {
+  if (sourceType === 'purchase_order') return '购后码'
+  if (sourceType === 'free') return '自由码'
+  return '活动码'
+}
+
+function getCodeStatusLabel(status: RedeemCode['status']): string {
+  switch (status) {
+    case 'active':
+      return '启用'
+    case 'disabled':
+      return '停用'
+    default:
+      return '已用尽'
+  }
+}
+
+function redemptionResultLabel(status: RedeemRedemption['status']): string {
+  return status === 'success' ? '成功' : '拒绝'
+}
+
+function redemptionResultDescription(item: RedeemRedemption): string {
+  if (item.status !== 'success') return item.failureReason || '-'
+  if (item.grantedExpiresAt) return `到期 ${formatDateTime(item.grantedExpiresAt)}`
+  if (item.balanceAfterMicros > 0) return `余额 ${microsToUsdLabel(item.balanceAfterMicros)}`
+  return '-'
+}
+
+function MobileInfoRow({
+  label,
+  value,
+}: {
+  label: string
+  value: ReactNode
+}) {
+  return (
+    <div className="flex items-start justify-between gap-3">
+      <span className="text-muted-foreground">{label}</span>
+      <div className="min-w-0 text-right text-foreground">{value}</div>
+    </div>
+  )
 }
 
 function downloadTextFile(filename: string, content: string): void {
@@ -167,6 +221,8 @@ export default function RedeemManagement() {
   const [batchPageSize, setBatchPageSize] = useState(10)
   const [codePage, setCodePage] = useState(1)
   const [codePageSize, setCodePageSize] = useState(10)
+  const [redemptionPage, setRedemptionPage] = useState(1)
+  const [redemptionPageSize, setRedemptionPageSize] = useState(10)
 
   const [campaignDialogOpen, setCampaignDialogOpen] = useState(false)
   const [editingCampaign, setEditingCampaign] = useState<RedeemCampaign | null>(null)
@@ -181,6 +237,7 @@ export default function RedeemManagement() {
   const [manualCodeForm, setManualCodeForm] = useState<ManualRedeemCodeRequest>(initialManualCodeForm())
   const [manualCodeBalanceUsd, setManualCodeBalanceUsd] = useState('')
   const [savingManualCode, setSavingManualCode] = useState(false)
+  const [batchCampaignId, setBatchCampaignId] = useState('all')
 
   const [codeFilters, setCodeFilters] = useState({
     campaignId: 'all',
@@ -244,6 +301,7 @@ export default function RedeemManagement() {
       limit: 200,
     })
     setRedemptions(redemptionList)
+    setRedemptionPage(1)
   }
 
   const handleOpenCreateCampaign = () => {
@@ -415,6 +473,7 @@ export default function RedeemManagement() {
   const { currentPage: currentCampaignPage, visibleItems: visibleCampaigns } = paginateItems(campaigns, campaignPage, campaignPageSize)
   const { currentPage: currentBatchPage, visibleItems: visibleBatches } = paginateItems(batches, batchPage, batchPageSize)
   const { currentPage: currentCodePage, visibleItems: visibleCodes } = paginateItems(codes, codePage, codePageSize)
+  const { currentPage: currentRedemptionPage, visibleItems: visibleRedemptions } = paginateItems(redemptions, redemptionPage, redemptionPageSize)
 
   return (
     <>
@@ -458,7 +517,73 @@ export default function RedeemManagement() {
               </div>
             </CardHeader>
             <CardContent className="space-y-4">
-              <div className="overflow-x-auto rounded-lg border">
+              <div className="space-y-3 md:hidden">
+                {visibleCampaigns.map((item) => (
+                  <div key={item.id} className="rounded-xl border border-border/70 px-4 py-4">
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <p className="font-medium">{item.name}</p>
+                        <p className="mt-1 text-xs text-muted-foreground">{item.description || '-'}</p>
+                      </div>
+                      <Badge variant={item.enabled ? 'default' : 'secondary'}>
+                        {item.enabled ? '启用' : '停用'}
+                      </Badge>
+                    </div>
+
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      <Badge variant="outline">{item.codeMode === 'shared' ? '共享码' : '单次码'}</Badge>
+                      {item.codeMode === 'shared' && item.sharedCodeMask ? (
+                        <Badge variant="secondary">{item.sharedCodeMask}</Badge>
+                      ) : null}
+                    </div>
+
+                    <div className="mt-3 grid gap-2 text-sm">
+                      <MobileInfoRow label="奖励" value={campaignReward(item)} />
+                      <MobileInfoRow
+                        label="限制"
+                        value={(
+                          <div className="text-right">
+                            <div>总上限 {item.totalRedemptionsLimit > 0 ? item.totalRedemptionsLimit : '不限'}</div>
+                            <div>单用户 {item.perUserLimit}</div>
+                          </div>
+                        )}
+                      />
+                      <MobileInfoRow label="有效期" value={formatRedeemWindow(item.startsAt, item.endsAt)} />
+                      <MobileInfoRow
+                        label="码量"
+                        value={(
+                          <div className="text-right">
+                            <div>{item.redeemedCount} / {item.totalRedemptionsLimit > 0 ? item.totalRedemptionsLimit : '∞'}</div>
+                            <div>{item.codeCount} 个码 / {item.batchCount} 批</div>
+                          </div>
+                        )}
+                      />
+                    </div>
+
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      {item.codeMode === 'shared' && item.sharedCode ? (
+                        <Button type="button" variant="outline" size="sm" onClick={() => navigator.clipboard.writeText(item.sharedCode || '').catch(() => undefined)}>
+                          <Copy className="mr-2 h-4 w-4" />
+                          复制码
+                        </Button>
+                      ) : null}
+                      {item.codeMode === 'single_use' ? (
+                        <Button type="button" variant="outline" size="sm" onClick={() => setBatchDialogCampaign(item)}>
+                          <TicketPercent className="mr-2 h-4 w-4" />
+                          生成批次
+                        </Button>
+                      ) : null}
+                      <Button type="button" variant="outline" size="sm" onClick={() => handleOpenEditCampaign(item)}>编辑</Button>
+                      <Button type="button" variant="outline" size="sm" onClick={() => handleDeleteCampaign(item)} className="text-destructive hover:text-destructive">
+                        <Trash2 className="mr-2 h-4 w-4" />
+                        删除
+                      </Button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              <div className="hidden overflow-x-auto rounded-lg border md:block">
                 <Table>
                   <TableHeader>
                     <TableRow>
@@ -556,16 +681,16 @@ export default function RedeemManagement() {
               </div>
             </CardHeader>
             <CardContent className="space-y-4">
-              <div className="flex flex-wrap gap-2">
+              <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap">
                 <Select
-                  value={codeFilters.campaignId}
+                  value={batchCampaignId}
                   onValueChange={async (value) => {
-                    setCodeFilters((current) => ({ ...current, campaignId: value }))
+                    setBatchCampaignId(value)
                     setBatchPage(1)
                     setBatches(await listRedeemBatches(value === 'all' ? '' : value))
                   }}
                 >
-                  <SelectTrigger className="w-[220px]">
+                  <SelectTrigger className="w-full sm:w-[220px]">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
@@ -577,7 +702,30 @@ export default function RedeemManagement() {
                 </Select>
               </div>
 
-              <div className="overflow-x-auto rounded-lg border">
+              <div className="space-y-3 md:hidden">
+                {visibleBatches.map((item) => (
+                  <div key={item.id} className="rounded-xl border border-border/70 px-4 py-4">
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <p className="font-medium">{item.name}</p>
+                        <p className="mt-1 text-xs text-muted-foreground">{item.campaignName}</p>
+                      </div>
+                      <Button type="button" variant="outline" size="sm" onClick={() => void handleExportBatch(item)}>
+                        <Download className="mr-2 h-4 w-4" />
+                        导出
+                      </Button>
+                    </div>
+
+                    <div className="mt-3 grid gap-2 text-sm">
+                      <MobileInfoRow label="数量" value={item.codeCount} />
+                      <MobileInfoRow label="前缀" value={item.prefix || '-'} />
+                      <MobileInfoRow label="创建时间" value={formatDateTime(item.createdAt)} />
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              <div className="hidden overflow-x-auto rounded-lg border md:block">
                 <Table>
                   <TableHeader>
                     <TableRow>
@@ -642,12 +790,12 @@ export default function RedeemManagement() {
               </div>
             </CardHeader>
             <CardContent className="space-y-4">
-              <div className="flex flex-wrap gap-2">
+              <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap">
                 <Select
                   value={codeFilters.status}
                   onValueChange={(value) => setCodeFilters((current) => ({ ...current, status: value }))}
                 >
-                  <SelectTrigger className="w-[150px]">
+                  <SelectTrigger className="w-full sm:w-[150px]">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
@@ -661,14 +809,56 @@ export default function RedeemManagement() {
                   value={codeFilters.keyword}
                   onChange={(event) => setCodeFilters((current) => ({ ...current, keyword: event.target.value }))}
                   placeholder="搜索码或活动"
-                  className="w-[220px]"
+                  className="w-full sm:w-[220px]"
                 />
                 <Button type="button" variant="outline" size="sm" onClick={() => void refreshCodes()}>
                   查询
                 </Button>
               </div>
 
-              <div className="overflow-x-auto rounded-lg border">
+              <div className="space-y-3 md:hidden">
+                {visibleCodes.map((item) => (
+                  <div key={item.id} className="rounded-xl border border-border/70 px-4 py-4">
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <p className="font-mono text-xs">{item.codeValue}</p>
+                        <p className="mt-1 text-xs text-muted-foreground">{item.campaignName || '未关联活动'}</p>
+                      </div>
+                      <Badge variant={item.status === 'active' ? 'default' : 'secondary'}>
+                        {getCodeStatusLabel(item.status)}
+                      </Badge>
+                    </div>
+
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      <Badge variant="outline">{getCodeSourceLabel(item.sourceType)}</Badge>
+                      {item.batchName ? <Badge variant="secondary">{item.batchName}</Badge> : null}
+                    </div>
+
+                    <div className="mt-3 grid gap-2 text-sm">
+                      <MobileInfoRow label="奖励" value={rewardSummary(item.subscriptionPlanName, item.subscriptionDurationDays, item.balanceMicros)} />
+                      <MobileInfoRow label="次数" value={`${item.redeemedCount} / ${item.maxRedemptions > 0 ? item.maxRedemptions : '∞'}`} />
+                      <MobileInfoRow label="有效期" value={formatRedeemWindow(item.startsAt, item.endsAt)} />
+                    </div>
+
+                    <div className="mt-3 flex items-center justify-between gap-3">
+                      {item.status !== 'consumed' ? (
+                        <>
+                          <span className="text-xs text-muted-foreground">{getCodeStatusLabel(item.status)}</span>
+                          <Switch
+                            checked={item.status === 'active'}
+                            disabled={togglingCodeId === item.id}
+                            onCheckedChange={(checked) => void handleToggleCode(item, checked)}
+                          />
+                        </>
+                      ) : (
+                        <span className="text-xs text-muted-foreground">已用尽</span>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              <div className="hidden overflow-x-auto rounded-lg border md:block">
                 <Table>
                   <TableHeader>
                     <TableRow>
@@ -686,21 +876,20 @@ export default function RedeemManagement() {
                     {visibleCodes.map((item) => (
                       <TableRow key={item.id}>
                         <TableCell className="font-mono text-xs">{item.codeValue}</TableCell>
-                        <TableCell>{item.sourceType === 'purchase_order' ? '购后码' : item.sourceType === 'free' ? '自由码' : '活动码'}</TableCell>
+                        <TableCell>{getCodeSourceLabel(item.sourceType)}</TableCell>
                         <TableCell>{item.campaignName || '-'}</TableCell>
                         <TableCell>{item.batchName || '-'}</TableCell>
                         <TableCell className="text-sm text-muted-foreground">
-                          <div>{item.subscriptionPlanName ? `${item.subscriptionPlanName} ${item.subscriptionDurationDays}天` : '-'}</div>
-                          {item.balanceMicros > 0 ? <div>{microsToUsdLabel(item.balanceMicros)}</div> : null}
+                          {rewardSummary(item.subscriptionPlanName, item.subscriptionDurationDays, item.balanceMicros)}
                         </TableCell>
                         <TableCell>{item.redeemedCount} / {item.maxRedemptions > 0 ? item.maxRedemptions : '∞'}</TableCell>
                         <TableCell>
-                          <Badge variant={item.status === 'active' ? 'default' : 'secondary'}>{item.status}</Badge>
+                          <Badge variant={item.status === 'active' ? 'default' : 'secondary'}>{getCodeStatusLabel(item.status)}</Badge>
                         </TableCell>
                         <TableCell className="text-right">
                           {item.status !== 'consumed' ? (
                             <div className="flex items-center justify-end gap-3">
-                              <span className="text-xs text-muted-foreground">{item.status === 'active' ? '启用' : '停用'}</span>
+                              <span className="text-xs text-muted-foreground">{getCodeStatusLabel(item.status)}</span>
                               <Switch
                                 checked={item.status === 'active'}
                                 disabled={togglingCodeId === item.id}
@@ -744,12 +933,12 @@ export default function RedeemManagement() {
               </div>
             </CardHeader>
             <CardContent className="space-y-4">
-              <div className="flex flex-wrap gap-2">
+              <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap">
                 <Select
                   value={redemptionFilters.campaignId}
                   onValueChange={(value) => setRedemptionFilters((current) => ({ ...current, campaignId: value }))}
                 >
-                  <SelectTrigger className="w-[220px]">
+                  <SelectTrigger className="w-full sm:w-[220px]">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
@@ -763,7 +952,7 @@ export default function RedeemManagement() {
                   value={redemptionFilters.status}
                   onValueChange={(value) => setRedemptionFilters((current) => ({ ...current, status: value }))}
                 >
-                  <SelectTrigger className="w-[150px]">
+                  <SelectTrigger className="w-full sm:w-[150px]">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
@@ -776,14 +965,37 @@ export default function RedeemManagement() {
                   value={redemptionFilters.username}
                   onChange={(event) => setRedemptionFilters((current) => ({ ...current, username: event.target.value }))}
                   placeholder="用户名"
-                  className="w-[180px]"
+                  className="w-full sm:w-[180px]"
                 />
                 <Button type="button" variant="outline" size="sm" onClick={() => void refreshRedemptions()}>
                   查询
                 </Button>
               </div>
 
-              <div className="overflow-x-auto rounded-lg border">
+              <div className="space-y-3 md:hidden">
+                {visibleRedemptions.map((item) => (
+                  <div key={item.id} className="rounded-xl border border-border/70 px-4 py-4">
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <p className="font-medium">{item.username}</p>
+                        <p className="mt-1 text-xs text-muted-foreground">{item.campaignName || '未关联活动'}</p>
+                      </div>
+                      <Badge variant={item.status === 'success' ? 'default' : 'secondary'}>
+                        {redemptionResultLabel(item.status)}
+                      </Badge>
+                    </div>
+
+                    <div className="mt-3 grid gap-2 text-sm">
+                      <MobileInfoRow label="时间" value={formatDateTime(item.createdAt)} />
+                      <MobileInfoRow label="兑换码" value={<span className="font-mono text-xs">{item.codeMask || '-'}</span>} />
+                      <MobileInfoRow label="奖励" value={rewardSummary(item.subscriptionPlanName, item.subscriptionDurationDays, item.balanceMicros)} />
+                      <MobileInfoRow label="说明" value={redemptionResultDescription(item)} />
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              <div className="hidden overflow-x-auto rounded-lg border md:block">
                 <Table>
                   <TableHeader>
                     <TableRow>
@@ -797,42 +1009,41 @@ export default function RedeemManagement() {
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {redemptions.map((item) => (
+                    {visibleRedemptions.map((item) => (
                       <TableRow key={item.id}>
                         <TableCell className="text-muted-foreground">{formatDateTime(item.createdAt)}</TableCell>
                         <TableCell>{item.username}</TableCell>
                         <TableCell>{item.campaignName || '-'}</TableCell>
                         <TableCell className="font-mono text-xs">{item.codeMask || '-'}</TableCell>
-                        <TableCell className="text-sm text-muted-foreground">
-                          <div>{item.subscriptionPlanName ? `${item.subscriptionPlanName} ${item.subscriptionDurationDays}天` : '-'}</div>
-                          {item.balanceMicros > 0 ? <div>{microsToUsdLabel(item.balanceMicros)}</div> : null}
-                        </TableCell>
+                        <TableCell className="text-sm text-muted-foreground">{rewardSummary(item.subscriptionPlanName, item.subscriptionDurationDays, item.balanceMicros)}</TableCell>
                         <TableCell>
                           <Badge variant={item.status === 'success' ? 'default' : 'secondary'}>
-                            {item.status === 'success' ? '成功' : '拒绝'}
+                            {redemptionResultLabel(item.status)}
                           </Badge>
                         </TableCell>
-                        <TableCell className="text-sm text-muted-foreground">
-                          {item.status === 'success'
-                            ? item.grantedExpiresAt
-                              ? `到期 ${formatDateTime(item.grantedExpiresAt)}`
-                              : item.balanceAfterMicros > 0
-                                ? `余额 ${microsToUsdLabel(item.balanceAfterMicros)}`
-                                : '-'
-                            : item.failureReason || '-'}
-                        </TableCell>
+                        <TableCell className="text-sm text-muted-foreground">{redemptionResultDescription(item)}</TableCell>
                       </TableRow>
                     ))}
                   </TableBody>
                 </Table>
               </div>
+              <TablePagination
+                page={currentRedemptionPage}
+                pageSize={redemptionPageSize}
+                total={redemptions.length}
+                onPageChange={setRedemptionPage}
+                onPageSizeChange={(nextPageSize) => {
+                  setRedemptionPageSize(nextPageSize)
+                  setRedemptionPage(1)
+                }}
+              />
             </CardContent>
           </Card>
         )}
       </TabbedSettingsPage>
 
       <Dialog open={manualCodeDialogOpen} onOpenChange={setManualCodeDialogOpen}>
-        <DialogContent className="sm:max-w-2xl">
+        <DialogContent className="max-h-[calc(100vh-2rem)] overflow-y-auto sm:max-w-2xl">
           <DialogHeader>
             <DialogTitle>新建兑换码</DialogTitle>
           </DialogHeader>
@@ -962,7 +1173,7 @@ export default function RedeemManagement() {
       </Dialog>
 
       <Dialog open={campaignDialogOpen} onOpenChange={setCampaignDialogOpen}>
-          <DialogContent className="sm:max-w-2xl">
+          <DialogContent className="max-h-[calc(100vh-2rem)] overflow-y-auto sm:max-w-2xl">
             <DialogHeader>
               <DialogTitle>{editingCampaign ? '编辑兑换活动' : '新建兑换活动'}</DialogTitle>
               <DialogDescription>奖励支持订阅和余额，可单独发放，也可组合发放。</DialogDescription>
@@ -1106,7 +1317,7 @@ export default function RedeemManagement() {
       </Dialog>
 
       <Dialog open={!!batchDialogCampaign} onOpenChange={(open) => !open && setBatchDialogCampaign(null)}>
-          <DialogContent>
+          <DialogContent className="max-h-[calc(100vh-2rem)] overflow-y-auto">
             <DialogHeader>
               <DialogTitle>生成兑换批次</DialogTitle>
               <DialogDescription>{batchDialogCampaign?.name || '-'}</DialogDescription>

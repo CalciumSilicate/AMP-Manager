@@ -384,7 +384,7 @@ export default function Channels() {
         />
 
         <Dialog open={!!testDialogChannel} onOpenChange={(open) => !open && setTestDialogChannel(null)}>
-          <DialogContent className="sm:max-w-2xl">
+          <DialogContent className="max-h-[calc(100vh-2rem)] overflow-y-auto sm:max-w-2xl">
             <DialogHeader>
               <DialogTitle>测试渠道</DialogTitle>
               <DialogDescription>{testDialogChannel?.name || '-'}</DialogDescription>

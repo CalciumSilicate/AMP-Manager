@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { type ReactNode, useCallback, useEffect, useMemo, useState } from 'react'
 
 import {
   createRequestFilter,
@@ -45,9 +45,34 @@ function buildDraft(): RequestFilterUpsertRequest {
 
 interface Props {
   onMessage: (type: 'success' | 'error', text: string) => void
+  requestPayloadLimitMB: number
+  requestPayloadSaving: boolean
+  onRequestPayloadLimitMBChange: (value: number) => void
+  onSaveRequestPayloadLimit: () => void
 }
 
-export function RequestFiltersPanel({ onMessage }: Props) {
+function MobileInfoRow({
+  label,
+  value,
+}: {
+  label: string
+  value: ReactNode
+}) {
+  return (
+    <div className="flex items-start justify-between gap-3">
+      <span className="text-muted-foreground">{label}</span>
+      <div className="min-w-0 text-right text-foreground">{value}</div>
+    </div>
+  )
+}
+
+export function RequestFiltersPanel({
+  onMessage,
+  requestPayloadLimitMB,
+  requestPayloadSaving,
+  onRequestPayloadLimitMBChange,
+  onSaveRequestPayloadLimit,
+}: Props) {
   const [filters, setFilters] = useState<RequestFilter[]>([])
   const [channels, setChannels] = useState<RequestFilterBindingOption[]>([])
   const [groups, setGroups] = useState<RequestFilterBindingOption[]>([])
@@ -162,6 +187,24 @@ export function RequestFiltersPanel({ onMessage }: Props) {
 
   return (
     <div className="space-y-4">
+      <div className="rounded-lg border p-4">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+          <div className="max-w-xs space-y-2">
+            <Label htmlFor="requestPayloadLimit">请求体上限 (MiB)</Label>
+            <Input
+              id="requestPayloadLimit"
+              type="number"
+              min={1}
+              value={requestPayloadLimitMB}
+              onChange={(event) => onRequestPayloadLimitMBChange(parseInt(event.target.value || '1', 10) || 1)}
+            />
+          </div>
+          <Button type="button" onClick={onSaveRequestPayloadLimit} disabled={requestPayloadSaving}>
+            {requestPayloadSaving ? '保存中...' : '保存上限'}
+          </Button>
+        </div>
+      </div>
+
       <div className="rounded-lg border">
         <div className="flex flex-wrap items-center justify-between gap-3 border-b p-4">
           <div className="text-sm text-muted-foreground">{filters.length} 条</div>
@@ -170,7 +213,39 @@ export function RequestFiltersPanel({ onMessage }: Props) {
             <Button type="button" onClick={openCreate}>新增</Button>
           </div>
         </div>
-        <div className="overflow-x-auto">
+        <div className="space-y-3 p-4 md:hidden">
+          {loading ? (
+            <div className="rounded-lg border border-dashed px-4 py-8 text-center text-sm text-muted-foreground">加载中...</div>
+          ) : filters.length === 0 ? (
+            <div className="rounded-lg border border-dashed px-4 py-8 text-center text-sm text-muted-foreground">暂无过滤器</div>
+          ) : (
+            filters.map((filter) => (
+              <div key={filter.id} className="rounded-xl border border-border/70 px-4 py-4">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <div className="font-medium">{filter.name}</div>
+                    <div className="mt-1 font-mono text-[11px] text-muted-foreground">优先级 {filter.priority}</div>
+                  </div>
+                  <Badge variant={filter.isEnabled ? 'default' : 'secondary'}>{filter.isEnabled ? '启用' : '停用'}</Badge>
+                </div>
+
+                <div className="mt-3 grid gap-2 text-sm">
+                  <MobileInfoRow label="绑定" value={filter.bindingType} />
+                  <MobileInfoRow label="阶段" value={filter.executionPhase} />
+                  <MobileInfoRow label="模式" value={filter.ruleMode} />
+                  <MobileInfoRow label="目标" value={filter.target || filter.action} />
+                </div>
+
+                <div className="mt-3 flex flex-wrap gap-2">
+                  <Button type="button" variant="outline" size="sm" onClick={() => openEdit(filter)}>编辑</Button>
+                  <Button type="button" variant="outline" size="sm" onClick={() => void handleDelete(filter)}>删除</Button>
+                </div>
+              </div>
+            ))
+          )}
+        </div>
+
+        <div className="hidden overflow-x-auto md:block">
           <Table>
             <TableHeader>
               <TableRow>
@@ -223,7 +298,7 @@ export function RequestFiltersPanel({ onMessage }: Props) {
       </div>
 
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-        <DialogContent className="max-w-3xl">
+        <DialogContent className="max-h-[calc(100vh-2rem)] overflow-y-auto max-w-3xl">
           <DialogHeader>
             <DialogTitle>{editingFilter ? '编辑请求过滤' : '新建请求过滤'}</DialogTitle>
           </DialogHeader>

@@ -45,12 +45,12 @@ export function SessionListColumn({
   const totalPages = Math.max(1, Math.ceil(total / pageSize))
 
   return (
-    <section className="flex min-h-[720px] flex-col">
+    <section className="flex min-h-[640px] flex-col overflow-hidden rounded-[24px] border border-border/70 bg-background/90 shadow-sm">
       <div className="border-b border-border/70 px-5 py-4">
         <div className="flex items-center justify-between gap-3">
           <div className="space-y-1">
             <h2 className="text-sm font-medium text-foreground">Session 列表</h2>
-            <p className="text-xs text-muted-foreground">{total} 条，active 优先</p>
+            <p className="text-xs text-muted-foreground">{total} 条</p>
           </div>
           <Button variant="ghost" size="sm" onClick={onRefresh} disabled={fetching}>
             刷新
@@ -80,15 +80,15 @@ export function SessionListColumn({
         ) : items.length === 0 ? (
           <div className="px-5 py-8 text-sm text-muted-foreground">暂无 Session</div>
         ) : (
-          <div className="divide-y divide-border/70">
+          <div className="space-y-2 px-3 py-3">
             {items.map((item) => (
               <button
                 key={item.id}
                 type="button"
                 onClick={() => onSelect(item.sessionId)}
                 className={cn(
-                  'w-full px-5 py-4 text-left transition-colors hover:bg-muted/40',
-                  selectedSessionId === item.sessionId ? 'bg-muted/50' : '',
+                  'w-full rounded-2xl border border-border/70 px-4 py-4 text-left transition-colors hover:bg-muted/30',
+                  selectedSessionId === item.sessionId ? 'border-primary/40 bg-primary/5' : 'bg-background',
                 )}
               >
                 <div className="flex items-start justify-between gap-3">

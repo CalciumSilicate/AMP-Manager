@@ -10,12 +10,12 @@ interface SessionLeaderboardColumnProps {
 
 export function SessionLeaderboardColumn({ items, loading, onRefresh }: SessionLeaderboardColumnProps) {
   return (
-    <section className="flex min-h-[720px] flex-col">
+    <section className="flex min-h-[640px] flex-col overflow-hidden rounded-[24px] border border-border/70 bg-background/90 shadow-sm">
       <div className="border-b border-border/70 px-5 py-4">
         <div className="flex items-center justify-between gap-3">
           <div className="space-y-1">
             <h2 className="text-sm font-medium text-foreground">最近 5 分钟</h2>
-            <p className="text-xs text-muted-foreground">按用户名 distinct session 数排序</p>
+            <p className="text-xs text-muted-foreground">Session 排行</p>
           </div>
           <Button variant="ghost" size="sm" onClick={onRefresh} disabled={loading}>
             刷新
@@ -29,9 +29,9 @@ export function SessionLeaderboardColumn({ items, loading, onRefresh }: SessionL
         ) : items.length === 0 ? (
           <div className="px-5 py-8 text-sm text-muted-foreground">暂无数据</div>
         ) : (
-          <div className="divide-y divide-border/70">
+          <div className="space-y-2 px-3 py-3">
             {items.map((item, index) => (
-              <div key={`${item.userId || item.username}-${index}`} className="flex items-center justify-between gap-3 px-5 py-4">
+              <div key={`${item.userId || item.username}-${index}`} className="flex items-center justify-between gap-3 rounded-2xl border border-border/70 px-4 py-4">
                 <div className="min-w-0">
                   <p className="truncate text-sm font-medium text-foreground">{item.username}</p>
                   <p className="truncate text-xs text-muted-foreground">{item.userId || '-'}</p>

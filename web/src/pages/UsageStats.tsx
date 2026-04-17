@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useMemo, useCallback } from 'react'
+import { type ReactNode, useState, useEffect, useRef, useMemo, useCallback } from 'react'
 import { getUsageSummary, getAdminUsageSummary, getAdminDistinctModels, getDistinctModels, UsageSummary } from '@/api/amp'
 import { listUsers, UserInfo } from '@/api/users'
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/card'
@@ -34,12 +34,27 @@ interface Props {
 type SummaryGroupBy = 'day' | 'model' | 'user'
 type RefreshInterval = 5 | 10 | 30 | 60
 
+function MobileInfoRow({
+  label,
+  value,
+}: {
+  label: string
+  value: ReactNode
+}) {
+  return (
+    <div className="flex items-start justify-between gap-3">
+      <span className="text-muted-foreground">{label}</span>
+      <div className="min-w-0 text-right text-foreground">{value}</div>
+    </div>
+  )
+}
+
 export default function UsageStats({ isAdmin }: Props) {
   const [summary, setSummary] = useState<UsageSummary[]>([])
   const [summaryGroupBy, setSummaryGroupBy] = useState<SummaryGroupBy>('day')
   const [error, setError] = useState('')
 
-  const [filters, setFilters] = useState<FilterValues>({ userId: '', apiKeyId: '', sessionId: '', model: '', channel: '', statuses: [], from: '', to: '' })
+  const [filters, setFilters] = useState<FilterValues>({ userId: '', apiKeyId: '', sessionId: '', model: '', channel: '', requestFormat: '', upstreamFormat: '', statuses: [], from: '', to: '' })
 
   const [users, setUsers] = useState<UserInfo[]>([])
   const [models, setModels] = useState<string[]>([])
@@ -156,6 +171,7 @@ export default function UsageStats({ isAdmin }: Props) {
         onChange={handleFilterChange}
         showStatusFilter={false}
         showSessionFilter={false}
+        showTranslatorFilters={false}
       />
 
       {error && (
@@ -167,16 +183,16 @@ export default function UsageStats({ isAdmin }: Props) {
       <motion.div initial={{ opacity: 0, y: 30 }} animate={{ opacity: 1, y: 0 }} transition={{ type: 'spring', bounce: 0.2, duration: 0.6, delay: 0.15 }}>
         <Card>
           <CardHeader>
-            <div className="flex items-center justify-between">
+            <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
               <div>
                 <CardTitle>使用量明细</CardTitle>
                 <CardDescription>
                   {isAdmin ? '按时间、模型或用户分组的 Token 使用量' : '按时间或模型分组的 Token 使用量'}
                 </CardDescription>
               </div>
-              <div className="flex items-center gap-3">
+              <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center">
                 <Select value={summaryGroupBy} onValueChange={(v) => setSummaryGroupBy(v as SummaryGroupBy)}>
-                  <SelectTrigger className="w-32">
+                  <SelectTrigger className="w-full sm:w-32">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
@@ -185,7 +201,7 @@ export default function UsageStats({ isAdmin }: Props) {
                     {isAdmin && <SelectItem value="user">按用户</SelectItem>}
                   </SelectContent>
                 </Select>
-                <div className="flex items-center gap-2 border-l pl-3">
+                <div className="flex items-center gap-2 sm:border-l sm:pl-3">
                   <Switch id="stats-auto-refresh" checked={autoRefresh} onCheckedChange={setAutoRefresh} />
                   <Label htmlFor="stats-auto-refresh" className="text-sm">自动刷新</Label>
                   {autoRefresh && (
@@ -211,49 +227,69 @@ export default function UsageStats({ isAdmin }: Props) {
               <p className="text-center text-muted-foreground py-4">暂无数据</p>
             ) : (
               <>
-              <div className="relative overflow-auto max-h-[calc(100vh-420px)] min-h-[300px] rounded-md border">
-              <Table>
-                <TableHeader className="sticky top-0 z-10 bg-background">
-                  <TableRow>
-                    <TableHead>{summaryGroupBy === 'day' ? '日期' : summaryGroupBy === 'model' ? '模型' : '用户'}</TableHead>
-                    <TableHead className="text-right">请求数</TableHead>
-                    <TableHead className="text-right">输入(去缓存)</TableHead>
-                    <TableHead className="text-right">输出</TableHead>
-                    <TableHead className="text-right">缓存读</TableHead>
-                    <TableHead className="text-right">缓存写</TableHead>
-                    <TableHead className="text-right">成本</TableHead>
-                    <TableHead className="text-right">错误</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {summary.slice((page - 1) * pageSize, page * pageSize).map((s, i) => (
-                    <TableRow key={i}>
-                      <TableCell className="font-medium">{getSummaryDisplayName(s.groupKey)}</TableCell>
-                      <TableCell className="text-right"><Num value={s.requestCount} /></TableCell>
-                      <TableCell className="text-right"><Num value={s.inputTokensSum} /></TableCell>
-                      <TableCell className="text-right"><Num value={s.outputTokensSum} /></TableCell>
-                      <TableCell className="text-right"><Num value={s.cacheReadInputTokensSum} /></TableCell>
-                      <TableCell className="text-right"><Num value={s.cacheCreationInputTokensSum} /></TableCell>
-                      <TableCell className="text-right text-green-600 dark:text-green-400">
-                        {s.costUsdSum ? `$${s.costUsdSum}` : '-'}
-                      </TableCell>
-                      <TableCell className="text-right">
-                        {s.errorCount > 0 ? (
-                          <Badge variant="destructive">{s.errorCount}</Badge>
-                        ) : (
-                          <span className="text-muted-foreground">0</span>
-                        )}
-                      </TableCell>
+              <div className="space-y-3 md:hidden">
+                {summary.slice((page - 1) * pageSize, page * pageSize).map((s, i) => (
+                  <div key={i} className="rounded-xl border border-border/70 px-4 py-4">
+                    <div className="font-medium">{getSummaryDisplayName(s.groupKey)}</div>
+                    <div className="mt-3 grid gap-2 text-sm">
+                      <MobileInfoRow label="请求数" value={<Num value={s.requestCount} />} />
+                      <MobileInfoRow label="输入(去缓存)" value={<Num value={s.inputTokensSum} />} />
+                      <MobileInfoRow label="输出" value={<Num value={s.outputTokensSum} />} />
+                      <MobileInfoRow label="缓存读" value={<Num value={s.cacheReadInputTokensSum} />} />
+                      <MobileInfoRow label="缓存写" value={<Num value={s.cacheCreationInputTokensSum} />} />
+                      <MobileInfoRow label="成本" value={<span className="text-green-600 dark:text-green-400">{s.costUsdSum ? `$${s.costUsdSum}` : '-'}</span>} />
+                      <MobileInfoRow
+                        label="错误"
+                        value={s.errorCount > 0 ? <Badge variant="destructive">{s.errorCount}</Badge> : <span className="text-muted-foreground">0</span>}
+                      />
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              <div className="relative hidden overflow-auto max-h-[calc(100vh-420px)] min-h-[300px] rounded-md border md:block">
+                <Table>
+                  <TableHeader className="sticky top-0 z-10 bg-background">
+                    <TableRow>
+                      <TableHead>{summaryGroupBy === 'day' ? '日期' : summaryGroupBy === 'model' ? '模型' : '用户'}</TableHead>
+                      <TableHead className="text-right">请求数</TableHead>
+                      <TableHead className="text-right">输入(去缓存)</TableHead>
+                      <TableHead className="text-right">输出</TableHead>
+                      <TableHead className="text-right">缓存读</TableHead>
+                      <TableHead className="text-right">缓存写</TableHead>
+                      <TableHead className="text-right">成本</TableHead>
+                      <TableHead className="text-right">错误</TableHead>
                     </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
+                  </TableHeader>
+                  <TableBody>
+                    {summary.slice((page - 1) * pageSize, page * pageSize).map((s, i) => (
+                      <TableRow key={i}>
+                        <TableCell className="font-medium">{getSummaryDisplayName(s.groupKey)}</TableCell>
+                        <TableCell className="text-right"><Num value={s.requestCount} /></TableCell>
+                        <TableCell className="text-right"><Num value={s.inputTokensSum} /></TableCell>
+                        <TableCell className="text-right"><Num value={s.outputTokensSum} /></TableCell>
+                        <TableCell className="text-right"><Num value={s.cacheReadInputTokensSum} /></TableCell>
+                        <TableCell className="text-right"><Num value={s.cacheCreationInputTokensSum} /></TableCell>
+                        <TableCell className="text-right text-green-600 dark:text-green-400">
+                          {s.costUsdSum ? `$${s.costUsdSum}` : '-'}
+                        </TableCell>
+                        <TableCell className="text-right">
+                          {s.errorCount > 0 ? (
+                            <Badge variant="destructive">{s.errorCount}</Badge>
+                          ) : (
+                            <span className="text-muted-foreground">0</span>
+                          )}
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
               </div>
               {(() => {
                 const totalPages = Math.max(1, Math.ceil(summary.length / pageSize))
                 return (
-                  <div className="flex items-center justify-between mt-4">
-                    <div className="flex items-center gap-4">
+                  <div className="mt-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                    <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:gap-4">
                       <p className="text-sm text-muted-foreground">
                         第 {page} 页，共 {totalPages} 页（{summary.length} 条）
                       </p>

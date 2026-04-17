@@ -154,7 +154,40 @@ export function AnnouncementAdminSection({ onMessage }: Props) {
           <div className="rounded-lg border border-dashed px-4 py-8 text-center text-sm text-muted-foreground">暂无公告</div>
         ) : (
           <div>
-            <div className="overflow-x-auto rounded-lg border">
+            <div className="space-y-3 md:hidden">
+              {visibleAnnouncements.map((announcement) => (
+                <div key={announcement.id} className="rounded-xl border border-border/70 px-4 py-4">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="font-medium">{announcement.title}</span>
+                        {announcement.pinned ? <Badge>置顶</Badge> : null}
+                      </div>
+                      <p className="mt-1 text-xs text-muted-foreground">{announcement.content}</p>
+                    </div>
+                    <Badge variant={announcement.enabled ? 'default' : 'secondary'}>
+                      {announcement.enabled ? '已启用' : '已停用'}
+                    </Badge>
+                  </div>
+
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    <Badge variant="outline">
+                      {audienceOptions.find((item) => item.value === announcement.audience)?.label || announcement.audience}
+                    </Badge>
+                    <Badge variant="secondary">{formatDateTime(announcement.updatedAt)}</Badge>
+                  </div>
+
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    <Button variant="outline" size="sm" onClick={() => openEdit(announcement)}>编辑</Button>
+                    <Button variant="outline" size="sm" className="text-destructive hover:text-destructive" onClick={() => setDeleteTarget(announcement)}>
+                      删除
+                    </Button>
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            <div className="hidden overflow-x-auto rounded-lg border md:block">
               <Table>
                 <TableHeader>
                   <TableRow>
@@ -218,7 +251,7 @@ export function AnnouncementAdminSection({ onMessage }: Props) {
       </div>
 
       <Dialog open={open} onOpenChange={setOpen}>
-        <DialogContent>
+        <DialogContent className="max-h-[calc(100vh-2rem)] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>{editing ? '编辑公告' : '新建公告'}</DialogTitle>
             <DialogDescription>公告正文支持多段文本。建议用简洁句式表达变更、维护或引导信息。</DialogDescription>

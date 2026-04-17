@@ -1,7 +1,8 @@
 import { useCallback, useDeferredValue, useEffect, useMemo, useState } from 'react'
 
-import { AdminPageShell, AdminSurface } from '@/components/admin/AdminPageShell'
+import { AdminPageShell } from '@/components/admin/AdminPageShell'
 import { Alert, AlertDescription } from '@/components/ui/alert'
+import { Badge } from '@/components/ui/badge'
 import { motion } from '@/lib/motion'
 import {
   getAdminSessionDetail,
@@ -158,41 +159,45 @@ export default function SessionManagement() {
           </Alert>
         ) : null}
 
-        <AdminSurface className="overflow-hidden">
-          <div className="grid xl:grid-cols-[320px_minmax(0,1fr)_280px] xl:divide-x xl:divide-border/70">
-            <SessionListColumn
-              items={items}
-              total={total}
-              page={page}
-              pageSize={DEFAULT_PAGE_SIZE}
-              queryInput={queryInput}
-              loading={loading}
-              fetching={fetching}
-              selectedSessionId={selectedSessionId}
-              onQueryInputChange={setQueryInput}
-              onSearch={handleSearchSubmit}
-              onRefresh={handleRefresh}
-              onSelect={setSelectedSessionId}
-              onPageChange={setPage}
-            />
-            <SessionDetailColumn
-              selectedSessionId={selectedSessionId}
-              detail={detail}
-              loading={detailLoading}
-              error={detailError}
-              searchValue={detailSearchValue}
-              searchResults={searchResultItems}
-              searchLoading={searchLoading}
-              onSearchValueChange={setDetailSearchValue}
-              onSelectSession={setSelectedSessionId}
-            />
-            <SessionLeaderboardColumn
-              items={leaderboard}
-              loading={leaderboardLoading}
-              onRefresh={loadLeaderboard}
-            />
-          </div>
-        </AdminSurface>
+        <div className="flex flex-wrap gap-2">
+          <Badge variant="outline">{total} 条 Session</Badge>
+          {selectedSessionId ? <Badge variant="secondary">当前已选</Badge> : null}
+          <Badge variant="outline">最近 5 分钟排行</Badge>
+        </div>
+
+        <div className="grid gap-4 xl:grid-cols-[320px_minmax(0,1fr)_280px]">
+          <SessionListColumn
+            items={items}
+            total={total}
+            page={page}
+            pageSize={DEFAULT_PAGE_SIZE}
+            queryInput={queryInput}
+            loading={loading}
+            fetching={fetching}
+            selectedSessionId={selectedSessionId}
+            onQueryInputChange={setQueryInput}
+            onSearch={handleSearchSubmit}
+            onRefresh={handleRefresh}
+            onSelect={setSelectedSessionId}
+            onPageChange={setPage}
+          />
+          <SessionDetailColumn
+            selectedSessionId={selectedSessionId}
+            detail={detail}
+            loading={detailLoading}
+            error={detailError}
+            searchValue={detailSearchValue}
+            searchResults={searchResultItems}
+            searchLoading={searchLoading}
+            onSearchValueChange={setDetailSearchValue}
+            onSelectSession={setSelectedSessionId}
+          />
+          <SessionLeaderboardColumn
+            items={leaderboard}
+            loading={leaderboardLoading}
+            onRefresh={loadLeaderboard}
+          />
+        </div>
       </AdminPageShell>
     </motion.div>
   )

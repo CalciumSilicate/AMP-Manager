@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { type ReactNode, useCallback, useEffect, useMemo, useState } from 'react'
 
 import {
   createErrorRule,
@@ -65,6 +65,21 @@ function buildDraft(): ErrorRuleUpsertRequest {
 
 interface Props {
   onMessage: (type: 'success' | 'error', text: string) => void
+}
+
+function MobileInfoRow({
+  label,
+  value,
+}: {
+  label: string
+  value: ReactNode
+}) {
+  return (
+    <div className="flex items-start justify-between gap-3">
+      <span className="text-muted-foreground">{label}</span>
+      <div className="min-w-0 text-right text-foreground">{value}</div>
+    </div>
+  )
 }
 
 export function ErrorRulesPanel({ onMessage }: Props) {
@@ -231,7 +246,43 @@ export function ErrorRulesPanel({ onMessage }: Props) {
             <Button type="button" onClick={openCreate}>新增</Button>
           </div>
         </div>
-        <div className="overflow-x-auto">
+        <div className="space-y-3 p-4 md:hidden">
+          {loading ? (
+            <div className="rounded-lg border border-dashed px-4 py-8 text-center text-sm text-muted-foreground">加载中...</div>
+          ) : rules.length === 0 ? (
+            <div className="rounded-lg border border-dashed px-4 py-8 text-center text-sm text-muted-foreground">暂无规则</div>
+          ) : (
+            rules.map((rule) => (
+              <div key={rule.id} className="rounded-xl border border-border/70 px-4 py-4">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <div className="font-medium">{rule.name}</div>
+                    <div className="mt-1 font-mono text-[11px] text-muted-foreground">{rule.upstreamStatus} · {rule.priority}</div>
+                  </div>
+                  <div className="flex flex-wrap justify-end gap-2">
+                    <Badge variant={rule.isEnabled ? 'default' : 'secondary'}>{rule.isEnabled ? '启用' : '停用'}</Badge>
+                    {rule.isDefault ? <Badge variant="outline">默认</Badge> : null}
+                  </div>
+                </div>
+
+                <div className="mt-3 grid gap-2 text-sm">
+                  <MobileInfoRow label="类型" value={requestTypeOptions.find((option) => option.value === rule.requestType)?.label || rule.requestType} />
+                  <MobileInfoRow label="分类" value={rule.category} />
+                  <MobileInfoRow label="匹配" value={`${rule.matchType} · ${rule.pattern}`} />
+                </div>
+
+                <div className="mt-3 flex flex-wrap gap-2">
+                  <Button type="button" variant="outline" size="sm" onClick={() => openEdit(rule)}>编辑</Button>
+                  {!rule.isDefault ? (
+                    <Button type="button" variant="outline" size="sm" onClick={() => void handleDelete(rule)}>删除</Button>
+                  ) : null}
+                </div>
+              </div>
+            ))
+          )}
+        </div>
+
+        <div className="hidden overflow-x-auto md:block">
           <Table>
             <TableHeader>
               <TableRow>
@@ -287,7 +338,7 @@ export function ErrorRulesPanel({ onMessage }: Props) {
       </div>
 
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-        <DialogContent className="max-w-3xl">
+        <DialogContent className="max-h-[calc(100vh-2rem)] overflow-y-auto max-w-3xl">
           <DialogHeader>
             <DialogTitle>{editingRule ? '编辑错误规则' : '新建错误规则'}</DialogTitle>
           </DialogHeader>

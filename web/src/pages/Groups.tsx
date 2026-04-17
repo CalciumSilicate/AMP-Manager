@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react'
-import { motion, AnimatePresence, tableStaggerContainer, tableRowVariants } from '@/lib/motion'
+import { motion, tableStaggerContainer, tableRowVariants } from '@/lib/motion'
 import {
   listGroups,
   createGroup,
@@ -9,7 +9,6 @@ import {
   GroupRequest,
 } from '../api/groups'
 import { AdminPageShell, AdminSurface } from '@/components/admin/AdminPageShell'
-import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -30,23 +29,22 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog'
 import { Textarea } from '@/components/ui/textarea'
+import { useGlobalToast } from '@/components/ui/use-global-toast'
 import { formatDate } from '@/lib/formatters'
-import { CheckCircle2, XCircle } from 'lucide-react'
 
 export default function Groups() {
   const [groups, setGroups] = useState<Group[]>([])
   const [loading, setLoading] = useState(true)
-  const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
   const [showForm, setShowForm] = useState(false)
   const [editingGroup, setEditingGroup] = useState<Group | null>(null)
   const [formData, setFormData] = useState<GroupRequest>({ name: '', description: '', rateMultiplier: 1 })
   const [saving, setSaving] = useState(false)
   const [deleteConfirmModal, setDeleteConfirmModal] = useState<Group | null>(null)
+  const { showToast } = useGlobalToast()
 
   const showMessage = useCallback((type: 'success' | 'error', text: string) => {
-    setMessage({ type, text })
-    setTimeout(() => setMessage(null), 3000)
-  }, [])
+    showToast(type, text)
+  }, [showToast])
 
   const fetchGroups = useCallback(async () => {
     try {
@@ -123,22 +121,6 @@ export default function Groups() {
         description="维护用户分组与倍率规则"
         actions={<Button onClick={handleCreate}>添加分组</Button>}
       >
-        <AnimatePresence>
-          {message && (
-            <motion.div
-              initial={{ opacity: 0, y: -16, scale: 0.98 }}
-              animate={{ opacity: 1, y: 0, scale: 1 }}
-              exit={{ opacity: 0, y: -16, scale: 0.98 }}
-              transition={{ type: 'spring', bounce: 0.25, duration: 0.35 }}
-            >
-              <Alert variant={message.type === 'success' ? 'default' : 'destructive'}>
-                {message.type === 'success' ? <CheckCircle2 className="h-4 w-4" /> : <XCircle className="h-4 w-4" />}
-                <AlertDescription>{message.text}</AlertDescription>
-              </Alert>
-            </motion.div>
-          )}
-        </AnimatePresence>
-
         <motion.div initial={{ opacity: 0, y: 24 }} animate={{ opacity: 1, y: 0 }} transition={{ type: 'spring', bounce: 0.2, duration: 0.55 }}>
           <AdminSurface>
             {groups.length === 0 ? (

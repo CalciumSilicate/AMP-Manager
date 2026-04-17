@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { type ReactNode, useCallback, useEffect, useMemo, useState } from 'react'
 import { Loader2, Pencil, Play, Plus, RefreshCw, Trash2 } from 'lucide-react'
 
 import { listChannels, type Channel } from '@/api/channels'
@@ -18,7 +18,6 @@ import {
   type StatusMonitorRuntimeConfigUpdate,
   type StatusMonitorTargetType,
 } from '@/api/statusMonitor'
-import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import {
@@ -97,6 +96,21 @@ const DEFAULT_DRAFT: MonitorDraft = {
   bodyTemplateMode: 'replace',
   expectedStatusCodesInput: '200',
   expectedSubstring: '',
+}
+
+function MobileInfoRow({
+  label,
+  value,
+}: {
+  label: string
+  value: ReactNode
+}) {
+  return (
+    <div className="flex items-start justify-between gap-3">
+      <span className="text-muted-foreground">{label}</span>
+      <div className="min-w-0 text-right text-foreground">{value}</div>
+    </div>
+  )
 }
 
 export function StatusMonitorSettingsPanel({ onMessage }: Props) {
@@ -324,25 +338,26 @@ export function StatusMonitorSettingsPanel({ onMessage }: Props) {
   }
 
   if (loading) {
-    return <div className="py-8 text-center text-sm text-muted-foreground">状态监控配置加载中...</div>
+    return <div className="py-8 text-center text-sm text-muted-foreground">加载中...</div>
   }
 
   return (
     <div className="space-y-6">
-      <Alert>
-        <AlertDescription>
-          监控页面向所有登录用户只读开放；此处负责定义探测目标、轮询参数和服务层探测凭证。
-        </AlertDescription>
-      </Alert>
-
       {runtimeConfig ? (
         <div className="space-y-4 rounded-lg border p-5">
           <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
             <div>
               <h3 className="text-base font-semibold">运行时配置</h3>
-              <p className="text-sm text-muted-foreground">保存后会热更新调度器；立即探测只会执行启用中的监控项。</p>
             </div>
-            <div className="flex gap-2">
+            <div className="flex flex-wrap items-center gap-2">
+              <div className="flex items-center gap-2 rounded-lg border px-3 py-2">
+                <Label htmlFor="status-runtime-enabled" className="text-sm">启用</Label>
+                <Switch
+                  id="status-runtime-enabled"
+                  checked={runtimeConfig.enabled}
+                  onCheckedChange={(checked) => handleRuntimeField('enabled', checked)}
+                />
+              </div>
               <Button variant="outline" onClick={() => void loadData()}>
                 <RefreshCw className="mr-2 h-4 w-4" />
                 刷新
@@ -356,14 +371,6 @@ export function StatusMonitorSettingsPanel({ onMessage }: Props) {
                 保存配置
               </Button>
             </div>
-          </div>
-
-          <div className="flex items-center justify-between rounded-lg border px-4 py-3">
-            <div className="space-y-0.5">
-              <Label>启用定时探测</Label>
-              <p className="text-sm text-muted-foreground">关闭后不再自动轮询，但仍可手动触发单项或全量探测。</p>
-            </div>
-            <Switch checked={runtimeConfig.enabled} onCheckedChange={(checked) => handleRuntimeField('enabled', checked)} />
           </div>
 
           <div className="grid gap-4 md:grid-cols-2">
@@ -423,7 +430,6 @@ export function StatusMonitorSettingsPanel({ onMessage }: Props) {
         <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
           <div>
             <h3 className="text-base font-semibold">监控项管理</h3>
-            <p className="text-sm text-muted-foreground">按分组展示到状态页，支持服务层、上游层和结构化自定义 HTTP 目标。</p>
           </div>
           <Button onClick={openCreateDialog}>
             <Plus className="mr-2 h-4 w-4" />
@@ -436,8 +442,56 @@ export function StatusMonitorSettingsPanel({ onMessage }: Props) {
             还没有状态监控项。
           </div>
         ) : (
-          <div className="overflow-x-auto">
-            <Table>
+          <>
+            <div className="space-y-3 md:hidden">
+              {items.map((item) => (
+                <div key={item.id} className="rounded-xl border border-border/70 px-4 py-4">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <div className="font-medium">{item.name}</div>
+                      <div className="mt-1 text-xs text-muted-foreground">
+                        {item.requestFormat ? FORMAT_LABELS[item.requestFormat] : 'HTTP'} · 超时 {item.timeoutMs || runtimeConfig?.defaultTimeoutMs || 45000} ms
+                      </div>
+                    </div>
+                    <Switch
+                      checked={item.enabled}
+                      disabled={busyItemId === item.id}
+                      onCheckedChange={(checked) => void handleToggleItem(item, checked)}
+                    />
+                  </div>
+
+                  <div className="mt-3 grid gap-2 text-sm">
+                    <MobileInfoRow label="分组" value={item.groupName || TARGET_LABELS[item.targetType]} />
+                    <MobileInfoRow label="类型" value={<Badge variant="outline">{TARGET_LABELS[item.targetType]}</Badge>} />
+                    <MobileInfoRow
+                      label="目标"
+                      value={
+                        item.targetType === 'custom_http'
+                          ? `${item.method} ${item.url}`
+                          : item.targetType === 'channel_direct'
+                            ? `${item.channelName || '未命名渠道'} · ${item.model}`
+                            : item.model
+                      }
+                    />
+                  </div>
+
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    <Button variant="outline" size="sm" disabled={busyItemId === item.id} onClick={() => void handleRunItem(item)}>
+                      {busyItemId === item.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <Play className="h-4 w-4" />}
+                    </Button>
+                    <Button variant="outline" size="sm" onClick={() => openEditDialog(item)}>
+                      <Pencil className="h-4 w-4" />
+                    </Button>
+                    <Button variant="destructive" size="sm" disabled={busyItemId === item.id} onClick={() => void handleDeleteItem(item)}>
+                      <Trash2 className="h-4 w-4" />
+                    </Button>
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            <div className="hidden overflow-x-auto md:block">
+              <Table>
               <TableHeader>
                 <TableRow>
                   <TableHead>名称</TableHead>
@@ -493,8 +547,9 @@ export function StatusMonitorSettingsPanel({ onMessage }: Props) {
                   </TableRow>
                 ))}
               </TableBody>
-            </Table>
-          </div>
+              </Table>
+            </div>
+          </>
         )}
       </div>
 

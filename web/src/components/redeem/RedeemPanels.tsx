@@ -1,17 +1,32 @@
-import { useEffect, useState } from 'react'
+import { type ReactNode, useEffect, useState } from 'react'
 
 import { listMyRedeemRecords, redeemCode, type RedeemRedemption, type RedeemResult } from '@/api/redeem'
-import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { TablePagination } from '@/components/TablePagination'
+import { useGlobalToast } from '@/components/ui/use-global-toast'
 import { Input } from '@/components/ui/input'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { formatDateTime, formatDecimal } from '@/lib/formatters'
-import { CheckCircle2, CircleAlert, RefreshCw } from 'lucide-react'
+import { RefreshCw } from 'lucide-react'
 
 function microsToUsd(value: number): string {
   return `$${formatDecimal(value / 1_000_000, 2)}`
+}
+
+function MobileInfoRow({
+  label,
+  value,
+}: {
+  label: string
+  value: ReactNode
+}) {
+  return (
+    <div className="flex items-start justify-between gap-3">
+      <span className="text-muted-foreground">{label}</span>
+      <div className="min-w-0 text-right text-foreground">{value}</div>
+    </div>
+  )
 }
 
 export function RedeemQuickEntry({
@@ -23,7 +38,7 @@ export function RedeemQuickEntry({
 }) {
   const [code, setCode] = useState('')
   const [submitting, setSubmitting] = useState(false)
-  const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
+  const { showToast } = useGlobalToast()
 
   const handleSubmit = async () => {
     if (!code.trim()) return
@@ -31,10 +46,10 @@ export function RedeemQuickEntry({
     try {
       const result = await redeemCode(code.trim())
       setCode('')
-      setMessage({ type: 'success', text: result.message })
+      showToast('success', result.message)
       await onSuccess?.(result)
     } catch (error) {
-      setMessage({ type: 'error', text: error instanceof Error ? error.message : '兑换失败' })
+      showToast('error', error instanceof Error ? error.message : '兑换失败')
     } finally {
       setSubmitting(false)
     }
@@ -42,12 +57,6 @@ export function RedeemQuickEntry({
 
   return (
     <div className={`space-y-3 ${className}`}>
-      {message && (
-        <Alert variant={message.type === 'error' ? 'destructive' : 'default'}>
-          {message.type === 'error' ? <CircleAlert className="h-4 w-4" /> : <CheckCircle2 className="h-4 w-4" />}
-          <AlertDescription>{message.text}</AlertDescription>
-        </Alert>
-      )}
       <div className="flex flex-col gap-3 sm:flex-row">
         <Input
           value={code}
@@ -123,7 +132,50 @@ export function RedeemRecordTable({
 
   return (
     <div>
-      <Table>
+      <div className="space-y-3 md:hidden">
+        {visibleItems.map((item) => (
+          <div key={item.id} className="rounded-xl border border-border/70 px-4 py-4">
+            <div className="flex items-start justify-between gap-3">
+              <div className="min-w-0">
+                <p className="font-medium">{item.campaignName || '未关联活动'}</p>
+                <p className="mt-1 font-mono text-xs text-muted-foreground">{item.codeMask || '-'}</p>
+              </div>
+              <Badge variant={item.status === 'success' ? 'default' : 'secondary'}>
+                {item.status === 'success' ? '成功' : '拒绝'}
+              </Badge>
+            </div>
+
+            <div className="mt-3 grid gap-2 text-sm">
+              <MobileInfoRow label="时间" value={formatDateTime(item.createdAt)} />
+              {!compact ? (
+                <MobileInfoRow
+                  label="奖励"
+                  value={(
+                    <div className="text-right">
+                      <div>{item.subscriptionPlanName ? `${item.subscriptionPlanName} ${item.subscriptionDurationDays}天` : '-'}</div>
+                      {item.balanceMicros > 0 ? <div>{microsToUsd(item.balanceMicros)}</div> : null}
+                    </div>
+                  )}
+                />
+              ) : null}
+              <MobileInfoRow
+                label="说明"
+                value={
+                  item.status === 'success'
+                    ? item.grantedExpiresAt
+                      ? `到期 ${formatDateTime(item.grantedExpiresAt)}`
+                      : item.balanceAfterMicros > 0
+                        ? `余额 ${microsToUsd(item.balanceAfterMicros)}`
+                        : '-'
+                    : item.failureReason || '-'
+                }
+              />
+            </div>
+          </div>
+        ))}
+      </div>
+
+      <Table className="hidden md:table">
         <TableHeader>
           <TableRow>
             <TableHead>时间</TableHead>

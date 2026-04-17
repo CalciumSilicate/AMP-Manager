@@ -70,6 +70,7 @@ import { Textarea } from '@/components/ui/textarea'
 import { Progress } from '@/components/ui/progress'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { RefreshCw } from 'lucide-react'
+import { useGlobalToast } from '@/components/ui/use-global-toast'
 
 type SettingsTab = 'site' | 'security' | 'status-monitor' | 'announcements' | 'database' | 'retry' | 'error-rules' | 'request-filters' | 'monitoring' | 'cache' | 'timeout' | 'billing'
 
@@ -126,11 +127,12 @@ export default function SystemSettings({
   const [migrationClearTarget, setMigrationClearTarget] = useState(true)
   const [migrationWithArchive, setMigrationWithArchive] = useState(true)
   const [loading, setLoading] = useState(false)
-  const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
+  const { showToast } = useGlobalToast()
   const [retryConfig, setRetryConfig] = useState<RetryConfig | null>(null)
   const [retryLoading, setRetryLoading] = useState(false)
   const [requestPayloadLimitMB, setRequestPayloadLimitMB] = useState(128)
+  const [requestPayloadSaving, setRequestPayloadSaving] = useState(false)
   const [requestDetailConfig, setRequestDetailConfig] = useState<RequestDetailConfig | null>(null)
   const [requestDetailLoading, setRequestDetailLoading] = useState(false)
   const [requestDetailLoadError, setRequestDetailLoadError] = useState<string | null>(null)
@@ -177,9 +179,8 @@ export default function SystemSettings({
   }, [siteContact])
 
   const showMessage = useCallback((type: 'success' | 'error', text: string) => {
-    setMessage({ type, text })
-    setTimeout(() => setMessage(null), 5000)
-  }, [])
+    showToast(type, text)
+  }, [showToast])
 
   const fetchBackups = useCallback(async () => {
     try {
@@ -363,8 +364,16 @@ export default function SystemSettings({
   const handleSaveSiteConfig = async () => {
     setSiteConfigSaving(true)
     try {
-      const nextPayloadLimitMB = Math.max(1, Math.round(requestPayloadLimitMB))
-      const [result] = await Promise.all([
+      const nextBillingDailyReset = billingDailyResetConfig
+        ? {
+            enabled: billingDailyResetConfig.enabled,
+            minRemainingDays: Math.max(2, Math.round(billingDailyResetConfig.minRemainingDays || 2)),
+            usageThresholdPercent: Math.min(100, Math.max(0, Math.round(billingDailyResetConfig.usageThresholdPercent || 0))),
+            dailyLimit: Math.max(0, Math.round(billingDailyResetConfig.dailyLimit || 0)),
+          }
+        : null
+
+      const [result, billingResetResult] = await Promise.all([
         updateSiteConfig({
           siteName: siteNameInput,
           timeZone: siteTimeZoneInput,
@@ -377,7 +386,7 @@ export default function SystemSettings({
             link: siteContactInput.link,
           },
         }),
-        updateRequestPayloadLimit({ maxBytes: nextPayloadLimitMB * 1024 * 1024 }),
+        nextBillingDailyReset ? updateBillingDailyResetConfig(nextBillingDailyReset) : Promise.resolve(null),
       ])
       onSiteNameChange(result.config.siteName)
       onSiteTimeZoneChange(result.config.timeZone)
@@ -389,12 +398,28 @@ export default function SystemSettings({
       setAmpProxySettingsPolicyInput(result.config.ampProxySettingsPolicy)
       setAmpSettingsPolicyInput(result.config.ampSettingsPolicy)
       setSiteContactInput(result.config.contact)
-      setRequestPayloadLimitMB(nextPayloadLimitMB)
+      if (billingResetResult) {
+        setBillingDailyResetConfig(billingResetResult.config)
+      }
       showMessage('success', '网站配置已保存')
     } catch (err) {
       showMessage('error', err instanceof Error ? err.message : '保存失败')
     } finally {
       setSiteConfigSaving(false)
+    }
+  }
+
+  const handleSaveRequestPayloadLimit = async () => {
+    setRequestPayloadSaving(true)
+    try {
+      const nextPayloadLimitMB = Math.max(1, Math.round(requestPayloadLimitMB))
+      await updateRequestPayloadLimit({ maxBytes: nextPayloadLimitMB * 1024 * 1024 })
+      setRequestPayloadLimitMB(nextPayloadLimitMB)
+      showMessage('success', '请求体上限已保存')
+    } catch (err) {
+      showMessage('error', err instanceof Error ? err.message : '保存失败')
+    } finally {
+      setRequestPayloadSaving(false)
     }
   }
 
@@ -787,16 +812,6 @@ export default function SystemSettings({
         ))}
       </motion.div>
 
-      <AnimatePresence>
-        {message && (
-          <motion.div initial={{ opacity: 0, y: -20, scale: 0.95 }} animate={{ opacity: 1, y: 0, scale: 1 }} exit={{ opacity: 0, y: -20, scale: 0.95 }} transition={{ type: 'spring', bounce: 0.3, duration: 0.5 }}>
-            <Alert variant={message.type === 'error' ? 'destructive' : 'default'}>
-              <AlertDescription>{message.text}</AlertDescription>
-            </Alert>
-          </motion.div>
-        )}
-      </AnimatePresence>
-
       <AnimatePresence mode="wait">
         <motion.div
           key={activeTab}
@@ -808,85 +823,145 @@ export default function SystemSettings({
         >
           {activeTab === 'site' && (
             <>
-              <Card>
-                <CardHeader>
-                  <CardTitle>网站配置</CardTitle>
-                  <CardDescription>同步影响登录、注册、左上角、浏览器标题和全站时间显示</CardDescription>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                  <div className="max-w-xl space-y-2">
-                    <Label htmlFor="siteName">网站名称</Label>
-                    <Input
-                      id="siteName"
-                      value={siteNameInput}
-                      onChange={(e) => setSiteNameInput(e.target.value)}
-                      placeholder="AMP Manager"
-                      maxLength={64}
-                    />
-                  </div>
-                  <div className="max-w-xl space-y-2">
-                    <Label htmlFor="siteTimeZone">网站时区</Label>
-                    <Select value={siteTimeZoneInput} onValueChange={setSiteTimeZoneInput}>
-                      <SelectTrigger id="siteTimeZone">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {siteTimeZoneOptions.map((option) => (
-                          <SelectItem key={option.value} value={option.value}>
-                            {option.label}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  <div className="max-w-xl space-y-2">
-                    <Label htmlFor="ampProxySettingsPolicy">路由设置权限</Label>
-                    <Select value={ampProxySettingsPolicyInput} onValueChange={(value) => setAmpProxySettingsPolicyInput(value as AmpProxySettingsPolicy)}>
-                      <SelectTrigger id="ampProxySettingsPolicy">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="disabled">禁用</SelectItem>
-                        <SelectItem value="admin_only">仅管理员</SelectItem>
-                        <SelectItem value="all">启用</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  <div className="max-w-xl space-y-2">
-                    <Label htmlFor="ampSettingsPolicy">Amp设置权限</Label>
-                    <Select value={ampSettingsPolicyInput} onValueChange={(value) => setAmpSettingsPolicyInput(value as AmpProxySettingsPolicy)}>
-                      <SelectTrigger id="ampSettingsPolicy">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="disabled">禁用</SelectItem>
-                        <SelectItem value="admin_only">仅管理员</SelectItem>
-                        <SelectItem value="all">启用</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  <div className="max-w-xl rounded-lg border px-4 py-4 space-y-4">
-                    <div className="flex items-center justify-between gap-4">
-                      <div className="space-y-1">
-                        <Label htmlFor="siteContactEnabled">联系方式按钮</Label>
-                        <p className="text-xs text-muted-foreground">开启后，会在公告按钮旁显示联系方式入口。</p>
+              <div className="grid gap-6 xl:grid-cols-[minmax(0,1.5fr)_minmax(320px,0.9fr)]">
+                <Card>
+                  <CardHeader>
+                    <CardTitle>网站配置</CardTitle>
+                  </CardHeader>
+                  <CardContent className="space-y-6">
+                    <div className="grid gap-4 md:grid-cols-2">
+                      <div className="space-y-2 md:col-span-2">
+                        <Label htmlFor="siteName">网站名称</Label>
+                        <Input
+                          id="siteName"
+                          value={siteNameInput}
+                          onChange={(e) => setSiteNameInput(e.target.value)}
+                          placeholder="AMP Manager"
+                          maxLength={64}
+                        />
                       </div>
-                      <Switch
-                        id="siteContactEnabled"
-                        checked={siteContactInput.enabled}
-                        onCheckedChange={(checked) => setSiteContactInput((current) => ({ ...current, enabled: checked }))}
-                      />
+                      <div className="space-y-2">
+                        <Label htmlFor="siteTimeZone">时区</Label>
+                        <Select value={siteTimeZoneInput} onValueChange={setSiteTimeZoneInput}>
+                          <SelectTrigger id="siteTimeZone">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {siteTimeZoneOptions.map((option) => (
+                              <SelectItem key={option.value} value={option.value}>
+                                {option.label}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      <div className="space-y-2">
+                        <Label htmlFor="ampProxySettingsPolicy">路由设置</Label>
+                        <Select value={ampProxySettingsPolicyInput} onValueChange={(value) => setAmpProxySettingsPolicyInput(value as AmpProxySettingsPolicy)}>
+                          <SelectTrigger id="ampProxySettingsPolicy">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="disabled">禁用</SelectItem>
+                            <SelectItem value="admin_only">仅管理员</SelectItem>
+                            <SelectItem value="all">启用</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      <div className="space-y-2">
+                        <Label htmlFor="ampSettingsPolicy">Amp 设置</Label>
+                        <Select value={ampSettingsPolicyInput} onValueChange={(value) => setAmpSettingsPolicyInput(value as AmpProxySettingsPolicy)}>
+                          <SelectTrigger id="ampSettingsPolicy">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="disabled">禁用</SelectItem>
+                            <SelectItem value="admin_only">仅管理员</SelectItem>
+                            <SelectItem value="all">启用</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
                     </div>
+
+                    <div className="space-y-4 border-t border-border/70 pt-5">
+                      <div className="flex items-center justify-between">
+                        <h3 className="text-sm font-medium">计费重置</h3>
+                        <Switch
+                          id="billingDailyResetEnabled"
+                          checked={billingDailyResetConfig?.enabled || false}
+                          onCheckedChange={(checked) => billingDailyResetConfig && setBillingDailyResetConfig({ ...billingDailyResetConfig, enabled: checked })}
+                          disabled={!billingDailyResetConfig}
+                        />
+                      </div>
+                      {billingDailyResetConfig ? (
+                        <div className="grid gap-4 md:grid-cols-3">
+                          <div className="space-y-2">
+                            <Label htmlFor="billingDailyResetMinRemainingDays">最少时长</Label>
+                            <Input
+                              id="billingDailyResetMinRemainingDays"
+                              type="number"
+                              min={2}
+                              step={1}
+                              value={billingDailyResetConfig.minRemainingDays}
+                              onChange={(e) => handleBillingDailyResetConfigChange('minRemainingDays', parseInt(e.target.value) || 2)}
+                            />
+                          </div>
+                          <div className="space-y-2">
+                            <Label htmlFor="billingDailyResetUsageThresholdPercent">消耗阈值</Label>
+                            <Input
+                              id="billingDailyResetUsageThresholdPercent"
+                              type="number"
+                              min={0}
+                              max={100}
+                              step={1}
+                              value={billingDailyResetConfig.usageThresholdPercent}
+                              onChange={(e) => handleBillingDailyResetConfigChange('usageThresholdPercent', parseInt(e.target.value) || 0)}
+                            />
+                          </div>
+                          <div className="space-y-2">
+                            <Label htmlFor="billingDailyResetDailyLimit">每日次数</Label>
+                            <Input
+                              id="billingDailyResetDailyLimit"
+                              type="number"
+                              min={0}
+                              step={1}
+                              value={billingDailyResetConfig.dailyLimit}
+                              onChange={(e) => handleBillingDailyResetConfigChange('dailyLimit', parseInt(e.target.value) || 0)}
+                            />
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="text-sm text-muted-foreground">加载中...</div>
+                      )}
+                    </div>
+
+                    <div className="flex justify-end">
+                      <Button onClick={handleSaveSiteConfig} disabled={siteConfigSaving}>
+                        {siteConfigSaving ? '保存中...' : '保存设置'}
+                      </Button>
+                    </div>
+                  </CardContent>
+                </Card>
+
+                <Card>
+                  <CardHeader className="flex flex-row items-start justify-between gap-3">
+                    <CardTitle>联系方式</CardTitle>
+                    <Switch
+                      id="siteContactEnabled"
+                      checked={siteContactInput.enabled}
+                      onCheckedChange={(checked) => setSiteContactInput((current) => ({ ...current, enabled: checked }))}
+                    />
+                  </CardHeader>
+                  <CardContent className="space-y-4">
                     <div className="space-y-2">
                       <Label htmlFor="siteContactTitle">标题</Label>
                       <Input
                         id="siteContactTitle"
                         value={siteContactInput.title}
                         onChange={(e) => setSiteContactInput((current) => ({ ...current, title: e.target.value }))}
-                        placeholder="例如 Telegram / 企业微信 / Discord"
+                        placeholder="Telegram / 企业微信 / Discord"
                         maxLength={64}
                       />
-                      <p className="text-xs text-muted-foreground">用于超链接点击展示。</p>
                     </div>
                     <div className="space-y-2">
                       <Label htmlFor="siteContactDescription">说明</Label>
@@ -894,7 +969,6 @@ export default function SystemSettings({
                         id="siteContactDescription"
                         value={siteContactInput.description}
                         onChange={(e) => setSiteContactInput((current) => ({ ...current, description: e.target.value }))}
-                        placeholder="说明加入方式、服务时间或联系用途。"
                         rows={4}
                       />
                     </div>
@@ -907,71 +981,59 @@ export default function SystemSettings({
                         placeholder="https://example.com/contact"
                         maxLength={2048}
                       />
-                      <p className="text-xs text-muted-foreground">标题跳转和二维码都基于这个链接生成。</p>
                     </div>
                     <div className="space-y-2">
-                      <Label>二维码预览</Label>
+                      <Label>二维码</Label>
                       <div className="flex h-40 w-40 items-center justify-center rounded-xl border bg-muted/20">
                         {siteContactInput.qrCodeImageDataUrl ? (
                           <img src={siteContactInput.qrCodeImageDataUrl} alt="联系方式二维码预览" className="h-32 w-32 object-contain" />
                         ) : (
                           <div className="px-4 text-center text-xs text-muted-foreground">
-                            {siteContactInput.link.trim() ? '保存后生成二维码' : '填写链接后可生成二维码'}
+                            {siteContactInput.link.trim() ? '保存后生成' : '填写链接后生成'}
                           </div>
                         )}
                       </div>
                     </div>
-                  </div>
-                  <div className="max-w-xs space-y-2">
-                    <Label htmlFor="requestPayloadLimit">请求体上限 (MiB)</Label>
-                    <Input
-                      id="requestPayloadLimit"
-                      type="number"
-                      min={1}
-                      value={requestPayloadLimitMB}
-                      onChange={(e) => setRequestPayloadLimitMB(parseInt(e.target.value) || 1)}
-                    />
-                  </div>
-                  <div className="flex justify-end">
-                    <Button onClick={handleSaveSiteConfig} disabled={siteConfigSaving}>
-                      {siteConfigSaving ? '保存中...' : '保存设置'}
-                    </Button>
-                  </div>
-                </CardContent>
-              </Card>
+                  </CardContent>
+                </Card>
+              </div>
 
               <Card>
-                <CardHeader>
-                  <CardTitle>Session 粘滞</CardTitle>
-                  <CardDescription>控制会话窗口、日志检索阈值与运行时状态</CardDescription>
+                <CardHeader className="flex flex-row items-start justify-between gap-3">
+                  <div className="space-y-1">
+                    <CardTitle>Session 粘滞</CardTitle>
+                  </div>
+                  <div className="flex gap-2">
+                    <Button variant="outline" size="sm" onClick={() => fetchSessionSticky()} disabled={sessionStickyLoading}>
+                      刷新
+                    </Button>
+                    <Button size="sm" onClick={handleSaveSessionStickyConfig} disabled={sessionStickyLoading || !sessionStickyConfig}>
+                      {sessionStickyLoading ? '保存中...' : '保存'}
+                    </Button>
+                  </div>
                 </CardHeader>
                 <CardContent className="space-y-4">
                   {sessionStickyConfig ? (
                     <>
                       <div className="grid gap-4 md:grid-cols-2">
-                        <div className="rounded-lg border px-4 py-3 space-y-2">
+                        <div className="space-y-2 rounded-lg border px-4 py-3">
                           <div className="flex items-center justify-between gap-3">
-                            <span className="text-sm text-muted-foreground">运行时状态</span>
+                            <span className="text-sm text-muted-foreground">运行时</span>
                             <Badge variant={sessionStickyBadge.variant}>{sessionStickyBadge.label}</Badge>
                           </div>
                           <p className="text-sm text-muted-foreground">{sessionStickyRuntimeDescription}</p>
                         </div>
-                        <div className="rounded-lg border px-4 py-3 space-y-2">
+                        <div className="space-y-2 rounded-lg border px-4 py-3">
                           <div className="flex items-center justify-between gap-3">
                             <span className="text-sm text-muted-foreground">Redis 前缀</span>
                             <Badge variant="outline">{sessionStickyRuntime?.redisPrefix || '-'}</Badge>
                           </div>
-                          <p className="text-sm text-muted-foreground">
-                            活跃 Session {sessionStickyRuntime?.activeSessionCount ?? '-'}
-                          </p>
+                          <p className="text-sm text-muted-foreground">活跃 Session {sessionStickyRuntime?.activeSessionCount ?? '-'}</p>
                         </div>
                       </div>
 
                       <div className="flex items-center justify-between rounded-lg border px-4 py-3">
-                        <div className="space-y-1">
-                          <Label htmlFor="sessionStickyEnabled">启用 Session 粘滞</Label>
-                          <p className="text-xs text-muted-foreground">只暴露只读排障相关配置</p>
-                        </div>
+                        <Label htmlFor="sessionStickyEnabled">启用</Label>
                         <Switch
                           id="sessionStickyEnabled"
                           checked={sessionStickyConfig.enabled}
@@ -981,7 +1043,7 @@ export default function SystemSettings({
 
                       <div className="grid gap-4 md:grid-cols-2">
                         <div className="space-y-2">
-                          <Label htmlFor="sessionStickyWindowMinutes">windowMinutes</Label>
+                          <Label htmlFor="sessionStickyWindowMinutes">窗口 (分钟)</Label>
                           <Input
                             id="sessionStickyWindowMinutes"
                             type="number"
@@ -991,7 +1053,7 @@ export default function SystemSettings({
                           />
                         </div>
                         <div className="space-y-2">
-                          <Label htmlFor="sessionStickyLogSearchMinChars">logSearchMinChars</Label>
+                          <Label htmlFor="sessionStickyLogSearchMinChars">最短检索字符</Label>
                           <Input
                             id="sessionStickyLogSearchMinChars"
                             type="number"
@@ -1000,15 +1062,6 @@ export default function SystemSettings({
                             onChange={(e) => handleSessionStickyConfigChange('logSearchMinChars', parseInt(e.target.value, 10) || 1)}
                           />
                         </div>
-                      </div>
-
-                      <div className="flex justify-end gap-2">
-                        <Button variant="outline" onClick={() => fetchSessionSticky()} disabled={sessionStickyLoading}>
-                          刷新状态
-                        </Button>
-                        <Button onClick={handleSaveSessionStickyConfig} disabled={sessionStickyLoading}>
-                          {sessionStickyLoading ? '保存中...' : '保存配置'}
-                        </Button>
                       </div>
                     </>
                   ) : (
@@ -1020,7 +1073,6 @@ export default function SystemSettings({
               <Card>
                 <CardHeader>
                   <CardTitle>余额充值</CardTitle>
-                  <CardDescription>设置充值单价</CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-4">
                   <div className="max-w-xs space-y-2">
@@ -1131,7 +1183,6 @@ export default function SystemSettings({
               <Card>
                 <CardHeader>
                   <CardTitle>数据库模式</CardTitle>
-                  <CardDescription>数据库模式与当前连接信息。</CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-4">
                   {databaseInfoLoading ? (
@@ -1139,7 +1190,7 @@ export default function SystemSettings({
                   ) : databaseInfo ? (
                     <>
                       <div className="grid gap-4 md:grid-cols-2">
-                        <div className="rounded-lg border p-4 space-y-2">
+                        <div className="rounded-lg bg-muted/30 px-4 py-3 space-y-2">
                           <div className="flex items-center justify-between">
                             <span className="text-sm text-muted-foreground">当前模式</span>
                             <Badge variant={databaseInfo.currentType === 'postgres' ? 'default' : 'secondary'}>
@@ -1152,7 +1203,7 @@ export default function SystemSettings({
                               : databaseInfo.sqlitePath}
                           </p>
                         </div>
-                        <div className="rounded-lg border p-4 space-y-2">
+                        <div className="rounded-lg bg-muted/30 px-4 py-3 space-y-2">
                           <div className="flex items-center justify-between">
                             <span className="text-sm text-muted-foreground">请求详情归档</span>
                             <Badge variant="outline">{databaseInfo.archiveMode}</Badge>
@@ -1176,7 +1227,6 @@ export default function SystemSettings({
                 <Card>
                   <CardHeader>
                     <CardTitle>迁移并切换数据库</CardTitle>
-                    <CardDescription>SQLite ↔ PostgreSQL 迁移任务。</CardDescription>
                   </CardHeader>
                   <CardContent className="space-y-4">
                     <div className="grid gap-4 md:grid-cols-2">
@@ -1210,19 +1260,13 @@ export default function SystemSettings({
                       </div>
                     </div>
 
-                    <div className="space-y-4 rounded-lg border p-4">
-                      <div className="flex items-center justify-between">
-                        <div className="space-y-0.5">
-                          <Label>迁移请求详情归档</Label>
-                          <p className="text-sm text-muted-foreground">同时复制请求详情归档表或归档库中的数据</p>
-                        </div>
+                    <div className="grid gap-3 md:grid-cols-2">
+                      <div className="flex items-center justify-between rounded-lg bg-muted/30 px-4 py-3">
+                        <Label>迁移请求详情归档</Label>
                         <Switch checked={migrationWithArchive} onCheckedChange={setMigrationWithArchive} />
                       </div>
-                      <div className="flex items-center justify-between">
-                        <div className="space-y-0.5">
-                          <Label>清空目标数据库</Label>
-                          <p className="text-sm text-muted-foreground">迁移前先清空目标数据库的业务表，避免重复数据</p>
-                        </div>
+                      <div className="flex items-center justify-between rounded-lg bg-muted/30 px-4 py-3">
+                        <Label>清空目标数据库</Label>
                         <Switch checked={migrationClearTarget} onCheckedChange={setMigrationClearTarget} />
                       </div>
                     </div>
@@ -1277,11 +1321,6 @@ export default function SystemSettings({
               <Card>
                 <CardHeader>
                   <CardTitle>{databaseInfo?.currentType === 'postgres' ? 'PostgreSQL dump 导入导出' : '数据库导入导出'}</CardTitle>
-                  <CardDescription>
-                    {databaseInfo?.currentType === 'postgres'
-                      ? '导入导出当前数据库。'
-                      : '上传、下载和管理 SQLite 数据库文件'}
-                  </CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-4">
                   <div className="flex flex-wrap gap-4">
@@ -1317,7 +1356,6 @@ export default function SystemSettings({
                 <Card>
                   <CardHeader>
                     <CardTitle>备份列表</CardTitle>
-                    <CardDescription>查看和管理 SQLite 数据库备份</CardDescription>
                   </CardHeader>
                   <CardContent>
                     {backups.length === 0 ? (
@@ -1325,8 +1363,45 @@ export default function SystemSettings({
                         暂无备份
                       </div>
                     ) : (
-                      <div className="overflow-x-auto">
-                        <Table>
+                      <>
+                        <div className="space-y-3 md:hidden">
+                          {backups.map((backup) => (
+                            <div key={backup.filename} className="rounded-xl border border-border/70 px-4 py-4">
+                              <div className="font-mono text-xs break-all">{backup.filename}</div>
+                              <div className="mt-3 grid gap-2 text-sm">
+                                <div className="flex items-center justify-between gap-3">
+                                  <span className="text-muted-foreground">大小</span>
+                                  <Badge variant="outline">{formatSize(backup.size)}</Badge>
+                                </div>
+                                <div className="flex items-center justify-between gap-3">
+                                  <span className="text-muted-foreground">备份时间</span>
+                                  <span>{formatDate(backup.modTime)}</span>
+                                </div>
+                              </div>
+                              <div className="mt-3 flex flex-wrap gap-2">
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  onClick={() => handleRestore(backup.filename)}
+                                  disabled={loading}
+                                >
+                                  恢复
+                                </Button>
+                                <Button
+                                  variant="destructive"
+                                  size="sm"
+                                  onClick={() => handleDelete(backup.filename)}
+                                  disabled={loading}
+                                >
+                                  删除
+                                </Button>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+
+                        <div className="hidden overflow-x-auto md:block">
+                          <Table>
                           <TableHeader>
                             <TableRow>
                               <TableHead>文件名</TableHead>
@@ -1368,8 +1443,9 @@ export default function SystemSettings({
                               </TableRow>
                             ))}
                           </TableBody>
-                        </Table>
-                      </div>
+                          </Table>
+                        </div>
+                      </>
                     )}
                   </CardContent>
                 </Card>
@@ -1493,30 +1569,35 @@ export default function SystemSettings({
 
           {activeTab === 'error-rules' && <ErrorRulesPanel onMessage={showMessage} />}
 
-          {activeTab === 'request-filters' && <RequestFiltersPanel onMessage={showMessage} />}
+          {activeTab === 'request-filters' && (
+            <RequestFiltersPanel
+              onMessage={showMessage}
+              requestPayloadLimitMB={requestPayloadLimitMB}
+              requestPayloadSaving={requestPayloadSaving}
+              onRequestPayloadLimitMBChange={setRequestPayloadLimitMB}
+              onSaveRequestPayloadLimit={handleSaveRequestPayloadLimit}
+            />
+          )}
 
           {activeTab === 'monitoring' && (
             <Card>
               <CardHeader>
                 <CardTitle>请求详情监控</CardTitle>
-                <CardDescription>控制请求详情记录策略，包括高 RPM 降级模式、阈值和采样率</CardDescription>
               </CardHeader>
               <CardContent className="space-y-6">
                 {requestDetailConfig ? (
                   <>
                     <div className="grid gap-4 md:grid-cols-2">
-                      <div className="rounded-lg border p-4 space-y-2">
+                      <div className="rounded-lg bg-muted/30 px-4 py-3 space-y-2">
                         <div className="flex items-center justify-between">
                           <span className="text-sm text-muted-foreground">当前状态</span>
                           <Badge variant={requestDetailConfig.enabled ? 'default' : 'secondary'}>
                             {requestDetailConfig.enabled ? '已启用' : '已关闭'}
                           </Badge>
                         </div>
-                        <p className="text-sm text-muted-foreground">
-                          启用后可在日志页面点击状态列查看请求/响应详情；关闭后将停止新的详情采集。
-                        </p>
+                        <p className="text-sm text-muted-foreground">控制日志详情采集。</p>
                       </div>
-                      <div className="rounded-lg border p-4 space-y-2">
+                      <div className="rounded-lg bg-muted/30 px-4 py-3 space-y-2">
                         <div className="flex items-center justify-between">
                           <span className="text-sm text-muted-foreground">高 RPM 策略</span>
                           <Badge variant="outline">
@@ -1527,20 +1608,13 @@ export default function SystemSettings({
                                 : '停止采集'}
                           </Badge>
                         </div>
-                        <p className="text-sm text-muted-foreground">
-                          当分钟请求量达到 {requestDetailConfig.highRpmThreshold} RPM 时，自动切换到该降级策略。
-                        </p>
+                        <p className="text-sm text-muted-foreground">阈值 {requestDetailConfig.highRpmThreshold} RPM。</p>
                       </div>
                     </div>
 
                     <div className="space-y-4">
                       <div className="flex items-center justify-between">
-                        <div className="space-y-0.5">
-                          <Label>启用详情监控</Label>
-                          <p className="text-sm text-muted-foreground">
-                            控制是否记录请求与响应的头部和正文详情。
-                          </p>
-                        </div>
+                        <Label>启用详情监控</Label>
                         <Switch
                           checked={requestDetailConfig.enabled}
                           onCheckedChange={(checked) => handleRequestDetailConfigChange('enabled', checked)}
@@ -1548,12 +1622,7 @@ export default function SystemSettings({
                         />
                       </div>
                       <div className="flex items-center justify-between">
-                        <div className="space-y-0.5">
-                          <Label>启用持久化</Label>
-                          <p className="text-sm text-muted-foreground">
-                            开启后，详情会落库归档，便于跨重启排查问题。
-                          </p>
-                        </div>
+                        <Label>启用持久化</Label>
                         <Switch
                           checked={requestDetailConfig.persistEnabled}
                           onCheckedChange={(checked) => handleRequestDetailConfigChange('persistEnabled', checked)}
@@ -1571,7 +1640,6 @@ export default function SystemSettings({
                           value={requestDetailConfig.ttlSec}
                           onChange={(e) => handleRequestDetailConfigChange('ttlSec', parseInt(e.target.value) || 30)}
                         />
-                        <p className="text-xs text-muted-foreground">内存中的请求详情保留时长，最小 30 秒。</p>
                       </div>
                       <div className="space-y-2">
                         <Label>最大记录条数</Label>
@@ -1581,7 +1649,6 @@ export default function SystemSettings({
                           value={requestDetailConfig.maxEntries}
                           onChange={(e) => handleRequestDetailConfigChange('maxEntries', parseInt(e.target.value) || 50)}
                         />
-                        <p className="text-xs text-muted-foreground">超过上限后会优先淘汰旧记录，最小 50 条。</p>
                       </div>
                       <div className="space-y-2">
                         <Label>最大内存预算 (MB)</Label>
@@ -1591,7 +1658,6 @@ export default function SystemSettings({
                           value={requestDetailConfig.maxMemoryMB}
                           onChange={(e) => handleRequestDetailConfigChange('maxMemoryMB', parseInt(e.target.value) || 16)}
                         />
-                        <p className="text-xs text-muted-foreground">请求详情总内存预算，最小 16 MB。</p>
                       </div>
                       <div className="space-y-2">
                         <Label>单次正文截断上限 (KB)</Label>
@@ -1601,7 +1667,6 @@ export default function SystemSettings({
                           value={requestDetailConfig.bodyCapKB}
                           onChange={(e) => handleRequestDetailConfigChange('bodyCapKB', parseInt(e.target.value) || 4)}
                         />
-                        <p className="text-xs text-muted-foreground">单次请求或响应正文最多记录大小，最小 4 KB。</p>
                       </div>
                     </div>
 
@@ -1623,7 +1688,6 @@ export default function SystemSettings({
                             <SelectItem value="off">停止记录详情</SelectItem>
                           </SelectContent>
                         </Select>
-                        <p className="text-xs text-muted-foreground">高流量时的降级方式。</p>
                       </div>
                       <div className="space-y-2">
                         <Label>高 RPM 阈值</Label>
@@ -1635,7 +1699,6 @@ export default function SystemSettings({
                             handleRequestDetailConfigChange('highRpmThreshold', parseInt(e.target.value) || 100)
                           }
                         />
-                        <p className="text-xs text-muted-foreground">当分钟请求量达到该值后启用高 RPM 模式，最小 100。</p>
                       </div>
                       <div className="space-y-2 md:col-span-2">
                         <Label>高 RPM 采样率 (%)</Label>
@@ -1649,17 +1712,8 @@ export default function SystemSettings({
                           }
                           disabled={requestDetailConfig.highRpmMode !== 'sample'}
                         />
-                        <p className="text-xs text-muted-foreground">
-                          仅在“按采样率记录”模式下生效，取值 1-100。
-                        </p>
                       </div>
                     </div>
-
-                    <Alert>
-                      <AlertDescription>
-                        建议在高并发环境下结合阈值与采样率使用，避免请求详情占用过多内存和存储资源。
-                      </AlertDescription>
-                    </Alert>
 
                     <Button onClick={handleSaveRequestDetailConfig} disabled={requestDetailLoading}>
                       {requestDetailLoading ? '保存中...' : '保存配置'}
@@ -1792,38 +1846,30 @@ export default function SystemSettings({
             <Card>
               <CardHeader>
                 <CardTitle>Redis 计费运行时</CardTitle>
-                <CardDescription>配置多实例共享的 Redis 计费热路径，并在保存后立即重连应用运行时。</CardDescription>
               </CardHeader>
               <CardContent className="space-y-6">
                 {billingRuntimeConfig ? (
                   <>
                     <div className="grid gap-4 md:grid-cols-2">
-                      <div className="rounded-lg border p-4 space-y-2">
+                      <div className="rounded-lg bg-muted/30 px-4 py-3 space-y-2">
                         <div className="flex items-center justify-between">
                           <span className="text-sm text-muted-foreground">运行时状态</span>
                           <Badge variant={billingRuntimeBadge.variant}>{billingRuntimeBadge.label}</Badge>
                         </div>
                         <p className="text-sm text-muted-foreground">{billingRuntimeDescription}</p>
                       </div>
-                      <div className="rounded-lg border p-4 space-y-2">
+                      <div className="rounded-lg bg-muted/30 px-4 py-3 space-y-2">
                         <div className="flex items-center justify-between">
                           <span className="text-sm text-muted-foreground">Redis 前缀</span>
                           <Badge variant="outline">{billingRuntimeConfig.redisPrefix || 'ampmanager'}</Badge>
                         </div>
-                        <p className="text-sm text-muted-foreground">
-                          多实例部署时请确保所有实例共享同一 Redis 和同一前缀。
-                        </p>
+                        <p className="text-sm text-muted-foreground">多实例需共享同一 Redis 与前缀。</p>
                       </div>
                     </div>
 
                     <div className="rounded-lg border p-4 space-y-4">
                       <div className="flex items-center justify-between gap-3">
-                        <div className="space-y-1">
-                          <h3 className="text-sm font-medium">运行时摘要</h3>
-                          <p className="text-sm text-muted-foreground">
-                            页面进入时拉取一次，必要时手动刷新；不进行后台轮询。
-                          </p>
-                        </div>
+                        <h3 className="text-sm font-medium">运行时摘要</h3>
                         <Button
                           type="button"
                           variant="outline"
@@ -1880,7 +1926,33 @@ export default function SystemSettings({
                             </div>
                           </div>
 
-                          <div className="overflow-x-auto">
+                          <div className="space-y-3 md:hidden">
+                            {billingMetricItems.map((item) => (
+                              <div key={item.key} className="rounded-xl border border-border/70 px-4 py-4">
+                                <div className="font-medium">{item.label}</div>
+                                <div className="mt-3 grid gap-2 text-sm">
+                                  <div className="flex items-center justify-between gap-3">
+                                    <span className="text-muted-foreground">样本数</span>
+                                    <span>{item.value.samples}</span>
+                                  </div>
+                                  <div className="flex items-center justify-between gap-3">
+                                    <span className="text-muted-foreground">p95</span>
+                                    <span>{formatLatency(item.value.p95Ms)}</span>
+                                  </div>
+                                  <div className="flex items-center justify-between gap-3">
+                                    <span className="text-muted-foreground">p99</span>
+                                    <span>{formatLatency(item.value.p99Ms)}</span>
+                                  </div>
+                                  <div className="flex items-center justify-between gap-3">
+                                    <span className="text-muted-foreground">失败数</span>
+                                    <span>{item.value.failures}</span>
+                                  </div>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+
+                          <div className="hidden overflow-x-auto md:block">
                             <Table>
                               <TableHeader>
                                 <TableRow>
@@ -2000,12 +2072,6 @@ export default function SystemSettings({
                         />
                       </div>
                     </div>
-
-                    <Alert>
-                      <AlertDescription>
-                        保存后会立即重载后端 Redis 计费运行时。要完成真实压测，请让所有应用实例共享同一 PostgreSQL 和同一 Redis。
-                      </AlertDescription>
-                    </Alert>
 
                     <div className="flex justify-end">
                       <Button onClick={handleSaveBillingRuntimeConfig} disabled={billingRuntimeLoading}>

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { type ReactNode, useCallback, useEffect, useMemo, useState } from 'react'
 
 import {
   createManagementAPIKey,
@@ -29,6 +29,7 @@ import {
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Switch } from '@/components/ui/switch'
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { KeyRound, RefreshCw } from 'lucide-react'
 
 type MessageFn = (type: 'success' | 'error', text: string) => void
@@ -38,14 +39,29 @@ interface Props {
   onMessage: MessageFn
 }
 
-const sectionMeta: Array<{ key: keyof UserPanelRateLimitSections; label: string; description: string }> = [
-  { key: 'overviewStatus', label: '概览 + 状态监控', description: '概览页、状态监控和公告读取。' },
-  { key: 'ampSettings', label: '路由设置', description: 'Amp 设置读取、保存和连接测试。' },
-  { key: 'apiKeys', label: 'API Key 管理', description: '普通用户 API Key 列表、查看、创建、修改和删除。' },
-  { key: 'requestLogsUsage', label: '请求日志 + 使用量统计', description: '日志列表、详情和使用量统计。' },
-  { key: 'models', label: '可用模型', description: '用户可见模型列表。' },
-  { key: 'accountPurchase', label: '账户设置 + 购买订阅', description: '余额、计费、密码、用户名、兑换和购买相关接口。' },
+const sectionMeta: Array<{ key: keyof UserPanelRateLimitSections; label: string }> = [
+  { key: 'overviewStatus', label: '概览 + 状态监控' },
+  { key: 'ampSettings', label: '路由设置' },
+  { key: 'apiKeys', label: 'API Key 管理' },
+  { key: 'requestLogsUsage', label: '请求日志 + 使用量统计' },
+  { key: 'models', label: '可用模型' },
+  { key: 'accountPurchase', label: '账户设置 + 购买订阅' },
 ]
+
+function MobileInfoRow({
+  label,
+  value,
+}: {
+  label: string
+  value: ReactNode
+}) {
+  return (
+    <div className="flex items-start justify-between gap-3">
+      <span className="text-muted-foreground">{label}</span>
+      <div className="min-w-0 text-right text-foreground">{value}</div>
+    </div>
+  )
+}
 
 function emptyRateLimitConfig(): UserPanelRateLimitConfig {
   return {
@@ -94,11 +110,7 @@ export function SecuritySettingsPanel({ onMessage }: Props) {
     return formatDateTime(managementStatus.graceUntil)
   }, [managementStatus?.graceUntil])
 
-  useEffect(() => {
-    void loadData()
-  }, [])
-
-  const loadData = async (silent = false) => {
+  const loadData = useCallback(async (silent = false) => {
     if (silent) {
       setRefreshing(true)
     } else {
@@ -117,7 +129,11 @@ export function SecuritySettingsPanel({ onMessage }: Props) {
       setLoading(false)
       setRefreshing(false)
     }
-  }
+  }, [onMessage])
+
+  useEffect(() => {
+    void loadData()
+  }, [loadData])
 
   const handleCreate = async () => {
     setBusyAction('create')
@@ -222,12 +238,25 @@ export function SecuritySettingsPanel({ onMessage }: Props) {
           <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
             <div className="space-y-1">
               <CardTitle>管理 API Key</CardTitle>
-              <CardDescription>每个管理员账号一个管理 API Key，可用 Bearer 或 X-API-Key 调用后台管理接口。</CardDescription>
+              <CardDescription>后台管理鉴权</CardDescription>
             </div>
-            <Button type="button" variant="outline" size="sm" onClick={() => void loadData(true)} disabled={refreshing}>
-              <RefreshCw className={`mr-2 h-4 w-4 ${refreshing ? 'animate-spin' : ''}`} />
-              刷新
-            </Button>
+            <div className="flex flex-wrap items-center gap-3">
+              {managementStatus?.keyExists ? (
+                <div className="flex items-center gap-2 rounded-lg border px-3 py-2">
+                  <Label htmlFor="management-key-enabled" className="text-sm">启用</Label>
+                  <Switch
+                    id="management-key-enabled"
+                    checked={managementStatus.enabled}
+                    onCheckedChange={(checked) => void handleToggleEnabled(checked)}
+                    disabled={busyAction === 'toggle'}
+                  />
+                </div>
+              ) : null}
+              <Button type="button" variant="outline" size="sm" onClick={() => void loadData(true)} disabled={refreshing}>
+                <RefreshCw className={`mr-2 h-4 w-4 ${refreshing ? 'animate-spin' : ''}`} />
+                刷新
+              </Button>
+            </div>
           </div>
         </CardHeader>
         <CardContent className="space-y-4">
@@ -271,17 +300,6 @@ export function SecuritySettingsPanel({ onMessage }: Props) {
                 <Button type="button" onClick={() => setPasswordAction('rotate')} disabled={busyAction === 'rotate'}>
                   轮换 Key
                 </Button>
-                <div className="flex items-center gap-3 rounded-lg border px-4 py-2">
-                  <div className="space-y-0.5">
-                    <div className="text-sm font-medium">启用</div>
-                    <div className="text-xs text-muted-foreground">停用后当前 Key 和 grace key 会一起失效</div>
-                  </div>
-                  <Switch
-                    checked={managementStatus.enabled}
-                    onCheckedChange={(checked) => void handleToggleEnabled(checked)}
-                    disabled={busyAction === 'toggle'}
-                  />
-                </div>
               </>
             )}
           </div>
@@ -289,68 +307,124 @@ export function SecuritySettingsPanel({ onMessage }: Props) {
       </Card>
 
       <Card>
-        <CardHeader>
-          <CardTitle>普通用户面板限流</CardTitle>
-          <CardDescription>仅作用于普通用户；管理员完全不受限。Redis 异常时自动放行，请求在超出速率后会先静默等待，超时再返回 429。</CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="flex items-center justify-between rounded-lg border px-4 py-3">
-            <div className="space-y-1">
-              <Label htmlFor="user-panel-rate-limit-enabled">启用限流</Label>
-              <p className="text-xs text-muted-foreground">后端固定使用 {rateLimitConfig.backend || 'redis'}，故障放行固定为开启。</p>
-            </div>
+        <CardHeader className="flex flex-row items-start justify-between gap-3">
+          <div className="space-y-1">
+            <CardTitle>普通用户面板限流</CardTitle>
+            <CardDescription>仅作用于普通用户</CardDescription>
+          </div>
+          <div className="flex items-center gap-2 rounded-lg border px-3 py-2">
+            <Label htmlFor="user-panel-rate-limit-enabled" className="text-sm">启用</Label>
             <Switch
               id="user-panel-rate-limit-enabled"
               checked={rateLimitConfig.enabled}
               onCheckedChange={(checked) => setRateLimitConfig((current) => ({ ...current, enabled: checked }))}
             />
           </div>
-
-          <div className="space-y-3">
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="space-y-3 md:hidden">
             {sectionMeta.map((section) => {
               const value = rateLimitConfig.sections[section.key]
               return (
-                <div key={section.key} className="rounded-lg border p-4 space-y-3">
-                  <div className="space-y-1">
-                    <div className="font-medium">{section.label}</div>
-                    <div className="text-xs text-muted-foreground">{section.description}</div>
-                  </div>
-                  <div className="grid gap-4 md:grid-cols-3">
-                    <div className="space-y-2">
-                      <Label>RPS</Label>
-                      <Input
-                        type="number"
-                        min="0.1"
-                        step="0.1"
-                        value={value.rps}
-                        onChange={(event) => handleSectionFieldChange(section.key, 'rps', Number.parseFloat(event.target.value) || 0)}
-                      />
-                    </div>
-                    <div className="space-y-2">
-                      <Label>Burst</Label>
-                      <Input
-                        type="number"
-                        min="1"
-                        step="1"
-                        value={value.burst}
-                        onChange={(event) => handleSectionFieldChange(section.key, 'burst', Number.parseInt(event.target.value || '1', 10))}
-                      />
-                    </div>
-                    <div className="space-y-2">
-                      <Label>maxWaitMs</Label>
-                      <Input
-                        type="number"
-                        min="0"
-                        step="100"
-                        value={value.maxWaitMs}
-                        onChange={(event) => handleSectionFieldChange(section.key, 'maxWaitMs', Number.parseInt(event.target.value || '0', 10))}
-                      />
-                    </div>
+                <div key={section.key} className="rounded-xl border border-border/70 px-4 py-4">
+                  <div className="font-medium">{section.label}</div>
+                  <div className="mt-3 grid gap-3 text-sm">
+                    <MobileInfoRow
+                      label="RPS"
+                      value={(
+                        <Input
+                          type="number"
+                          min="0.1"
+                          step="0.1"
+                          value={value.rps}
+                          onChange={(event) => handleSectionFieldChange(section.key, 'rps', Number.parseFloat(event.target.value) || 0)}
+                          className="h-9 w-28 text-right"
+                        />
+                      )}
+                    />
+                    <MobileInfoRow
+                      label="Burst"
+                      value={(
+                        <Input
+                          type="number"
+                          min="1"
+                          step="1"
+                          value={value.burst}
+                          onChange={(event) => handleSectionFieldChange(section.key, 'burst', Number.parseInt(event.target.value || '1', 10))}
+                          className="h-9 w-28 text-right"
+                        />
+                      )}
+                    />
+                    <MobileInfoRow
+                      label="Wait(ms)"
+                      value={(
+                        <Input
+                          type="number"
+                          min="0"
+                          step="100"
+                          value={value.maxWaitMs}
+                          onChange={(event) => handleSectionFieldChange(section.key, 'maxWaitMs', Number.parseInt(event.target.value || '0', 10))}
+                          className="h-9 w-32 text-right"
+                        />
+                      )}
+                    />
                   </div>
                 </div>
               )
             })}
           </div>
+
+          <div className="hidden overflow-x-auto rounded-lg border md:block">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>场景</TableHead>
+                  <TableHead>RPS</TableHead>
+                  <TableHead>Burst</TableHead>
+                  <TableHead>Wait(ms)</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {sectionMeta.map((section) => {
+                  const value = rateLimitConfig.sections[section.key]
+                  return (
+                    <TableRow key={section.key}>
+                      <TableCell className="font-medium">{section.label}</TableCell>
+                      <TableCell className="w-[140px]">
+                        <Input
+                          type="number"
+                          min="0.1"
+                          step="0.1"
+                          value={value.rps}
+                          onChange={(event) => handleSectionFieldChange(section.key, 'rps', Number.parseFloat(event.target.value) || 0)}
+                        />
+                      </TableCell>
+                      <TableCell className="w-[140px]">
+                        <Input
+                          type="number"
+                          min="1"
+                          step="1"
+                          value={value.burst}
+                          onChange={(event) => handleSectionFieldChange(section.key, 'burst', Number.parseInt(event.target.value || '1', 10))}
+                        />
+                      </TableCell>
+                      <TableCell className="w-[160px]">
+                        <Input
+                          type="number"
+                          min="0"
+                          step="100"
+                          value={value.maxWaitMs}
+                          onChange={(event) => handleSectionFieldChange(section.key, 'maxWaitMs', Number.parseInt(event.target.value || '0', 10))}
+                        />
+                      </TableCell>
+                    </TableRow>
+                  )
+                })}
+              </TableBody>
+            </Table>
+          </div>
+
+          <p className="text-xs text-muted-foreground">后端固定使用 {rateLimitConfig.backend || 'redis'}，Redis 异常时自动放行，等待超时后返回 429。</p>
 
           <div className="flex justify-end">
             <Button type="button" onClick={() => void handleSaveRateLimit()} disabled={busyAction === 'save-rate-limit'}>
