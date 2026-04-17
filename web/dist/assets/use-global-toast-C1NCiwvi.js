@@ -1,1 +1,0 @@
-import{r as t}from"./react-vendor-CdkOyrU1.js";import{a6 as r}from"./index-BvrDfQVE.js";function e(){const o=t.useContext(r);if(!o)throw new Error("useGlobalToast must be used within GlobalToastProvider");return o}export{e as u};
