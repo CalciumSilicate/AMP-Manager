@@ -147,6 +147,8 @@ export default function PaidSubscriptions() {
   const [productForm, setProductForm] = useState<PurchaseProductRequest>(initialProductForm())
   const [productPriceInput, setProductPriceInput] = useState('0.00')
   const [savingProduct, setSavingProduct] = useState(false)
+  const [productsPage, setProductsPage] = useState(1)
+  const [productsPageSize, setProductsPageSize] = useState(10)
 
   const [orderFilters, setOrderFilters] = useState({
     paymentStatus: 'all',
@@ -360,6 +362,9 @@ export default function PaidSubscriptions() {
   const ordersTotalPages = Math.max(1, Math.ceil(orders.length / ordersPageSize))
   const currentOrdersPage = Math.min(ordersPage, ordersTotalPages)
   const visibleOrders = orders.slice((currentOrdersPage - 1) * ordersPageSize, currentOrdersPage * ordersPageSize)
+  const productsTotalPages = Math.max(1, Math.ceil(products.length / productsPageSize))
+  const currentProductsPage = Math.min(productsPage, productsTotalPages)
+  const visibleProducts = products.slice((currentProductsPage - 1) * productsPageSize, currentProductsPage * productsPageSize)
 
   return (
     <>
@@ -392,66 +397,82 @@ export default function PaidSubscriptions() {
               </div>
             </CardHeader>
             <CardContent className="space-y-4">
-              <div className="overflow-x-auto rounded-lg border">
+              <div className="rounded-lg border">
                 {products.length === 0 ? (
                   <div className="px-5 py-10 text-sm text-muted-foreground">暂无商品。</div>
                 ) : (
-                  <Table>
-                    <TableHeader>
-                      <TableRow>
-                        <TableHead>商品</TableHead>
-                        <TableHead>套餐</TableHead>
-                        <TableHead>时长</TableHead>
-                        <TableHead>售价</TableHead>
-                        <TableHead>排序</TableHead>
-                        <TableHead>状态</TableHead>
-                        <TableHead className="text-right">操作</TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {products.map((product) => (
-                        <TableRow key={product.id}>
-                          <TableCell>
-                            <div>
-                              <p className="font-medium">{product.name}</p>
-                              <p className="text-xs text-muted-foreground">{product.summary || '-'}</p>
-                            </div>
-                          </TableCell>
-                          <TableCell>{product.subscriptionPlanName || '-'}</TableCell>
-                          <TableCell>{product.durationDays} 天</TableCell>
-                          <TableCell>{formatCNY(product.priceCnyCent)}</TableCell>
-                          <TableCell>{product.sortOrder}</TableCell>
-                          <TableCell>
-                            <div className="flex flex-wrap gap-2">
-                              <Badge variant="outline" className={`${product.enabled ? 'border-emerald-200 bg-emerald-50 text-emerald-700' : 'border-slate-200 bg-slate-100 text-slate-600'}`}>
-                                {product.enabled ? '上架' : '下架'}
-                              </Badge>
-                              {product.isRecommended && (
-                                <Badge variant="outline" className="border-sky-200 bg-sky-50 text-sky-700">
-                                  推荐
-                                </Badge>
-                              )}
-                            </div>
-                          </TableCell>
-                          <TableCell className="text-right">
-                            <div className="flex justify-end gap-2">
-                              <Button type="button" variant="outline" size="sm" onClick={() => openEditProduct(product)}>
-                                <Pencil className="mr-2 h-4 w-4" />
-                                编辑
-                              </Button>
-                              <Button type="button" variant="outline" size="sm" onClick={() => void handleToggleProduct(product)}>
-                                {product.enabled ? '下架' : '上架'}
-                              </Button>
-                              <Button type="button" variant="destructive" size="sm" onClick={() => void handleDeleteProduct(product)}>
-                                <Trash2 className="mr-2 h-4 w-4" />
-                                删除
-                              </Button>
-                            </div>
-                          </TableCell>
-                        </TableRow>
-                      ))}
-                    </TableBody>
-                  </Table>
+                  <>
+                    <div className="overflow-x-auto">
+                      <Table>
+                        <TableHeader>
+                          <TableRow>
+                            <TableHead>商品</TableHead>
+                            <TableHead>套餐</TableHead>
+                            <TableHead>时长</TableHead>
+                            <TableHead>售价</TableHead>
+                            <TableHead>排序</TableHead>
+                            <TableHead>状态</TableHead>
+                            <TableHead className="text-right">操作</TableHead>
+                          </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                          {visibleProducts.map((product) => (
+                            <TableRow key={product.id}>
+                              <TableCell>
+                                <div>
+                                  <p className="font-medium">{product.name}</p>
+                                  <p className="text-xs text-muted-foreground">{product.summary || '-'}</p>
+                                </div>
+                              </TableCell>
+                              <TableCell>{product.subscriptionPlanName || '-'}</TableCell>
+                              <TableCell>{product.durationDays} 天</TableCell>
+                              <TableCell>{formatCNY(product.priceCnyCent)}</TableCell>
+                              <TableCell>{product.sortOrder}</TableCell>
+                              <TableCell>
+                                <div className="flex flex-wrap gap-2">
+                                  <Badge variant="outline" className={`${product.enabled ? 'border-emerald-200 bg-emerald-50 text-emerald-700' : 'border-slate-200 bg-slate-100 text-slate-600'}`}>
+                                    {product.enabled ? '上架' : '下架'}
+                                  </Badge>
+                                  {product.isRecommended && (
+                                    <Badge variant="outline" className="border-sky-200 bg-sky-50 text-sky-700">
+                                      推荐
+                                    </Badge>
+                                  )}
+                                </div>
+                              </TableCell>
+                              <TableCell className="text-right">
+                                <div className="flex justify-end gap-2">
+                                  <Button type="button" variant="outline" size="sm" onClick={() => openEditProduct(product)}>
+                                    <Pencil className="mr-2 h-4 w-4" />
+                                    编辑
+                                  </Button>
+                                  <Button type="button" variant="outline" size="sm" onClick={() => void handleToggleProduct(product)}>
+                                    {product.enabled ? '下架' : '上架'}
+                                  </Button>
+                                  <Button type="button" variant="destructive" size="sm" onClick={() => void handleDeleteProduct(product)}>
+                                    <Trash2 className="mr-2 h-4 w-4" />
+                                    删除
+                                  </Button>
+                                </div>
+                              </TableCell>
+                            </TableRow>
+                          ))}
+                        </TableBody>
+                      </Table>
+                    </div>
+                    <div className="px-6 pb-6">
+                      <TablePagination
+                        page={currentProductsPage}
+                        pageSize={productsPageSize}
+                        total={products.length}
+                        onPageChange={setProductsPage}
+                        onPageSizeChange={(nextPageSize) => {
+                          setProductsPageSize(nextPageSize)
+                          setProductsPage(1)
+                        }}
+                      />
+                    </div>
+                  </>
                 )}
               </div>
             </CardContent>

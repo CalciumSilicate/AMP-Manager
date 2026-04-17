@@ -19,6 +19,7 @@ import {
   type RedeemRedemption,
 } from '@/api/redeem'
 import { getPlans, type SubscriptionPlanResponse } from '@/api/subscription'
+import { TablePagination } from '@/components/TablePagination'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -118,6 +119,17 @@ function downloadTextFile(filename: string, content: string): void {
   URL.revokeObjectURL(url)
 }
 
+function paginateItems<T>(items: T[], page: number, pageSize: number) {
+  const totalPages = Math.max(1, Math.ceil(items.length / pageSize))
+  const currentPage = Math.min(page, totalPages)
+  const visibleItems = items.slice((currentPage - 1) * pageSize, currentPage * pageSize)
+
+  return {
+    currentPage,
+    visibleItems,
+  }
+}
+
 type RedeemManagementTab = 'campaigns' | 'batches' | 'codes' | 'redemptions'
 
 const tabs: TabbedSettingsPageTab<RedeemManagementTab>[] = [
@@ -136,6 +148,12 @@ export default function RedeemManagement() {
   const [batches, setBatches] = useState<RedeemBatch[]>([])
   const [codes, setCodes] = useState<RedeemCode[]>([])
   const [redemptions, setRedemptions] = useState<RedeemRedemption[]>([])
+  const [campaignPage, setCampaignPage] = useState(1)
+  const [campaignPageSize, setCampaignPageSize] = useState(10)
+  const [batchPage, setBatchPage] = useState(1)
+  const [batchPageSize, setBatchPageSize] = useState(10)
+  const [codePage, setCodePage] = useState(1)
+  const [codePageSize, setCodePageSize] = useState(10)
 
   const [campaignDialogOpen, setCampaignDialogOpen] = useState(false)
   const [editingCampaign, setEditingCampaign] = useState<RedeemCampaign | null>(null)
@@ -198,6 +216,7 @@ export default function RedeemManagement() {
       limit: 200,
     })
     setCodes(codeList)
+    setCodePage(1)
   }
 
   const refreshRedemptions = async () => {
@@ -338,6 +357,10 @@ export default function RedeemManagement() {
     )
   }
 
+  const { currentPage: currentCampaignPage, visibleItems: visibleCampaigns } = paginateItems(campaigns, campaignPage, campaignPageSize)
+  const { currentPage: currentBatchPage, visibleItems: visibleBatches } = paginateItems(batches, batchPage, batchPageSize)
+  const { currentPage: currentCodePage, visibleItems: visibleCodes } = paginateItems(codes, codePage, codePageSize)
+
   return (
     <>
       <TabbedSettingsPage
@@ -394,7 +417,7 @@ export default function RedeemManagement() {
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {campaigns.map((item) => (
+                    {visibleCampaigns.map((item) => (
                       <TableRow key={item.id}>
                         <TableCell>
                           <div>
@@ -450,6 +473,16 @@ export default function RedeemManagement() {
                   </TableBody>
                 </Table>
               </div>
+              <TablePagination
+                page={currentCampaignPage}
+                pageSize={campaignPageSize}
+                total={campaigns.length}
+                onPageChange={setCampaignPage}
+                onPageSizeChange={(nextPageSize) => {
+                  setCampaignPageSize(nextPageSize)
+                  setCampaignPage(1)
+                }}
+              />
             </CardContent>
           </Card>
         )}
@@ -473,6 +506,7 @@ export default function RedeemManagement() {
                   value={codeFilters.campaignId}
                   onValueChange={async (value) => {
                     setCodeFilters((current) => ({ ...current, campaignId: value }))
+                    setBatchPage(1)
                     setBatches(await listRedeemBatches(value === 'all' ? '' : value))
                   }}
                 >
@@ -501,7 +535,7 @@ export default function RedeemManagement() {
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {batches.map((item) => (
+                    {visibleBatches.map((item) => (
                       <TableRow key={item.id}>
                         <TableCell className="font-medium">{item.name}</TableCell>
                         <TableCell>{item.campaignName}</TableCell>
@@ -519,6 +553,16 @@ export default function RedeemManagement() {
                   </TableBody>
                 </Table>
               </div>
+              <TablePagination
+                page={currentBatchPage}
+                pageSize={batchPageSize}
+                total={batches.length}
+                onPageChange={setBatchPage}
+                onPageSizeChange={(nextPageSize) => {
+                  setBatchPageSize(nextPageSize)
+                  setBatchPage(1)
+                }}
+              />
             </CardContent>
           </Card>
         )}
@@ -576,9 +620,9 @@ export default function RedeemManagement() {
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {codes.map((item) => (
+                    {visibleCodes.map((item) => (
                       <TableRow key={item.id}>
-                        <TableCell className="font-mono text-xs">{item.codeMode === 'shared' ? item.codeValue : item.codeMask}</TableCell>
+                        <TableCell className="font-mono text-xs">{item.codeValue}</TableCell>
                         <TableCell>{item.campaignName}</TableCell>
                         <TableCell>{item.batchName || '-'}</TableCell>
                         <TableCell>{item.redeemedCount} / {item.maxRedemptions > 0 ? item.maxRedemptions : '∞'}</TableCell>
@@ -604,6 +648,16 @@ export default function RedeemManagement() {
                   </TableBody>
                 </Table>
               </div>
+              <TablePagination
+                page={currentCodePage}
+                pageSize={codePageSize}
+                total={codes.length}
+                onPageChange={setCodePage}
+                onPageSizeChange={(nextPageSize) => {
+                  setCodePageSize(nextPageSize)
+                  setCodePage(1)
+                }}
+              />
             </CardContent>
           </Card>
         )}
