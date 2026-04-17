@@ -2276,8 +2276,37 @@ func ensurePurchaseSchema() error {
 	if err := ensureColumnWithDefault("redeem_codes", "legacy_ref_id", "TEXT NOT NULL DEFAULT ''"); err != nil {
 		return err
 	}
+	if err := ensureColumnWithDefault("redeem_codes", "source_type", "TEXT NOT NULL DEFAULT 'campaign'"); err != nil {
+		return err
+	}
+	if err := ensureColumnWithDefault("redeem_codes", "source_ref_id", "TEXT NOT NULL DEFAULT ''"); err != nil {
+		return err
+	}
+	if err := ensureColumnWithDefault("redeem_codes", "subscription_duration_days", "INTEGER NOT NULL DEFAULT 0"); err != nil {
+		return err
+	}
+	if err := ensureColumnWithDefault("redeem_codes", "balance_micros", "BIGINT NOT NULL DEFAULT 0"); err != nil {
+		return err
+	}
+	if err := ensureColumnWithDefault("redeem_codes", "per_user_limit", "INTEGER NOT NULL DEFAULT 1"); err != nil {
+		return err
+	}
+	if err := ensureColumnWithDefault("redeem_codes", "subscription_plan_id", "TEXT"); err != nil {
+		return err
+	}
+	if err := ensureColumnWithDefault("redeem_codes", "starts_at", "DATETIME"); err != nil {
+		return err
+	}
+	if err := ensureColumnWithDefault("redeem_codes", "ends_at", "DATETIME"); err != nil {
+		return err
+	}
 	if err := ensureColumnWithDefault("redeem_redemptions", "reward_snapshot_json", "TEXT NOT NULL DEFAULT ''"); err != nil {
 		return err
+	}
+	if dbType == DBTypePostgres {
+		if _, err := db.Exec(`ALTER TABLE redeem_codes ALTER COLUMN campaign_id DROP NOT NULL`); err != nil && !shouldIgnoreMigrationError("alter_redeem_codes_campaign_id_nullable", err) {
+			return fmt.Errorf("alter redeem_codes.campaign_id nullable failed: %w", err)
+		}
 	}
 	if _, err := db.Exec(`CREATE INDEX IF NOT EXISTS idx_purchase_orders_manual_settlement_done ON purchase_orders(manual_settlement_done, created_at DESC)`); err != nil {
 		return fmt.Errorf("create idx_purchase_orders_manual_settlement_done failed: %w", err)
@@ -2379,7 +2408,11 @@ func ensureColumnWithDefault(tableName, columnName, definition string) error {
 	if exists {
 		return nil
 	}
-	if _, err := db.Exec(fmt.Sprintf("ALTER TABLE %s ADD COLUMN %s %s", tableName, columnName, definition)); err != nil && !shouldIgnoreMigrationError("ensure_column_"+tableName+"_"+columnName, err) {
+	adaptedDefinition := definition
+	if dbType == DBTypePostgres {
+		adaptedDefinition = strings.ReplaceAll(adaptedDefinition, "DATETIME", "TIMESTAMPTZ")
+	}
+	if _, err := db.Exec(fmt.Sprintf("ALTER TABLE %s ADD COLUMN %s %s", tableName, columnName, adaptedDefinition)); err != nil && !shouldIgnoreMigrationError("ensure_column_"+tableName+"_"+columnName, err) {
 		return fmt.Errorf("add %s.%s failed: %w", tableName, columnName, err)
 	}
 	return nil

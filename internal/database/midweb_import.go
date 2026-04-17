@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"math"
+	"os"
 	"sort"
 	"strconv"
 	"strings"
@@ -24,6 +25,11 @@ type MidwebImportParams struct {
 	ClearTarget      bool
 	OnProgress       func(MigrationProgress)
 }
+
+const (
+	midwebBalanceTopupPlanID    = "system-balance-topup-plan"
+	midwebBalanceTopupProductID = "system-balance-topup-product"
+)
 
 type midwebTemplateRow struct {
 	ID              int64
@@ -181,6 +187,11 @@ func ImportMidwebSQLite(params MidwebImportParams) error {
 	if sourcePath == "" {
 		return fmt.Errorf("midweb import requires --source")
 	}
+	if info, err := os.Stat(sourcePath); err != nil {
+		return fmt.Errorf("midweb source sqlite not found: %w", err)
+	} else if info.IsDir() {
+		return fmt.Errorf("midweb source sqlite path is a directory: %s", sourcePath)
+	}
 	targetOptions, err := params.Target.Normalize()
 	if err != nil {
 		return err
@@ -192,6 +203,16 @@ func ImportMidwebSQLite(params MidwebImportParams) error {
 		return err
 	}
 	defer sourceDB.Close()
+	if ok, err := hasTableOnDB(sourceDB, "cdk_templates"); err != nil {
+		return err
+	} else if !ok {
+		return fmt.Errorf("source sqlite is not a Midweb database: missing table cdk_templates")
+	}
+	if ok, err := hasTableOnDB(sourceDB, "cdks"); err != nil {
+		return err
+	} else if !ok {
+		return fmt.Errorf("source sqlite is not a Midweb database: missing table cdks")
+	}
 
 	reportMigrationProgress(params.OnProgress, 15, "初始化目标数据库")
 	targetDB, err := prepareStandaloneDatabase(targetOptions)
@@ -347,6 +368,14 @@ func clearNamedTablesOnDB(targetDB *sql.DB, options Options, tables []string) er
 		}
 	}
 	return nil
+}
+
+func hasTableOnDB(db *sql.DB, tableName string) (bool, error) {
+	var count int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = ?`, tableName).Scan(&count); err != nil {
+		return false, err
+	}
+	return count > 0, nil
 }
 
 func importMidwebPlansAndProducts(tx *sql.Tx, templates map[int64]midwebTemplateRow, subscriptions []midwebPurchaseSubscriptionRow) (map[int64]string, map[int64]midwebTemplateRow, error) {
@@ -715,6 +744,9 @@ func importMidwebRechargeHistory(tx *sql.Tx, recharges []midwebRechargeRow, phas
 }
 
 func importMidwebOrdersAndCodes(tx *sql.Tx, orders []midwebPurchaseOrderRow, deliveries []midwebDeliveryRow, templates map[int64]midwebTemplateRow, planByTemplateID map[int64]string, users *importedUserIndex, legacyOrderOwnerID string) error {
+	if err := ensureMidwebBalanceTopupPlaceholderTx(tx); err != nil {
+		return err
+	}
 	deliveryIDsByOrder := make(map[int64][]string)
 	for _, item := range deliveries {
 		template, ok := templates[item.TemplateID.Int64]
@@ -766,6 +798,7 @@ func importMidwebOrdersAndCodes(tx *sql.Tx, orders []midwebPurchaseOrderRow, del
 		userID := legacyOrderOwnerID
 		orderKind := model.PurchaseOrderKindSubscription
 		deliveryMode := model.PurchaseDeliveryModeRedeemCode
+		productID := ""
 		subscriptionPlanID := ""
 		durationDays := 1
 		balanceTopupMicros := int64(0)
@@ -773,6 +806,8 @@ func importMidwebOrdersAndCodes(tx *sql.Tx, orders []midwebPurchaseOrderRow, del
 		if item.OrderKind == "metered_topup" {
 			orderKind = model.PurchaseOrderKindBalanceTopup
 			deliveryMode = model.PurchaseDeliveryModeAccount
+			productID = midwebBalanceTopupProductID
+			subscriptionPlanID = midwebBalanceTopupPlanID
 			if item.TargetRemoteUserID.Valid {
 				if ref, ok := users.ByRemoteUserID[item.TargetRemoteUserID.Int64]; ok {
 					userID = ref.UserID
@@ -781,8 +816,12 @@ func importMidwebOrdersAndCodes(tx *sql.Tx, orders []midwebPurchaseOrderRow, del
 			balanceTopupMicros = microsFromUSD(item.MeteredAmountUSD.Float64)
 		} else if item.TemplateID.Valid {
 			subscriptionPlanID = planByTemplateID[item.TemplateID.Int64]
+			productID = fmt.Sprintf("midweb-legacy-order-product-%d", item.TemplateID.Int64)
 			if template, ok := templates[item.TemplateID.Int64]; ok && template.DurationDays.Valid {
 				durationDays = int(template.DurationDays.Int64)
+				if err := ensureMidwebLegacyOrderProductTx(tx, productID, subscriptionPlanID, template, item); err != nil {
+					return err
+				}
 				snapshot, err := json.Marshal(model.PurchaseActionSnapshot{
 					ProductKind:              model.PurchaseProductKindOverwrite,
 					PlanID:                   subscriptionPlanID,
@@ -798,6 +837,9 @@ func importMidwebOrdersAndCodes(tx *sql.Tx, orders []midwebPurchaseOrderRow, del
 				}
 				actionSnapshotJSON = string(snapshot)
 			}
+		}
+		if strings.TrimSpace(productID) == "" {
+			continue
 		}
 		generatedCodeID := ""
 		if ids := deliveryIDsByOrder[item.ID]; len(ids) == 1 {
@@ -824,7 +866,7 @@ func importMidwebOrdersAndCodes(tx *sql.Tx, orders []midwebPurchaseOrderRow, del
 			fmt.Sprintf("midweb-order-%d", item.ID),
 			item.OrderNo,
 			userID,
-			"",
+			productID,
 			subscriptionPlanID,
 			durationDays,
 			amountCents,
@@ -866,6 +908,90 @@ func ensureLegacyOrderOwner(tx *sql.Tx, needed bool) (string, error) {
 		return "", err
 	}
 	return userID, nil
+}
+
+func ensureMidwebBalanceTopupPlaceholderTx(tx *sql.Tx) error {
+	now := time.Now().UTC()
+	if _, err := tx.Exec(
+		`INSERT INTO subscription_plans (id, name, description, enabled, upgrade_rank, upgrade_valuation_cny_cent_per_day, legacy_source, legacy_ref_id, created_at, updated_at)
+		 VALUES (?, ?, ?, 0, 0, 0, 'midweb_placeholder', 'balance_topup', ?, ?)
+		 ON CONFLICT (id) DO NOTHING`,
+		midwebBalanceTopupPlanID,
+		"余额充值",
+		"Midweb 导入用余额占位套餐",
+		now,
+		now,
+	); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(
+		`INSERT INTO purchase_products (id, name, summary, product_kind, subscription_plan_id, duration_days, price_cny_cent, action_snapshot_json, legacy_source, legacy_ref_id, group_name, group_sort, is_recommended, sort_order, enabled, created_at, updated_at)
+		 VALUES (?, ?, ?, ?, ?, 1, 1, '', 'midweb_placeholder', 'balance_topup', '余额充值', 100, 0, 0, 0, ?, ?)
+		 ON CONFLICT (id) DO NOTHING`,
+		midwebBalanceTopupProductID,
+		"余额充值",
+		"Midweb 导入用余额占位商品",
+		model.PurchaseProductKindBalanceTopup,
+		midwebBalanceTopupPlanID,
+		now,
+		now,
+	); err != nil {
+		return err
+	}
+	return nil
+}
+
+func ensureMidwebLegacyOrderProductTx(
+	tx *sql.Tx,
+	productID string,
+	planID string,
+	template midwebTemplateRow,
+	order midwebPurchaseOrderRow,
+) error {
+	if strings.TrimSpace(productID) == "" || strings.TrimSpace(planID) == "" {
+		return nil
+	}
+	durationDays := 1
+	if template.DurationDays.Valid && template.DurationDays.Int64 > 0 {
+		durationDays = int(template.DurationDays.Int64)
+	}
+	priceCNYCent := int64(math.Round(order.AmountCNY.Float64 * 100))
+	if priceCNYCent <= 0 {
+		priceCNYCent = 1
+	}
+	snapshot, err := json.Marshal(model.PurchaseActionSnapshot{
+		ProductKind:              model.PurchaseProductKindOverwrite,
+		PlanID:                   planID,
+		DurationDays:             durationDays,
+		SourceDailyLimitMicros:   microsFromNullableUSD(template.DailyQuotaUSD),
+		SourceWeeklyLimitMicros:  microsFromNullableUSD(template.WeeklyQuotaUSD),
+		SourceMonthlyLimitMicros: microsFromNullableUSD(template.MonthlyQuotaUSD),
+		SourceTotalLimitMicros:   microsFromNullableUSD(template.TotalQuotaUSD),
+		LegacyTemplateID:         fmt.Sprintf("%d", template.ID),
+	})
+	if err != nil {
+		return err
+	}
+	now := time.Now().UTC()
+	_, err = tx.Exec(
+		`INSERT INTO purchase_products (
+			id, name, summary, product_kind, subscription_plan_id, duration_days, price_cny_cent, action_snapshot_json, legacy_source, legacy_ref_id,
+			group_name, group_sort, is_recommended, sort_order, enabled, created_at, updated_at
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'midweb_legacy_order', ?, '历史订单', 99, 0, 0, 0, ?, ?)
+		ON CONFLICT (id) DO NOTHING`,
+		productID,
+		fmt.Sprintf("Midweb 历史模板 %d", template.ID),
+		"导入用历史订单占位商品",
+		model.PurchaseProductKindOverwrite,
+		planID,
+		durationDays,
+		priceCNYCent,
+		string(snapshot),
+		fmt.Sprintf("%d", template.ID),
+		now,
+		now,
+	)
+	return err
 }
 
 func loadMidwebTemplates(db *sql.DB) (map[int64]midwebTemplateRow, error) {
