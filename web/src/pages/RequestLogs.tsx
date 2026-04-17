@@ -247,7 +247,7 @@ const RequestLogRow = memo(function RequestLogRow({
           </Tooltip>
         </TableCell>
       )}
-      <TableCell className="min-w-[9rem]">
+      <TableCell>
         <div className="flex flex-col">
           <span className="font-medium text-sm truncate max-w-32" title={log.mappedModel || log.originalModel}>
             {log.mappedModel || log.originalModel || '-'}
@@ -259,7 +259,7 @@ const RequestLogRow = memo(function RequestLogRow({
           )}
         </div>
       </TableCell>
-      <TableCell className="min-w-[8rem] whitespace-nowrap">
+      <TableCell className="whitespace-nowrap">
         {(log.channelName || log.provider) ? (
           <Tooltip>
             <TooltipTrigger asChild>
@@ -267,7 +267,7 @@ const RequestLogRow = memo(function RequestLogRow({
                 <Badge
                   variant="outline"
                   className={cn(
-                    'cursor-help text-xs whitespace-nowrap',
+                    'max-w-[10rem] cursor-help truncate text-xs whitespace-nowrap',
                     translationPath ? 'border-sky-300 bg-sky-50 text-sky-700 hover:bg-sky-100' : undefined,
                   )}
                 >
@@ -724,20 +724,20 @@ export default function RequestLogs({ isAdmin }: Props) {
             ) : (
               <>
                 <div className={`relative overflow-y-auto overflow-x-hidden max-h-[calc(100vh-320px)] min-h-[400px] rounded-md border transition-opacity ${fetching ? 'opacity-50 pointer-events-none' : ''}`}>
-                <Table className={cn('min-w-[88rem]', isAdmin ? 'min-w-[96rem]' : 'min-w-[88rem]')}>
+                <Table className="min-w-full w-max">
                   <TableHeader className="sticky top-0 z-10 bg-background">
                     <TableRow>
-                      <TableHead className="min-w-[9.5rem] whitespace-nowrap">时间</TableHead>
-                      {isAdmin && <TableHead className="min-w-[7rem] whitespace-nowrap">用户</TableHead>}
-                      <TableHead className="min-w-[9rem] whitespace-nowrap">模型</TableHead>
-                      <TableHead className="min-w-[8rem] whitespace-nowrap">渠道</TableHead>
-                      <TableHead className="min-w-[6rem] whitespace-nowrap">思维等级</TableHead>
-                      <TableHead className="min-w-[6rem] whitespace-nowrap">方法</TableHead>
-                      <TableHead className="min-w-[6rem] whitespace-nowrap">状态</TableHead>
-                      <TableHead className="min-w-[6rem] whitespace-nowrap text-right">TTFB</TableHead>
-                      <TableHead className="min-w-[6rem] whitespace-nowrap text-right">TPS</TableHead>
-                      <TableHead className="min-w-[6rem] whitespace-nowrap text-right">用时</TableHead>
-                      <TableHead className="min-w-[6rem] whitespace-nowrap text-right">
+                      <TableHead className="whitespace-nowrap">时间</TableHead>
+                      {isAdmin && <TableHead className="whitespace-nowrap">用户</TableHead>}
+                      <TableHead className="whitespace-nowrap">模型</TableHead>
+                      <TableHead className="whitespace-nowrap">渠道</TableHead>
+                      <TableHead className="whitespace-nowrap">思维等级</TableHead>
+                      <TableHead className="whitespace-nowrap">方法</TableHead>
+                      <TableHead className="whitespace-nowrap">状态</TableHead>
+                      <TableHead className="whitespace-nowrap text-right">TTFB</TableHead>
+                      <TableHead className="whitespace-nowrap text-right">TPS</TableHead>
+                      <TableHead className="whitespace-nowrap text-right">用时</TableHead>
+                      <TableHead className="whitespace-nowrap text-right">
                         <Tooltip>
                           <TooltipTrigger asChild>
                             <span className="cursor-help underline decoration-dotted underline-offset-4">输入</span>
@@ -747,11 +747,11 @@ export default function RequestLogs({ isAdmin }: Props) {
                           </TooltipContent>
                         </Tooltip>
                       </TableHead>
-                      <TableHead className="min-w-[6rem] whitespace-nowrap text-right">输出</TableHead>
-                      <TableHead className="min-w-[6rem] whitespace-nowrap text-right">缓存读</TableHead>
-                      <TableHead className="min-w-[6rem] whitespace-nowrap text-right">缓存写</TableHead>
-                      <TableHead className="min-w-[6rem] whitespace-nowrap text-right">成本</TableHead>
-                      <TableHead className="min-w-[6rem] whitespace-nowrap text-right">倍率</TableHead>
+                      <TableHead className="whitespace-nowrap text-right">输出</TableHead>
+                      <TableHead className="whitespace-nowrap text-right">缓存读</TableHead>
+                      <TableHead className="whitespace-nowrap text-right">缓存写</TableHead>
+                      <TableHead className="whitespace-nowrap text-right">成本</TableHead>
+                      <TableHead className="whitespace-nowrap text-right">倍率</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
