@@ -69,7 +69,10 @@ func initDB(options Options) error {
 	if err := createTables(); err != nil {
 		return err
 	}
-	return runMigrations()
+	if err := runMigrations(); err != nil {
+		return err
+	}
+	return ensureCriticalSchema()
 }
 
 func openDB(options Options) (*sql.DB, string, error) {
@@ -932,7 +935,15 @@ func createTables() error {
 		`
 	}
 
-	return execStatements(db, schema)
+	for _, statement := range splitStatements(schema) {
+		if _, err := db.Exec(statement); err != nil {
+			if shouldIgnoreCreateTableStatementError(statement, err) {
+				continue
+			}
+			return err
+		}
+	}
+	return nil
 }
 
 func runMigrations() error {
@@ -1860,6 +1871,37 @@ func runMigrations() error {
 	return nil
 }
 
+func ensureCriticalSchema() error {
+	if err := ensureRequestLogsSessionSchema(); err != nil {
+		return err
+	}
+	return nil
+}
+
+func ensureRequestLogsSessionSchema() error {
+	exists, err := columnExists("request_logs", "session_id")
+	if err != nil {
+		return fmt.Errorf("check request_logs.session_id failed: %w", err)
+	}
+	if !exists {
+		if _, err := db.Exec(`ALTER TABLE request_logs ADD COLUMN session_id TEXT`); err != nil && !shouldIgnoreMigrationError("add_request_logs_session_id", err) {
+			return fmt.Errorf("add request_logs.session_id failed: %w", err)
+		}
+	}
+
+	hasIndex, err := indexExists("request_logs", "idx_request_logs_session_time")
+	if err != nil {
+		return fmt.Errorf("check idx_request_logs_session_time failed: %w", err)
+	}
+	if !hasIndex {
+		if _, err := db.Exec(`CREATE INDEX IF NOT EXISTS idx_request_logs_session_time ON request_logs(session_id, created_at DESC)`); err != nil {
+			return fmt.Errorf("create idx_request_logs_session_time failed: %w", err)
+		}
+	}
+
+	return nil
+}
+
 func adaptMigrationSQL(name string, sqlText string) string {
 	adapted := sqlText
 	if dbType == DBTypePostgres {
@@ -2015,7 +2057,55 @@ func adaptMigrationSQL(name string, sqlText string) string {
 		}
 	}
 
+	if dbType == DBTypePostgres {
+		adapted = strings.ReplaceAll(adapted, "DATETIME", "TIMESTAMPTZ")
+	}
+
 	return adapted
+}
+
+func columnExists(tableName string, columnName string) (bool, error) {
+	var query string
+	switch dbType {
+	case DBTypePostgres:
+		query = `SELECT COUNT(*) FROM information_schema.columns WHERE table_schema = current_schema() AND table_name = ? AND column_name = ?`
+	default:
+		query = fmt.Sprintf("SELECT COUNT(*) FROM pragma_table_info('%s') WHERE name = ?", tableName)
+	}
+
+	var count int
+	if dbType == DBTypePostgres {
+		if err := db.QueryRow(query, tableName, columnName).Scan(&count); err != nil {
+			return false, err
+		}
+	} else {
+		if err := db.QueryRow(query, columnName).Scan(&count); err != nil {
+			return false, err
+		}
+	}
+	return count > 0, nil
+}
+
+func indexExists(tableName string, indexName string) (bool, error) {
+	var (
+		query string
+		args  []any
+	)
+
+	switch dbType {
+	case DBTypePostgres:
+		query = `SELECT COUNT(*) FROM pg_indexes WHERE schemaname = current_schema() AND tablename = ? AND indexname = ?`
+		args = []any{tableName, indexName}
+	default:
+		query = `SELECT COUNT(*) FROM sqlite_master WHERE type = 'index' AND tbl_name = ? AND name = ?`
+		args = []any{tableName, indexName}
+	}
+
+	var count int
+	if err := db.QueryRow(query, args...).Scan(&count); err != nil {
+		return false, err
+	}
+	return count > 0, nil
 }
 
 func execStatements(databaseHandle *sql.DB, sqlText string) error {
@@ -2100,6 +2190,21 @@ func shouldIgnoreMigrationError(name string, err error) bool {
 	}
 
 	return false
+}
+
+func shouldIgnoreCreateTableStatementError(statement string, err error) bool {
+	if err == nil {
+		return false
+	}
+
+	normalizedStatement := strings.ToUpper(strings.TrimSpace(statement))
+	if !strings.HasPrefix(normalizedStatement, "CREATE INDEX IF NOT EXISTS") &&
+		!strings.HasPrefix(normalizedStatement, "CREATE UNIQUE INDEX IF NOT EXISTS") {
+		return false
+	}
+
+	msg := strings.ToLower(err.Error())
+	return strings.Contains(msg, "no such column") || strings.Contains(msg, "does not exist")
 }
 
 // migrateTimestampsToUTC 将数据库中所有带时区偏移的 RFC3339 时间戳转换为 UTC
