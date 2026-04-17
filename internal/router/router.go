@@ -80,6 +80,7 @@ func Setup() *gin.Engine {
 	redeemHandler := handler.NewRedeemHandler()
 	announcementHandler := handler.NewAnnouncementHandler()
 	statusMonitorHandler := handler.NewStatusMonitorHandler()
+	sessionHandler := handler.NewSessionHandler()
 
 	api := r.Group("/api")
 	{
@@ -228,6 +229,11 @@ func Setup() *gin.Engine {
 				system.GET("/cache-ttl", systemHandler.GetCacheTTLConfig)
 				system.PUT("/cache-ttl", systemHandler.UpdateCacheTTLConfig)
 
+				// Session 粘滞配置
+				system.GET("/session-sticky-config", systemHandler.GetSessionStickyConfig)
+				system.PUT("/session-sticky-config", systemHandler.UpdateSessionStickyConfig)
+				system.GET("/session-sticky-runtime", systemHandler.GetSessionStickyRuntime)
+
 				// Redis 计费运行时配置
 				system.GET("/billing-runtime-config", systemHandler.GetBillingRuntimeConfig)
 				system.GET("/billing-runtime-stats", systemHandler.GetBillingRuntimeStats)
@@ -303,6 +309,9 @@ func Setup() *gin.Engine {
 			admin.GET("/request-logs/models", requestLogHandler.AdminGetDistinctModels)
 			admin.GET("/request-logs/keys", requestLogHandler.AdminGetDistinctAPIKeys)
 			admin.GET("/request-logs/:id/detail", requestLogHandler.AdminGetRequestLogDetail)
+			admin.GET("/sessions", sessionHandler.ListSessions)
+			admin.GET("/sessions/leaderboard", sessionHandler.GetLeaderboard)
+			admin.GET("/sessions/:id", sessionHandler.GetSession)
 			admin.GET("/usage/summary", requestLogHandler.AdminGetUsageSummary)
 			admin.GET("/dashboard", requestLogHandler.GetAdminDashboard)
 

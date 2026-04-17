@@ -110,6 +110,7 @@ type SiteConfigResponse struct {
 	AmpProxySettingsPolicy string            `json:"ampProxySettingsPolicy"`
 	AmpSettingsPolicy      string            `json:"ampSettingsPolicy"`
 	Contact                SiteContactConfig `json:"contact"`
+	SessionSticky          *SessionStickyPublicConfig `json:"sessionSticky,omitempty"`
 }
 
 // SiteConfigRequest 站点配置请求

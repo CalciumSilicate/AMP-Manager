@@ -17,6 +17,7 @@ import (
 
 	"ampmanager/internal/amp"
 	"ampmanager/internal/billingstate"
+	"ampmanager/internal/config"
 	"ampmanager/internal/database"
 	"ampmanager/internal/model"
 	"ampmanager/internal/repository"
@@ -72,6 +73,15 @@ func (h *SystemHandler) GetPublicSiteConfig(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, cfg)
+}
+
+func maskSessionStickyRedisURL(raw string) string {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return ""
+	}
+	re := regexp.MustCompile(`://([^:/?#]+):([^@/?#]+)@`)
+	return re.ReplaceAllString(raw, `://$1:******@`)
 }
 
 func (h *SystemHandler) GetSiteConfig(c *gin.Context) {
@@ -1321,4 +1331,73 @@ func (h *SystemHandler) UpdateCacheTTLConfig(c *gin.Context) {
 	filters.SetCacheTTLOverride(req.CacheTTL)
 
 	c.JSON(http.StatusOK, gin.H{"message": "配置已更新", "cacheTTL": req.CacheTTL})
+}
+
+func (h *SystemHandler) GetSessionStickyConfig(c *gin.Context) {
+	cfg, err := service.NewSystemConfigService().GetSessionStickyConfig()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "获取 Session 粘滞配置失败"})
+		return
+	}
+
+	c.JSON(http.StatusOK, cfg)
+}
+
+func (h *SystemHandler) UpdateSessionStickyConfig(c *gin.Context) {
+	var req model.SessionStickyConfigRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "参数错误"})
+		return
+	}
+	if req.WindowMinutes < 1 || req.WindowMinutes > 1440 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "windowMinutes 必须在 1 到 1440 之间"})
+		return
+	}
+	if req.LogSearchMinChars < 1 || req.LogSearchMinChars > 64 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "logSearchMinChars 必须在 1 到 64 之间"})
+		return
+	}
+
+	cfg, err := service.NewSystemConfigService().SetSessionStickyConfig(req)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "保存 Session 粘滞配置失败"})
+		return
+	}
+
+	amp.UpdateSessionStickyConfig(cfg)
+	c.JSON(http.StatusOK, gin.H{"message": "配置已更新", "config": cfg})
+}
+
+func (h *SystemHandler) GetSessionStickyRuntime(c *gin.Context) {
+	cfg, err := service.NewSystemConfigService().GetSessionStickyConfig()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "获取 Session 粘滞运行时状态失败"})
+		return
+	}
+
+	activeCount, countErr := repository.NewRequestLogRepository().CountActiveSessions(time.Duration(cfg.WindowMinutes) * time.Minute)
+	if countErr != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "获取 Session 粘滞运行时状态失败"})
+		return
+	}
+
+	appCfg := config.Get()
+	redisURL := ""
+	redisPrefix := "ampmanager"
+	if appCfg != nil {
+		redisURL = appCfg.RedisURL
+		if strings.TrimSpace(appCfg.RedisPrefix) != "" {
+			redisPrefix = strings.TrimSpace(appCfg.RedisPrefix)
+		}
+	}
+	resp := model.SessionStickyRuntimeResponse{
+		RedisConfigured:    amp.SessionStickyRedisConfigured(),
+		RedisURLMasked:     maskSessionStickyRedisURL(redisURL),
+		RedisPrefix:        redisPrefix,
+		RuntimeEnabled:     cfg.Enabled,
+		RuntimeHealthy:     cfg.Enabled && amp.SessionStickyRuntimeHealthy(),
+		ActiveSessionCount: activeCount,
+	}
+
+	c.JSON(http.StatusOK, resp)
 }

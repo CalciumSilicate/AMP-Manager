@@ -33,6 +33,9 @@ import {
   getCacheTTLConfig,
   updateCacheTTLConfig,
   updateSiteConfig,
+  getSessionStickyConfig,
+  updateSessionStickyConfig,
+  getSessionStickyRuntimeStatus,
   getBillingRuntimeConfig,
   getBillingRuntimeStats,
   updateBillingRuntimeConfig,
@@ -41,6 +44,8 @@ import {
   getBillingDailyResetConfig,
   updateBillingDailyResetConfig,
   BillingDailyResetConfig,
+  SessionStickyConfig,
+  SessionStickyRuntimeStatus,
   SiteContactConfig,
   type AmpProxySettingsPolicy,
 } from '../api/system'
@@ -143,6 +148,9 @@ export default function SystemSettings({
   const [balanceTopupSaving, setBalanceTopupSaving] = useState(false)
   const [billingDailyResetConfig, setBillingDailyResetConfig] = useState<BillingDailyResetConfig | null>(null)
   const [billingDailyResetSaving, setBillingDailyResetSaving] = useState(false)
+  const [sessionStickyConfig, setSessionStickyConfig] = useState<SessionStickyConfig | null>(null)
+  const [sessionStickyRuntime, setSessionStickyRuntime] = useState<SessionStickyRuntimeStatus | null>(null)
+  const [sessionStickyLoading, setSessionStickyLoading] = useState(false)
   const [billingRuntimeConfig, setBillingRuntimeConfig] = useState<BillingRuntimeConfig | null>(null)
   const [billingRuntimeLoading, setBillingRuntimeLoading] = useState(false)
   const [billingRuntimeStats, setBillingRuntimeStats] = useState<BillingRuntimeStats | null>(null)
@@ -290,6 +298,19 @@ export default function SystemSettings({
     }
   }, [])
 
+  const fetchSessionSticky = useCallback(async () => {
+    try {
+      const [config, runtime] = await Promise.all([
+        getSessionStickyConfig(),
+        getSessionStickyRuntimeStatus(),
+      ])
+      setSessionStickyConfig(config)
+      setSessionStickyRuntime(runtime)
+    } catch (err) {
+      console.error('获取 Session 粘滞配置失败:', err)
+    }
+  }, [])
+
   const fetchBillingRuntimeStats = useCallback(async (silent = false) => {
     if (!silent) {
       setBillingRuntimeStatsLoading(true)
@@ -321,6 +342,7 @@ export default function SystemSettings({
     fetchBillingRuntimeStats(true)
     fetchBalanceTopupSettings()
     fetchBillingDailyResetConfig()
+    fetchSessionSticky()
   }, [
     fetchBalanceTopupSettings,
     fetchBillingDailyResetConfig,
@@ -332,6 +354,7 @@ export default function SystemSettings({
     fetchRequestPayloadLimit,
     fetchRequestDetailConfig,
     fetchRetryConfig,
+    fetchSessionSticky,
     fetchTimeoutConfig,
   ])
 
@@ -389,6 +412,27 @@ export default function SystemSettings({
   const handleBillingRuntimeConfigChange = (key: keyof BillingRuntimeConfig, value: string | number | boolean) => {
     if (!billingRuntimeConfig) return
     setBillingRuntimeConfig({ ...billingRuntimeConfig, [key]: value } as BillingRuntimeConfig)
+  }
+
+  const handleSessionStickyConfigChange = (key: keyof SessionStickyConfig, value: number | boolean) => {
+    if (!sessionStickyConfig) return
+    setSessionStickyConfig({ ...sessionStickyConfig, [key]: value } as SessionStickyConfig)
+  }
+
+  const handleSaveSessionStickyConfig = async () => {
+    if (!sessionStickyConfig) return
+
+    setSessionStickyLoading(true)
+    try {
+      const result = await updateSessionStickyConfig(sessionStickyConfig)
+      setSessionStickyConfig(result.config)
+      await fetchSessionSticky()
+      showMessage('success', 'Session 粘滞配置已保存')
+    } catch (err) {
+      showMessage('error', err instanceof Error ? err.message : '保存失败')
+    } finally {
+      setSessionStickyLoading(false)
+    }
   }
 
   const handleSaveBalanceTopupPrice = async () => {
@@ -589,6 +633,18 @@ export default function SystemSettings({
     : billingRuntimeConfig.runtimeHealthy
       ? (billingRuntimeConfig.redisUrlMasked || 'Redis 计费运行时已启用。')
       : '已配置 Redis，但当前运行时不可用，系统已回退到 legacy billing。'
+
+  const sessionStickyBadge = !sessionStickyConfig?.enabled
+    ? { label: 'Disabled', variant: 'secondary' as const }
+    : sessionStickyRuntime?.runtimeHealthy
+      ? { label: 'Healthy', variant: 'default' as const }
+      : { label: 'Fallback', variant: 'destructive' as const }
+
+  const sessionStickyRuntimeDescription = !sessionStickyConfig?.enabled
+    ? '当前未启用 Session 粘滞。'
+    : sessionStickyRuntime?.redisConfigured
+      ? (sessionStickyRuntime.redisUrlMasked || 'Redis 已接入 Session 粘滞运行时。')
+      : 'Redis 未配置，运行时状态可能退化。'
 
   const formatLatency = (ms: number) => (ms > 0 ? `${ms} ms` : '-')
   const formatIdleMs = (ms: number) => (ms > 0 ? `${Math.round(ms / 1000)} s` : '-')
@@ -940,6 +996,83 @@ export default function SystemSettings({
                       {siteConfigSaving ? '保存中...' : '保存设置'}
                     </Button>
                   </div>
+                </CardContent>
+              </Card>
+
+              <Card>
+                <CardHeader>
+                  <CardTitle>Session 粘滞</CardTitle>
+                  <CardDescription>控制会话窗口、日志检索阈值与运行时状态</CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  {sessionStickyConfig ? (
+                    <>
+                      <div className="grid gap-4 md:grid-cols-2">
+                        <div className="rounded-lg border px-4 py-3 space-y-2">
+                          <div className="flex items-center justify-between gap-3">
+                            <span className="text-sm text-muted-foreground">运行时状态</span>
+                            <Badge variant={sessionStickyBadge.variant}>{sessionStickyBadge.label}</Badge>
+                          </div>
+                          <p className="text-sm text-muted-foreground">{sessionStickyRuntimeDescription}</p>
+                        </div>
+                        <div className="rounded-lg border px-4 py-3 space-y-2">
+                          <div className="flex items-center justify-between gap-3">
+                            <span className="text-sm text-muted-foreground">Redis 前缀</span>
+                            <Badge variant="outline">{sessionStickyRuntime?.redisPrefix || '-'}</Badge>
+                          </div>
+                          <p className="text-sm text-muted-foreground">
+                            活跃 Session {sessionStickyRuntime?.activeSessionCount ?? '-'}
+                          </p>
+                        </div>
+                      </div>
+
+                      <div className="flex items-center justify-between rounded-lg border px-4 py-3">
+                        <div className="space-y-1">
+                          <Label htmlFor="sessionStickyEnabled">启用 Session 粘滞</Label>
+                          <p className="text-xs text-muted-foreground">只暴露只读排障相关配置</p>
+                        </div>
+                        <Switch
+                          id="sessionStickyEnabled"
+                          checked={sessionStickyConfig.enabled}
+                          onCheckedChange={(checked) => handleSessionStickyConfigChange('enabled', checked)}
+                        />
+                      </div>
+
+                      <div className="grid gap-4 md:grid-cols-2">
+                        <div className="space-y-2">
+                          <Label htmlFor="sessionStickyWindowMinutes">windowMinutes</Label>
+                          <Input
+                            id="sessionStickyWindowMinutes"
+                            type="number"
+                            min={1}
+                            value={sessionStickyConfig.windowMinutes}
+                            onChange={(e) => handleSessionStickyConfigChange('windowMinutes', parseInt(e.target.value, 10) || 1)}
+                          />
+                        </div>
+                        <div className="space-y-2">
+                          <Label htmlFor="sessionStickyLogSearchMinChars">logSearchMinChars</Label>
+                          <Input
+                            id="sessionStickyLogSearchMinChars"
+                            type="number"
+                            min={1}
+                            value={sessionStickyConfig.logSearchMinChars}
+                            onChange={(e) => handleSessionStickyConfigChange('logSearchMinChars', parseInt(e.target.value, 10) || 1)}
+                          />
+                        </div>
+                      </div>
+
+                      <div className="flex justify-end gap-2">
+                        <Button variant="outline" onClick={() => fetchSessionSticky()} disabled={sessionStickyLoading}>
+                          刷新状态
+                        </Button>
+                        <Button onClick={handleSaveSessionStickyConfig} disabled={sessionStickyLoading}>
+                          {sessionStickyLoading ? '保存中...' : '保存配置'}
+                        </Button>
+                      </div>
+                    </>
+                  ) : (
+                    <div className="text-center text-muted-foreground py-4">加载中...</div>
+                  )}
                 </CardContent>
               </Card>
 

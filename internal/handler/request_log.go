@@ -202,6 +202,18 @@ func (h *RequestLogHandler) ListRequestLogs(c *gin.Context) {
 	if apiKeyID := c.Query("apiKeyId"); apiKeyID != "" {
 		params.APIKeyID = apiKeyID
 	}
+	if sessionID := strings.TrimSpace(c.Query("sessionId")); sessionID != "" {
+		sessionStickyCfg, err := service.NewSystemConfigService().GetSessionStickyConfig()
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "获取 Session 配置失败"})
+			return
+		}
+		if len(sessionID) < sessionStickyCfg.LogSearchMinChars {
+			c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("sessionId 至少需要 %d 个字符", sessionStickyCfg.LogSearchMinChars)})
+			return
+		}
+		params.SessionID = sessionID
+	}
 	if model := c.Query("model"); model != "" {
 		params.Model = model
 	}
@@ -365,6 +377,18 @@ func (h *RequestLogHandler) AdminListRequestLogs(c *gin.Context) {
 	}
 	if apiKeyID := c.Query("apiKeyId"); apiKeyID != "" {
 		params.APIKeyID = apiKeyID
+	}
+	if sessionID := strings.TrimSpace(c.Query("sessionId")); sessionID != "" {
+		sessionStickyCfg, err := service.NewSystemConfigService().GetSessionStickyConfig()
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "获取 Session 配置失败"})
+			return
+		}
+		if len(sessionID) < sessionStickyCfg.LogSearchMinChars {
+			c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("sessionId 至少需要 %d 个字符", sessionStickyCfg.LogSearchMinChars)})
+			return
+		}
+		params.SessionID = sessionID
 	}
 	if model := c.Query("model"); model != "" {
 		params.Model = model

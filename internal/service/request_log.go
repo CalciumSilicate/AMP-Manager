@@ -21,6 +21,7 @@ func NewRequestLogService() *RequestLogService {
 type ListRequestLogsParams struct {
 	UserID      string
 	APIKeyID    string
+	SessionID   string
 	Model       string
 	Channel     string
 	StatusCodes []int
@@ -36,6 +37,7 @@ func (s *RequestLogService) List(params ListRequestLogsParams) (*model.RequestLo
 	repoParams := repository.ListParams{
 		UserID:      params.UserID,
 		APIKeyID:    params.APIKeyID,
+		SessionID:   params.SessionID,
 		Model:       params.Model,
 		Channel:     params.Channel,
 		StatusCodes: params.StatusCodes,
@@ -88,6 +90,7 @@ func (s *RequestLogService) ListAdmin(params ListRequestLogsParams) (*model.Requ
 	repoParams := repository.ListParams{
 		UserID:      params.UserID, // UserID 可为空
 		APIKeyID:    params.APIKeyID,
+		SessionID:   params.SessionID,
 		Model:       params.Model,
 		Channel:     params.Channel,
 		StatusCodes: params.StatusCodes,

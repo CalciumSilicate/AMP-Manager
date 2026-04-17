@@ -365,6 +365,7 @@ func createTables() error {
 		api_key_id TEXT NOT NULL,
 		original_model TEXT,
 		mapped_model TEXT,
+		session_id TEXT,
 		provider TEXT,
 		channel_id TEXT,
 		endpoint TEXT,
@@ -408,6 +409,7 @@ func createTables() error {
 	CREATE INDEX IF NOT EXISTS idx_request_logs_apikey_time ON request_logs(api_key_id, created_at DESC);
 	CREATE INDEX IF NOT EXISTS idx_request_logs_model_time ON request_logs(mapped_model, created_at DESC);
 	CREATE INDEX IF NOT EXISTS idx_request_logs_original_model_time ON request_logs(original_model, created_at DESC);
+	CREATE INDEX IF NOT EXISTS idx_request_logs_session_time ON request_logs(session_id, created_at DESC);
 	CREATE INDEX IF NOT EXISTS idx_request_logs_time ON request_logs(created_at DESC);
 	CREATE INDEX IF NOT EXISTS idx_request_logs_status_code_time ON request_logs(status_code, created_at DESC);
 	CREATE INDEX IF NOT EXISTS idx_request_logs_streaming_time ON request_logs(is_streaming, created_at DESC);
@@ -906,8 +908,16 @@ func runMigrations() error {
 			sql:  `ALTER TABLE request_logs ADD COLUMN updated_at DATETIME`,
 		},
 		{
+			name: "add_request_logs_session_id",
+			sql:  `ALTER TABLE request_logs ADD COLUMN session_id TEXT`,
+		},
+		{
 			name: "add_request_logs_status_index",
 			sql:  `CREATE INDEX IF NOT EXISTS idx_request_logs_status ON request_logs(status)`,
+		},
+		{
+			name: "add_request_logs_session_time_index",
+			sql:  `CREATE INDEX IF NOT EXISTS idx_request_logs_session_time ON request_logs(session_id, created_at DESC)`,
 		},
 		{
 			name: "add_original_model_index",

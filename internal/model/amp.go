@@ -174,6 +174,7 @@ type RequestLog struct {
 	APIKeyPrefix             *string          `json:"apiKeyPrefix,omitempty"`
 	OriginalModel            *string          `json:"originalModel,omitempty"`
 	MappedModel              *string          `json:"mappedModel,omitempty"`
+	SessionID                *string          `json:"sessionId,omitempty"`
 	Provider                 *string          `json:"provider,omitempty"`
 	ChannelID                *string          `json:"channelId,omitempty"`
 	ChannelName              *string          `json:"channelName,omitempty"`

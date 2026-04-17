@@ -44,6 +44,8 @@ func main() {
 	sysConfigService := service.NewSystemConfigService()
 	sysConfigService.ReloadBillingRuntimeFromSystemConfigBestEffort("server startup")
 	defer billingstate.Close()
+	amp.InitSessionStickyRuntime(cfg)
+	defer amp.StopSessionStickyRuntime()
 
 	// 初始化日志写入器
 	amp.InitLogWriter(database.GetDB())
@@ -110,6 +112,10 @@ func main() {
 	// 加载缓存 TTL 配置
 	if cacheTTL, err := sysConfigService.GetCacheTTLOverride(); err == nil && cacheTTL != "" {
 		filters.SetCacheTTLOverride(cacheTTL)
+	}
+
+	if sessionStickyCfg, err := sysConfigService.GetSessionStickyConfig(); err == nil {
+		amp.UpdateSessionStickyConfig(sessionStickyCfg)
 	}
 
 	port := cfg.ServerPort

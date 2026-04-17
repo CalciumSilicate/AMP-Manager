@@ -29,6 +29,9 @@ const (
 	requestPayloadMaxBytesKey            = "request_payload_max_bytes"
 	timeoutConfigKey                     = "timeout_config"
 	cacheTTLOverrideKey                  = "cache_ttl_override"
+	sessionStickyEnabledKey              = "session_sticky_enabled"
+	sessionStickyWindowMinutesKey        = "session_sticky_window_minutes"
+	sessionStickyLogSearchMinCharsKey    = "session_sticky_log_search_min_chars"
 	siteNameKey                          = "site_name"
 	allowAmpProxySettingsKey             = "allow_amp_proxy_settings"
 	allowAmpSettingsKey                  = "allow_amp_settings"
@@ -277,6 +280,10 @@ func (s *SystemConfigService) GetSiteConfig() (model.SiteConfigResponse, error) 
 	if err != nil {
 		return model.SiteConfigResponse{}, err
 	}
+	sessionSticky, err := s.GetSessionStickyConfig()
+	if err != nil {
+		return model.SiteConfigResponse{}, err
+	}
 
 	siteName := strings.TrimSpace(siteNameValue)
 	if siteName == "" {
@@ -293,7 +300,62 @@ func (s *SystemConfigService) GetSiteConfig() (model.SiteConfigResponse, error) 
 		AmpProxySettingsPolicy: ampProxySettingsPolicy,
 		AmpSettingsPolicy:      ampSettingsPolicy,
 		Contact:                contact,
+		SessionSticky: &model.SessionStickyPublicConfig{
+			Enabled:           sessionSticky.Enabled,
+			LogSearchMinChars: sessionSticky.LogSearchMinChars,
+		},
 	}, nil
+}
+
+func (s *SystemConfigService) GetSessionStickyConfig() (model.SessionStickyConfigResponse, error) {
+	resp := model.SessionStickyConfigResponse{
+		Enabled:           false,
+		WindowMinutes:     5,
+		LogSearchMinChars: 4,
+	}
+
+	if value, err := s.repo.Get(sessionStickyEnabledKey); err == nil && value != "" {
+		resp.Enabled = value == "true"
+	}
+	if value, err := s.repo.Get(sessionStickyWindowMinutesKey); err == nil && value != "" {
+		if parsed, parseErr := parsePositiveInt(value); parseErr == nil && parsed > 0 {
+			resp.WindowMinutes = parsed
+		}
+	}
+	if value, err := s.repo.Get(sessionStickyLogSearchMinCharsKey); err == nil && value != "" {
+		if parsed, parseErr := parsePositiveInt(value); parseErr == nil && parsed > 0 {
+			resp.LogSearchMinChars = parsed
+		}
+	}
+
+	return resp, nil
+}
+
+func (s *SystemConfigService) SetSessionStickyConfig(req model.SessionStickyConfigRequest) (model.SessionStickyConfigResponse, error) {
+	resp := model.SessionStickyConfigResponse{
+		Enabled:           req.Enabled,
+		WindowMinutes:     req.WindowMinutes,
+		LogSearchMinChars: req.LogSearchMinChars,
+	}
+	if resp.WindowMinutes <= 0 {
+		resp.WindowMinutes = 5
+	}
+	if resp.LogSearchMinChars <= 0 {
+		resp.LogSearchMinChars = 4
+	}
+
+	entries := map[string]string{
+		sessionStickyEnabledKey:           boolToConfigString(resp.Enabled),
+		sessionStickyWindowMinutesKey:     formatInt(resp.WindowMinutes),
+		sessionStickyLogSearchMinCharsKey: formatInt(resp.LogSearchMinChars),
+	}
+	for key, value := range entries {
+		if err := s.repo.Set(key, value); err != nil {
+			return model.SessionStickyConfigResponse{}, err
+		}
+	}
+
+	return resp, nil
 }
 
 func (s *SystemConfigService) SetSiteConfig(req model.SiteConfigRequest) (model.SiteConfigResponse, error) {

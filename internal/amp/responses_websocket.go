@@ -40,6 +40,7 @@ type responsesWebsocketSession struct {
 	lastRequest         []byte
 	lastCompletedOutput []byte
 	pinnedChannelID     string
+	fallbackSessionID   string
 	upstreamConn        *websocket.Conn
 	upstreamChannelID   string
 }
@@ -118,6 +119,7 @@ func ResponsesWebsocketProxyHandler() gin.HandlerFunc {
 				session.lastRequest = nil
 				session.lastCompletedOutput = []byte("[]")
 				session.pinnedChannelID = ""
+				session.fallbackSessionID = ""
 			}
 
 			if normalized.localPrewarm {
@@ -160,6 +162,7 @@ func ResponsesWebsocketProxyHandler() gin.HandlerFunc {
 						}
 					}
 				}
+				FinalizeSessionSticky(c.Request.Context(), trace)
 				if errWrite := writeResponsesWebsocketError(conn, execErr.StatusCode, execErr.Error()); errWrite != nil {
 					return
 				}
@@ -180,6 +183,7 @@ func ResponsesWebsocketProxyHandler() gin.HandlerFunc {
 			if writer := GetLogWriter(); writer != nil {
 				writer.UpdateFromTrace(trace)
 			}
+			FinalizeSessionSticky(c.Request.Context(), trace)
 
 			session.lastRequest = normalized.stored
 			session.lastCompletedOutput = completedOutput
@@ -367,8 +371,16 @@ func prepareResponsesWebsocketTurn(c *gin.Context, session *responsesWebsocketSe
 	if errMarshal != nil {
 		return nil, &responsesWebsocketError{StatusCode: http.StatusBadRequest, Message: "failed to normalize request"}
 	}
+	requestSession := BuildRequestSession(c.Request.Context(), c.Request.Header, body, session.fallbackSessionID)
+	stickyProvider := ""
+	if requestSession != nil {
+		if requestSession.SessionID != "" {
+			session.fallbackSessionID = requestSession.SessionID
+		}
+		stickyProvider = NormalizeStickyProvider(requestSession.StickyProvider)
+	}
 	continueWithPinned := !rootCreate || strings.TrimSpace(gjson.GetBytes(normalized, "previous_response_id").String()) != ""
-	channel, errSelect := selectResponsesWebsocketChannel(session, proxyCfg, result, continueWithPinned)
+	channel, errSelect := selectResponsesWebsocketChannel(session, proxyCfg, result, continueWithPinned, stickyProvider)
 	if errSelect != nil {
 		return nil, errSelect
 	}
@@ -380,7 +392,10 @@ func prepareResponsesWebsocketTurn(c *gin.Context, session *responsesWebsocketSe
 	}
 
 	trace := NewRequestTrace(uuid.New().String(), proxyCfg.UserID, proxyCfg.APIKeyID, "WEBSOCKET", "/v1/responses")
-	trace.SetChannel(channel.ID, string(channel.Type), string(channel.Endpoint))
+	if requestSession != nil && requestSession.SessionID != "" {
+		trace.SetSessionID(requestSession.SessionID)
+	}
+	trace.SetChannel(channel.ID, StickyProviderFromChannel(channel), string(channel.Endpoint))
 	trace.SetFormatConversion(translator.FormatOpenAIResponses.String(), translator.FormatOpenAIResponses.String())
 	trace.SetModels(result.OriginalModel, result.MappedModel)
 	trace.SetStreaming(true)
@@ -403,7 +418,7 @@ func prepareResponsesWebsocketTurn(c *gin.Context, session *responsesWebsocketSe
 	}, nil
 }
 
-func selectResponsesWebsocketChannel(session *responsesWebsocketSession, proxyCfg *ProxyConfig, result MappingResult, continueWithPinned bool) (*model.Channel, *responsesWebsocketError) {
+func selectResponsesWebsocketChannel(session *responsesWebsocketSession, proxyCfg *ProxyConfig, result MappingResult, continueWithPinned bool, stickyProvider string) (*model.Channel, *responsesWebsocketError) {
 	incomingFormat := translator.FormatOpenAIResponses
 	if continueWithPinned && session.pinnedChannelID != "" {
 		channel, err := responsesWebsocketChannelService.SelectSpecificChannelForModelWithGroupsAndFormat(session.pinnedChannelID, result.MappedModel, proxyCfg.GroupIDs, incomingFormat, false)
@@ -426,9 +441,9 @@ func selectResponsesWebsocketChannel(session *responsesWebsocketSession, proxyCf
 		err     error
 	)
 	if len(proxyCfg.GroupIDs) > 0 {
-		channel, err = responsesWebsocketChannelService.SelectChannelForModelWithGroupsAndFormat(result.MappedModel, proxyCfg.GroupIDs, incomingFormat, false)
+		channel, err = responsesWebsocketChannelService.SelectChannelForModelWithGroupsAndFormatAndProvider(result.MappedModel, proxyCfg.GroupIDs, incomingFormat, false, stickyProvider)
 	} else {
-		channel, err = responsesWebsocketChannelService.SelectChannelForModelAndFormat(result.MappedModel, incomingFormat, false)
+		channel, err = responsesWebsocketChannelService.SelectChannelForModelAndFormatAndProvider(result.MappedModel, incomingFormat, false, stickyProvider)
 	}
 	if err != nil {
 		return nil, &responsesWebsocketError{StatusCode: http.StatusBadGateway, Message: "failed to select channel"}

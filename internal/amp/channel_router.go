@@ -213,6 +213,11 @@ func ChannelRouterMiddleware() gin.HandlerFunc {
 			return
 		}
 		incomingFormat := detectIncomingFormat(c.Request.URL.Path)
+		requestSession := EnsureRequestSession(c)
+		stickyProvider := ""
+		if requestSession != nil {
+			stickyProvider = NormalizeStickyProvider(requestSession.StickyProvider)
+		}
 
 		var channel *model.Channel
 		var err error
@@ -229,6 +234,10 @@ func ChannelRouterMiddleware() gin.HandlerFunc {
 				c.Next()
 				return
 			}
+			if channel != nil && stickyProvider != "" && !StickyProviderMatchesChannel(stickyProvider, channel) {
+				log.Infof("channel router: preferred channel '%s' ignored due to sticky provider '%s'", preferredChannelID, stickyProvider)
+				channel = nil
+			}
 			if channel != nil {
 				log.Infof("channel router: routing model '%s' to preferred channel '%s' (%s)", modelName, channel.Name, channel.Type)
 				WithChannelConfig(c, &ChannelConfig{
@@ -242,9 +251,9 @@ func ChannelRouterMiddleware() gin.HandlerFunc {
 		}
 
 		if proxyCfg != nil {
-			channel, err = channelService.SelectChannelForModelWithGroupsAndFormat(modelName, proxyCfg.GroupIDs, incomingFormat, true)
+			channel, err = channelService.SelectChannelForModelWithGroupsAndFormatAndProvider(modelName, proxyCfg.GroupIDs, incomingFormat, true, stickyProvider)
 		} else {
-			channel, err = channelService.SelectChannelForModelAndFormat(modelName, incomingFormat, true)
+			channel, err = channelService.SelectChannelForModelAndFormatAndProvider(modelName, incomingFormat, true, stickyProvider)
 		}
 		if err != nil {
 			log.Errorf("channel router: failed to select channel: %v", err)
@@ -324,6 +333,7 @@ func ChannelProxyHandler() gin.HandlerFunc {
 		}
 
 		channel := channelCfg.Channel
+		requestSession := EnsureRequestSession(c)
 
 		// Use original model from context if mapping was applied, otherwise use channelCfg.Model
 		// This ensures response rewriting uses the original requested model name
@@ -511,8 +521,11 @@ func ChannelProxyHandler() gin.HandlerFunc {
 					c.Request.URL.Path,
 				)
 				trace.SetUpstreamTransport("http")
+				if requestSession != nil && requestSession.SessionID != "" {
+					trace.SetSessionID(requestSession.SessionID)
+				}
 				// Set channel info
-				trace.SetChannel(channel.ID, string(channel.Type), string(channel.Endpoint))
+				trace.SetChannel(channel.ID, StickyProviderFromChannel(channel), string(channel.Endpoint))
 				trace.SetFormatConversion(incomingFormat.String(), outgoingFormat.String())
 				trace.SetModels(originalModel, mappedModel)
 				breakdown := computePricingBreakdown(c.Request.Context(), channel, convertedBody)
@@ -879,6 +892,7 @@ func ChannelProxyHandler() gin.HandlerFunc {
 					if writer := GetLogWriter(); writer != nil {
 						writer.UpdateFromTrace(trace)
 					}
+					FinalizeSessionSticky(req.Context(), trace)
 				}
 				// 使用清理后的错误消息，防止泄露敏感信息
 				safeMsg := SanitizeError(err)
@@ -1395,6 +1409,7 @@ func handleNonStreamingResponse(resp *http.Response, trace *RequestTrace, transI
 				}
 			}
 		}
+		FinalizeSessionSticky(resp.Request.Context(), trace)
 	}
 
 	return nil
