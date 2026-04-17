@@ -415,10 +415,11 @@ export async function deleteAdminUserAPIKey(userId: string, keyId: string): Prom
 export interface RequestLogDetail {
   requestId: string
   requestHeaders: Record<string, string>
-  requestBody: string
+  requestBody?: string
   translatedRequestBody?: string
+  translatedRequestHeaders?: Record<string, string>
   responseHeaders: Record<string, string>
-  responseBody: string
+  responseBody?: string
   translatedResponseBody?: string
   createdAt: string
   billingStatus: 'free' | 'settled' | 'overuse' | 'expired' | 'none'
@@ -429,9 +430,17 @@ export interface RequestLogDetail {
   costUsd?: string
 }
 
-export async function getAdminRequestLogDetail(logId: string, signal?: AbortSignal): Promise<RequestLogDetail> {
-  const response = await authFetch(`${ADMIN_API_BASE}/request-logs/${logId}/detail`, {
+async function fetchRequestLogDetail(url: string, signal?: AbortSignal): Promise<RequestLogDetail> {
+  const response = await authFetch(url, {
     signal,
   })
   return handleResponse<RequestLogDetail>(response)
+}
+
+export async function getRequestLogDetail(logId: string, signal?: AbortSignal): Promise<RequestLogDetail> {
+  return fetchRequestLogDetail(`${API_BASE}/request-logs/${logId}/detail`, signal)
+}
+
+export async function getAdminRequestLogDetail(logId: string, signal?: AbortSignal): Promise<RequestLogDetail> {
+  return fetchRequestLogDetail(`${ADMIN_API_BASE}/request-logs/${logId}/detail`, signal)
 }

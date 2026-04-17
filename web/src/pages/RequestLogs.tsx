@@ -221,6 +221,7 @@ const RequestLogRow = memo(function RequestLogRow({
   const userDisplay = log.username || userIdToUsername.get(log.userId) || `${log.userId.slice(0, 8)}...`
   const keyDisplay = log.apiKeyName ? `${log.apiKeyName}${log.apiKeyPrefix ? ` (${log.apiKeyPrefix})` : ''}` : (log.apiKeyPrefix || log.apiKeyId || '-')
   const translationPath = translationPathLabel(log)
+  const canOpenDetail = isAdmin || log.statusCode >= 400
 
   return (
     <TableRow>
@@ -246,7 +247,7 @@ const RequestLogRow = memo(function RequestLogRow({
           </Tooltip>
         </TableCell>
       )}
-      <TableCell>
+      <TableCell className="min-w-[9rem]">
         <div className="flex flex-col">
           <span className="font-medium text-sm truncate max-w-32" title={log.mappedModel || log.originalModel}>
             {log.mappedModel || log.originalModel || '-'}
@@ -258,15 +259,15 @@ const RequestLogRow = memo(function RequestLogRow({
           )}
         </div>
       </TableCell>
-      <TableCell>
+      <TableCell className="min-w-[8rem] whitespace-nowrap">
         {(log.channelName || log.provider) ? (
           <Tooltip>
             <TooltipTrigger asChild>
-              <div className="flex flex-wrap items-center gap-1.5">
+              <div className="flex flex-nowrap items-center gap-1.5">
                 <Badge
                   variant="outline"
                   className={cn(
-                    'cursor-help text-xs',
+                    'cursor-help text-xs whitespace-nowrap',
                     translationPath ? 'border-sky-300 bg-sky-50 text-sky-700 hover:bg-sky-100' : undefined,
                   )}
                 >
@@ -293,20 +294,20 @@ const RequestLogRow = memo(function RequestLogRow({
           <span className="text-muted-foreground">-</span>
         )}
       </TableCell>
-      <TableCell>
+      <TableCell className="whitespace-nowrap">
         {log.thinkingLevel ? (
-          <Badge variant="secondary" className="text-xs">{log.thinkingLevel}</Badge>
+          <Badge variant="secondary" className="text-xs whitespace-nowrap">{log.thinkingLevel}</Badge>
         ) : (
           <span className="text-muted-foreground">-</span>
         )}
       </TableCell>
-      <TableCell>
+      <TableCell className="whitespace-nowrap">
         <Tooltip>
           <TooltipTrigger asChild>
             <Badge
               variant="outline"
               className={cn(
-                'cursor-help',
+                'cursor-help whitespace-nowrap',
                 log.method?.toLowerCase() === 'websocket' ? 'font-medium' : undefined,
               )}
             >
@@ -321,12 +322,12 @@ const RequestLogRow = memo(function RequestLogRow({
           />
         </Tooltip>
       </TableCell>
-      <TableCell>
-        {isAdmin ? (
+      <TableCell className="whitespace-nowrap">
+        {canOpenDetail ? (
           <button
             onClick={() => onOpenDetail(log.id)}
-            className="cursor-pointer hover:opacity-80 transition-opacity"
-            title="点击查看请求详情"
+            className="cursor-pointer whitespace-nowrap hover:opacity-80 transition-opacity"
+            title={isAdmin ? '点击查看请求详情' : '点击查看失败请求详情'}
           >
             <StatusBadge status={log.statusCode} />
           </button>
@@ -334,20 +335,20 @@ const RequestLogRow = memo(function RequestLogRow({
           <StatusBadge status={log.statusCode} />
         )}
       </TableCell>
-      <TableCell className="text-right text-muted-foreground">
+      <TableCell className="whitespace-nowrap text-right text-muted-foreground">
         {renderDuration(log.ttfbMs)}
       </TableCell>
-      <TableCell className="text-right text-muted-foreground">
+      <TableCell className="whitespace-nowrap text-right text-muted-foreground">
         {typeof log.tps === 'number' ? `${log.tps.toFixed(1)}/s` : '-'}
       </TableCell>
-      <TableCell className="text-right text-muted-foreground">
+      <TableCell className="whitespace-nowrap text-right text-muted-foreground">
         {renderDuration(log.latencyMs)}
       </TableCell>
-      <TableCell className="text-right"><Num value={log.inputTokens} /></TableCell>
-      <TableCell className="text-right"><Num value={log.outputTokens} /></TableCell>
-      <TableCell className="text-right"><Num value={log.cacheReadInputTokens} /></TableCell>
-      <TableCell className="text-right"><Num value={log.cacheCreationInputTokens} /></TableCell>
-      <TableCell className="text-right text-muted-foreground">
+      <TableCell className="whitespace-nowrap text-right"><Num value={log.inputTokens} /></TableCell>
+      <TableCell className="whitespace-nowrap text-right"><Num value={log.outputTokens} /></TableCell>
+      <TableCell className="whitespace-nowrap text-right"><Num value={log.cacheReadInputTokens} /></TableCell>
+      <TableCell className="whitespace-nowrap text-right"><Num value={log.cacheCreationInputTokens} /></TableCell>
+      <TableCell className="whitespace-nowrap text-right text-muted-foreground">
         {log.costUsd ? (
             <Tooltip>
               <TooltipTrigger asChild>
@@ -371,11 +372,11 @@ const RequestLogRow = memo(function RequestLogRow({
             </Tooltip>
         ) : '-'}
       </TableCell>
-      <TableCell className="text-right">
+      <TableCell className="whitespace-nowrap text-right">
         {typeof log.rateMultiplier === 'number' ? (
             <Tooltip>
               <TooltipTrigger asChild>
-                <Badge variant="outline" className={cn('cursor-help font-mono', multiplierBadgeClass(log.rateMultiplier))}>
+                <Badge variant="outline" className={cn('cursor-help whitespace-nowrap font-mono', multiplierBadgeClass(log.rateMultiplier))}>
                   {formatDecimal(log.rateMultiplier, 2)}x
                 </Badge>
               </TooltipTrigger>
@@ -723,20 +724,20 @@ export default function RequestLogs({ isAdmin }: Props) {
             ) : (
               <>
                 <div className={`relative overflow-y-auto overflow-x-hidden max-h-[calc(100vh-320px)] min-h-[400px] rounded-md border transition-opacity ${fetching ? 'opacity-50 pointer-events-none' : ''}`}>
-                <Table>
+                <Table className={cn('min-w-[88rem]', isAdmin ? 'min-w-[96rem]' : 'min-w-[88rem]')}>
                   <TableHeader className="sticky top-0 z-10 bg-background">
                     <TableRow>
-                      <TableHead>时间</TableHead>
-                      {isAdmin && <TableHead>用户</TableHead>}
-                      <TableHead>模型</TableHead>
-                      <TableHead>渠道</TableHead>
-                      <TableHead>思维等级</TableHead>
-                      <TableHead>方法</TableHead>
-                      <TableHead>状态</TableHead>
-                      <TableHead className="text-right">TTFB</TableHead>
-                      <TableHead className="text-right">TPS</TableHead>
-                      <TableHead className="text-right">用时</TableHead>
-                      <TableHead className="text-right">
+                      <TableHead className="min-w-[9.5rem] whitespace-nowrap">时间</TableHead>
+                      {isAdmin && <TableHead className="min-w-[7rem] whitespace-nowrap">用户</TableHead>}
+                      <TableHead className="min-w-[9rem] whitespace-nowrap">模型</TableHead>
+                      <TableHead className="min-w-[8rem] whitespace-nowrap">渠道</TableHead>
+                      <TableHead className="min-w-[6rem] whitespace-nowrap">思维等级</TableHead>
+                      <TableHead className="min-w-[6rem] whitespace-nowrap">方法</TableHead>
+                      <TableHead className="min-w-[6rem] whitespace-nowrap">状态</TableHead>
+                      <TableHead className="min-w-[6rem] whitespace-nowrap text-right">TTFB</TableHead>
+                      <TableHead className="min-w-[6rem] whitespace-nowrap text-right">TPS</TableHead>
+                      <TableHead className="min-w-[6rem] whitespace-nowrap text-right">用时</TableHead>
+                      <TableHead className="min-w-[6rem] whitespace-nowrap text-right">
                         <Tooltip>
                           <TooltipTrigger asChild>
                             <span className="cursor-help underline decoration-dotted underline-offset-4">输入</span>
@@ -746,11 +747,11 @@ export default function RequestLogs({ isAdmin }: Props) {
                           </TooltipContent>
                         </Tooltip>
                       </TableHead>
-                      <TableHead className="text-right">输出</TableHead>
-                      <TableHead className="text-right">缓存读</TableHead>
-                      <TableHead className="text-right">缓存写</TableHead>
-                      <TableHead className="text-right">成本</TableHead>
-                      <TableHead className="text-right">倍率</TableHead>
+                      <TableHead className="min-w-[6rem] whitespace-nowrap text-right">输出</TableHead>
+                      <TableHead className="min-w-[6rem] whitespace-nowrap text-right">缓存读</TableHead>
+                      <TableHead className="min-w-[6rem] whitespace-nowrap text-right">缓存写</TableHead>
+                      <TableHead className="min-w-[6rem] whitespace-nowrap text-right">成本</TableHead>
+                      <TableHead className="min-w-[6rem] whitespace-nowrap text-right">倍率</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -789,13 +790,12 @@ export default function RequestLogs({ isAdmin }: Props) {
         </Card>
       </motion.div>
 
-      {isAdmin && (
-        <LogDetailModal
-          logId={selectedLogId}
-          open={detailModalOpen}
-          onOpenChange={setDetailModalOpen}
-        />
-      )}
+      <LogDetailModal
+        isAdmin={isAdmin}
+        logId={selectedLogId}
+        open={detailModalOpen}
+        onOpenChange={setDetailModalOpen}
+      />
     </motion.div>
   )
 }

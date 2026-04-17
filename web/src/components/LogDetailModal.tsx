@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
-import { getAdminRequestLogDetail, RequestLogDetail } from '@/api/amp'
+import { getAdminRequestLogDetail, getRequestLogDetail, RequestLogDetail } from '@/api/amp'
 import {
   Dialog,
   DialogContent,
@@ -13,12 +13,13 @@ import { motion, AnimatePresence } from '@/lib/motion'
 import { JsonViewer } from '@/components/JsonViewer'
 
 interface LogDetailModalProps {
+  isAdmin: boolean
   logId: string | null
   open: boolean
   onOpenChange: (open: boolean) => void
 }
 
-const TAB_ITEMS = [
+const ADMIN_TAB_ITEMS = [
   { value: 'request-headers', label: '请求头' },
   { value: 'request-body', label: '请求体' },
   { value: 'translated-request', label: '转换请求' },
@@ -27,7 +28,14 @@ const TAB_ITEMS = [
   { value: 'translated-response', label: '转换响应' },
 ] as const
 
-type TabValue = typeof TAB_ITEMS[number]['value']
+const USER_TAB_ITEMS = [
+  { value: 'request-headers', label: '请求头' },
+  { value: 'response-headers', label: '响应头' },
+  { value: 'response-body', label: '响应体' },
+  { value: 'translated-response', label: '转换响应' },
+] as const
+
+type TabValue = typeof ADMIN_TAB_ITEMS[number]['value']
 
 function getBadgeInfo(detail: RequestLogDetail, value: TabValue): string | null {
   switch (value) {
@@ -73,13 +81,15 @@ function formatUsdMicros(value?: number) {
   return `$${(value / 1_000_000).toFixed(6)}`
 }
 
-export function LogDetailModal({ logId, open, onOpenChange }: LogDetailModalProps) {
+export function LogDetailModal({ isAdmin, logId, open, onOpenChange }: LogDetailModalProps) {
   const [detail, setDetail] = useState<RequestLogDetail | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const [activeTab, setActiveTab] = useState<TabValue>('request-headers')
   const [contentHeight, setContentHeight] = useState<number | 'auto'>('auto')
   const innerRef = useRef<HTMLDivElement>(null)
+  const visibleTabs = isAdmin ? ADMIN_TAB_ITEMS : USER_TAB_ITEMS
+  const defaultTab = visibleTabs[0].value
 
   const measureHeight = useCallback(() => {
     if (innerRef.current) {
@@ -95,7 +105,7 @@ export function LogDetailModal({ logId, open, onOpenChange }: LogDetailModalProp
     if (!open || !logId) {
       setDetail(null)
       setError('')
-      setActiveTab('request-headers')
+      setActiveTab(defaultTab)
       setContentHeight('auto')
       return
     }
@@ -104,7 +114,9 @@ export function LogDetailModal({ logId, open, onOpenChange }: LogDetailModalProp
     setLoading(true)
     setError('')
 
-    getAdminRequestLogDetail(logId, controller.signal)
+    const fetchDetail = isAdmin ? getAdminRequestLogDetail : getRequestLogDetail
+
+    fetchDetail(logId, controller.signal)
       .then(setDetail)
       .catch((err) => {
         if (err.name !== 'AbortError') {
@@ -114,7 +126,13 @@ export function LogDetailModal({ logId, open, onOpenChange }: LogDetailModalProp
       .finally(() => setLoading(false))
 
     return () => controller.abort()
-  }, [open, logId])
+  }, [defaultTab, isAdmin, logId, open])
+
+  useEffect(() => {
+    if (!visibleTabs.some((tab) => tab.value === activeTab)) {
+      setActiveTab(defaultTab)
+    }
+  }, [activeTab, defaultTab, visibleTabs])
 
   const formatHeaders = (headers: Record<string, string> | undefined) => {
     if (!headers || Object.keys(headers).length === 0) {
@@ -248,8 +266,11 @@ export function LogDetailModal({ logId, open, onOpenChange }: LogDetailModalProp
                   visible: { opacity: 1, transition: { staggerChildren: 0.04, delayChildren: 0.1 } },
                 }}
               >
-                <TabsList className="grid w-full grid-cols-6">
-                  {TAB_ITEMS.map((tab) => {
+                <TabsList
+                  className="grid w-full"
+                  style={{ gridTemplateColumns: `repeat(${visibleTabs.length}, minmax(0, 1fr))` }}
+                >
+                  {visibleTabs.map((tab) => {
                     const badgeText = getBadgeInfo(detail, tab.value)
                     return (
                       <motion.div

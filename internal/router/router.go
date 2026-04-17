@@ -151,6 +151,7 @@ func Setup() *gin.Engine {
 				ampGroup.GET("/request-logs/models", requestLogHandler.GetDistinctModels)
 				ampGroup.GET("/request-logs/keys", requestLogHandler.GetDistinctAPIKeys)
 				ampGroup.GET("/request-logs/:id", requestLogHandler.GetRequestLog)
+				ampGroup.GET("/request-logs/:id/detail", requestLogHandler.GetRequestLogDetail)
 				ampGroup.GET("/usage/summary", requestLogHandler.GetUsageSummary)
 			}
 		}

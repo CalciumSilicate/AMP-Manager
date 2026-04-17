@@ -22,6 +22,42 @@ type RequestLogHandler struct {
 	logService *service.RequestLogService
 }
 
+type requestLogDetailScope struct {
+	includeRequestBody           bool
+	includeTranslatedRequestBody bool
+	includeTranslatedReqHeaders  bool
+	requireFailureStatus         bool
+}
+
+type requestLogDetailResponse struct {
+	RequestID                 string            `json:"requestId"`
+	RequestHeaders            map[string]string `json:"requestHeaders"`
+	RequestBody               *string           `json:"requestBody,omitempty"`
+	TranslatedRequestBody     *string           `json:"translatedRequestBody,omitempty"`
+	TranslatedRequestHeaders  map[string]string `json:"translatedRequestHeaders,omitempty"`
+	ResponseHeaders           map[string]string `json:"responseHeaders"`
+	ResponseBody              *string           `json:"responseBody,omitempty"`
+	TranslatedResponseBody    *string           `json:"translatedResponseBody,omitempty"`
+	CreatedAt                 time.Time         `json:"createdAt"`
+	BillingStatus             string            `json:"billingStatus"`
+	ChargedSubscriptionMicros int64             `json:"chargedSubscriptionMicros"`
+	ChargedBalanceMicros      int64             `json:"chargedBalanceMicros"`
+	BillingGapMicros          *int64            `json:"billingGapMicros,omitempty"`
+	CostMicros                *int64            `json:"costMicros,omitempty"`
+	CostUsd                   *string           `json:"costUsd,omitempty"`
+}
+
+var (
+	adminRequestLogDetailScope = requestLogDetailScope{
+		includeRequestBody:           true,
+		includeTranslatedRequestBody: true,
+		includeTranslatedReqHeaders:  true,
+	}
+	userRequestLogDetailScope = requestLogDetailScope{
+		requireFailureStatus: true,
+	}
+)
+
 func parseStatusCodes(values []string) ([]int, error) {
 	if len(values) == 0 {
 		return nil, nil
@@ -53,6 +89,97 @@ func NewRequestLogHandler() *RequestLogHandler {
 	return &RequestLogHandler{
 		logService: service.NewRequestLogService(),
 	}
+}
+
+func flattenRequestLogHeaders(headers map[string][]string) map[string]string {
+	result := make(map[string]string, len(headers))
+	for key, values := range headers {
+		if len(values) > 0 {
+			result[key] = values[0]
+		}
+	}
+	return result
+}
+
+func detailBodyPointer(body []byte) *string {
+	value := string(body)
+	return &value
+}
+
+func optionalDetailBodyPointer(body []byte) *string {
+	if len(body) == 0 {
+		return nil
+	}
+	return detailBodyPointer(body)
+}
+
+func buildRequestLogDetailResponse(detail *amp.RequestDetail, logEntry *model.RequestLog, scope requestLogDetailScope) *requestLogDetailResponse {
+	response := &requestLogDetailResponse{
+		RequestID:                 detail.RequestID,
+		RequestHeaders:            flattenRequestLogHeaders(detail.RequestHeaders),
+		ResponseHeaders:           flattenRequestLogHeaders(detail.ResponseHeaders),
+		ResponseBody:              detailBodyPointer(detail.ResponseBody),
+		TranslatedResponseBody:    optionalDetailBodyPointer(detail.TranslatedResponseBody),
+		CreatedAt:                 detail.CreatedAt,
+		BillingStatus:             logEntry.BillingStatus,
+		ChargedSubscriptionMicros: logEntry.ChargedSubscriptionMicros,
+		ChargedBalanceMicros:      logEntry.ChargedBalanceMicros,
+		BillingGapMicros:          logEntry.BillingGapMicros,
+		CostMicros:                logEntry.CostMicros,
+		CostUsd:                   logEntry.CostUsd,
+	}
+
+	if scope.includeRequestBody {
+		response.RequestBody = detailBodyPointer(detail.RequestBody)
+	}
+	if scope.includeTranslatedRequestBody {
+		response.TranslatedRequestBody = optionalDetailBodyPointer(detail.TranslatedRequestBody)
+	}
+	if scope.includeTranslatedReqHeaders {
+		response.TranslatedRequestHeaders = flattenRequestLogHeaders(detail.TranslatedRequestHeaders)
+	}
+
+	return response
+}
+
+func (h *RequestLogHandler) getScopedRequestLogDetail(logID, userID string, isAdmin bool, scope requestLogDetailScope) (*requestLogDetailResponse, int, string) {
+	if logID == "" {
+		return nil, http.StatusBadRequest, "日志 ID 不能为空"
+	}
+
+	var (
+		logEntry *model.RequestLog
+		err      error
+	)
+	if isAdmin {
+		logEntry, err = h.logService.GetByIDAdmin(logID)
+	} else {
+		logEntry, err = h.logService.GetByID(logID, userID)
+	}
+	if err != nil {
+		if isAdmin {
+			return nil, http.StatusInternalServerError, "获取日志计费信息失败"
+		}
+		return nil, http.StatusInternalServerError, "获取日志失败"
+	}
+	if logEntry == nil {
+		return nil, http.StatusNotFound, "日志不存在"
+	}
+	if scope.requireFailureStatus && logEntry.StatusCode < http.StatusBadRequest {
+		return nil, http.StatusForbidden, "仅失败请求支持查看详情"
+	}
+
+	store := amp.GetRequestDetailStore()
+	if store == nil {
+		return nil, http.StatusInternalServerError, "详情存储未初始化"
+	}
+
+	detail := store.Get(logID)
+	if detail == nil {
+		return nil, http.StatusNotFound, "日志详情不存在或已过期"
+	}
+
+	return buildRequestLogDetailResponse(detail, logEntry, scope), 0, ""
 }
 
 // ListRequestLogs 获取请求日志列表
@@ -136,6 +263,22 @@ func (h *RequestLogHandler) GetRequestLog(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, log)
+}
+
+// GetRequestLogDetail 获取当前用户的请求日志详情（仅失败请求，且隐藏请求体）
+func (h *RequestLogHandler) GetRequestLogDetail(c *gin.Context) {
+	response, statusCode, errMessage := h.getScopedRequestLogDetail(
+		c.Param("id"),
+		middleware.GetUserID(c),
+		false,
+		userRequestLogDetailScope,
+	)
+	if errMessage != "" {
+		c.JSON(statusCode, gin.H{"error": errMessage})
+		return
+	}
+
+	c.JSON(http.StatusOK, response)
 }
 
 // GetDistinctModels 获取当前用户使用过的模型列表
@@ -336,74 +479,18 @@ func (h *RequestLogHandler) AdminGetUsageSummary(c *gin.Context) {
 
 // AdminGetRequestLogDetail 管理员获取请求日志详情（含请求/响应头和体）
 func (h *RequestLogHandler) AdminGetRequestLogDetail(c *gin.Context) {
-	logID := c.Param("id")
-	if logID == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "日志 ID 不能为空"})
+	response, statusCode, errMessage := h.getScopedRequestLogDetail(
+		c.Param("id"),
+		"",
+		true,
+		adminRequestLogDetailScope,
+	)
+	if errMessage != "" {
+		c.JSON(statusCode, gin.H{"error": errMessage})
 		return
 	}
 
-	store := amp.GetRequestDetailStore()
-	if store == nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "详情存储未初始化"})
-		return
-	}
-
-	detail := store.Get(logID)
-	if detail == nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "日志详情不存在或已过期"})
-		return
-	}
-	logEntry, err := h.logService.GetByIDAdmin(logID)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "获取日志计费信息失败"})
-		return
-	}
-	if logEntry == nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "日志不存在"})
-		return
-	}
-
-	// Convert headers to map[string]string for JSON response
-	requestHeaders := make(map[string]string)
-	for k, v := range detail.RequestHeaders {
-		if len(v) > 0 {
-			requestHeaders[k] = v[0]
-		}
-	}
-
-	responseHeaders := make(map[string]string)
-	for k, v := range detail.ResponseHeaders {
-		if len(v) > 0 {
-			responseHeaders[k] = v[0]
-		}
-	}
-
-	translatedRequestHeaders := make(map[string]string)
-	for k, v := range detail.TranslatedRequestHeaders {
-		if len(v) > 0 {
-			translatedRequestHeaders[k] = v[0]
-		}
-	}
-
-	result := &model.RequestLogDetail{
-		RequestID:                 detail.RequestID,
-		RequestHeaders:            requestHeaders,
-		RequestBody:               string(detail.RequestBody),
-		TranslatedRequestBody:     string(detail.TranslatedRequestBody),
-		TranslatedRequestHeaders:  translatedRequestHeaders,
-		ResponseHeaders:           responseHeaders,
-		ResponseBody:              string(detail.ResponseBody),
-		TranslatedResponseBody:    string(detail.TranslatedResponseBody),
-		CreatedAt:                 detail.CreatedAt,
-		BillingStatus:             logEntry.BillingStatus,
-		ChargedSubscriptionMicros: logEntry.ChargedSubscriptionMicros,
-		ChargedBalanceMicros:      logEntry.ChargedBalanceMicros,
-		BillingGapMicros:          logEntry.BillingGapMicros,
-		CostMicros:                logEntry.CostMicros,
-		CostUsd:                   logEntry.CostUsd,
-	}
-
-	c.JSON(http.StatusOK, result)
+	c.JSON(http.StatusOK, response)
 }
 
 // GetDashboard 获取用户仪表盘数据
