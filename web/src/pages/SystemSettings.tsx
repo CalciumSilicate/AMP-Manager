@@ -765,7 +765,7 @@ export default function SystemSettings({
                     </Select>
                   </div>
                   <div className="max-w-xl space-y-2">
-                    <Label htmlFor="ampProxySettingsPolicy">Amp 设置权限</Label>
+                    <Label htmlFor="ampProxySettingsPolicy">路由设置权限</Label>
                     <Select value={ampProxySettingsPolicyInput} onValueChange={(value) => setAmpProxySettingsPolicyInput(value as AmpProxySettingsPolicy)}>
                       <SelectTrigger id="ampProxySettingsPolicy">
                         <SelectValue />

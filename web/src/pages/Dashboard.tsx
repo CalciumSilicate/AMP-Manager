@@ -123,7 +123,7 @@ export default function Dashboard({
   const navItems: { key: Page; label: string; adminOnly?: boolean }[] = [
     { key: 'overview', label: '概览' },
     { key: 'status-monitor', label: '状态监控' },
-    ...(canAccessAmpSettings ? [{ key: 'amp-settings' as const, label: 'Amp 设置' }] : []),
+    ...(canAccessAmpSettings ? [{ key: 'amp-settings' as const, label: '路由设置' }] : []),
     { key: 'api-keys', label: 'API Key 管理' },
     { key: 'request-logs', label: '请求日志' },
     { key: 'usage-stats', label: '使用量统计' },
