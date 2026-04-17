@@ -119,12 +119,15 @@ func (w *LogWriter) WritePendingFromTrace(trace *RequestTrace) bool {
 	snapshot := trace.Clone()
 
 	// 构建可选字段
-	var originalModel, mappedModel, provider, channelID, endpoint, requestFormat, upstreamFormat *string
+	var originalModel, mappedModel, sessionID, provider, channelID, endpoint, requestFormat, upstreamFormat *string
 	if snapshot.OriginalModel != "" {
 		originalModel = &snapshot.OriginalModel
 	}
 	if snapshot.MappedModel != "" {
 		mappedModel = &snapshot.MappedModel
+	}
+	if snapshot.SessionID != "" {
+		sessionID = &snapshot.SessionID
 	}
 	if snapshot.Provider != "" {
 		provider = &snapshot.Provider
@@ -146,8 +149,8 @@ func (w *LogWriter) WritePendingFromTrace(trace *RequestTrace) bool {
 	_, err := w.db.Exec(`
 		INSERT INTO request_logs (
 			id, created_at, status, user_id, api_key_id, original_model, mapped_model,
-			provider, channel_id, endpoint, request_format, upstream_format, method, path, status_code, latency_ms, ttfb_ms, is_streaming, downstream_transport, upstream_transport
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+			session_id, provider, channel_id, endpoint, request_format, upstream_format, method, path, status_code, latency_ms, ttfb_ms, is_streaming, downstream_transport, upstream_transport
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 	`,
 		snapshot.RequestID, // 使用 RequestID 作为数据库 ID
 		snapshot.StartTime.UTC(),
@@ -156,6 +159,7 @@ func (w *LogWriter) WritePendingFromTrace(trace *RequestTrace) bool {
 		snapshot.APIKeyID,
 		originalModel,
 		mappedModel,
+		sessionID,
 		provider,
 		channelID,
 		endpoint,
@@ -201,13 +205,16 @@ func (w *LogWriter) UpdateFromTrace(trace *RequestTrace) bool {
 	}
 
 	// 构建可选字段
-	var originalModel, mappedModel, provider, channelID, endpoint, requestFormat, upstreamFormat, errorType, pricingModel, pricingRuleName, costUsd, billingStatus, specialRateReason *string
+	var originalModel, mappedModel, sessionID, provider, channelID, endpoint, requestFormat, upstreamFormat, errorType, pricingModel, pricingRuleName, costUsd, billingStatus, specialRateReason *string
 	var chargedSubscriptionMicros, chargedBalanceMicros *int64
 	if snapshot.OriginalModel != "" {
 		originalModel = &snapshot.OriginalModel
 	}
 	if snapshot.MappedModel != "" {
 		mappedModel = &snapshot.MappedModel
+	}
+	if snapshot.SessionID != "" {
+		sessionID = &snapshot.SessionID
 	}
 	if snapshot.Provider != "" {
 		provider = &snapshot.Provider
@@ -298,6 +305,7 @@ func (w *LogWriter) UpdateFromTrace(trace *RequestTrace) bool {
 			status = ?,
 			original_model = COALESCE(?, original_model),
 			mapped_model = COALESCE(?, mapped_model),
+			session_id = COALESCE(?, session_id),
 			provider = COALESCE(?, provider),
 			channel_id = COALESCE(?, channel_id),
 			endpoint = COALESCE(?, endpoint),
@@ -335,6 +343,7 @@ func (w *LogWriter) UpdateFromTrace(trace *RequestTrace) bool {
 		status,
 		originalModel,
 		mappedModel,
+		sessionID,
 		provider,
 		channelID,
 		endpoint,
@@ -437,13 +446,16 @@ func (w *LogWriter) insertCompleteTx(tx *sql.Tx, snapshot RequestTrace, status L
 		isStreaming = 1
 	}
 
-	var originalModel, mappedModel, provider, channelID, endpoint, requestFormat, upstreamFormat, errorType, pricingModel, pricingRuleName, costUsd, billingStatus, specialRateReason *string
+	var originalModel, mappedModel, sessionID, provider, channelID, endpoint, requestFormat, upstreamFormat, errorType, pricingModel, pricingRuleName, costUsd, billingStatus, specialRateReason *string
 	var chargedSubscriptionMicros, chargedBalanceMicros *int64
 	if snapshot.OriginalModel != "" {
 		originalModel = &snapshot.OriginalModel
 	}
 	if snapshot.MappedModel != "" {
 		mappedModel = &snapshot.MappedModel
+	}
+	if snapshot.SessionID != "" {
+		sessionID = &snapshot.SessionID
 	}
 	if snapshot.Provider != "" {
 		provider = &snapshot.Provider
@@ -522,13 +534,13 @@ func (w *LogWriter) insertCompleteTx(tx *sql.Tx, snapshot RequestTrace, status L
 	_, err := tx.Exec(`
 		INSERT INTO request_logs (
 			id, created_at, updated_at, status, user_id, api_key_id, original_model, mapped_model,
-			provider, channel_id, endpoint, request_format, upstream_format, method, path, status_code, latency_ms, ttfb_ms,
+			session_id, provider, channel_id, endpoint, request_format, upstream_format, method, path, status_code, latency_ms, ttfb_ms,
 			is_streaming, input_tokens, output_tokens, cache_read_input_tokens,
 			cache_creation_input_tokens, error_type, cost_micros, cost_usd, pricing_model, pricing_rule_name,
 			charged_subscription_micros, charged_balance_micros, billing_status, thinking_level,
 			downstream_transport, upstream_transport, transport_fallback_reason, rate_multiplier,
 			channel_rate_multiplier, group_rate_multiplier, special_rate_multiplier, special_rate_reason
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		`,
 		snapshot.RequestID,
 		snapshot.StartTime.UTC(),
@@ -538,6 +550,7 @@ func (w *LogWriter) insertCompleteTx(tx *sql.Tx, snapshot RequestTrace, status L
 		snapshot.APIKeyID,
 		originalModel,
 		mappedModel,
+		sessionID,
 		provider,
 		channelID,
 		endpoint,

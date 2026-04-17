@@ -4,6 +4,7 @@ import {
   RequestLog, DistinctAPIKey,
 } from '@/api/amp'
 import { connectRequestLogsWS } from '@/api/requestLogsWS'
+import { getPublicSiteConfig } from '@/api/system'
 import { listUsers, UserInfo } from '@/api/users'
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/card'
 import {
@@ -63,6 +64,12 @@ function matchesRequestLogFilters(log: RequestLog, filters: FilterValues) {
       return false
     }
   }
+  if (filters.sessionId) {
+    const sessionText = (log.sessionId || '').toLowerCase()
+    if (!sessionText.includes(filters.sessionId.toLowerCase())) {
+      return false
+    }
+  }
   if (filters.statuses.length > 0 && !filters.statuses.includes(String(log.statusCode))) {
     return false
   }
@@ -81,6 +88,16 @@ function matchesRequestLogFilters(log: RequestLog, filters: FilterValues) {
     }
   }
   return true
+}
+
+function getDefaultSessionSearchWindow() {
+  const to = new Date()
+  const from = new Date(to.getTime() - 6 * 60 * 60 * 1000)
+
+  return {
+    from: from.toISOString(),
+    to: to.toISOString(),
+  }
 }
 
 function formatTransportLabel(transport?: string) {
@@ -222,6 +239,7 @@ const RequestLogRow = memo(function RequestLogRow({
   const keyDisplay = log.apiKeyName ? `${log.apiKeyName}${log.apiKeyPrefix ? ` (${log.apiKeyPrefix})` : ''}` : (log.apiKeyPrefix || log.apiKeyId || '-')
   const translationPath = translationPathLabel(log)
   const canOpenDetail = isAdmin || log.statusCode >= 400
+  const sessionDisplay = log.sessionId || '-'
 
   return (
     <TableRow>
@@ -247,6 +265,22 @@ const RequestLogRow = memo(function RequestLogRow({
           </Tooltip>
         </TableCell>
       )}
+      <TableCell className="max-w-40">
+        {log.sessionId ? (
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <span className="block cursor-default truncate font-mono text-xs text-foreground" title={sessionDisplay}>
+                {sessionDisplay}
+              </span>
+            </TooltipTrigger>
+            <TooltipContent side="bottom" className="border bg-popover px-3 py-2 text-xs text-popover-foreground shadow-md">
+              <span className="font-mono">{sessionDisplay}</span>
+            </TooltipContent>
+          </Tooltip>
+        ) : (
+          <span className="text-xs text-muted-foreground">-</span>
+        )}
+      </TableCell>
       <TableCell>
         <div className="flex flex-col">
           <span className="font-medium text-sm truncate max-w-32" title={log.mappedModel || log.originalModel}>
@@ -417,8 +451,9 @@ export default function RequestLogs({ isAdmin }: Props) {
   const [page, setPage] = useState(1)
   const [total, setTotal] = useState(0)
   const [pageSize, setPageSize] = useState(20)
+  const [sessionSearchMinChars, setSessionSearchMinChars] = useState(3)
 
-  const [filters, setFilters] = useState<FilterValues>({ userId: '', apiKeyId: '', model: '', channel: '', statuses: [], from: '', to: '' })
+  const [filters, setFilters] = useState<FilterValues>({ userId: '', apiKeyId: '', sessionId: '', model: '', channel: '', statuses: [], from: '', to: '' })
 
   const [users, setUsers] = useState<UserInfo[]>([])
   const [models, setModels] = useState<string[]>([])
@@ -432,7 +467,7 @@ export default function RequestLogs({ isAdmin }: Props) {
   const logsRef = useRef<RequestLog[]>([])
   const totalRef = useRef(0)
   const knownLogIDsRef = useRef<Set<string>>(new Set())
-  const filtersRef = useRef<FilterValues>({ userId: '', apiKeyId: '', model: '', channel: '', statuses: [], from: '', to: '' })
+  const filtersRef = useRef<FilterValues>({ userId: '', apiKeyId: '', sessionId: '', model: '', channel: '', statuses: [], from: '', to: '' })
   const abortControllerRef = useRef<AbortController | null>(null)
   const [pendingCount, setPendingCount] = useState(0)
 
@@ -467,6 +502,19 @@ export default function RequestLogs({ isAdmin }: Props) {
   }, [isAdmin])
 
   useEffect(() => {
+    getPublicSiteConfig()
+      .then((config) => {
+        const minChars = config.sessionSticky?.logSearchMinChars
+        if (typeof minChars === 'number' && Number.isFinite(minChars) && minChars > 0) {
+          setSessionSearchMinChars(Math.max(1, Math.floor(minChars)))
+        }
+      })
+      .catch(() => {
+        setSessionSearchMinChars(3)
+      })
+  }, [])
+
+  useEffect(() => {
     if (isAdmin) {
       getAdminDistinctKeys(filters.userId || undefined)
         .then(res => setKeys(res.keys || []))
@@ -492,6 +540,8 @@ export default function RequestLogs({ isAdmin }: Props) {
   }, [filters])
 
   const liveFlushDelay = getLiveFlushDelay(pageSize)
+  const normalizedSessionId = filters.sessionId.trim()
+  const shouldApplyImplicitSessionWindow = Boolean(normalizedSessionId) && !filters.from && !filters.to
 
   const applyPendingLogs = useCallback(() => {
     if (pendingLogsRef.current.size === 0) return
@@ -514,10 +564,13 @@ export default function RequestLogs({ isAdmin }: Props) {
   }, [pageSize])
 
   useEffect(() => {
+    const wsBuf = wsBufRef.current
+    const pendingLogs = pendingLogsRef.current
+
     if (liveInsertEnabled) {
       const flushBuf = () => {
-        const batch = Array.from(wsBufRef.current.values())
-        wsBufRef.current.clear()
+        const batch = Array.from(wsBuf.values())
+        wsBuf.clear()
         flushTimerRef.current = null
         if (batch.length === 0) return
 
@@ -540,10 +593,10 @@ export default function RequestLogs({ isAdmin }: Props) {
               visibleChanged = true
             }
           } else if (matchesFilters) {
-            if (!pendingLogsRef.current.has(log.id)) {
+            if (!pendingLogs.has(log.id)) {
               newCount++
             }
-            pendingLogsRef.current.set(log.id, log)
+            pendingLogs.set(log.id, log)
           }
         }
 
@@ -556,7 +609,7 @@ export default function RequestLogs({ isAdmin }: Props) {
           if (visibleChanged) {
             setLogs(next)
           }
-          setPendingCount(pendingLogsRef.current.size)
+          setPendingCount(pendingLogs.size)
           if (newCount > 0 || removedCount > 0) {
             totalRef.current += newCount - removedCount
             setTotal(totalRef.current)
@@ -566,7 +619,7 @@ export default function RequestLogs({ isAdmin }: Props) {
 
       const close = connectRequestLogsWS(
         (newLog) => {
-          wsBufRef.current.set(newLog.id, newLog)
+          wsBuf.set(newLog.id, newLog)
           if (flushTimerRef.current === null) {
             flushTimerRef.current = setTimeout(flushBuf, liveFlushDelay)
           }
@@ -587,8 +640,8 @@ export default function RequestLogs({ isAdmin }: Props) {
         clearTimeout(flushTimerRef.current)
         flushTimerRef.current = null
       }
-      wsBufRef.current.clear()
-      pendingLogsRef.current.clear()
+      wsBuf.clear()
+      pendingLogs.clear()
       setPendingCount(0)
       if (wsCloseRef.current) {
         wsCloseRef.current()
@@ -612,14 +665,23 @@ export default function RequestLogs({ isAdmin }: Props) {
     setFetching(true)
     setError('')
     try {
+      if (normalizedSessionId && normalizedSessionId.length < sessionSearchMinChars) {
+        setLogs([])
+        setTotal(0)
+        setError(`Session ID 至少 ${sessionSearchMinChars} 个字符`)
+        return
+      }
+
+      const sessionWindow = shouldApplyImplicitSessionWindow ? getDefaultSessionSearchWindow() : null
       const params = {
         page,
         pageSize,
+        sessionId: normalizedSessionId || undefined,
         model: filters.model || undefined,
         channel: filters.channel || undefined,
         statusCodes: filters.statuses.length ? filters.statuses.map((status) => Number.parseInt(status, 10)) : undefined,
-        from: filters.from ? localToISO(filters.from) : undefined,
-        to: filters.to ? localToISO(filters.to) : undefined,
+        from: filters.from ? localToISO(filters.from) : sessionWindow?.from,
+        to: filters.to ? localToISO(filters.to) : sessionWindow?.to,
       }
       const result = isAdmin
         ? await getAdminRequestLogs({ ...params, userId: filters.userId || undefined, apiKeyId: filters.apiKeyId || undefined }, controller.signal)
@@ -645,7 +707,7 @@ export default function RequestLogs({ isAdmin }: Props) {
         hasLoadedRef.current = true
       }
     }
-  }, [isAdmin, page, pageSize, filters])
+  }, [filters, isAdmin, normalizedSessionId, page, pageSize, sessionSearchMinChars, shouldApplyImplicitSessionWindow])
 
   useEffect(() => {
     loadData()
@@ -683,6 +745,7 @@ export default function RequestLogs({ isAdmin }: Props) {
         models={models}
         values={filters}
         onChange={handleFilterChange}
+        sessionSearchMinChars={sessionSearchMinChars}
       />
 
       {error && (
@@ -695,7 +758,7 @@ export default function RequestLogs({ isAdmin }: Props) {
             <div className="flex items-center justify-between">
               <div>
                 <CardTitle>请求记录</CardTitle>
-                <CardDescription>共 {total} 条记录</CardDescription>
+                <CardDescription>共 {total} 条记录{shouldApplyImplicitSessionWindow ? ' · Session 搜索按最近 6 小时查询' : ''}</CardDescription>
               </div>
               <div className="flex items-center gap-3">
                 {isAdmin && pendingCount > 0 ? (
@@ -729,6 +792,7 @@ export default function RequestLogs({ isAdmin }: Props) {
                     <TableRow>
                       <TableHead className="whitespace-nowrap">时间</TableHead>
                       {isAdmin && <TableHead className="whitespace-nowrap">用户</TableHead>}
+                      <TableHead className="whitespace-nowrap">Session</TableHead>
                       <TableHead className="whitespace-nowrap">模型</TableHead>
                       <TableHead className="whitespace-nowrap">渠道</TableHead>
                       <TableHead className="whitespace-nowrap">思维等级</TableHead>

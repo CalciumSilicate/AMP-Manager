@@ -177,6 +177,7 @@ export async function getAmpBootstrap(): Promise<BootstrapInfo> {
 export interface RequestLog {
   id: string
   createdAt: string
+  sessionId?: string
   userId: string
   username?: string
   apiKeyId: string
@@ -254,6 +255,7 @@ export interface RequestLogListParams {
   page?: number
   pageSize?: number
   apiKeyId?: string
+  sessionId?: string
   model?: string
   channel?: string
   statusCodes?: number[]
@@ -268,6 +270,7 @@ export async function getRequestLogs(params: RequestLogListParams = {}, signal?:
   if (params.page) searchParams.set('page', params.page.toString())
   if (params.pageSize) searchParams.set('pageSize', params.pageSize.toString())
   if (params.apiKeyId) searchParams.set('apiKeyId', params.apiKeyId)
+  if (params.sessionId) searchParams.set('sessionId', params.sessionId)
   if (params.model) searchParams.set('model', params.model)
   if (params.channel) searchParams.set('channel', params.channel)
   params.statusCodes?.forEach((status) => searchParams.append('status', status.toString()))
@@ -323,6 +326,7 @@ export async function getAdminRequestLogs(params: AdminRequestLogListParams = {}
   if (params.pageSize) searchParams.set('pageSize', params.pageSize.toString())
   if (params.userId) searchParams.set('userId', params.userId)
   if (params.apiKeyId) searchParams.set('apiKeyId', params.apiKeyId)
+  if (params.sessionId) searchParams.set('sessionId', params.sessionId)
   if (params.model) searchParams.set('model', params.model)
   if (params.channel) searchParams.set('channel', params.channel)
   params.statusCodes?.forEach((status) => searchParams.append('status', status.toString()))

@@ -21,6 +21,7 @@ import PurchaseCenter from './PurchaseCenter'
 import PaidSubscriptions from './PaidSubscriptions'
 import RedeemManagement from './RedeemManagement'
 import StatusMonitor from './StatusMonitor'
+import SessionManagement from './SessionManagement'
 import type { AmpProxySettingsPolicy, SiteContactConfig } from '@/api/system'
 import { Button } from '@/components/ui/button'
 // Card components available if needed by child pages
@@ -61,6 +62,7 @@ import {
   CreditCard,
   ShoppingCart,
   TicketPercent,
+  Link2,
 } from 'lucide-react'
 
 interface Props {
@@ -79,7 +81,7 @@ interface Props {
   onLogout: () => void
 }
 
-type Page = 'overview' | 'status-monitor' | 'amp-settings' | 'api-keys' | 'request-logs' | 'usage-stats' | 'channels' | 'models' | 'model-metadata' | 'prices' | 'system-settings' | 'user-management' | 'account-settings' | 'groups' | 'subscription-plans' | 'admin-overview' | 'purchase-center' | 'paid-subscriptions' | 'redeem-management'
+type Page = 'overview' | 'status-monitor' | 'amp-settings' | 'api-keys' | 'request-logs' | 'usage-stats' | 'channels' | 'models' | 'model-metadata' | 'prices' | 'system-settings' | 'user-management' | 'account-settings' | 'groups' | 'subscription-plans' | 'admin-overview' | 'purchase-center' | 'paid-subscriptions' | 'redeem-management' | 'session-management'
 
 const navIcons: Record<Page, React.ElementType> = {
   'overview': LayoutDashboard,
@@ -101,6 +103,7 @@ const navIcons: Record<Page, React.ElementType> = {
   'purchase-center': ShoppingCart,
   'paid-subscriptions': CreditCard,
   'redeem-management': TicketPercent,
+  'session-management': Link2,
 }
 
 export default function Dashboard({
@@ -145,6 +148,7 @@ export default function Dashboard({
     { key: 'subscription-plans', label: '订阅套餐', adminOnly: true },
     { key: 'paid-subscriptions', label: '付费订阅', adminOnly: true },
     { key: 'redeem-management', label: '兑换码管理', adminOnly: true },
+    { key: 'session-management', label: 'Session 管理', adminOnly: true },
     { key: 'channels', label: '渠道管理', adminOnly: true },
     { key: 'model-metadata', label: '模型元数据', adminOnly: true },
     { key: 'prices', label: '模型价格', adminOnly: true },
@@ -458,6 +462,7 @@ export default function Dashboard({
                   {currentPage === 'subscription-plans' && isAdmin && <SubscriptionPlans />}
                   {currentPage === 'paid-subscriptions' && isAdmin && <PaidSubscriptions />}
                   {currentPage === 'redeem-management' && isAdmin && <RedeemManagement />}
+                  {currentPage === 'session-management' && isAdmin && <SessionManagement />}
                   {currentPage === 'model-metadata' && isAdmin && <ModelMetadata />}
                   {currentPage === 'prices' && isAdmin && <Prices />}
                   {currentPage === 'user-management' && isAdmin && <UserManagement />}

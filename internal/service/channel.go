@@ -711,6 +711,10 @@ func (s *ChannelService) SelectChannelForModel(modelName string) (*model.Channel
 }
 
 func (s *ChannelService) SelectChannelForModelAndFormat(modelName string, incomingFormat internaltranslator.Format, allowTranslation bool) (*model.Channel, error) {
+	return s.SelectChannelForModelAndFormatAndProvider(modelName, incomingFormat, allowTranslation, "")
+}
+
+func (s *ChannelService) SelectChannelForModelAndFormatAndProvider(modelName string, incomingFormat internaltranslator.Format, allowTranslation bool, provider string) (*model.Channel, error) {
 	channels, err := s.listEnabledChannels()
 	if err != nil {
 		return nil, err
@@ -718,6 +722,9 @@ func (s *ChannelService) SelectChannelForModelAndFormat(modelName string, incomi
 
 	var candidates []*model.Channel
 	for _, ch := range channels {
+		if provider != "" && !strings.EqualFold(provider, stickyProviderForChannel(ch)) {
+			continue
+		}
 		if s.channelMatchesModel(ch, modelName) && s.channelSupportsRequestFormat(ch, incomingFormat, allowTranslation) {
 			candidates = append(candidates, ch)
 		}
@@ -773,6 +780,10 @@ func (s *ChannelService) SelectChannelForModelWithGroups(modelName string, group
 }
 
 func (s *ChannelService) SelectChannelForModelWithGroupsAndFormat(modelName string, groupIDs []string, incomingFormat internaltranslator.Format, allowTranslation bool) (*model.Channel, error) {
+	return s.SelectChannelForModelWithGroupsAndFormatAndProvider(modelName, groupIDs, incomingFormat, allowTranslation, "")
+}
+
+func (s *ChannelService) SelectChannelForModelWithGroupsAndFormatAndProvider(modelName string, groupIDs []string, incomingFormat internaltranslator.Format, allowTranslation bool, provider string) (*model.Channel, error) {
 	channels, channelGroupMap, err := s.listEnabledChannelsWithGroups()
 	if err != nil {
 		return nil, err
@@ -781,6 +792,9 @@ func (s *ChannelService) SelectChannelForModelWithGroupsAndFormat(modelName stri
 	userGroupIDSet := toStringSet(groupIDs)
 	var candidates []*model.Channel
 	for _, ch := range channels {
+		if provider != "" && !strings.EqualFold(provider, stickyProviderForChannel(ch)) {
+			continue
+		}
 		if !s.channelMatchesModel(ch, modelName) || !s.channelSupportsRequestFormat(ch, incomingFormat, allowTranslation) {
 			continue
 		}
@@ -790,6 +804,22 @@ func (s *ChannelService) SelectChannelForModelWithGroupsAndFormat(modelName stri
 	}
 
 	return s.selectCandidate(modelName, candidates), nil
+}
+
+func stickyProviderForChannel(channel *model.Channel) string {
+	if channel == nil {
+		return ""
+	}
+	switch channel.Type {
+	case model.ChannelTypeClaude:
+		return "anthropic"
+	case model.ChannelTypeOpenAI:
+		return "openai"
+	case model.ChannelTypeGemini:
+		return "gemini"
+	default:
+		return strings.ToLower(strings.TrimSpace(string(channel.Type)))
+	}
 }
 
 func (s *ChannelService) selectCandidate(modelName string, candidates []*model.Channel) *model.Channel {

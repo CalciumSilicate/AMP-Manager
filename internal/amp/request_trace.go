@@ -24,6 +24,7 @@ type RequestTrace struct {
 	Path                    string
 	OriginalModel           string
 	MappedModel             string
+	SessionID               string
 	Provider                string
 	ChannelID               string
 	Endpoint                string
@@ -105,6 +106,12 @@ func (t *RequestTrace) SetModels(original, mapped string) {
 	defer t.mu.Unlock()
 	t.OriginalModel = original
 	t.MappedModel = mapped
+}
+
+func (t *RequestTrace) SetSessionID(sessionID string) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	t.SessionID = sessionID
 }
 
 // SetChannel 设置渠道信息

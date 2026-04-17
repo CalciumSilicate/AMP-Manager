@@ -385,9 +385,18 @@ func CreateDynamicReverseProxy() *httputil.ReverseProxy {
 					req.Method,
 					req.URL.Path,
 				)
+				if requestSession := GetRequestSession(req.Context()); requestSession != nil && requestSession.SessionID != "" {
+					trace.SetSessionID(requestSession.SessionID)
+				} else if payload := GetRequestPayload(req.Context()); payload != nil {
+					apiKeyID := ""
+					if proxyCfg := GetProxyConfig(req.Context()); proxyCfg != nil {
+						apiKeyID = proxyCfg.APIKeyID
+					}
+					trace.SetSessionID(resolveSessionIDFromHeadersAndBody(req.Context(), req.Header, payload.Body, "", apiKeyID, clientIPFromHeaders(req.Header, req.RemoteAddr)))
+				}
 				trace.SetUpstreamTransport("http")
 				// Set provider info (amp upstream defaults to Anthropic)
-				trace.SetChannel("", string(ProviderAnthropic), req.URL.Path)
+				trace.SetChannel("", "anthropic", req.URL.Path)
 				incomingFormat := detectIncomingFormat(req.URL.Path)
 				trace.SetFormatConversion(incomingFormat.String(), incomingFormat.String())
 				// Get model info from context if available
@@ -574,6 +583,7 @@ func errorHandler(rw http.ResponseWriter, req *http.Request, err error) {
 		if writer := GetLogWriter(); writer != nil {
 			writer.UpdateFromTrace(trace)
 		}
+		FinalizeSessionSticky(req.Context(), trace)
 	}
 	// 使用清理后的错误消息，防止泄露敏感信息
 	safeMsg := SanitizeError(err)

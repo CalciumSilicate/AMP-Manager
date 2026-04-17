@@ -13,6 +13,7 @@ import { motion } from '@/lib/motion'
 export interface FilterValues {
   userId: string
   apiKeyId: string
+  sessionId: string
   model: string
   channel: string
   statuses: string[]
@@ -28,6 +29,8 @@ interface LogFilterBarProps {
   values: FilterValues
   onChange: (values: FilterValues) => void
   showStatusFilter?: boolean
+  showSessionFilter?: boolean
+  sessionSearchMinChars?: number
 }
 
 type PresetKey = 'custom' | '1h' | '6h' | '24h' | '7d' | '30d'
@@ -84,7 +87,17 @@ function localToISO(localStr: string): string {
   return new Date(localStr).toISOString()
 }
 
-export function LogFilterBar({ isAdmin, users, keys, models, values, onChange, showStatusFilter = true }: LogFilterBarProps) {
+export function LogFilterBar({
+  isAdmin,
+  users,
+  keys,
+  models,
+  values,
+  onChange,
+  showStatusFilter = true,
+  showSessionFilter = true,
+  sessionSearchMinChars = 3,
+}: LogFilterBarProps) {
   const [activePreset, setActivePreset] = useState<PresetKey>('custom')
   const preservePresetOnSyncRef = useRef(false)
 
@@ -125,7 +138,7 @@ export function LogFilterBar({ isAdmin, users, keys, models, values, onChange, s
 
   const handleClearAll = () => {
     setActivePreset('custom')
-    onChange({ userId: '', apiKeyId: '', model: '', channel: '', statuses: [], from: '', to: '' })
+    onChange({ userId: '', apiKeyId: '', sessionId: '', model: '', channel: '', statuses: [], from: '', to: '' })
   }
 
   const handleUserChange = (userId: string) => {
@@ -136,7 +149,7 @@ export function LogFilterBar({ isAdmin, users, keys, models, values, onChange, s
   const keyOptions: SelectOption[] = keys.map(k => ({ value: k.id, label: `${k.name} (${k.prefix})`, keywords: [k.prefix] }))
   const modelOptions: SelectOption[] = models.map(m => ({ value: m, label: m }))
 
-  const hasAnyFilter = values.userId || values.apiKeyId || values.model || values.channel || values.statuses.length > 0 || values.from || values.to
+  const hasAnyFilter = values.userId || values.apiKeyId || values.sessionId || values.model || values.channel || values.statuses.length > 0 || values.from || values.to
 
   return (
     <motion.div
@@ -171,6 +184,18 @@ export function LogFilterBar({ isAdmin, users, keys, models, values, onChange, s
                   searchPlaceholder="搜索 Key..."
                   allLabel="所有 Key"
                   className="w-48"
+                />
+              </div>
+            )}
+
+            {showSessionFilter && (
+              <div className="flex items-center gap-2">
+                <Label className="text-sm text-muted-foreground whitespace-nowrap">Session</Label>
+                <Input
+                  value={values.sessionId}
+                  onChange={(event) => update({ sessionId: event.target.value })}
+                  placeholder={`包含搜索，至少 ${sessionSearchMinChars} 个字符`}
+                  className="h-9 w-52"
                 />
               </div>
             )}

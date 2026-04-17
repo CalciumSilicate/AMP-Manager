@@ -356,6 +356,12 @@ export interface SiteConfig {
   ampProxySettingsPolicy: AmpProxySettingsPolicy
   ampSettingsPolicy: AmpProxySettingsPolicy
   contact: SiteContactConfig
+  sessionSticky?: SessionStickyPublicConfig | null
+}
+
+export interface SessionStickyPublicConfig {
+  enabled?: boolean
+  logSearchMinChars: number
 }
 
 export interface SiteContactConfig {
@@ -506,6 +512,59 @@ export interface BillingRuntimeConfig {
   projectorClaimIdleSec: number
   runtimeEnabled: boolean
   runtimeHealthy: boolean
+}
+
+export interface SessionStickyConfig {
+  enabled: boolean
+  windowMinutes: number
+  logSearchMinChars: number
+}
+
+export interface SessionStickyRuntimeStatus {
+  redisConfigured: boolean
+  redisUrlMasked?: string
+  redisPrefix?: string
+  runtimeEnabled: boolean
+  runtimeHealthy: boolean
+  activeSessionCount?: number
+}
+
+export async function getSessionStickyConfig(): Promise<SessionStickyConfig> {
+  const res = await authFetch(`${API_BASE}/admin/system/session-sticky-config`)
+
+  if (!res.ok) {
+    const data = await res.json()
+    throw new Error(data.error || '获取 Session 粘滞配置失败')
+  }
+
+  return res.json()
+}
+
+export async function updateSessionStickyConfig(
+  config: SessionStickyConfig
+): Promise<{ message: string; config: SessionStickyConfig }> {
+  const res = await authFetch(`${API_BASE}/admin/system/session-sticky-config`, {
+    method: 'PUT',
+    body: JSON.stringify(config),
+  })
+
+  if (!res.ok) {
+    const data = await res.json()
+    throw new Error(data.error || '更新 Session 粘滞配置失败')
+  }
+
+  return res.json()
+}
+
+export async function getSessionStickyRuntimeStatus(): Promise<SessionStickyRuntimeStatus> {
+  const res = await authFetch(`${API_BASE}/admin/system/session-sticky-runtime`)
+
+  if (!res.ok) {
+    const data = await res.json()
+    throw new Error(data.error || '获取 Session 粘滞运行时状态失败')
+  }
+
+  return res.json()
 }
 
 export interface BillingRuntimeConfigRequest {

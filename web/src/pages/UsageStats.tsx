@@ -39,7 +39,7 @@ export default function UsageStats({ isAdmin }: Props) {
   const [summaryGroupBy, setSummaryGroupBy] = useState<SummaryGroupBy>('day')
   const [error, setError] = useState('')
 
-  const [filters, setFilters] = useState<FilterValues>({ userId: '', apiKeyId: '', model: '', channel: '', statuses: [], from: '', to: '' })
+  const [filters, setFilters] = useState<FilterValues>({ userId: '', apiKeyId: '', sessionId: '', model: '', channel: '', statuses: [], from: '', to: '' })
 
   const [users, setUsers] = useState<UserInfo[]>([])
   const [models, setModels] = useState<string[]>([])
@@ -155,6 +155,7 @@ export default function UsageStats({ isAdmin }: Props) {
         values={filters}
         onChange={handleFilterChange}
         showStatusFilter={false}
+        showSessionFilter={false}
       />
 
       {error && (
