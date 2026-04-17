@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react'
 
 import type { Announcement } from '@/api/announcements'
+import type { SiteContactConfig } from '@/api/system'
 import { formatDateTime } from '@/lib/formatters'
 import { cn } from '@/lib/utils'
 import { Badge } from '@/components/ui/badge'
@@ -14,7 +15,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog'
 import { ScrollArea } from '@/components/ui/scroll-area'
-import { Bell, Pin, Sparkles } from 'lucide-react'
+import { Bell, ExternalLink, MessageCircle, Pin, Sparkles } from 'lucide-react'
 
 const audienceLabelMap: Record<Announcement['audience'], string> = {
   authenticated: '登录用户',
@@ -138,6 +139,68 @@ export function AnnouncementCenter({
               </Button>
             </DialogFooter>
           ) : null}
+        </DialogContent>
+      </Dialog>
+    </>
+  )
+}
+
+interface ContactCenterProps {
+  contact: SiteContactConfig
+  triggerClassName?: string
+  triggerLabel?: string
+  triggerVariant?: 'default' | 'outline' | 'ghost' | 'secondary'
+}
+
+export function ContactCenter({
+  contact,
+  triggerClassName,
+  triggerLabel = '联系方式',
+  triggerVariant = 'outline',
+}: ContactCenterProps) {
+  const [open, setOpen] = useState(false)
+
+  if (!contact.enabled) {
+    return null
+  }
+
+  return (
+    <>
+      <Button variant={triggerVariant} className={cn('gap-2', triggerClassName)} onClick={() => setOpen(true)}>
+        <MessageCircle className="h-4 w-4" />
+        <span>{triggerLabel}</span>
+      </Button>
+      <Dialog open={open} onOpenChange={setOpen}>
+        <DialogContent className="sm:max-w-lg">
+          <DialogHeader>
+            <DialogTitle>联系方式</DialogTitle>
+            <DialogDescription>{contact.description}</DialogDescription>
+          </DialogHeader>
+          <div className="flex flex-col gap-5 py-2 sm:flex-row sm:items-start">
+            <div className="flex h-56 w-full items-center justify-center rounded-xl border bg-muted/20 sm:w-56">
+              {contact.qrCodeImageDataUrl ? (
+                <img src={contact.qrCodeImageDataUrl} alt={`${contact.title} 二维码`} className="h-48 w-48 object-contain" />
+              ) : (
+                <div className="px-4 text-center text-sm text-muted-foreground">未生成二维码</div>
+              )}
+            </div>
+            <div className="min-w-0 flex-1 space-y-3">
+              <a
+                href={contact.link}
+                target="_blank"
+                rel="noreferrer"
+                className="inline-flex items-center gap-2 text-base font-semibold text-primary hover:underline"
+              >
+                <span className="break-all">{contact.title}</span>
+                <ExternalLink className="h-4 w-4" />
+              </a>
+              <p className="whitespace-pre-wrap text-sm leading-6 text-muted-foreground">{contact.description}</p>
+              <p className="break-all text-xs text-muted-foreground">{contact.link}</p>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setOpen(false)}>关闭</Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
     </>

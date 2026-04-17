@@ -1,7 +1,8 @@
 import { useState, FormEvent } from 'react'
 import { register, RegisterRequest } from '../api/auth'
 import type { Announcement } from '@/api/announcements'
-import { AnnouncementCenter } from '@/components/announcements/AnnouncementCenter'
+import type { SiteContactConfig } from '@/api/system'
+import { AnnouncementCenter, ContactCenter } from '@/components/announcements/AnnouncementCenter'
 import { motion } from '@/lib/motion'
 import { Button } from '@/components/ui/button'
 import {
@@ -19,12 +20,13 @@ import { UserPlus } from 'lucide-react'
 
 interface Props {
   siteName: string
+  siteContact: SiteContactConfig
   announcements: Announcement[]
   onSwitch: () => void
   onSuccess: (username: string, token?: string, isAdmin?: boolean) => void
 }
 
-export default function Register({ siteName, announcements, onSwitch, onSuccess }: Props) {
+export default function Register({ siteName, siteContact, announcements, onSwitch, onSuccess }: Props) {
   const [formData, setFormData] = useState<RegisterRequest>({
     username: '',
     password: '',
@@ -71,7 +73,7 @@ export default function Register({ siteName, announcements, onSwitch, onSuccess 
           </motion.div>
           <CardTitle className="text-2xl font-bold">创建账号</CardTitle>
           <CardDescription>注册 {siteName}</CardDescription>
-          <div className="pt-2">
+          <div className="flex justify-center gap-2 pt-2">
             <AnnouncementCenter
               announcements={announcements}
               triggerLabel="公开公告"
@@ -79,6 +81,7 @@ export default function Register({ siteName, announcements, onSwitch, onSuccess 
               emptyText="当前没有公开公告"
               description="以下为未登录也可查看的公开公告。"
             />
+            <ContactCenter contact={siteContact} triggerVariant="secondary" />
           </div>
         </CardHeader>
 

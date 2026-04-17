@@ -37,6 +37,12 @@ func TestSystemConfigServiceSiteConfigDefaultsAndPersistence(t *testing.T) {
 	if defaultCfg.AmpSettingsPolicy != defaultAmpSettingsPolicy {
 		t.Fatalf("default amp settings policy mismatch: got %q want %q", defaultCfg.AmpSettingsPolicy, defaultAmpSettingsPolicy)
 	}
+	if defaultCfg.Contact.Enabled {
+		t.Fatalf("default contact enabled mismatch: got true want false")
+	}
+	if defaultCfg.Contact.Title != "" || defaultCfg.Contact.Description != "" || defaultCfg.Contact.Link != "" || defaultCfg.Contact.QRCodeImageDataURL != "" {
+		t.Fatalf("default contact mismatch: %+v", defaultCfg.Contact)
+	}
 
 	adminOnly := model.AmpProxySettingsPolicyAdminOnly
 	disabled := model.AmpProxySettingsPolicyDisabled
@@ -46,6 +52,12 @@ func TestSystemConfigServiceSiteConfigDefaultsAndPersistence(t *testing.T) {
 		TimeZone:               "America/Los_Angeles",
 		AmpProxySettingsPolicy: &adminOnly,
 		AmpSettingsPolicy:      &disabled,
+		Contact: &model.SiteContactConfigRequest{
+			Enabled:     true,
+			Title:       "Telegram",
+			Description: "加入交流群",
+			Link:        "https://example.com/contact",
+		},
 	})
 	if err != nil {
 		t.Fatalf("SetSiteConfig returned error: %v", err)
@@ -56,12 +68,27 @@ func TestSystemConfigServiceSiteConfigDefaultsAndPersistence(t *testing.T) {
 		updatedCfg.AmpSettingsPolicy != model.AmpProxySettingsPolicyDisabled {
 		t.Fatalf("unexpected updated config: %+v", updatedCfg)
 	}
+	if !updatedCfg.Contact.Enabled ||
+		updatedCfg.Contact.Title != "Telegram" ||
+		updatedCfg.Contact.Description != "加入交流群" ||
+		updatedCfg.Contact.Link != "https://example.com/contact" ||
+		updatedCfg.Contact.QRCodeImageDataURL == "" {
+		t.Fatalf("unexpected updated contact config: %+v", updatedCfg.Contact)
+	}
 
 	reloadedCfg, err := svc.GetSiteConfig()
 	if err != nil {
 		t.Fatalf("GetSiteConfig after update returned error: %v", err)
 	}
-	if reloadedCfg != updatedCfg {
+	if reloadedCfg.SiteName != updatedCfg.SiteName ||
+		reloadedCfg.TimeZone != updatedCfg.TimeZone ||
+		reloadedCfg.AmpProxySettingsPolicy != updatedCfg.AmpProxySettingsPolicy ||
+		reloadedCfg.AmpSettingsPolicy != updatedCfg.AmpSettingsPolicy ||
+		reloadedCfg.Contact.Enabled != updatedCfg.Contact.Enabled ||
+		reloadedCfg.Contact.Title != updatedCfg.Contact.Title ||
+		reloadedCfg.Contact.Description != updatedCfg.Contact.Description ||
+		reloadedCfg.Contact.Link != updatedCfg.Contact.Link ||
+		reloadedCfg.Contact.QRCodeImageDataURL == "" {
 		t.Fatalf("reloaded config mismatch: got %+v want %+v", reloadedCfg, updatedCfg)
 	}
 }

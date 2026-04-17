@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react'
 import { motion, AnimatePresence } from '@/lib/motion'
 import { FontLoadCoordinator } from '@/components/font-load-coordinator'
 import { listPublicAnnouncements, type Announcement } from '@/api/announcements'
-import { getPublicSiteConfig, type AmpProxySettingsPolicy } from '@/api/system'
+import { getPublicSiteConfig, type AmpProxySettingsPolicy, type SiteContactConfig } from '@/api/system'
 import { DEFAULT_SITE_TIME_ZONE, setActiveSiteTimeZone } from '@/lib/site-config'
 import Login from './pages/Login'
 import Register from './pages/Register'
@@ -20,6 +20,13 @@ function App() {
   const [siteTimeZone, setSiteTimeZone] = useState(DEFAULT_SITE_TIME_ZONE)
   const [ampProxySettingsPolicy, setAmpProxySettingsPolicy] = useState<AmpProxySettingsPolicy>('all')
   const [ampSettingsPolicy, setAmpSettingsPolicy] = useState<AmpProxySettingsPolicy>('all')
+  const [siteContact, setSiteContact] = useState<SiteContactConfig>({
+    enabled: false,
+    title: '',
+    description: '',
+    link: '',
+    qrCodeImageDataUrl: '',
+  })
   const [publicAnnouncements, setPublicAnnouncements] = useState<Announcement[]>([])
 
   useEffect(() => {
@@ -45,6 +52,13 @@ function App() {
           }
           setAmpProxySettingsPolicy(config.ampProxySettingsPolicy || 'all')
           setAmpSettingsPolicy(config.ampSettingsPolicy || 'all')
+          setSiteContact(config.contact || {
+            enabled: false,
+            title: '',
+            description: '',
+            link: '',
+            qrCodeImageDataUrl: '',
+          })
         }
       })
       .catch(() => {
@@ -123,10 +137,12 @@ function App() {
           siteTimeZone={siteTimeZone}
           ampProxySettingsPolicy={ampProxySettingsPolicy}
           ampSettingsPolicy={ampSettingsPolicy}
+          siteContact={siteContact}
           onSiteNameChange={setSiteName}
           onSiteTimeZoneChange={setSiteTimeZone}
           onAmpProxySettingsPolicyChange={setAmpProxySettingsPolicy}
           onAmpSettingsPolicyChange={setAmpSettingsPolicy}
+          onSiteContactChange={setSiteContact}
           onLogout={handleLogout}
         />
       </>
@@ -148,6 +164,7 @@ function App() {
             {page === 'login' ? (
               <Login
                 siteName={siteName}
+                siteContact={siteContact}
                 announcements={publicAnnouncements}
                 onSwitch={() => setPage('register')}
                 onSuccess={handleSuccess}
@@ -155,6 +172,7 @@ function App() {
             ) : (
               <Register
                 siteName={siteName}
+                siteContact={siteContact}
                 announcements={publicAnnouncements}
                 onSwitch={() => setPage('login')}
                 onSuccess={handleSuccess}

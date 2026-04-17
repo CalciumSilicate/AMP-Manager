@@ -7,6 +7,7 @@ import (
 	"io"
 	"math"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -113,6 +114,34 @@ func (h *SystemHandler) UpdateSiteConfig(c *gin.Context) {
 		case model.AmpProxySettingsPolicyDisabled, model.AmpProxySettingsPolicyAdminOnly, model.AmpProxySettingsPolicyAll:
 		default:
 			c.JSON(http.StatusBadRequest, gin.H{"error": "Amp 设置策略无效"})
+			return
+		}
+	}
+	if req.Contact != nil {
+		contactTitle := strings.TrimSpace(req.Contact.Title)
+		contactDescription := strings.TrimSpace(req.Contact.Description)
+		contactLink := strings.TrimSpace(req.Contact.Link)
+		if len(contactTitle) > 64 {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "联系方式标题长度不能超过 64 个字符"})
+			return
+		}
+		if len(contactDescription) > 1000 {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "联系方式说明长度不能超过 1000 个字符"})
+			return
+		}
+		if len(contactLink) > 2048 {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "联系方式链接长度不能超过 2048 个字符"})
+			return
+		}
+		if contactLink != "" {
+			parsed, err := url.ParseRequestURI(contactLink)
+			if err != nil || (parsed.Scheme != "http" && parsed.Scheme != "https") {
+				c.JSON(http.StatusBadRequest, gin.H{"error": "联系方式链接无效，仅支持 http/https"})
+				return
+			}
+		}
+		if req.Contact.Enabled && (contactTitle == "" || contactDescription == "" || contactLink == "") {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "启用联系方式时，标题、说明和链接均不能为空"})
 			return
 		}
 	}

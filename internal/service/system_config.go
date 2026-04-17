@@ -5,11 +5,14 @@ import (
 	"ampmanager/internal/config"
 	"ampmanager/internal/model"
 	"ampmanager/internal/repository"
+	"encoding/base64"
 	"encoding/json"
 	"regexp"
 	"strconv"
 	"strings"
 	"time"
+
+	qrcode "github.com/skip2/go-qrcode"
 )
 
 const (
@@ -29,6 +32,10 @@ const (
 	siteNameKey                          = "site_name"
 	allowAmpProxySettingsKey             = "allow_amp_proxy_settings"
 	allowAmpSettingsKey                  = "allow_amp_settings"
+	siteContactEnabledKey                = "site_contact_enabled"
+	siteContactTitleKey                  = "site_contact_title"
+	siteContactDescriptionKey            = "site_contact_description"
+	siteContactLinkKey                   = "site_contact_link"
 	billingDailyResetEnabledKey          = "billing_daily_reset_enabled"
 	billingDailyResetMinDaysKey          = "billing_daily_reset_min_remaining_days"
 	billingDailyResetThresholdPctKey     = "billing_daily_reset_usage_threshold_percent"
@@ -266,6 +273,10 @@ func (s *SystemConfigService) GetSiteConfig() (model.SiteConfigResponse, error) 
 	if err != nil {
 		return model.SiteConfigResponse{}, err
 	}
+	contact, err := s.getSiteContactConfig()
+	if err != nil {
+		return model.SiteConfigResponse{}, err
+	}
 
 	siteName := strings.TrimSpace(siteNameValue)
 	if siteName == "" {
@@ -281,6 +292,7 @@ func (s *SystemConfigService) GetSiteConfig() (model.SiteConfigResponse, error) 
 		TimeZone:               timeZone,
 		AmpProxySettingsPolicy: ampProxySettingsPolicy,
 		AmpSettingsPolicy:      ampSettingsPolicy,
+		Contact:                contact,
 	}, nil
 }
 
@@ -300,6 +312,16 @@ func (s *SystemConfigService) SetSiteConfig(req model.SiteConfigRequest) (model.
 	}
 	if req.AmpSettingsPolicy != nil {
 		ampSettingsPolicy = normalizeAmpProxySettingsPolicy(*req.AmpSettingsPolicy)
+	}
+	contact, err := s.getSiteContactConfig()
+	if err != nil {
+		return model.SiteConfigResponse{}, err
+	}
+	if req.Contact != nil {
+		contact.Enabled = req.Contact.Enabled
+		contact.Title = strings.TrimSpace(req.Contact.Title)
+		contact.Description = strings.TrimSpace(req.Contact.Description)
+		contact.Link = strings.TrimSpace(req.Contact.Link)
 	}
 
 	if timeZone == "" {
@@ -345,13 +367,91 @@ func (s *SystemConfigService) SetSiteConfig(req model.SiteConfigRequest) (model.
 			return model.SiteConfigResponse{}, err
 		}
 	}
+	if !contact.Enabled {
+		if err := s.repo.Delete(siteContactEnabledKey); err != nil {
+			return model.SiteConfigResponse{}, err
+		}
+	} else {
+		if err := s.repo.Set(siteContactEnabledKey, boolToConfigString(true)); err != nil {
+			return model.SiteConfigResponse{}, err
+		}
+	}
+	if contact.Title == "" {
+		if err := s.repo.Delete(siteContactTitleKey); err != nil {
+			return model.SiteConfigResponse{}, err
+		}
+	} else {
+		if err := s.repo.Set(siteContactTitleKey, contact.Title); err != nil {
+			return model.SiteConfigResponse{}, err
+		}
+	}
+	if contact.Description == "" {
+		if err := s.repo.Delete(siteContactDescriptionKey); err != nil {
+			return model.SiteConfigResponse{}, err
+		}
+	} else {
+		if err := s.repo.Set(siteContactDescriptionKey, contact.Description); err != nil {
+			return model.SiteConfigResponse{}, err
+		}
+	}
+	if contact.Link == "" {
+		if err := s.repo.Delete(siteContactLinkKey); err != nil {
+			return model.SiteConfigResponse{}, err
+		}
+	} else {
+		if err := s.repo.Set(siteContactLinkKey, contact.Link); err != nil {
+			return model.SiteConfigResponse{}, err
+		}
+	}
+	contact.QRCodeImageDataURL = buildSiteContactQRCodeDataURL(contact.Link)
 
 	return model.SiteConfigResponse{
 		SiteName:               siteName,
 		TimeZone:               timeZone,
 		AmpProxySettingsPolicy: ampProxySettingsPolicy,
 		AmpSettingsPolicy:      ampSettingsPolicy,
+		Contact:                contact,
 	}, nil
+}
+
+func (s *SystemConfigService) getSiteContactConfig() (model.SiteContactConfig, error) {
+	enabledValue, err := s.repo.Get(siteContactEnabledKey)
+	if err != nil {
+		return model.SiteContactConfig{}, err
+	}
+	titleValue, err := s.repo.Get(siteContactTitleKey)
+	if err != nil {
+		return model.SiteContactConfig{}, err
+	}
+	descriptionValue, err := s.repo.Get(siteContactDescriptionKey)
+	if err != nil {
+		return model.SiteContactConfig{}, err
+	}
+	linkValue, err := s.repo.Get(siteContactLinkKey)
+	if err != nil {
+		return model.SiteContactConfig{}, err
+	}
+
+	link := strings.TrimSpace(linkValue)
+	return model.SiteContactConfig{
+		Enabled:            enabledValue == "true",
+		Title:              strings.TrimSpace(titleValue),
+		Description:        strings.TrimSpace(descriptionValue),
+		Link:               link,
+		QRCodeImageDataURL: buildSiteContactQRCodeDataURL(link),
+	}, nil
+}
+
+func buildSiteContactQRCodeDataURL(value string) string {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return ""
+	}
+	data, err := qrcode.Encode(value, qrcode.Medium, 256)
+	if err != nil {
+		return ""
+	}
+	return "data:image/png;base64," + base64.StdEncoding.EncodeToString(data)
 }
 
 func (s *SystemConfigService) GetAmpProxySettingsPolicy() (string, error) {

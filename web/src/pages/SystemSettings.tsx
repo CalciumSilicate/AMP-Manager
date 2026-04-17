@@ -41,6 +41,7 @@ import {
   getBillingDailyResetConfig,
   updateBillingDailyResetConfig,
   BillingDailyResetConfig,
+  SiteContactConfig,
   type AmpProxySettingsPolicy,
 } from '../api/system'
 import { Button } from '@/components/ui/button'
@@ -85,10 +86,12 @@ interface Props {
   siteTimeZone: string
   ampProxySettingsPolicy: AmpProxySettingsPolicy
   ampSettingsPolicy: AmpProxySettingsPolicy
+  siteContact: SiteContactConfig
   onSiteNameChange: (siteName: string) => void
   onSiteTimeZoneChange: (timeZone: string) => void
   onAmpProxySettingsPolicyChange: (policy: AmpProxySettingsPolicy) => void
   onAmpSettingsPolicyChange: (policy: AmpProxySettingsPolicy) => void
+  onSiteContactChange: (contact: SiteContactConfig) => void
 }
 
 export default function SystemSettings({
@@ -96,10 +99,12 @@ export default function SystemSettings({
   siteTimeZone,
   ampProxySettingsPolicy,
   ampSettingsPolicy,
+  siteContact,
   onSiteNameChange,
   onSiteTimeZoneChange,
   onAmpProxySettingsPolicyChange,
   onAmpSettingsPolicyChange,
+  onSiteContactChange,
 }: Props) {
   const [activeTab, setActiveTab] = useState<SettingsTab>('site')
 
@@ -132,6 +137,7 @@ export default function SystemSettings({
   const [siteTimeZoneInput, setSiteTimeZoneInput] = useState(siteTimeZone)
   const [ampProxySettingsPolicyInput, setAmpProxySettingsPolicyInput] = useState<AmpProxySettingsPolicy>(ampProxySettingsPolicy)
   const [ampSettingsPolicyInput, setAmpSettingsPolicyInput] = useState<AmpProxySettingsPolicy>(ampSettingsPolicy)
+  const [siteContactInput, setSiteContactInput] = useState<SiteContactConfig>(siteContact)
   const [siteConfigSaving, setSiteConfigSaving] = useState(false)
   const [balanceTopupPriceInput, setBalanceTopupPriceInput] = useState('0')
   const [balanceTopupSaving, setBalanceTopupSaving] = useState(false)
@@ -157,6 +163,10 @@ export default function SystemSettings({
   useEffect(() => {
     setAmpSettingsPolicyInput(ampSettingsPolicy)
   }, [ampSettingsPolicy])
+
+  useEffect(() => {
+    setSiteContactInput(siteContact)
+  }, [siteContact])
 
   const showMessage = useCallback((type: 'success' | 'error', text: string) => {
     setMessage({ type, text })
@@ -343,17 +353,30 @@ export default function SystemSettings({
     try {
       const nextPayloadLimitMB = Math.max(1, Math.round(requestPayloadLimitMB))
       const [result] = await Promise.all([
-        updateSiteConfig(siteNameInput, siteTimeZoneInput, ampProxySettingsPolicyInput, ampSettingsPolicyInput),
+        updateSiteConfig({
+          siteName: siteNameInput,
+          timeZone: siteTimeZoneInput,
+          ampProxySettingsPolicy: ampProxySettingsPolicyInput,
+          ampSettingsPolicy: ampSettingsPolicyInput,
+          contact: {
+            enabled: siteContactInput.enabled,
+            title: siteContactInput.title,
+            description: siteContactInput.description,
+            link: siteContactInput.link,
+          },
+        }),
         updateRequestPayloadLimit({ maxBytes: nextPayloadLimitMB * 1024 * 1024 }),
       ])
       onSiteNameChange(result.config.siteName)
       onSiteTimeZoneChange(result.config.timeZone)
       onAmpProxySettingsPolicyChange(result.config.ampProxySettingsPolicy)
       onAmpSettingsPolicyChange(result.config.ampSettingsPolicy)
+      onSiteContactChange(result.config.contact)
       setSiteNameInput(result.config.siteName)
       setSiteTimeZoneInput(result.config.timeZone)
       setAmpProxySettingsPolicyInput(result.config.ampProxySettingsPolicy)
       setAmpSettingsPolicyInput(result.config.ampSettingsPolicy)
+      setSiteContactInput(result.config.contact)
       setRequestPayloadLimitMB(nextPayloadLimitMB)
       showMessage('success', '网站配置已保存')
     } catch (err) {
@@ -844,6 +867,63 @@ export default function SystemSettings({
                         <SelectItem value="all">启用</SelectItem>
                       </SelectContent>
                     </Select>
+                  </div>
+                  <div className="max-w-xl rounded-lg border px-4 py-4 space-y-4">
+                    <div className="flex items-center justify-between gap-4">
+                      <div className="space-y-1">
+                        <Label htmlFor="siteContactEnabled">联系方式按钮</Label>
+                        <p className="text-xs text-muted-foreground">开启后，会在公告按钮旁显示联系方式入口。</p>
+                      </div>
+                      <Switch
+                        id="siteContactEnabled"
+                        checked={siteContactInput.enabled}
+                        onCheckedChange={(checked) => setSiteContactInput((current) => ({ ...current, enabled: checked }))}
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="siteContactTitle">标题</Label>
+                      <Input
+                        id="siteContactTitle"
+                        value={siteContactInput.title}
+                        onChange={(e) => setSiteContactInput((current) => ({ ...current, title: e.target.value }))}
+                        placeholder="例如 Telegram / 企业微信 / Discord"
+                        maxLength={64}
+                      />
+                      <p className="text-xs text-muted-foreground">用于超链接点击展示。</p>
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="siteContactDescription">说明</Label>
+                      <Textarea
+                        id="siteContactDescription"
+                        value={siteContactInput.description}
+                        onChange={(e) => setSiteContactInput((current) => ({ ...current, description: e.target.value }))}
+                        placeholder="说明加入方式、服务时间或联系用途。"
+                        rows={4}
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="siteContactLink">链接</Label>
+                      <Input
+                        id="siteContactLink"
+                        value={siteContactInput.link}
+                        onChange={(e) => setSiteContactInput((current) => ({ ...current, link: e.target.value }))}
+                        placeholder="https://example.com/contact"
+                        maxLength={2048}
+                      />
+                      <p className="text-xs text-muted-foreground">标题跳转和二维码都基于这个链接生成。</p>
+                    </div>
+                    <div className="space-y-2">
+                      <Label>二维码预览</Label>
+                      <div className="flex h-40 w-40 items-center justify-center rounded-xl border bg-muted/20">
+                        {siteContactInput.qrCodeImageDataUrl ? (
+                          <img src={siteContactInput.qrCodeImageDataUrl} alt="联系方式二维码预览" className="h-32 w-32 object-contain" />
+                        ) : (
+                          <div className="px-4 text-center text-xs text-muted-foreground">
+                            {siteContactInput.link.trim() ? '保存后生成二维码' : '填写链接后可生成二维码'}
+                          </div>
+                        )}
+                      </div>
+                    </div>
                   </div>
                   <div className="max-w-xs space-y-2">
                     <Label htmlFor="requestPayloadLimit">请求体上限 (MiB)</Label>

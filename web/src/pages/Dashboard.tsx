@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { listMyAnnouncements, markAnnouncementRead, type Announcement } from '@/api/announcements'
-import { AnnouncementCenter, AnnouncementUnreadDialog } from '@/components/announcements/AnnouncementCenter'
+import { AnnouncementCenter, AnnouncementUnreadDialog, ContactCenter } from '@/components/announcements/AnnouncementCenter'
 import { motion, AnimatePresence } from '@/lib/motion'
 import Overview from './Overview'
 import AdminOverview from './AdminOverview'
@@ -21,7 +21,7 @@ import PurchaseCenter from './PurchaseCenter'
 import PaidSubscriptions from './PaidSubscriptions'
 import RedeemManagement from './RedeemManagement'
 import StatusMonitor from './StatusMonitor'
-import type { AmpProxySettingsPolicy } from '@/api/system'
+import type { AmpProxySettingsPolicy, SiteContactConfig } from '@/api/system'
 import { Button } from '@/components/ui/button'
 // Card components available if needed by child pages
 import { Badge } from '@/components/ui/badge'
@@ -70,10 +70,12 @@ interface Props {
   siteTimeZone: string
   ampProxySettingsPolicy: AmpProxySettingsPolicy
   ampSettingsPolicy: AmpProxySettingsPolicy
+  siteContact: SiteContactConfig
   onSiteNameChange: (siteName: string) => void
   onSiteTimeZoneChange: (timeZone: string) => void
   onAmpProxySettingsPolicyChange: (policy: AmpProxySettingsPolicy) => void
   onAmpSettingsPolicyChange: (policy: AmpProxySettingsPolicy) => void
+  onSiteContactChange: (contact: SiteContactConfig) => void
   onLogout: () => void
 }
 
@@ -108,10 +110,12 @@ export default function Dashboard({
   siteTimeZone,
   ampProxySettingsPolicy,
   ampSettingsPolicy,
+  siteContact,
   onSiteNameChange,
   onSiteTimeZoneChange,
   onAmpProxySettingsPolicyChange,
   onAmpSettingsPolicyChange,
+  onSiteContactChange,
   onLogout,
 }: Props) {
   const [currentPage, setCurrentPage] = useState<Page>('overview')
@@ -394,6 +398,7 @@ export default function Dashboard({
                   busyId={announcementBusyId}
                   busyAll={announcementBusyAll}
                 />
+                <ContactCenter contact={siteContact} />
                 <DropdownMenu>
                   <DropdownMenuTrigger asChild>
                     <Button variant="outline" className="gap-2 rounded-full pl-3 pr-4">
@@ -462,10 +467,12 @@ export default function Dashboard({
                       siteTimeZone={siteTimeZone}
                       ampProxySettingsPolicy={ampProxySettingsPolicy}
                       ampSettingsPolicy={ampSettingsPolicy}
+                      siteContact={siteContact}
                       onSiteNameChange={onSiteNameChange}
                       onSiteTimeZoneChange={onSiteTimeZoneChange}
                       onAmpProxySettingsPolicyChange={onAmpProxySettingsPolicyChange}
                       onAmpSettingsPolicyChange={onAmpSettingsPolicyChange}
+                      onSiteContactChange={onSiteContactChange}
                     />
                   )}
                 </motion.div>

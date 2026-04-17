@@ -355,6 +355,22 @@ export interface SiteConfig {
   timeZone: string
   ampProxySettingsPolicy: AmpProxySettingsPolicy
   ampSettingsPolicy: AmpProxySettingsPolicy
+  contact: SiteContactConfig
+}
+
+export interface SiteContactConfig {
+  enabled: boolean
+  title: string
+  description: string
+  link: string
+  qrCodeImageDataUrl: string
+}
+
+export interface SiteContactConfigRequest {
+  enabled: boolean
+  title: string
+  description: string
+  link: string
 }
 
 export type AmpProxySettingsPolicy = 'disabled' | 'admin_only' | 'all'
@@ -431,14 +447,17 @@ export async function updateBillingDailyResetConfig(
 }
 
 export async function updateSiteConfig(
-  siteName: string,
-  timeZone: string,
-  ampProxySettingsPolicy: AmpProxySettingsPolicy,
-  ampSettingsPolicy: AmpProxySettingsPolicy
+  payload: {
+    siteName: string
+    timeZone: string
+    ampProxySettingsPolicy: AmpProxySettingsPolicy
+    ampSettingsPolicy: AmpProxySettingsPolicy
+    contact: SiteContactConfigRequest
+  }
 ): Promise<{ message: string; config: SiteConfig }> {
   const res = await authFetch(`${API_BASE}/admin/system/site-config`, {
     method: 'PUT',
-    body: JSON.stringify({ siteName, timeZone, ampProxySettingsPolicy, ampSettingsPolicy }),
+    body: JSON.stringify(payload),
   })
 
   if (!res.ok) {

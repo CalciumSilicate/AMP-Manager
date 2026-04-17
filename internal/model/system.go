@@ -96,19 +96,36 @@ type RequestDetailConfigRequest struct {
 }
 
 // SiteConfigResponse 站点配置响应
+type SiteContactConfig struct {
+	Enabled            bool   `json:"enabled"`
+	Title              string `json:"title"`
+	Description        string `json:"description"`
+	Link               string `json:"link"`
+	QRCodeImageDataURL string `json:"qrCodeImageDataUrl"`
+}
+
 type SiteConfigResponse struct {
-	SiteName               string `json:"siteName"`
-	TimeZone               string `json:"timeZone"`
-	AmpProxySettingsPolicy string `json:"ampProxySettingsPolicy"`
-	AmpSettingsPolicy      string `json:"ampSettingsPolicy"`
+	SiteName               string            `json:"siteName"`
+	TimeZone               string            `json:"timeZone"`
+	AmpProxySettingsPolicy string            `json:"ampProxySettingsPolicy"`
+	AmpSettingsPolicy      string            `json:"ampSettingsPolicy"`
+	Contact                SiteContactConfig `json:"contact"`
 }
 
 // SiteConfigRequest 站点配置请求
+type SiteContactConfigRequest struct {
+	Enabled     bool   `json:"enabled"`
+	Title       string `json:"title"`
+	Description string `json:"description"`
+	Link        string `json:"link"`
+}
+
 type SiteConfigRequest struct {
-	SiteName               string  `json:"siteName"`
-	TimeZone               string  `json:"timeZone"`
-	AmpProxySettingsPolicy *string `json:"ampProxySettingsPolicy,omitempty"`
-	AmpSettingsPolicy      *string `json:"ampSettingsPolicy,omitempty"`
+	SiteName               string                    `json:"siteName"`
+	TimeZone               string                    `json:"timeZone"`
+	AmpProxySettingsPolicy *string                   `json:"ampProxySettingsPolicy,omitempty"`
+	AmpSettingsPolicy      *string                   `json:"ampSettingsPolicy,omitempty"`
+	Contact                *SiteContactConfigRequest `json:"contact,omitempty"`
 }
 
 type BillingRuntimeConfigResponse struct {
