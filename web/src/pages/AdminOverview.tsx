@@ -321,10 +321,15 @@ export default function AdminOverview() {
         <motion.div variants={staggerItem} whileHover={{ scale: 1.03, y: -4 }} whileTap={{ scale: 0.98 }} className="h-full">
           <Card className="h-full bg-gradient-to-br from-blue-500/10 to-cyan-500/10 border-blue-500/20">
             <CardHeader className="pb-2">
-              <CardDescription className="flex items-center gap-1.5">
-                <Wallet className="h-4 w-4" />
-                全部用户总余额
-              </CardDescription>
+              <div className="flex items-center justify-between gap-2">
+                <CardDescription className="flex items-center gap-1.5">
+                  <Wallet className="h-4 w-4" />
+                  全部用户总余额
+                </CardDescription>
+                <Badge variant="outline" className="bg-background/70">
+                  并发 {data.balance.currentConcurrency}
+                </Badge>
+              </div>
               <CardTitle className="text-3xl text-blue-600 dark:text-blue-400">
                 {formatUsd(totalBalanceUsd, 2)}
               </CardTitle>

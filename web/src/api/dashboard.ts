@@ -77,6 +77,7 @@ export interface AdminDashboardData {
     totalBalanceMicros: number
     totalBalanceUsd: string
     userCount: number
+    currentConcurrency: number
   }
   today: DashboardPeriodStats
   week: DashboardPeriodStats

@@ -508,6 +508,7 @@ func (h *RequestLogHandler) GetAdminDashboard(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "获取余额失败"})
 		return
 	}
+	currentConcurrency := amp.GetTotalCurrentConcurrency()
 
 	today, week, month, topModels, dailyTrend, throughputTrend, ttfbTrend, durationTrend, err := h.logService.GetAdminDashboardStats(windowKey)
 	if err != nil {
@@ -595,6 +596,7 @@ func (h *RequestLogHandler) GetAdminDashboard(c *gin.Context) {
 			"totalBalanceMicros": totalBalance,
 			"totalBalanceUsd":    fmt.Sprintf("%.6f", float64(totalBalance)/1e6),
 			"userCount":          userCount,
+			"currentConcurrency": currentConcurrency,
 		},
 		"today":            formatPeriod(today),
 		"week":             formatPeriod(week),

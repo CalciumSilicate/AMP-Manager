@@ -413,8 +413,23 @@ func (l *activeRequestLimiter) Current(userID string) int {
 	return l.counts[userID]
 }
 
+func (l *activeRequestLimiter) TotalCurrent() int {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+
+	total := 0
+	for _, count := range l.counts {
+		total += count
+	}
+	return total
+}
+
 func GetUserCurrentConcurrency(userID string) int {
 	return userConcurrencyLimiter.Current(userID)
+}
+
+func GetTotalCurrentConcurrency() int {
+	return userConcurrencyLimiter.TotalCurrent()
 }
 
 func maskAPIKey(apiKey string) string {
