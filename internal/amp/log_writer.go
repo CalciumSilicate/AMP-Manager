@@ -817,6 +817,8 @@ func (w *LoggingBodyWrapper) Close() error {
 					}
 				}
 			}
+
+			FinalizeSessionSticky(w.ctx, w.trace)
 		}
 	})
 	return err

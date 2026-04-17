@@ -31,6 +31,7 @@ import { LogDetailModal } from '@/components/LogDetailModal'
 import { LogFilterBar, FilterValues, localToISO } from '@/components/LogFilterBar'
 import { motion } from '@/lib/motion'
 import { PageSizeSlider } from '@/components/PageSizeSlider'
+import { OverflowCopyText } from '@/components/OverflowCopyText'
 import { cn } from '@/lib/utils'
 
 interface Props {
@@ -324,18 +325,15 @@ const RequestLogRow = memo(function RequestLogRow({
           </Tooltip>
         </TableCell>
       )}
-      <TableCell className="max-w-40">
+      <TableCell className="w-[11rem] max-w-[11rem]">
         {log.sessionId ? (
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <span className="block cursor-default truncate font-mono text-xs text-foreground" title={sessionDisplay}>
-                {sessionDisplay}
-              </span>
-            </TooltipTrigger>
-            <TooltipContent side="bottom" className="border bg-popover px-3 py-2 text-xs text-popover-foreground shadow-md">
-              <span className="font-mono">{sessionDisplay}</span>
-            </TooltipContent>
-          </Tooltip>
+          <OverflowCopyText
+            text={sessionDisplay}
+            copyValue={sessionDisplay}
+            tooltipText={sessionDisplay}
+            className="font-mono text-xs text-foreground"
+            tooltipClassName="font-mono"
+          />
         ) : (
           <span className="text-xs text-muted-foreground">-</span>
         )}
@@ -851,7 +849,7 @@ export default function RequestLogs({ isAdmin }: Props) {
                     <TableRow>
                       <TableHead className="whitespace-nowrap">时间</TableHead>
                       {isAdmin && <TableHead className="whitespace-nowrap">用户</TableHead>}
-                      <TableHead className="whitespace-nowrap">Session</TableHead>
+                      <TableHead className="w-[11rem] min-w-[11rem] whitespace-nowrap">Session</TableHead>
                       <TableHead className="whitespace-nowrap">模型</TableHead>
                       <TableHead className="whitespace-nowrap">渠道</TableHead>
                       <TableHead className="whitespace-nowrap">思维等级</TableHead>
