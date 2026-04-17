@@ -63,6 +63,7 @@ func Setup() *gin.Engine {
 	})
 
 	authLimiter := middleware.NewRateLimiter(cfg.RateLimitAuthRPS, 10)
+	proxyLimiter := middleware.NewRateLimiter(cfg.RateLimitProxyRPS, 200)
 
 	userHandler := handler.NewUserHandler()
 	ampHandler := handler.NewAmpHandler()
@@ -82,6 +83,8 @@ func Setup() *gin.Engine {
 
 	api := r.Group("/api")
 	{
+		api.GET("/usage", amp.APIKeyAuthMiddleware(), proxyLimiter.RateLimitByAPIKey(), ampHandler.GetAPIUsage)
+
 		// Local management auth (using /manage/auth to avoid conflict with proxy /api/auth/*)
 		manageAuth := api.Group("/manage/auth")
 		manageAuth.Use(authLimiter.RateLimitByIP())

@@ -28,6 +28,7 @@ import {
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Table, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
+import { APIKeyUsageDialog } from '@/components/api-keys/APIKeyUsageDialog'
 import { formatDateTime } from '@/lib/formatters'
 
 function buildRandomSkKey() {
@@ -48,12 +49,14 @@ export default function APIKeys() {
   const [creating, setCreating] = useState(false)
   const [newKey, setNewKey] = useState<CreateAPIKeyResponse | null>(null)
   const [revealKey, setRevealKey] = useState<APIKeyRevealResponse | null>(null)
+  const [usageKey, setUsageKey] = useState<APIKeyRevealResponse | null>(null)
   const [editingKey, setEditingKey] = useState<APIKey | null>(null)
   const [editName, setEditName] = useState('')
   const [editExpiresAt, setEditExpiresAt] = useState('')
   const [savingEdit, setSavingEdit] = useState(false)
   const [copied, setCopied] = useState<string | null>(null)
   const [revealingId, setRevealingId] = useState<string | null>(null)
+  const [usingId, setUsingId] = useState<string | null>(null)
   const [deletingId, setDeletingId] = useState<string | null>(null)
   const [togglingId, setTogglingId] = useState<string | null>(null)
 
@@ -145,6 +148,20 @@ export default function APIKeys() {
       setError(err instanceof Error ? err.message : '获取失败')
     } finally {
       setRevealingId(null)
+    }
+  }
+
+  const handleOpenUsage = async (id: string) => {
+    setUsingId(id)
+    setError('')
+
+    try {
+      const result = await getAPIKey(id)
+      setUsageKey(result)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '获取失败')
+    } finally {
+      setUsingId(null)
     }
   }
 
@@ -337,6 +354,14 @@ export default function APIKeys() {
                               <Button
                                 variant="ghost"
                                 size="sm"
+                                onClick={() => void handleOpenUsage(key.id)}
+                                disabled={key.status !== 'active' || usingId === key.id}
+                              >
+                                {usingId === key.id ? '加载中...' : '使用'}
+                              </Button>
+                              <Button
+                                variant="ghost"
+                                size="sm"
                                 onClick={() => void handleReveal(key.id)}
                                 disabled={revealingId === key.id}
                               >
@@ -502,6 +527,15 @@ export default function APIKeys() {
             </DialogFooter>
           </DialogContent>
         </Dialog>
+
+        <APIKeyUsageDialog
+          open={!!usageKey}
+          onOpenChange={(open) => !open && setUsageKey(null)}
+          revealKey={usageKey}
+          apiBaseUrl={apiBaseUrl}
+          copied={copied}
+          onCopy={copyToClipboard}
+        />
       </AdminPageShell>
     </motion.div>
   )

@@ -120,6 +120,17 @@ type APIKeyRevealResponse struct {
 	CreatedAt time.Time  `json:"createdAt"`
 }
 
+type CCSwitchUsageItem struct {
+	PlanName       *string  `json:"planName,omitempty"`
+	Extra          *string  `json:"extra,omitempty"`
+	IsValid        *bool    `json:"isValid,omitempty"`
+	InvalidMessage *string  `json:"invalidMessage,omitempty"`
+	Total          *float64 `json:"total,omitempty"`
+	Used           *float64 `json:"used,omitempty"`
+	Remaining      *float64 `json:"remaining,omitempty"`
+	Unit           *string  `json:"unit,omitempty"`
+}
+
 type APIKeyListItem struct {
 	ID        string     `json:"id"`
 	Name      string     `json:"name"`

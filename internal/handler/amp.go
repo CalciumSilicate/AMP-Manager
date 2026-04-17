@@ -4,6 +4,7 @@ import (
 	"errors"
 	"net/http"
 
+	ampproxy "ampmanager/internal/amp"
 	"ampmanager/internal/middleware"
 	"ampmanager/internal/model"
 	"ampmanager/internal/repository"
@@ -393,4 +394,20 @@ func (h *AmpHandler) GetBootstrap(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, bootstrap)
+}
+
+func (h *AmpHandler) GetAPIUsage(c *gin.Context) {
+	proxyCfg := ampproxy.GetProxyConfig(c.Request.Context())
+	if proxyCfg == nil || proxyCfg.UserID == "" {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "未授权"})
+		return
+	}
+
+	items, err := h.ampService.GetClientUsage(proxyCfg.UserID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "获取用量失败"})
+		return
+	}
+
+	c.JSON(http.StatusOK, items)
 }

@@ -449,6 +449,68 @@ func (s *AmpService) GetBootstrap(userID string) (*model.BootstrapResponse, erro
 	}, nil
 }
 
+func (s *AmpService) GetClientUsage(userID string) ([]model.CCSwitchUsageItem, error) {
+	billingState, err := NewBillingService().GetBillingState(userID)
+	if err != nil {
+		return nil, err
+	}
+
+	now := time.Now().UTC()
+	from := now.AddDate(0, 0, -30)
+	usageSummary, err := NewRequestLogService().GetUsageSummary(userID, &from, &now, "day", "")
+	if err != nil {
+		return nil, err
+	}
+
+	var recentRequestCount int64
+	var recentCostMicros int64
+	for _, item := range usageSummary.Items {
+		recentRequestCount += item.RequestCount
+		recentCostMicros += item.CostMicrosSum
+	}
+
+	unitUSD := "USD"
+	valid := true
+	balancePlanName := "余额"
+	balanceRemaining := microsToUSD(billingState.BalanceMicros)
+	balanceExtra := fmt.Sprintf("近30天：%d 次请求，$%.6f", recentRequestCount, microsToUSDInt64(recentCostMicros))
+
+	items := []model.CCSwitchUsageItem{
+		{
+			PlanName:  &balancePlanName,
+			Extra:     &balanceExtra,
+			IsValid:   &valid,
+			Remaining: &balanceRemaining,
+			Unit:      &unitUSD,
+		},
+	}
+
+	subscriptionName := "订阅额度"
+	if billingState.Subscription != nil && strings.TrimSpace(billingState.Subscription.PlanName) != "" {
+		subscriptionName = billingState.Subscription.PlanName
+	}
+
+	for _, window := range billingState.Windows {
+		planName := fmt.Sprintf("%s · %s", subscriptionName, formatWindowLabel(window))
+		total := microsToUSD(window.LimitMicros)
+		used := microsToUSD(window.UsedMicros)
+		remaining := microsToUSD(window.LeftMicros)
+		extra := fmt.Sprintf("重置时间：%s", window.WindowEnd.UTC().Format("2006-01-02 15:04 UTC"))
+
+		items = append(items, model.CCSwitchUsageItem{
+			PlanName:  &planName,
+			Extra:     &extra,
+			IsValid:   &valid,
+			Total:     &total,
+			Used:      &used,
+			Remaining: &remaining,
+			Unit:      &unitUSD,
+		})
+	}
+
+	return items, nil
+}
+
 func (s *AmpService) GetSettingsInternal(userID string) (*model.AmpSettings, error) {
 	settings, err := s.settingsRepo.GetByUserID(userID)
 	if err != nil {
@@ -458,6 +520,38 @@ func (s *AmpService) GetSettingsInternal(userID string) (*model.AmpSettings, err
 		settings.UpstreamAPIKey = s.decryptUpstreamAPIKey(settings.UpstreamAPIKey)
 	}
 	return settings, nil
+}
+
+func microsToUSD(value int64) float64 {
+	return microsToUSDInt64(value)
+}
+
+func microsToUSDInt64(value int64) float64 {
+	return float64(value) / 1e6
+}
+
+func formatWindowLabel(window model.WindowRemaining) string {
+	label := ""
+	switch window.LimitType {
+	case model.LimitTypeDaily:
+		label = "日额度"
+	case model.LimitTypeWeekly:
+		label = "周额度"
+	case model.LimitTypeMonthly:
+		label = "月额度"
+	case model.LimitTypeRolling5h:
+		label = "5小时额度"
+	case model.LimitTypeTotal:
+		label = "总额度"
+	default:
+		label = "额度"
+	}
+
+	if window.WindowMode == model.WindowModeSliding && window.LimitType != model.LimitTypeTotal {
+		return label + "（滑动）"
+	}
+
+	return label
 }
 
 func (s *AmpService) ValidateAPIKey(rawKey string) (*model.UserAPIKey, error) {
