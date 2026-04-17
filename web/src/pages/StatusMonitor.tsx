@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { Activity, Clock3, RefreshCw, Server, TimerReset, Waves } from 'lucide-react'
+import { Activity, Clock3, RefreshCw, TimerReset, type LucideIcon, Waves } from 'lucide-react'
 
 import { getStatusMonitorDashboard, type StatusMonitorDashboardItem, type StatusMonitorPeriod, type StatusMonitorState } from '@/api/statusMonitor'
 import { AdminPageShell, AdminSurface, AdminToolbarRow } from '@/components/admin/AdminPageShell'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { motion, staggerContainer, staggerItem } from '@/lib/motion'
 import { formatDateTimeWithSeconds } from '@/lib/formatters'
 
@@ -80,7 +81,6 @@ export default function StatusMonitor() {
     <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
       <AdminPageShell
         title="状态监控"
-        description="查看服务层、上游层和自定义目标的最新探测状态、历史条带和周期可用率。"
         actions={
           <Button variant="outline" onClick={() => void loadDashboard()} disabled={loading}>
             <RefreshCw className={`mr-2 h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
@@ -132,14 +132,6 @@ export default function StatusMonitor() {
               ))}
             </div>
           </AdminToolbarRow>
-
-          <div className="grid gap-3 border-t border-border/70 px-5 py-5 md:grid-cols-2 xl:grid-cols-5">
-            <SummaryCard label="正常" value={data?.summaryCounts.operational || 0} accent="text-emerald-600" />
-            <SummaryCard label="波动" value={data?.summaryCounts.degraded || 0} accent="text-amber-600" />
-            <SummaryCard label="错误" value={data?.summaryCounts.error || 0} accent="text-red-600" />
-            <SummaryCard label="失败" value={data?.summaryCounts.failed || 0} accent="text-rose-700" />
-            <SummaryCard label="未知" value={data?.summaryCounts.unknown || 0} accent="text-muted-foreground" />
-          </div>
         </AdminSurface>
 
         {loading && !data ? (
@@ -176,20 +168,14 @@ export default function StatusMonitor() {
   )
 }
 
-function SummaryCard({ label, value, accent }: { label: string; value: number; accent?: string }) {
-  return (
-    <div className="rounded-2xl border border-border/70 bg-background/80 px-4 py-4">
-      <div className="text-xs uppercase tracking-[0.18em] text-muted-foreground">{label}</div>
-      <div className={`mt-3 text-3xl font-semibold tracking-tight ${accent || ''}`}>{value}</div>
-    </div>
-  )
-}
-
 function StatusCard({ item, period }: { item: StatusMonitorDashboardItem; period: StatusMonitorPeriod }) {
-  const history = item.history.length > 0 ? item.history : Array.from({ length: 60 }, (_, index) => ({
-    status: 'unknown' as const,
-    checkedAt: `${index}`,
-  }))
+  const history = item.history.slice(-60)
+  const historySlots: Array<StatusMonitorDashboardItem['history'][number] | null> = [
+    ...Array.from({ length: Math.max(0, 60 - history.length) }, () => null),
+    ...history,
+  ]
+  const latestCheckedAt = formatProbeTime(item.latest.checkedAt)
+  const latestMessage = sanitizeLatestMessage(item.latest.message)
 
   return (
     <motion.article
@@ -220,21 +206,16 @@ function StatusCard({ item, period }: { item: StatusMonitorDashboardItem; period
         </div>
 
         <div className="grid gap-3 sm:grid-cols-2">
-          <MetricTile icon={TimerReset} label="对话延迟" value={formatMs(item.latest.latencyMs)} />
-          <MetricTile icon={Waves} label="端点 PING" value={formatMs(item.latest.ttfbMs)} />
+          <MetricTile icon={Waves} label="TTFB" value={formatMs(item.latest.ttfbMs)} />
+          <MetricTile icon={Clock3} label="LATEST" value={latestCheckedAt} valueClassName="text-base sm:text-lg" />
         </div>
 
-        <div className="grid gap-3 rounded-2xl border border-border/70 bg-background/75 px-4 py-4 sm:grid-cols-2">
-          <div className="space-y-1">
-            <div className="text-xs uppercase tracking-[0.16em] text-muted-foreground">Endpoint</div>
-            <div className="line-clamp-2 text-sm text-foreground">{item.endpointLabel || '-'}</div>
+        {latestMessage ? (
+          <div className="rounded-2xl border border-border/70 bg-background/75 px-4 py-4">
+            <div className="text-xs uppercase tracking-[0.16em] text-muted-foreground">Message</div>
+            <div className="mt-1 text-sm text-foreground">{latestMessage}</div>
           </div>
-          <div className="space-y-1">
-            <div className="text-xs uppercase tracking-[0.16em] text-muted-foreground">Latest</div>
-            <div className="text-sm text-foreground">{item.latest.checkedAt ? formatDateTimeWithSeconds(item.latest.checkedAt) : '暂无'}</div>
-            <div className="text-xs text-muted-foreground">{item.latest.message || '暂无消息'}</div>
-          </div>
-        </div>
+        ) : null}
 
         <div className="flex items-end justify-between gap-4">
           <div>
@@ -247,8 +228,7 @@ function StatusCard({ item, period }: { item: StatusMonitorDashboardItem; period
             </div>
           </div>
           <div className="text-right text-xs text-muted-foreground">
-            <div>HISTORY ({item.history.length || 60} PTS)</div>
-            <div className="mt-1">最新探测靠右</div>
+            <div>HISTORY (60 PTS)</div>
           </div>
         </div>
 
@@ -257,15 +237,27 @@ function StatusCard({ item, period }: { item: StatusMonitorDashboardItem; period
             <span>Past</span>
             <span>Now</span>
           </div>
-          <div className="flex items-center gap-[3px]">
-            {history.map((point, index) => (
-              <span
-                key={`${point.checkedAt}-${index}`}
-                className={`h-7 flex-1 rounded-full ${HISTORY_CLASS[point.status]}`}
-                title={point.checkedAt}
-              />
-            ))}
-          </div>
+          <TooltipProvider delayDuration={0}>
+            <div className="flex items-center gap-[3px]">
+              {historySlots.map((point, index) => {
+                if (!point) {
+                  return <span key={`empty-${index}`} className="h-7 flex-1 rounded-full bg-muted/30" />
+                }
+
+                return (
+                  <Tooltip key={`${point.checkedAt}-${index}`}>
+                    <TooltipTrigger asChild>
+                      <span className={`h-7 flex-1 rounded-full ${HISTORY_CLASS[point.status]}`} />
+                    </TooltipTrigger>
+                    <TooltipContent side="top" className="space-y-1 border bg-popover px-3 py-2 text-xs text-popover-foreground shadow-md">
+                      <div>{STATUS_LABELS[point.status]}</div>
+                      <div className="text-muted-foreground">{formatProbeTime(point.checkedAt)}</div>
+                    </TooltipContent>
+                  </Tooltip>
+                )
+              })}
+            </div>
+          </TooltipProvider>
         </div>
       </div>
     </motion.article>
@@ -276,10 +268,12 @@ function MetricTile({
   icon: Icon,
   label,
   value,
+  valueClassName,
 }: {
-  icon: typeof Server
+  icon: LucideIcon
   label: string
   value: string
+  valueClassName?: string
 }) {
   return (
     <div className="rounded-2xl border border-border/70 bg-background/80 px-4 py-4">
@@ -287,11 +281,28 @@ function MetricTile({
         <Icon className="h-4 w-4" />
         {label}
       </div>
-      <div className="mt-3 text-3xl font-semibold tracking-tight text-foreground">{value}</div>
+      <div className={`mt-3 font-semibold tracking-tight text-foreground ${valueClassName || 'text-3xl'}`}>{value}</div>
     </div>
   )
 }
 
 function formatMs(value: number) {
   return value > 0 ? `${value} ms` : '-'
+}
+
+function sanitizeLatestMessage(message?: string) {
+  if (!message) return ''
+  if (message.startsWith('已收到首包')) return ''
+  return message
+}
+
+function formatProbeTime(value?: string) {
+  if (!value) return '暂无'
+
+  const parsed = new Date(value)
+  if (Number.isNaN(parsed.getTime())) {
+    return value
+  }
+
+  return formatDateTimeWithSeconds(value)
 }
