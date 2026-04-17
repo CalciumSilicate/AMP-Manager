@@ -204,6 +204,7 @@ func (h *UserHandler) SetAdmin(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "设置权限失败"})
 		return
 	}
+	middleware.InvalidateUserRoleCache(userID)
 
 	c.JSON(http.StatusOK, gin.H{"message": "权限设置成功"})
 }
@@ -238,6 +239,7 @@ func (h *UserHandler) DeleteUser(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "删除用户失败"})
 		return
 	}
+	middleware.InvalidateUserRoleCache(userID)
 
 	c.JSON(http.StatusOK, gin.H{"message": "用户已删除"})
 }

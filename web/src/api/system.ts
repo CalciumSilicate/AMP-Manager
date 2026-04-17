@@ -581,3 +581,127 @@ export async function updateBillingRuntimeConfig(
 
   return res.json()
 }
+
+export interface ManagementAPIKeyStatus {
+  keyExists: boolean
+  enabled: boolean
+  prefix: string
+  createdAt?: string
+  rotatedAt?: string
+  lastUsedAt?: string
+  lastAuthMethod?: string
+  graceUntil?: string
+  encryptionReady: boolean
+}
+
+export interface ManagementAPIKeyRevealResponse {
+  apiKey: string
+  prefix: string
+  graceUntil?: string
+}
+
+export interface UserPanelRateLimitSectionConfig {
+  rps: number
+  burst: number
+  maxWaitMs: number
+}
+
+export interface UserPanelRateLimitSections {
+  overviewStatus: UserPanelRateLimitSectionConfig
+  ampSettings: UserPanelRateLimitSectionConfig
+  apiKeys: UserPanelRateLimitSectionConfig
+  requestLogsUsage: UserPanelRateLimitSectionConfig
+  models: UserPanelRateLimitSectionConfig
+  accountPurchase: UserPanelRateLimitSectionConfig
+}
+
+export interface UserPanelRateLimitConfig {
+  enabled: boolean
+  backend: string
+  failOpen: boolean
+  sections: UserPanelRateLimitSections
+}
+
+export interface UserPanelRateLimitConfigRequest {
+  enabled: boolean
+  sections: UserPanelRateLimitSections
+}
+
+export async function getManagementAPIKeyStatus(): Promise<ManagementAPIKeyStatus> {
+  const res = await authFetch(`${API_BASE}/admin/system/security/management-key/status`)
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({ error: '获取管理 API Key 状态失败' }))
+    throw new Error(data.error || '获取管理 API Key 状态失败')
+  }
+  return res.json()
+}
+
+export async function createManagementAPIKey(): Promise<ManagementAPIKeyRevealResponse> {
+  const res = await authFetch(`${API_BASE}/admin/system/security/management-key/create`, {
+    method: 'POST',
+  })
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({ error: '创建管理 API Key 失败' }))
+    throw new Error(data.error || '创建管理 API Key 失败')
+  }
+  return res.json()
+}
+
+export async function revealManagementAPIKey(currentPassword: string): Promise<ManagementAPIKeyRevealResponse> {
+  const res = await authFetch(`${API_BASE}/admin/system/security/management-key/reveal`, {
+    method: 'POST',
+    body: JSON.stringify({ currentPassword }),
+  })
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({ error: '查看管理 API Key 失败' }))
+    throw new Error(data.error || '查看管理 API Key 失败')
+  }
+  return res.json()
+}
+
+export async function rotateManagementAPIKey(currentPassword: string): Promise<ManagementAPIKeyRevealResponse> {
+  const res = await authFetch(`${API_BASE}/admin/system/security/management-key/rotate`, {
+    method: 'POST',
+    body: JSON.stringify({ currentPassword }),
+  })
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({ error: '轮换管理 API Key 失败' }))
+    throw new Error(data.error || '轮换管理 API Key 失败')
+  }
+  return res.json()
+}
+
+export async function updateManagementAPIKeyEnabled(enabled: boolean): Promise<{ message: string; status: ManagementAPIKeyStatus }> {
+  const res = await authFetch(`${API_BASE}/admin/system/security/management-key/enabled`, {
+    method: 'PATCH',
+    body: JSON.stringify({ enabled }),
+  })
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({ error: '更新管理 API Key 状态失败' }))
+    throw new Error(data.error || '更新管理 API Key 状态失败')
+  }
+  return res.json()
+}
+
+export async function getUserPanelRateLimitConfig(): Promise<UserPanelRateLimitConfig> {
+  const res = await authFetch(`${API_BASE}/admin/system/security/user-panel-rate-limit`)
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({ error: '获取普通用户面板限流配置失败' }))
+    throw new Error(data.error || '获取普通用户面板限流配置失败')
+  }
+  return res.json()
+}
+
+export async function updateUserPanelRateLimitConfig(
+  config: UserPanelRateLimitConfigRequest
+): Promise<{ message: string; config: UserPanelRateLimitConfig }> {
+  const res = await authFetch(`${API_BASE}/admin/system/security/user-panel-rate-limit`, {
+    method: 'PUT',
+    body: JSON.stringify(config),
+  })
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({ error: '保存普通用户面板限流配置失败' }))
+    throw new Error(data.error || '保存普通用户面板限流配置失败')
+  }
+  return res.json()
+}

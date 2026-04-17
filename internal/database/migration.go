@@ -25,6 +25,7 @@ type MigrationParams struct {
 var migrationTables = []string{
 	"groups",
 	"users",
+	"admin_management_keys",
 	"user_amp_settings",
 	"user_api_keys",
 	"channels",

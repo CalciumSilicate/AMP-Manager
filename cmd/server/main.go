@@ -10,6 +10,7 @@ import (
 	"ampmanager/internal/billingstate"
 	"ampmanager/internal/config"
 	"ampmanager/internal/database"
+	"ampmanager/internal/middleware"
 	"ampmanager/internal/realtime"
 	"ampmanager/internal/repository"
 	"ampmanager/internal/router"
@@ -43,6 +44,7 @@ func main() {
 
 	sysConfigService := service.NewSystemConfigService()
 	sysConfigService.ReloadBillingRuntimeFromSystemConfigBestEffort("server startup")
+	middleware.LoadUserPanelRateLimitConfigBestEffort("server startup")
 	defer billingstate.Close()
 
 	// 初始化日志写入器

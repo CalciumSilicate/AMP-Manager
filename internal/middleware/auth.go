@@ -1,6 +1,7 @@
 package middleware
 
 import (
+	"errors"
 	"net/http"
 	"strings"
 	"time"
@@ -21,44 +22,19 @@ const (
 )
 
 func JWTAuthMiddleware() gin.HandlerFunc {
-	jwtService := service.NewJWTService()
-
 	return func(c *gin.Context) {
-		authHeader := c.GetHeader("Authorization")
-		if authHeader == "" {
-			c.JSON(http.StatusUnauthorized, gin.H{"error": "缺少 Authorization 头"})
-			c.Abort()
-			return
-		}
-
-		parts := strings.SplitN(authHeader, " ", 2)
-		if len(parts) != 2 || strings.ToLower(parts[0]) != "bearer" {
-			c.JSON(http.StatusUnauthorized, gin.H{"error": "Authorization 格式错误"})
-			c.Abort()
-			return
-		}
-
-		tokenString := parts[1]
-		claims, err := jwtService.ValidateToken(tokenString)
+		claims, newToken, err := authenticateJWTHeader(c.GetHeader("Authorization"))
 		if err != nil {
-			status := http.StatusUnauthorized
-			msg := "Token 验证失败"
-			if err == service.ErrExpiredToken {
-				msg = "Token 已过期"
-			}
-			c.JSON(status, gin.H{"error": msg})
+			c.JSON(http.StatusUnauthorized, gin.H{"error": err.Error()})
 			c.Abort()
 			return
 		}
 
 		c.Set(ContextKeyUserID, claims.UserID)
 		c.Set(ContextKeyUsername, claims.Username)
-
-		// 滑动过期：Token 签发超过阈值后自动刷新
-		if claims.IssuedAt != nil && time.Since(claims.IssuedAt.Time) > tokenRefreshThreshold {
-			if newToken, err := jwtService.GenerateToken(claims.UserID, claims.Username); err == nil {
-				c.Header("X-New-Token", newToken)
-			}
+		c.Set(ContextKeyIsAdmin, loadCachedUserAdminStatus(claims.UserID))
+		if newToken != "" {
+			c.Header("X-New-Token", newToken)
 		}
 
 		c.Next()
@@ -69,6 +45,11 @@ func AdminMiddleware() gin.HandlerFunc {
 	userRepo := repository.NewUserRepository()
 
 	return func(c *gin.Context) {
+		if IsAdmin(c) {
+			c.Next()
+			return
+		}
+
 		userID := GetUserID(c)
 		if userID == "" {
 			c.JSON(http.StatusUnauthorized, gin.H{"error": "未授权"})
@@ -89,6 +70,7 @@ func AdminMiddleware() gin.HandlerFunc {
 			return
 		}
 
+		c.Set(ContextKeyUsername, user.Username)
 		c.Set(ContextKeyIsAdmin, true)
 		c.Next()
 	}
@@ -96,8 +78,6 @@ func AdminMiddleware() gin.HandlerFunc {
 
 // JWTAuthFromQuery 从 query 参数中提取 JWT 进行认证（用于 WebSocket）
 func JWTAuthFromQuery(param string) gin.HandlerFunc {
-	jwtService := service.NewJWTService()
-
 	return func(c *gin.Context) {
 		tokenString := c.Query(param)
 		if tokenString == "" {
@@ -106,15 +86,16 @@ func JWTAuthFromQuery(param string) gin.HandlerFunc {
 			return
 		}
 
-		claims, err := jwtService.ValidateToken(tokenString)
+		claims, err := validateJWTToken(tokenString)
 		if err != nil {
-			c.JSON(http.StatusUnauthorized, gin.H{"error": "Token 验证失败"})
+			c.JSON(http.StatusUnauthorized, gin.H{"error": err.Error()})
 			c.Abort()
 			return
 		}
 
 		c.Set(ContextKeyUserID, claims.UserID)
 		c.Set(ContextKeyUsername, claims.Username)
+		c.Set(ContextKeyIsAdmin, loadCachedUserAdminStatus(claims.UserID))
 		c.Next()
 	}
 }
@@ -142,4 +123,40 @@ func IsAdmin(c *gin.Context) bool {
 	}
 	isAdmin, ok := v.(bool)
 	return ok && isAdmin
+}
+
+func authenticateJWTHeader(authHeader string) (*service.JWTClaims, string, error) {
+	if authHeader == "" {
+		return nil, "", errors.New("缺少 Authorization 头")
+	}
+
+	parts := strings.SplitN(authHeader, " ", 2)
+	if len(parts) != 2 || strings.ToLower(parts[0]) != "bearer" {
+		return nil, "", errors.New("Authorization 格式错误")
+	}
+
+	claims, err := validateJWTToken(parts[1])
+	if err != nil {
+		return nil, "", err
+	}
+
+	newToken := ""
+	if claims.IssuedAt != nil && time.Since(claims.IssuedAt.Time) > tokenRefreshThreshold {
+		if refreshedToken, refreshErr := service.NewJWTService().GenerateToken(claims.UserID, claims.Username); refreshErr == nil {
+			newToken = refreshedToken
+		}
+	}
+
+	return claims, newToken, nil
+}
+
+func validateJWTToken(tokenString string) (*service.JWTClaims, error) {
+	claims, err := service.NewJWTService().ValidateToken(tokenString)
+	if err != nil {
+		if err == service.ErrExpiredToken {
+			return nil, errors.New("Token 已过期")
+		}
+		return nil, errors.New("Token 验证失败")
+	}
+	return claims, nil
 }

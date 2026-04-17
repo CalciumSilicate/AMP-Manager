@@ -3,11 +3,13 @@ package router
 import (
 	"os"
 	"strings"
+	"time"
 
 	"ampmanager/internal/amp"
 	"ampmanager/internal/config"
 	"ampmanager/internal/handler"
 	"ampmanager/internal/middleware"
+	"ampmanager/internal/service"
 	"ampmanager/internal/web"
 
 	"github.com/gin-gonic/gin"
@@ -80,6 +82,7 @@ func Setup() *gin.Engine {
 	redeemHandler := handler.NewRedeemHandler()
 	announcementHandler := handler.NewAnnouncementHandler()
 	statusMonitorHandler := handler.NewStatusMonitorHandler()
+	statusMonitorService := service.NewStatusMonitorService()
 
 	api := r.Group("/api")
 	{
@@ -102,18 +105,34 @@ func Setup() *gin.Engine {
 
 		me := api.Group("/me")
 		me.Use(middleware.JWTAuthMiddleware())
+		me.Use(middleware.InvalidateUserResponseCachesOnWrite())
+		me.Use(middleware.UserPanelRateLimit())
 		{
 			me.PUT("/password", userHandler.ChangePassword)
 			me.PUT("/username", userHandler.ChangeUsername)
 			me.GET("/balance", userHandler.GetMyBalance)
-			me.GET("/dashboard", requestLogHandler.GetDashboard)
-			me.GET("/billing/state", billingSettingHandler.GetBillingState)
+			me.GET("/dashboard", middleware.UserScopedResponseCache(func(*gin.Context) time.Duration {
+				return 5 * time.Second
+			}), requestLogHandler.GetDashboard)
+			me.GET("/billing/state", middleware.UserScopedResponseCache(func(*gin.Context) time.Duration {
+				return 5 * time.Second
+			}), billingSettingHandler.GetBillingState)
 			me.PUT("/billing/priority", billingSettingHandler.UpdateBillingPriority)
 			me.POST("/billing/daily-reset", billingSettingHandler.ResetDailyBilling)
 			me.GET("/subscription", billingSettingHandler.GetMySubscription)
 			me.GET("/announcements", announcementHandler.ListForMe)
 			me.POST("/announcements/:id/read", announcementHandler.MarkRead)
-			me.GET("/status/dashboard", statusMonitorHandler.GetDashboard)
+			me.GET("/status/dashboard", middleware.UserScopedResponseCache(func(*gin.Context) time.Duration {
+				cfg, err := statusMonitorService.GetRuntimeConfig()
+				if err != nil || cfg.PollIntervalSec <= 0 {
+					return 15 * time.Second
+				}
+				ttl := time.Duration(cfg.PollIntervalSec) * time.Second
+				if ttl > 15*time.Second {
+					return 15 * time.Second
+				}
+				return ttl
+			}), statusMonitorHandler.GetDashboard)
 
 			purchase := me.Group("/purchase")
 			{
@@ -152,19 +171,23 @@ func Setup() *gin.Engine {
 				ampGroup.GET("/request-logs/keys", requestLogHandler.GetDistinctAPIKeys)
 				ampGroup.GET("/request-logs/:id", requestLogHandler.GetRequestLog)
 				ampGroup.GET("/request-logs/:id/detail", requestLogHandler.GetRequestLogDetail)
-				ampGroup.GET("/usage/summary", requestLogHandler.GetUsageSummary)
+				ampGroup.GET("/usage/summary", middleware.UserScopedResponseCache(func(*gin.Context) time.Duration {
+					return 10 * time.Second
+				}), requestLogHandler.GetUsageSummary)
 			}
 		}
 
 		models := api.Group("/models")
 		models.Use(middleware.JWTAuthMiddleware())
+		models.Use(middleware.UserPanelRateLimit())
 		{
-			models.GET("", modelHandler.ListAvailableModels)
+			models.GET("", middleware.UserScopedResponseCache(func(*gin.Context) time.Duration {
+				return 10 * time.Second
+			}), modelHandler.ListAvailableModels)
 		}
 
 		admin := api.Group("/admin")
-		admin.Use(middleware.JWTAuthMiddleware())
-		admin.Use(middleware.AdminMiddleware())
+		admin.Use(middleware.AdminAccessMiddleware())
 		{
 			channels := admin.Group("/channels")
 			{
@@ -195,6 +218,20 @@ func Setup() *gin.Engine {
 
 			system := admin.Group("/system")
 			{
+				security := system.Group("/security")
+				{
+					managementKey := security.Group("/management-key")
+					{
+						managementKey.GET("/status", systemHandler.GetManagementAPIKeyStatus)
+						managementKey.POST("/create", systemHandler.CreateManagementAPIKey)
+						managementKey.POST("/reveal", systemHandler.RevealManagementAPIKey)
+						managementKey.POST("/rotate", systemHandler.RotateManagementAPIKey)
+						managementKey.PATCH("/enabled", systemHandler.UpdateManagementAPIKeyEnabled)
+					}
+					security.GET("/user-panel-rate-limit", systemHandler.GetUserPanelRateLimitConfig)
+					security.PUT("/user-panel-rate-limit", systemHandler.UpdateUserPanelRateLimitConfig)
+				}
+
 				system.POST("/database/upload", systemHandler.UploadDatabase)
 				system.GET("/database/download", systemHandler.DownloadDatabase)
 				system.GET("/database/backups", systemHandler.ListBackups)
@@ -350,8 +387,7 @@ func Setup() *gin.Engine {
 
 	// WebSocket 实时日志推送（使用 query 参数认证）
 	api.GET("/admin/request-logs/ws",
-		middleware.JWTAuthFromQuery("token"),
-		middleware.AdminMiddleware(),
+		middleware.AdminAccessFromQueryOrHeader("token"),
 		requestLogHandler.AdminRequestLogsWS,
 	)
 

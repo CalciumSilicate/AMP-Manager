@@ -47,6 +47,7 @@ import {
 import { Button } from '@/components/ui/button'
 import { AnnouncementAdminSection } from '@/components/announcements/AnnouncementAdminSection'
 import { StatusMonitorSettingsPanel } from '@/components/system/StatusMonitorSettingsPanel'
+import { SecuritySettingsPanel } from '@/components/system/SecuritySettingsPanel'
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/card'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import {
@@ -66,10 +67,11 @@ import { Progress } from '@/components/ui/progress'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { RefreshCw } from 'lucide-react'
 
-type SettingsTab = 'site' | 'status-monitor' | 'announcements' | 'database' | 'retry' | 'error-rules' | 'monitoring' | 'cache' | 'timeout' | 'billing'
+type SettingsTab = 'site' | 'security' | 'status-monitor' | 'announcements' | 'database' | 'retry' | 'error-rules' | 'monitoring' | 'cache' | 'timeout' | 'billing'
 
 const tabs: { key: SettingsTab; label: string }[] = [
   { key: 'site', label: '网站配置' },
+  { key: 'security', label: '安全' },
   { key: 'status-monitor', label: '状态监控' },
   { key: 'announcements', label: '公告管理' },
   { key: 'database', label: '数据库管理' },
@@ -1046,6 +1048,10 @@ export default function SystemSettings({
 
           {activeTab === 'status-monitor' && (
             <StatusMonitorSettingsPanel onMessage={showMessage} />
+          )}
+
+          {activeTab === 'security' && (
+            <SecuritySettingsPanel onMessage={showMessage} />
           )}
 
           {activeTab === 'database' && (

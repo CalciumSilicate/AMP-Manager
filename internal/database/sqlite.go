@@ -262,6 +262,26 @@ func createTables() error {
 		updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
 	);
 
+	CREATE TABLE IF NOT EXISTS admin_management_keys (
+		user_id TEXT PRIMARY KEY,
+		key_hash TEXT NOT NULL DEFAULT '',
+		key_ciphertext TEXT NOT NULL DEFAULT '',
+		key_prefix TEXT NOT NULL DEFAULT '',
+		previous_key_hash TEXT NOT NULL DEFAULT '',
+		previous_key_ciphertext TEXT NOT NULL DEFAULT '',
+		previous_key_prefix TEXT NOT NULL DEFAULT '',
+		previous_valid_until DATETIME,
+		enabled INTEGER NOT NULL DEFAULT 1,
+		created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+		rotated_at DATETIME,
+		last_used_at DATETIME,
+		last_auth_method TEXT NOT NULL DEFAULT '',
+		updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+		FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+	);
+	CREATE INDEX IF NOT EXISTS idx_admin_management_keys_hash ON admin_management_keys(key_hash);
+	CREATE INDEX IF NOT EXISTS idx_admin_management_keys_previous_hash ON admin_management_keys(previous_key_hash);
+
 	CREATE TABLE IF NOT EXISTS user_amp_settings (
 		id TEXT PRIMARY KEY,
 		user_id TEXT UNIQUE NOT NULL,
@@ -932,6 +952,28 @@ func runMigrations() error {
 				SELECT id, user_id, name, token_hash, prefix, last_used_at, expires_at, revoked_at, created_at
 				FROM user_proxy_tokens
 				WHERE NOT EXISTS (SELECT 1 FROM user_api_keys WHERE user_api_keys.id = user_proxy_tokens.id)`,
+		},
+		{
+			name: "create_admin_management_keys",
+			sql: `CREATE TABLE IF NOT EXISTS admin_management_keys (
+				user_id TEXT PRIMARY KEY,
+				key_hash TEXT NOT NULL DEFAULT '',
+				key_ciphertext TEXT NOT NULL DEFAULT '',
+				key_prefix TEXT NOT NULL DEFAULT '',
+				previous_key_hash TEXT NOT NULL DEFAULT '',
+				previous_key_ciphertext TEXT NOT NULL DEFAULT '',
+				previous_key_prefix TEXT NOT NULL DEFAULT '',
+				previous_valid_until DATETIME,
+				enabled INTEGER NOT NULL DEFAULT 1,
+				created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+				rotated_at DATETIME,
+				last_used_at DATETIME,
+				last_auth_method TEXT NOT NULL DEFAULT '',
+				updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+				FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+			);
+			CREATE INDEX IF NOT EXISTS idx_admin_management_keys_hash ON admin_management_keys(key_hash);
+			CREATE INDEX IF NOT EXISTS idx_admin_management_keys_previous_hash ON admin_management_keys(previous_key_hash)`,
 		},
 		{
 			name: "add_channels_endpoint",
