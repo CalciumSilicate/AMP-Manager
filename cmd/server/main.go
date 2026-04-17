@@ -62,6 +62,9 @@ func main() {
 	amp.InitPendingCleaner(database.GetDB())
 	defer amp.StopPendingCleaner()
 
+	service.InitStatusMonitorScheduler()
+	defer service.StopStatusMonitorScheduler()
+
 	// 初始化实时推送 hub
 	logRepo := repository.NewRequestLogRepository()
 	realtime.InitHub(func(id string) (interface{}, error) {

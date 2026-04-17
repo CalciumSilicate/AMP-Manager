@@ -48,6 +48,8 @@ var migrationTables = []string{
 	"request_log_details",
 	"announcements",
 	"announcement_reads",
+	"status_monitors",
+	"status_monitor_results",
 	"system_config",
 	"purchase_products",
 	"purchase_orders",

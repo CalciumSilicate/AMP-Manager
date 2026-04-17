@@ -472,6 +472,46 @@ func createTables() error {
 		updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
 	);
 
+	CREATE TABLE IF NOT EXISTS status_monitors (
+		id TEXT PRIMARY KEY,
+		name TEXT NOT NULL,
+		group_name TEXT NOT NULL DEFAULT '',
+		target_type TEXT NOT NULL CHECK (target_type IN ('service_proxy', 'channel_direct', 'custom_http')),
+		enabled INTEGER NOT NULL DEFAULT 1,
+		sort_order INTEGER NOT NULL DEFAULT 0,
+		timeout_ms BIGINT NOT NULL DEFAULT 0,
+		degraded_threshold_ms BIGINT NOT NULL DEFAULT 10000,
+		request_format TEXT NOT NULL DEFAULT 'responses',
+		model TEXT NOT NULL DEFAULT '',
+		channel_id TEXT NOT NULL DEFAULT '',
+		url TEXT NOT NULL DEFAULT '',
+		method TEXT NOT NULL DEFAULT '',
+		headers_json TEXT NOT NULL DEFAULT '',
+		body_template TEXT NOT NULL DEFAULT '',
+		expected_status_codes_json TEXT NOT NULL DEFAULT '[200]',
+		expected_substring TEXT NOT NULL DEFAULT '',
+		created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+		updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+	);
+	CREATE INDEX IF NOT EXISTS idx_status_monitors_enabled_sort ON status_monitors(enabled, sort_order ASC, created_at DESC);
+	CREATE INDEX IF NOT EXISTS idx_status_monitors_target_enabled ON status_monitors(target_type, enabled);
+
+	CREATE TABLE IF NOT EXISTS status_monitor_results (
+		id TEXT PRIMARY KEY,
+		monitor_id TEXT NOT NULL,
+		status TEXT NOT NULL CHECK (status IN ('operational', 'degraded', 'error', 'failed', 'unknown')),
+		latency_ms BIGINT NOT NULL DEFAULT 0,
+		ttfb_ms BIGINT NOT NULL DEFAULT 0,
+		http_status_code INTEGER NOT NULL DEFAULT 0,
+		message TEXT NOT NULL DEFAULT '',
+		endpoint_label TEXT NOT NULL DEFAULT '',
+		checked_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+		created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+		FOREIGN KEY (monitor_id) REFERENCES status_monitors(id) ON DELETE CASCADE
+	);
+	CREATE INDEX IF NOT EXISTS idx_status_monitor_results_monitor_checked ON status_monitor_results(monitor_id, checked_at DESC);
+	CREATE INDEX IF NOT EXISTS idx_status_monitor_results_checked ON status_monitor_results(checked_at DESC);
+
 	CREATE TABLE IF NOT EXISTS request_log_details (
 		request_id TEXT PRIMARY KEY,
 		request_headers TEXT,
@@ -1409,6 +1449,50 @@ func runMigrations() error {
 		{
 			name: "create_announcement_reads_indexes",
 			sql:  `CREATE INDEX IF NOT EXISTS idx_announcement_reads_user ON announcement_reads(user_id, read_at DESC)`,
+		},
+		{
+			name: "create_status_monitor_tables",
+			sql: `CREATE TABLE IF NOT EXISTS status_monitors (
+				id TEXT PRIMARY KEY,
+				name TEXT NOT NULL,
+				group_name TEXT NOT NULL DEFAULT '',
+				target_type TEXT NOT NULL CHECK (target_type IN ('service_proxy', 'channel_direct', 'custom_http')),
+				enabled INTEGER NOT NULL DEFAULT 1,
+				sort_order INTEGER NOT NULL DEFAULT 0,
+				timeout_ms BIGINT NOT NULL DEFAULT 0,
+				degraded_threshold_ms BIGINT NOT NULL DEFAULT 10000,
+				request_format TEXT NOT NULL DEFAULT 'responses',
+				model TEXT NOT NULL DEFAULT '',
+				channel_id TEXT NOT NULL DEFAULT '',
+				url TEXT NOT NULL DEFAULT '',
+				method TEXT NOT NULL DEFAULT '',
+				headers_json TEXT NOT NULL DEFAULT '',
+				body_template TEXT NOT NULL DEFAULT '',
+				expected_status_codes_json TEXT NOT NULL DEFAULT '[200]',
+				expected_substring TEXT NOT NULL DEFAULT '',
+				created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+				updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+			);
+			CREATE TABLE IF NOT EXISTS status_monitor_results (
+				id TEXT PRIMARY KEY,
+				monitor_id TEXT NOT NULL,
+				status TEXT NOT NULL CHECK (status IN ('operational', 'degraded', 'error', 'failed', 'unknown')),
+				latency_ms BIGINT NOT NULL DEFAULT 0,
+				ttfb_ms BIGINT NOT NULL DEFAULT 0,
+				http_status_code INTEGER NOT NULL DEFAULT 0,
+				message TEXT NOT NULL DEFAULT '',
+				endpoint_label TEXT NOT NULL DEFAULT '',
+				checked_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+				created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+				FOREIGN KEY (monitor_id) REFERENCES status_monitors(id) ON DELETE CASCADE
+			)`,
+		},
+		{
+			name: "create_status_monitor_indexes",
+			sql: `CREATE INDEX IF NOT EXISTS idx_status_monitors_enabled_sort ON status_monitors(enabled, sort_order ASC, created_at DESC);
+				  CREATE INDEX IF NOT EXISTS idx_status_monitors_target_enabled ON status_monitors(target_type, enabled);
+				  CREATE INDEX IF NOT EXISTS idx_status_monitor_results_monitor_checked ON status_monitor_results(monitor_id, checked_at DESC);
+				  CREATE INDEX IF NOT EXISTS idx_status_monitor_results_checked ON status_monitor_results(checked_at DESC)`,
 		},
 		{
 			name: "create_purchase_products_and_orders",

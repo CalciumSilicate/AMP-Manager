@@ -20,6 +20,7 @@ import AccountSettings from './AccountSettings'
 import PurchaseCenter from './PurchaseCenter'
 import PaidSubscriptions from './PaidSubscriptions'
 import RedeemManagement from './RedeemManagement'
+import StatusMonitor from './StatusMonitor'
 import type { AmpProxySettingsPolicy } from '@/api/system'
 import { Button } from '@/components/ui/button'
 // Card components available if needed by child pages
@@ -42,6 +43,7 @@ import {
   Settings,
   Key,
   ScrollText,
+  Activity,
   BarChart3,
   Layers,
   Database,
@@ -73,10 +75,11 @@ interface Props {
   onLogout: () => void
 }
 
-type Page = 'overview' | 'amp-settings' | 'api-keys' | 'request-logs' | 'usage-stats' | 'channels' | 'models' | 'model-metadata' | 'prices' | 'system-settings' | 'user-management' | 'account-settings' | 'groups' | 'subscription-plans' | 'admin-overview' | 'purchase-center' | 'paid-subscriptions' | 'redeem-management'
+type Page = 'overview' | 'status-monitor' | 'amp-settings' | 'api-keys' | 'request-logs' | 'usage-stats' | 'channels' | 'models' | 'model-metadata' | 'prices' | 'system-settings' | 'user-management' | 'account-settings' | 'groups' | 'subscription-plans' | 'admin-overview' | 'purchase-center' | 'paid-subscriptions' | 'redeem-management'
 
 const navIcons: Record<Page, React.ElementType> = {
   'overview': LayoutDashboard,
+  'status-monitor': Activity,
   'admin-overview': BarChart3,
   'amp-settings': Settings,
   'api-keys': Key,
@@ -119,6 +122,7 @@ export default function Dashboard({
 
   const navItems: { key: Page; label: string; adminOnly?: boolean }[] = [
     { key: 'overview', label: '概览' },
+    { key: 'status-monitor', label: '状态监控' },
     ...(canAccessAmpSettings ? [{ key: 'amp-settings' as const, label: 'Amp 设置' }] : []),
     { key: 'api-keys', label: 'API Key 管理' },
     { key: 'request-logs', label: '请求日志' },
@@ -424,6 +428,7 @@ export default function Dashboard({
                   transition={{ type: 'spring', bounce: 0.15, duration: 0.4 }}
                 >
                   {currentPage === 'overview' && <Overview />}
+                  {currentPage === 'status-monitor' && <StatusMonitor />}
                   {currentPage === 'admin-overview' && isAdmin && <AdminOverview />}
                   {currentPage === 'amp-settings' && canAccessAmpSettings && <AmpSettings />}
                   {currentPage === 'api-keys' && <APIKeys />}

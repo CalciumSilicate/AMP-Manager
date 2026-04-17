@@ -78,6 +78,7 @@ func Setup() *gin.Engine {
 	purchaseHandler := handler.NewPurchaseHandler()
 	redeemHandler := handler.NewRedeemHandler()
 	announcementHandler := handler.NewAnnouncementHandler()
+	statusMonitorHandler := handler.NewStatusMonitorHandler()
 
 	api := r.Group("/api")
 	{
@@ -108,6 +109,7 @@ func Setup() *gin.Engine {
 			me.GET("/subscription", billingSettingHandler.GetMySubscription)
 			me.GET("/announcements", announcementHandler.ListForMe)
 			me.POST("/announcements/:id/read", announcementHandler.MarkRead)
+			me.GET("/status/dashboard", statusMonitorHandler.GetDashboard)
 
 			purchase := me.Group("/purchase")
 			{
@@ -227,6 +229,14 @@ func Setup() *gin.Engine {
 				// 站点配置
 				system.GET("/site-config", systemHandler.GetSiteConfig)
 				system.PUT("/site-config", systemHandler.UpdateSiteConfig)
+				system.GET("/status-monitor-runtime", statusMonitorHandler.GetRuntimeConfig)
+				system.PUT("/status-monitor-runtime", statusMonitorHandler.UpdateRuntimeConfig)
+				system.GET("/status-monitors", statusMonitorHandler.ListMonitors)
+				system.POST("/status-monitors", statusMonitorHandler.CreateMonitor)
+				system.PUT("/status-monitors/:id", statusMonitorHandler.UpdateMonitor)
+				system.DELETE("/status-monitors/:id", statusMonitorHandler.DeleteMonitor)
+				system.POST("/status-monitors/:id/run", statusMonitorHandler.RunMonitor)
+				system.POST("/status-monitors/run-all", statusMonitorHandler.RunAll)
 			}
 
 			users := admin.Group("/users")
