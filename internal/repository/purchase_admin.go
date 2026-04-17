@@ -249,10 +249,11 @@ func (r *PurchaseAdminRepository) CreateManualSettlementBatchTx(tx *sql.Tx, batc
 		batch.CreatedAt = time.Now().UTC()
 	}
 	_, err := tx.Exec(
-		`INSERT INTO purchase_manual_settlement_batches (id, batch_no, mode, created_by, note, order_count, total_amount_cny_cent, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+		`INSERT INTO purchase_manual_settlement_batches (id, batch_no, mode, debug_settlement, created_by, note, order_count, total_amount_cny_cent, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		batch.ID,
 		batch.BatchNo,
 		batch.Mode,
+		batch.DebugSettlement,
 		batch.CreatedBy,
 		batch.Note,
 		batch.OrderCount,

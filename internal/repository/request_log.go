@@ -166,17 +166,77 @@ func parseRequestLogTranslator(raw string) *model.ChannelTranslator {
 
 // ListParams 查询参数
 type ListParams struct {
-	UserID      string
-	APIKeyID    string
-	SessionID   string
-	Model       string
-	Channel     string
-	StatusCodes []int
-	IsStreaming *bool
-	From        *time.Time
-	To          *time.Time
-	Page        int
-	PageSize    int
+	UserID         string
+	APIKeyID       string
+	SessionID      string
+	Model          string
+	Channel        string
+	RequestFormat  string
+	UpstreamFormat string
+	StatusCodes    []int
+	IsStreaming    *bool
+	From           *time.Time
+	To             *time.Time
+	Page           int
+	PageSize       int
+}
+
+func normalizeRequestFormatFilterAliases(value string) []string {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "responses":
+		return []string{"responses", "openai-responses"}
+	case "chat_completions":
+		return []string{"chat_completions", "openai", "openai-chat"}
+	case "messages":
+		return []string{"messages", "claude"}
+	case "generate_content":
+		return []string{"generate_content", "gemini"}
+	default:
+		return nil
+	}
+}
+
+func requestFormatPathPatterns(value string) []string {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "responses":
+		return []string{"/v1/responses%"}
+	case "chat_completions":
+		return []string{"/v1/chat/completions%"}
+	case "messages":
+		return []string{"/v1/messages%"}
+	case "generate_content":
+		return []string{"/v1beta/models/%", "/v1beta1/publishers/google/models/%"}
+	default:
+		return nil
+	}
+}
+
+func buildRequestFormatCondition(formatColumn string, aliases []string, pathColumn string, pathPatterns []string) (string, []interface{}) {
+	parts := make([]string, 0, 2)
+	args := make([]interface{}, 0, len(aliases)+len(pathPatterns))
+
+	if len(aliases) > 0 {
+		placeholders := strings.TrimRight(strings.Repeat("?,", len(aliases)), ",")
+		parts = append(parts, fmt.Sprintf("LOWER(COALESCE(%s, '')) IN (%s)", formatColumn, placeholders))
+		for _, alias := range aliases {
+			args = append(args, alias)
+		}
+	}
+
+	if pathColumn != "" && len(pathPatterns) > 0 {
+		pathConditions := make([]string, 0, len(pathPatterns))
+		for _, pattern := range pathPatterns {
+			pathConditions = append(pathConditions, fmt.Sprintf("LOWER(COALESCE(%s, '')) LIKE ?", pathColumn))
+			args = append(args, pattern)
+		}
+		parts = append(parts, fmt.Sprintf("(LOWER(COALESCE(%s, '')) = '' AND (%s))", formatColumn, strings.Join(pathConditions, " OR ")))
+	}
+
+	if len(parts) == 0 {
+		return "", nil
+	}
+
+	return "(" + strings.Join(parts, " OR ") + ")", args
 }
 
 // List 查询请求日志列表
@@ -208,6 +268,30 @@ func (r *RequestLogRepository) List(params ListParams) ([]model.RequestLog, int6
 		pattern := "%" + strings.ToLower(params.Channel) + "%"
 		conditions = append(conditions, "(LOWER(COALESCE(r.provider, '')) LIKE ? OR EXISTS (SELECT 1 FROM channels c2 WHERE c2.id = r.channel_id AND LOWER(c2.name) LIKE ?))")
 		args = append(args, pattern, pattern)
+	}
+	if params.RequestFormat != "" {
+		condition, conditionArgs := buildRequestFormatCondition(
+			"r.request_format",
+			normalizeRequestFormatFilterAliases(params.RequestFormat),
+			"r.path",
+			requestFormatPathPatterns(params.RequestFormat),
+		)
+		if condition != "" {
+			conditions = append(conditions, condition)
+			args = append(args, conditionArgs...)
+		}
+	}
+	if params.UpstreamFormat != "" {
+		condition, conditionArgs := buildRequestFormatCondition(
+			"r.upstream_format",
+			normalizeRequestFormatFilterAliases(params.UpstreamFormat),
+			"",
+			nil,
+		)
+		if condition != "" {
+			conditions = append(conditions, condition)
+			args = append(args, conditionArgs...)
+		}
 	}
 	if len(params.StatusCodes) > 0 {
 		placeholders := strings.TrimRight(strings.Repeat("?,", len(params.StatusCodes)), ",")

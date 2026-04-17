@@ -247,6 +247,11 @@ func APIKeyAuthMiddleware() gin.HandlerFunc {
 			c.AbortWithStatusJSON(http.StatusUnauthorized, NewStandardError(http.StatusUnauthorized, "api key expired"))
 			return
 		}
+		if provider, ok := detectRequestedProvider(c.Request.Method, c.Request.URL.Path, c.Request.Header); ok && !apiKeyAllowsProvider(apiKeyRecord, provider) {
+			log.Warnf("amp api key auth: provider %s not allowed for key %s", provider, apiKeyRecord.ID)
+			c.AbortWithStatusJSON(http.StatusForbidden, NewStandardError(http.StatusForbidden, "api key provider not allowed"))
+			return
+		}
 
 		ampProxySettingsPolicy, err := systemCfgSvc.GetAmpProxySettingsPolicy()
 		if err != nil {
@@ -367,6 +372,39 @@ func extractAPIKey(c *gin.Context) string {
 	}
 
 	return ""
+}
+
+func detectRequestedProvider(method, path string, headers http.Header) (ProviderKind, bool) {
+	normalizedPath := normalizeProviderPath(path)
+
+	switch {
+	case method == http.MethodPost && normalizedPath == "/v1/responses":
+		return ProviderOpenAIResponses, true
+	case method == http.MethodGet && strings.HasPrefix(path, "/api/provider/openai/") && isModelsEndpoint(strings.TrimPrefix(path, "/api/provider/openai")):
+		return ProviderOpenAIChat, true
+	case method == http.MethodPost && (normalizedPath == "/v1/chat/completions" || normalizedPath == "/v1/completions"):
+		return ProviderOpenAIChat, true
+	case normalizedPath == "/v1/messages" || headers.Get("anthropic-version") != "":
+		return ProviderAnthropic, true
+	case strings.HasPrefix(normalizedPath, "/v1beta/models/") || strings.HasPrefix(normalizedPath, "/v1beta1/models/") || strings.HasPrefix(normalizedPath, "/v1beta1/publishers/google/models/"):
+		return ProviderGemini, true
+	default:
+		return "", false
+	}
+}
+
+func apiKeyAllowsProvider(key *model.UserAPIKey, provider ProviderKind) bool {
+	if key == nil || len(key.AllowedProviders) == 0 {
+		return true
+	}
+
+	providerKey := strings.TrimSpace(strings.ToLower(string(provider)))
+	for _, allowedProvider := range key.AllowedProviders {
+		if strings.EqualFold(strings.TrimSpace(allowedProvider), providerKey) {
+			return true
+		}
+	}
+	return false
 }
 
 func hashAPIKey(apiKey string) string {

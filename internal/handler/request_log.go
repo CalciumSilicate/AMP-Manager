@@ -220,6 +220,12 @@ func (h *RequestLogHandler) ListRequestLogs(c *gin.Context) {
 	if channel := c.Query("channel"); channel != "" {
 		params.Channel = channel
 	}
+	if requestFormat := strings.TrimSpace(c.Query("requestFormat")); requestFormat != "" {
+		params.RequestFormat = requestFormat
+	}
+	if upstreamFormat := strings.TrimSpace(c.Query("upstreamFormat")); upstreamFormat != "" {
+		params.UpstreamFormat = upstreamFormat
+	}
 	if rawStatuses := c.QueryArray("status"); len(rawStatuses) > 0 {
 		statusCodes, err := parseStatusCodes(rawStatuses)
 		if err != nil {
@@ -395,6 +401,12 @@ func (h *RequestLogHandler) AdminListRequestLogs(c *gin.Context) {
 	}
 	if channel := c.Query("channel"); channel != "" {
 		params.Channel = channel
+	}
+	if requestFormat := strings.TrimSpace(c.Query("requestFormat")); requestFormat != "" {
+		params.RequestFormat = requestFormat
+	}
+	if upstreamFormat := strings.TrimSpace(c.Query("upstreamFormat")); upstreamFormat != "" {
+		params.UpstreamFormat = upstreamFormat
 	}
 	if rawStatuses := c.QueryArray("status"); len(rawStatuses) > 0 {
 		statusCodes, err := parseStatusCodes(rawStatuses)

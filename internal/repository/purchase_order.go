@@ -15,6 +15,8 @@ type PurchaseOrderRepositoryInterface interface {
 	GetDetailByOrderNoForUser(orderNo, userID string) (*model.PurchaseOrderResponse, error)
 	ListByUser(userID string, limit int) ([]*model.PurchaseOrderResponse, int64, error)
 	ListAdmin(filters model.PurchaseOrderFilters) ([]*model.PurchaseOrderResponse, int64, error)
+	ListAdminOrderNos(filters model.PurchaseOrderFilters) ([]string, error)
+	SumAdminAmount(filters model.PurchaseOrderFilters) (int64, error)
 	CountByProductID(productID string) (int64, error)
 	CountPendingSubscriptionOrdersByUser(userID string) (int64, error)
 }
@@ -134,30 +136,7 @@ func (r *PurchaseOrderRepository) ListByUser(userID string, limit int) ([]*model
 
 func (r *PurchaseOrderRepository) ListAdmin(filters model.PurchaseOrderFilters) ([]*model.PurchaseOrderResponse, int64, error) {
 	db := database.GetDB()
-	conditions := []string{}
-	args := make([]interface{}, 0)
-
-	if filters.PaymentStatus != "" {
-		conditions = append(conditions, "o.payment_status = ?")
-		args = append(args, filters.PaymentStatus)
-	}
-	if filters.FulfillmentStatus != "" {
-		conditions = append(conditions, "o.fulfillment_status = ?")
-		args = append(args, filters.FulfillmentStatus)
-	}
-	if productID := strings.TrimSpace(filters.ProductID); productID != "" {
-		conditions = append(conditions, "o.product_id = ?")
-		args = append(args, productID)
-	}
-	if username := strings.TrimSpace(filters.Username); username != "" {
-		conditions = append(conditions, "u.username LIKE ?")
-		args = append(args, "%"+username+"%")
-	}
-
-	where := ""
-	if len(conditions) > 0 {
-		where = " WHERE " + strings.Join(conditions, " AND ")
-	}
+	where, args := buildPurchaseOrderAdminWhere(filters)
 
 	var total int64
 	if err := db.QueryRow(
@@ -195,6 +174,46 @@ func (r *PurchaseOrderRepository) ListAdmin(filters model.PurchaseOrderFilters) 
 	return items, total, nil
 }
 
+func (r *PurchaseOrderRepository) ListAdminOrderNos(filters model.PurchaseOrderFilters) ([]string, error) {
+	db := database.GetDB()
+	where, args := buildPurchaseOrderAdminWhere(filters)
+
+	rows, err := db.Query(
+		`SELECT o.order_no
+		   FROM purchase_orders o
+		   INNER JOIN users u ON u.id = o.user_id`+where+` ORDER BY COALESCE(o.paid_at, o.created_at) ASC, o.order_no ASC`,
+		args...,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	orderNos := make([]string, 0)
+	for rows.Next() {
+		var orderNo string
+		if err := rows.Scan(&orderNo); err != nil {
+			return nil, err
+		}
+		orderNos = append(orderNos, orderNo)
+	}
+	return orderNos, rows.Err()
+}
+
+func (r *PurchaseOrderRepository) SumAdminAmount(filters model.PurchaseOrderFilters) (int64, error) {
+	db := database.GetDB()
+	where, args := buildPurchaseOrderAdminWhere(filters)
+
+	var totalAmount int64
+	err := db.QueryRow(
+		`SELECT COALESCE(SUM(o.amount_cny_cent), 0)
+		   FROM purchase_orders o
+		   INNER JOIN users u ON u.id = o.user_id`+where,
+		args...,
+	).Scan(&totalAmount)
+	return totalAmount, err
+}
+
 func (r *PurchaseOrderRepository) CountByProductID(productID string) (int64, error) {
 	db := database.GetDB()
 	var count int64
@@ -214,6 +233,49 @@ func (r *PurchaseOrderRepository) CountPendingSubscriptionOrdersByUser(userID st
 		model.PurchasePaymentStatusPending,
 	).Scan(&count)
 	return count, err
+}
+
+func buildPurchaseOrderAdminWhere(filters model.PurchaseOrderFilters) (string, []interface{}) {
+	conditions := make([]string, 0)
+	args := make([]interface{}, 0)
+
+	if filters.PaymentStatus != "" {
+		conditions = append(conditions, "o.payment_status = ?")
+		args = append(args, filters.PaymentStatus)
+	}
+	if filters.FulfillmentStatus != "" {
+		conditions = append(conditions, "o.fulfillment_status = ?")
+		args = append(args, filters.FulfillmentStatus)
+	}
+	if productID := strings.TrimSpace(filters.ProductID); productID != "" {
+		conditions = append(conditions, "o.product_id = ?")
+		args = append(args, productID)
+	}
+	if username := strings.TrimSpace(filters.Username); username != "" {
+		conditions = append(conditions, "u.username LIKE ?")
+		args = append(args, "%"+username+"%")
+	}
+	if filters.PaidFrom != nil {
+		conditions = append(conditions, "o.paid_at >= ?")
+		args = append(args, filters.PaidFrom.UTC())
+	}
+	if filters.PaidTo != nil {
+		conditions = append(conditions, "o.paid_at <= ?")
+		args = append(args, filters.PaidTo.UTC())
+	}
+	if filters.ManualSettlementDone != nil {
+		conditions = append(conditions, "o.manual_settlement_done = ?")
+		args = append(args, *filters.ManualSettlementDone)
+	}
+	if filters.EligibleForManualSettlement {
+		conditions = append(conditions, "o.payment_status IN (?, ?)")
+		args = append(args, model.PurchasePaymentStatusPaid, model.PurchasePaymentStatusRefunded)
+	}
+
+	if len(conditions) == 0 {
+		return "", args
+	}
+	return " WHERE " + strings.Join(conditions, " AND "), args
 }
 
 func (r *PurchaseOrderRepository) getOrderByQuery(row *sql.Row) (*model.PurchaseOrder, error) {

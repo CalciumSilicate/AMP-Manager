@@ -466,13 +466,27 @@ func (h *PurchaseHandler) CreateSingleManualSettlement(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"batch": batch})
 }
 
+func (h *PurchaseHandler) PreviewBatchManualSettlement(c *gin.Context) {
+	var req model.PurchaseManualSettlementPreviewRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "请求参数错误", "details": err.Error()})
+		return
+	}
+	preview, err := h.purchaseService.PreviewBatchManualSettlement(&req)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, preview)
+}
+
 func (h *PurchaseHandler) CreateBatchManualSettlement(c *gin.Context) {
 	var req model.PurchaseManualSettlementConfirmRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "请求参数错误", "details": err.Error()})
 		return
 	}
-	batch, err := h.purchaseService.CreateBatchManualSettlement(req.OrderNos, req.Note, middleware.GetUsername(c))
+	batch, err := h.purchaseService.CreateBatchManualSettlementByRequest(&req, middleware.GetUsername(c))
 	if err != nil {
 		status := http.StatusBadRequest
 		if errors.Is(err, service.ErrPurchaseOrderNotFound) {

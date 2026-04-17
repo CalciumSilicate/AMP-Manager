@@ -40,17 +40,18 @@ type ModelMapping struct {
 }
 
 type UserAPIKey struct {
-	ID         string     `json:"id"`
-	UserID     string     `json:"user_id"`
-	Name       string     `json:"name"`
-	KeyHash    string     `json:"-"`
-	APIKey     string     `json:"-"`
-	Prefix     string     `json:"prefix"`
-	LastUsedAt *time.Time `json:"last_used_at,omitempty"`
-	LastUsed   *time.Time `json:"last_used,omitempty"`
-	ExpiresAt  *time.Time `json:"expires_at,omitempty"`
-	RevokedAt  *time.Time `json:"revoked_at,omitempty"`
-	CreatedAt  time.Time  `json:"created_at"`
+	ID               string     `json:"id"`
+	UserID           string     `json:"user_id"`
+	Name             string     `json:"name"`
+	KeyHash          string     `json:"-"`
+	APIKey           string     `json:"-"`
+	Prefix           string     `json:"prefix"`
+	AllowedProviders []string   `json:"allowedProviders,omitempty"`
+	LastUsedAt       *time.Time `json:"last_used_at,omitempty"`
+	LastUsed         *time.Time `json:"last_used,omitempty"`
+	ExpiresAt        *time.Time `json:"expires_at,omitempty"`
+	RevokedAt        *time.Time `json:"revoked_at,omitempty"`
+	CreatedAt        time.Time  `json:"created_at"`
 }
 
 // Request/Response 结构体
@@ -88,16 +89,18 @@ type TestConnectionResponse struct {
 }
 
 type CreateAPIKeyRequest struct {
-	Name      string     `json:"name" binding:"required,min=1,max=64"`
-	CustomKey string     `json:"customKey,omitempty"`
-	ExpiresAt *time.Time `json:"expiresAt,omitempty"`
+	Name             string     `json:"name" binding:"required,min=1,max=64"`
+	CustomKey        string     `json:"customKey,omitempty"`
+	AllowedProviders []string   `json:"allowedProviders,omitempty"`
+	ExpiresAt        *time.Time `json:"expiresAt,omitempty"`
 }
 
 type UpdateAPIKeyRequest struct {
-	Name        string     `json:"name" binding:"required,min=1,max=64"`
-	APIKey      string     `json:"apiKey,omitempty"`
-	ExpiresAt   *time.Time `json:"expiresAt,omitempty"`
-	ClearExpiry bool       `json:"clearExpiry,omitempty"`
+	Name             string     `json:"name" binding:"required,min=1,max=64"`
+	APIKey           string     `json:"apiKey,omitempty"`
+	AllowedProviders []string   `json:"allowedProviders,omitempty"`
+	ExpiresAt        *time.Time `json:"expiresAt,omitempty"`
+	ClearExpiry      bool       `json:"clearExpiry,omitempty"`
 }
 
 type UpdateAPIKeyStatusRequest struct {
@@ -105,22 +108,24 @@ type UpdateAPIKeyStatusRequest struct {
 }
 
 type CreateAPIKeyResponse struct {
-	ID        string     `json:"id"`
-	Name      string     `json:"name"`
-	Prefix    string     `json:"prefix"`
-	APIKey    string     `json:"apiKey"`
-	ExpiresAt *time.Time `json:"expiresAt,omitempty"`
-	CreatedAt time.Time  `json:"createdAt"`
-	Message   string     `json:"message"`
+	ID               string     `json:"id"`
+	Name             string     `json:"name"`
+	Prefix           string     `json:"prefix"`
+	APIKey           string     `json:"apiKey"`
+	AllowedProviders []string   `json:"allowedProviders,omitempty"`
+	ExpiresAt        *time.Time `json:"expiresAt,omitempty"`
+	CreatedAt        time.Time  `json:"createdAt"`
+	Message          string     `json:"message"`
 }
 
 type APIKeyRevealResponse struct {
-	ID        string     `json:"id"`
-	Name      string     `json:"name"`
-	Prefix    string     `json:"prefix"`
-	APIKey    string     `json:"apiKey"`
-	ExpiresAt *time.Time `json:"expiresAt,omitempty"`
-	CreatedAt time.Time  `json:"createdAt"`
+	ID               string     `json:"id"`
+	Name             string     `json:"name"`
+	Prefix           string     `json:"prefix"`
+	APIKey           string     `json:"apiKey"`
+	AllowedProviders []string   `json:"allowedProviders,omitempty"`
+	ExpiresAt        *time.Time `json:"expiresAt,omitempty"`
+	CreatedAt        time.Time  `json:"createdAt"`
 }
 
 type CCSwitchUsageItem struct {
@@ -135,16 +140,17 @@ type CCSwitchUsageItem struct {
 }
 
 type APIKeyListItem struct {
-	ID        string     `json:"id"`
-	Name      string     `json:"name"`
-	Prefix    string     `json:"prefix"`
-	APIKey    string     `json:"apiKey,omitempty"`
-	CreatedAt time.Time  `json:"createdAt"`
-	RevokedAt *time.Time `json:"revokedAt,omitempty"`
-	LastUsed  *time.Time `json:"lastUsedAt,omitempty"`
-	ExpiresAt *time.Time `json:"expiresAt,omitempty"`
-	Status    string     `json:"status"`
-	IsActive  bool       `json:"isActive"`
+	ID               string     `json:"id"`
+	Name             string     `json:"name"`
+	Prefix           string     `json:"prefix"`
+	APIKey           string     `json:"apiKey,omitempty"`
+	AllowedProviders []string   `json:"allowedProviders,omitempty"`
+	CreatedAt        time.Time  `json:"createdAt"`
+	RevokedAt        *time.Time `json:"revokedAt,omitempty"`
+	LastUsed         *time.Time `json:"lastUsedAt,omitempty"`
+	ExpiresAt        *time.Time `json:"expiresAt,omitempty"`
+	Status           string     `json:"status"`
+	IsActive         bool       `json:"isActive"`
 }
 
 type BootstrapResponse struct {

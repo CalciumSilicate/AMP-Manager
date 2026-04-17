@@ -396,6 +396,7 @@ func Setup() *gin.Engine {
 				purchase.POST("/orders/:orderNo/payment-status", purchaseHandler.UpdateOrderPaymentStatus)
 				purchase.GET("/orders/:orderNo/payment-status-history", purchaseHandler.ListOrderPaymentStatusHistory)
 				purchase.POST("/orders/:orderNo/manual-settlement", purchaseHandler.CreateSingleManualSettlement)
+				purchase.POST("/manual-settlements/preview", purchaseHandler.PreviewBatchManualSettlement)
 				purchase.POST("/manual-settlements/confirm", purchaseHandler.CreateBatchManualSettlement)
 			}
 

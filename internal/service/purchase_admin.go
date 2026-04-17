@@ -27,6 +27,8 @@ var (
 	ErrPurchaseOrderStatusInvalid    = errors.New("仅支持修改为 paid、expired、refunded")
 	ErrPurchaseManualSettlementDup   = errors.New("订单已记入分账台账，请刷新后重试")
 	ErrPurchaseManualSettlementState = errors.New("仅已支付或已退款订单可记入分账台账")
+	ErrPurchaseManualSettlementEmpty = errors.New("该时间区间内没有可分账订单")
+	ErrPurchaseManualSettlementRange = errors.New("请选择有效的支付时间区间")
 )
 
 var purchaseWebhookTemplatePattern = regexp.MustCompile(`\{\{\s*([a-zA-Z0-9_]+)\s*\}\}`)
@@ -195,14 +197,72 @@ func (s *PurchaseService) ListOrderPaymentStatusHistory(orderNo string) ([]*mode
 }
 
 func (s *PurchaseService) CreateSingleManualSettlement(orderNo, note, adminUsername string) (*model.PurchaseManualSettlementBatch, error) {
-	return s.createManualSettlementBatch([]string{orderNo}, note, adminUsername, model.PurchaseManualSettlementBatchModeSingle)
+	return s.createManualSettlementBatch([]string{orderNo}, note, adminUsername, model.PurchaseManualSettlementBatchModeSingle, false)
 }
 
 func (s *PurchaseService) CreateBatchManualSettlement(orderNos []string, note, adminUsername string) (*model.PurchaseManualSettlementBatch, error) {
-	return s.createManualSettlementBatch(orderNos, note, adminUsername, model.PurchaseManualSettlementBatchModeBatch)
+	return s.createManualSettlementBatch(orderNos, note, adminUsername, model.PurchaseManualSettlementBatchModeBatch, false)
 }
 
-func (s *PurchaseService) createManualSettlementBatch(orderNos []string, note, adminUsername string, mode model.PurchaseManualSettlementBatchMode) (*model.PurchaseManualSettlementBatch, error) {
+func (s *PurchaseService) PreviewBatchManualSettlement(req *model.PurchaseManualSettlementPreviewRequest) (*model.PurchaseManualSettlementPreviewResponse, error) {
+	filters, err := normalizeManualSettlementFilters(req.PaidFrom, req.PaidTo)
+	if err != nil {
+		return nil, err
+	}
+
+	limit := req.Limit
+	if limit <= 0 {
+		limit = 50
+	}
+	if limit > 200 {
+		limit = 200
+	}
+	filters.Limit = limit
+
+	items, total, err := s.orderRepo.ListAdmin(filters)
+	if err != nil {
+		return nil, err
+	}
+	for _, item := range items {
+		if err := s.normalizeOrderState(item); err != nil {
+			return nil, err
+		}
+	}
+
+	totalAmountCNYCent, err := s.orderRepo.SumAdminAmount(filters)
+	if err != nil {
+		return nil, err
+	}
+
+	return &model.PurchaseManualSettlementPreviewResponse{
+		Items:              items,
+		Total:              total,
+		TotalAmountCNYCent: totalAmountCNYCent,
+	}, nil
+}
+
+func (s *PurchaseService) CreateBatchManualSettlementByRequest(req *model.PurchaseManualSettlementConfirmRequest, adminUsername string) (*model.PurchaseManualSettlementBatch, error) {
+	if len(req.OrderNos) > 0 {
+		return s.createManualSettlementBatch(req.OrderNos, req.Note, adminUsername, model.PurchaseManualSettlementBatchModeBatch, req.DebugSettlement)
+	}
+
+	filters, err := normalizeManualSettlementFilters(req.PaidFrom, req.PaidTo)
+	if err != nil {
+		return nil, err
+	}
+
+	orderNos, err := s.orderRepo.ListAdminOrderNos(filters)
+	if err != nil {
+		return nil, err
+	}
+	if len(orderNos) == 0 {
+		return nil, ErrPurchaseManualSettlementEmpty
+	}
+
+	return s.createManualSettlementBatch(orderNos, req.Note, adminUsername, model.PurchaseManualSettlementBatchModeBatch, req.DebugSettlement)
+}
+
+func (s *PurchaseService) createManualSettlementBatch(orderNos []string, note, adminUsername string, mode model.PurchaseManualSettlementBatchMode, debugSettlement bool) (*model.PurchaseManualSettlementBatch, error) {
 	uniqueOrderNos := make([]string, 0, len(orderNos))
 	seen := map[string]struct{}{}
 	for _, orderNo := range orderNos {
@@ -228,11 +288,12 @@ func (s *PurchaseService) createManualSettlementBatch(orderNos []string, note, a
 
 	now := time.Now().UTC()
 	batch := &model.PurchaseManualSettlementBatch{
-		BatchNo:   buildPurchaseManualSettlementBatchNo(now),
-		Mode:      mode,
-		CreatedBy: strings.TrimSpace(adminUsername),
-		Note:      strings.TrimSpace(note),
-		CreatedAt: now,
+		BatchNo:         buildPurchaseManualSettlementBatchNo(now),
+		Mode:            mode,
+		DebugSettlement: debugSettlement,
+		CreatedBy:       strings.TrimSpace(adminUsername),
+		Note:            strings.TrimSpace(note),
+		CreatedAt:       now,
 	}
 
 	orders := make([]*model.PurchaseOrderResponse, 0, len(uniqueOrderNos))
@@ -289,6 +350,23 @@ func (s *PurchaseService) createManualSettlementBatch(orderNos []string, note, a
 		return nil, err
 	}
 	return batch, nil
+}
+
+func normalizeManualSettlementFilters(paidFrom, paidTo *time.Time) (model.PurchaseOrderFilters, error) {
+	if paidFrom == nil || paidTo == nil {
+		return model.PurchaseOrderFilters{}, ErrPurchaseManualSettlementRange
+	}
+	if paidFrom.After(*paidTo) {
+		return model.PurchaseOrderFilters{}, ErrPurchaseManualSettlementRange
+	}
+
+	manualSettlementDone := false
+	return model.PurchaseOrderFilters{
+		PaidFrom:                    paidFrom,
+		PaidTo:                      paidTo,
+		ManualSettlementDone:        &manualSettlementDone,
+		EligibleForManualSettlement: true,
+	}, nil
 }
 
 func StartPurchaseWebhookWorker() {

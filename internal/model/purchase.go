@@ -247,12 +247,16 @@ type CreateBalanceTopupOrderRequest struct {
 }
 
 type PurchaseOrderFilters struct {
-	PaymentStatus     PurchasePaymentStatus
-	FulfillmentStatus PurchaseFulfillmentStatus
-	Username          string
-	ProductID         string
-	Limit             int
-	Offset            int
+	PaymentStatus               PurchasePaymentStatus
+	FulfillmentStatus           PurchaseFulfillmentStatus
+	Username                    string
+	ProductID                   string
+	PaidFrom                    *time.Time
+	PaidTo                      *time.Time
+	ManualSettlementDone        *bool
+	EligibleForManualSettlement bool
+	Limit                       int
+	Offset                      int
 }
 
 type PurchaseWebhookTarget struct {
@@ -328,6 +332,7 @@ type PurchaseManualSettlementBatch struct {
 	ID                 string                            `json:"id"`
 	BatchNo            string                            `json:"batchNo"`
 	Mode               PurchaseManualSettlementBatchMode `json:"mode"`
+	DebugSettlement    bool                              `json:"debugSettlement"`
 	CreatedBy          string                            `json:"createdBy"`
 	Note               string                            `json:"note"`
 	OrderCount         int                               `json:"orderCount"`
@@ -335,7 +340,22 @@ type PurchaseManualSettlementBatch struct {
 	CreatedAt          time.Time                         `json:"createdAt"`
 }
 
+type PurchaseManualSettlementPreviewRequest struct {
+	PaidFrom *time.Time `json:"paidFrom"`
+	PaidTo   *time.Time `json:"paidTo"`
+	Limit    int        `json:"limit"`
+}
+
+type PurchaseManualSettlementPreviewResponse struct {
+	Items              []*PurchaseOrderResponse `json:"items"`
+	Total              int64                    `json:"total"`
+	TotalAmountCNYCent int64                    `json:"totalAmountCnyCent"`
+}
+
 type PurchaseManualSettlementConfirmRequest struct {
-	OrderNos []string `json:"orderNos" binding:"required,min=1"`
-	Note     string   `json:"note" binding:"max=500"`
+	OrderNos        []string   `json:"orderNos,omitempty"`
+	PaidFrom        *time.Time `json:"paidFrom,omitempty"`
+	PaidTo          *time.Time `json:"paidTo,omitempty"`
+	DebugSettlement bool       `json:"debugSettlement"`
+	Note            string     `json:"note" binding:"max=500"`
 }

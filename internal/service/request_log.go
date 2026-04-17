@@ -19,33 +19,37 @@ func NewRequestLogService() *RequestLogService {
 
 // ListParams 列表查询参数
 type ListRequestLogsParams struct {
-	UserID      string
-	APIKeyID    string
-	SessionID   string
-	Model       string
-	Channel     string
-	StatusCodes []int
-	IsStreaming *bool
-	From        *time.Time
-	To          *time.Time
-	Page        int
-	PageSize    int
+	UserID         string
+	APIKeyID       string
+	SessionID      string
+	Model          string
+	Channel        string
+	RequestFormat  string
+	UpstreamFormat string
+	StatusCodes    []int
+	IsStreaming    *bool
+	From           *time.Time
+	To             *time.Time
+	Page           int
+	PageSize       int
 }
 
 // List 查询请求日志列表
 func (s *RequestLogService) List(params ListRequestLogsParams) (*model.RequestLogListResponse, error) {
 	repoParams := repository.ListParams{
-		UserID:      params.UserID,
-		APIKeyID:    params.APIKeyID,
-		SessionID:   params.SessionID,
-		Model:       params.Model,
-		Channel:     params.Channel,
-		StatusCodes: params.StatusCodes,
-		IsStreaming: params.IsStreaming,
-		From:        params.From,
-		To:          params.To,
-		Page:        params.Page,
-		PageSize:    params.PageSize,
+		UserID:         params.UserID,
+		APIKeyID:       params.APIKeyID,
+		SessionID:      params.SessionID,
+		Model:          params.Model,
+		Channel:        params.Channel,
+		RequestFormat:  params.RequestFormat,
+		UpstreamFormat: params.UpstreamFormat,
+		StatusCodes:    params.StatusCodes,
+		IsStreaming:    params.IsStreaming,
+		From:           params.From,
+		To:             params.To,
+		Page:           params.Page,
+		PageSize:       params.PageSize,
 	}
 
 	logs, total, err := s.repo.List(repoParams)
@@ -88,17 +92,19 @@ func (s *RequestLogService) GetUsageSummaryAdmin(userID *string, from, to *time.
 // ListAdmin 管理员查询请求日志列表（可选按用户过滤）
 func (s *RequestLogService) ListAdmin(params ListRequestLogsParams) (*model.RequestLogListResponse, error) {
 	repoParams := repository.ListParams{
-		UserID:      params.UserID, // UserID 可为空
-		APIKeyID:    params.APIKeyID,
-		SessionID:   params.SessionID,
-		Model:       params.Model,
-		Channel:     params.Channel,
-		StatusCodes: params.StatusCodes,
-		IsStreaming: params.IsStreaming,
-		From:        params.From,
-		To:          params.To,
-		Page:        params.Page,
-		PageSize:    params.PageSize,
+		UserID:         params.UserID, // UserID 可为空
+		APIKeyID:       params.APIKeyID,
+		SessionID:      params.SessionID,
+		Model:          params.Model,
+		Channel:        params.Channel,
+		RequestFormat:  params.RequestFormat,
+		UpstreamFormat: params.UpstreamFormat,
+		StatusCodes:    params.StatusCodes,
+		IsStreaming:    params.IsStreaming,
+		From:           params.From,
+		To:             params.To,
+		Page:           params.Page,
+		PageSize:       params.PageSize,
 	}
 
 	logs, total, err := s.repo.List(repoParams)

@@ -182,6 +182,66 @@ func TestSetAPIKeyDisabledCanRestore(t *testing.T) {
 	}
 }
 
+func TestCreateAndUpdateAPIKeyAllowedProviders(t *testing.T) {
+	setupAmpServiceTestDB(t)
+
+	user := createAmpServiceTestUser(t, "user-provider-key")
+	svc := NewAmpService()
+
+	created, err := svc.CreateAPIKey(user.ID, &model.CreateAPIKeyRequest{
+		Name:             "provider-limited",
+		AllowedProviders: []string{"gemini", "openai_chat", "gemini"},
+	})
+	if err != nil {
+		t.Fatalf("CreateAPIKey returned error: %v", err)
+	}
+
+	if len(created.AllowedProviders) != 2 || created.AllowedProviders[0] != "gemini" || created.AllowedProviders[1] != "openai_chat" {
+		t.Fatalf("unexpected allowed providers after create: %#v", created.AllowedProviders)
+	}
+
+	listed, err := svc.ListAPIKeys(user.ID)
+	if err != nil {
+		t.Fatalf("ListAPIKeys returned error: %v", err)
+	}
+	if len(listed) != 1 || len(listed[0].AllowedProviders) != 2 {
+		t.Fatalf("unexpected listed providers: %#v", listed)
+	}
+
+	updated, err := svc.UpdateAPIKey(user.ID, created.ID, &model.UpdateAPIKeyRequest{
+		Name:             "provider-limited-updated",
+		AllowedProviders: []string{"anthropic"},
+	})
+	if err != nil {
+		t.Fatalf("UpdateAPIKey returned error: %v", err)
+	}
+	if len(updated.AllowedProviders) != 1 || updated.AllowedProviders[0] != "anthropic" {
+		t.Fatalf("unexpected allowed providers after update: %#v", updated.AllowedProviders)
+	}
+
+	revealed, err := svc.GetAPIKey(user.ID, created.ID)
+	if err != nil {
+		t.Fatalf("GetAPIKey returned error: %v", err)
+	}
+	if len(revealed.AllowedProviders) != 1 || revealed.AllowedProviders[0] != "anthropic" {
+		t.Fatalf("unexpected revealed providers: %#v", revealed.AllowedProviders)
+	}
+}
+
+func TestCreateAPIKeyRejectsInvalidAllowedProvider(t *testing.T) {
+	setupAmpServiceTestDB(t)
+
+	user := createAmpServiceTestUser(t, "user-invalid-provider")
+	svc := NewAmpService()
+
+	if _, err := svc.CreateAPIKey(user.ID, &model.CreateAPIKeyRequest{
+		Name:             "invalid-provider",
+		AllowedProviders: []string{"unknown-provider"},
+	}); err == nil {
+		t.Fatal("expected invalid provider error")
+	}
+}
+
 func setupAmpServiceTestDB(t *testing.T) {
 	t.Helper()
 

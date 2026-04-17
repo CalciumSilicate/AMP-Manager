@@ -621,3 +621,83 @@ func TestPurchaseServiceSingleManualSettlementRejectsDuplicate(t *testing.T) {
 		t.Fatalf("expected ErrPurchaseManualSettlementDup, got %v", err)
 	}
 }
+
+func TestPurchaseServicePreviewAndCreateBatchManualSettlementByRange(t *testing.T) {
+	setupPurchaseServiceTestDB(t)
+
+	user := createPurchaseTestUser(t, "buyer-range-settlement")
+	plan := createPurchaseTestPlan(t, "Range Settlement Plan")
+	product := createPurchaseTestProduct(t, plan.ID, "Range Settlement 商品", 30, 990)
+
+	inRangeOrder := createPendingPurchaseTestOrder(t, user.ID, product, model.PurchaseOrderKindSubscription, 0)
+	outRangeOrder := createPendingPurchaseTestOrder(t, user.ID, product, model.PurchaseOrderKindSubscription, 0)
+
+	svc := NewPurchaseService()
+	for _, order := range []*model.PurchaseOrder{inRangeOrder, outRangeOrder} {
+		if _, err := svc.UpdateOrderPaymentStatusAdmin(order.OrderNo, &model.PurchaseOrderPaymentStatusUpdateRequest{
+			PaymentStatus: model.PurchasePaymentStatusPaid,
+			Note:          "paid",
+		}, "admin"); err != nil {
+			t.Fatalf("UpdateOrderPaymentStatusAdmin returned error: %v", err)
+		}
+	}
+
+	paidFrom := time.Now().UTC().Add(-2 * time.Hour)
+	paidTo := time.Now().UTC().Add(-30 * time.Minute)
+	oldPaidAt := time.Now().UTC().Add(-24 * time.Hour)
+	if _, err := database.GetDB().Exec(`UPDATE purchase_orders SET paid_at = ?, updated_at = ? WHERE order_no = ?`, paidFrom.Add(30*time.Minute), time.Now().UTC(), inRangeOrder.OrderNo); err != nil {
+		t.Fatalf("update in-range paid_at returned error: %v", err)
+	}
+	if _, err := database.GetDB().Exec(`UPDATE purchase_orders SET paid_at = ?, updated_at = ? WHERE order_no = ?`, oldPaidAt, time.Now().UTC(), outRangeOrder.OrderNo); err != nil {
+		t.Fatalf("update out-range paid_at returned error: %v", err)
+	}
+
+	preview, err := svc.PreviewBatchManualSettlement(&model.PurchaseManualSettlementPreviewRequest{
+		PaidFrom: &paidFrom,
+		PaidTo:   &paidTo,
+	})
+	if err != nil {
+		t.Fatalf("PreviewBatchManualSettlement returned error: %v", err)
+	}
+	if preview.Total != 1 {
+		t.Fatalf("preview total = %d, want 1", preview.Total)
+	}
+	if preview.TotalAmountCNYCent != inRangeOrder.AmountCNYCent {
+		t.Fatalf("preview totalAmountCnyCent = %d, want %d", preview.TotalAmountCNYCent, inRangeOrder.AmountCNYCent)
+	}
+	if len(preview.Items) != 1 || preview.Items[0].OrderNo != inRangeOrder.OrderNo {
+		t.Fatalf("preview items = %+v, want in-range order only", preview.Items)
+	}
+
+	batch, err := svc.CreateBatchManualSettlementByRequest(&model.PurchaseManualSettlementConfirmRequest{
+		PaidFrom:        &paidFrom,
+		PaidTo:          &paidTo,
+		DebugSettlement: true,
+		Note:            "debug batch",
+	}, "admin")
+	if err != nil {
+		t.Fatalf("CreateBatchManualSettlementByRequest returned error: %v", err)
+	}
+	if !batch.DebugSettlement {
+		t.Fatalf("batch.DebugSettlement = false, want true")
+	}
+	if batch.OrderCount != 1 {
+		t.Fatalf("batch.OrderCount = %d, want 1", batch.OrderCount)
+	}
+
+	updatedInRange, err := svc.orderRepo.GetDetailByOrderNo(inRangeOrder.OrderNo)
+	if err != nil {
+		t.Fatalf("GetDetailByOrderNo in-range returned error: %v", err)
+	}
+	if updatedInRange == nil || !updatedInRange.ManualSettlementDone {
+		t.Fatalf("in-range order manualSettlementDone not updated: %+v", updatedInRange)
+	}
+
+	updatedOutRange, err := svc.orderRepo.GetDetailByOrderNo(outRangeOrder.OrderNo)
+	if err != nil {
+		t.Fatalf("GetDetailByOrderNo out-range returned error: %v", err)
+	}
+	if updatedOutRange == nil || updatedOutRange.ManualSettlementDone {
+		t.Fatalf("out-range order should remain unsettled: %+v", updatedOutRange)
+	}
+}

@@ -305,6 +305,7 @@ func createTables() error {
 		name TEXT NOT NULL,
 		key_hash TEXT UNIQUE NOT NULL,
 		api_key TEXT NOT NULL DEFAULT '',
+		allowed_providers_json TEXT NOT NULL DEFAULT '[]',
 		prefix TEXT NOT NULL,
 		last_used_at DATETIME,
 		expires_at DATETIME,
@@ -569,9 +570,9 @@ func createTables() error {
 			created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
 			updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
 		);
-		CREATE UNIQUE INDEX IF NOT EXISTS idx_error_rules_request_pattern ON error_rules(request_type, pattern);
-		CREATE INDEX IF NOT EXISTS idx_error_rules_enabled_priority ON error_rules(is_enabled, priority ASC, id ASC);
-		CREATE INDEX IF NOT EXISTS idx_error_rules_default_pattern ON error_rules(is_default, pattern);
+	CREATE UNIQUE INDEX IF NOT EXISTS idx_error_rules_request_pattern ON error_rules(request_type, pattern, is_default);
+	CREATE INDEX IF NOT EXISTS idx_error_rules_enabled_priority ON error_rules(is_enabled, priority ASC, id ASC);
+	CREATE INDEX IF NOT EXISTS idx_error_rules_default_pattern ON error_rules(is_default, pattern);
 
 		CREATE TABLE IF NOT EXISTS request_filters (
 			id TEXT PRIMARY KEY,
@@ -1638,13 +1639,13 @@ func runMigrations() error {
 				FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
 			)`,
 		},
-			{
-				name: "create_announcement_reads_indexes",
-				sql:  `CREATE INDEX IF NOT EXISTS idx_announcement_reads_user ON announcement_reads(user_id, read_at DESC)`,
-			},
-			{
-				name: "create_error_rules_table",
-				sql: `CREATE TABLE IF NOT EXISTS error_rules (
+		{
+			name: "create_announcement_reads_indexes",
+			sql:  `CREATE INDEX IF NOT EXISTS idx_announcement_reads_user ON announcement_reads(user_id, read_at DESC)`,
+		},
+		{
+			name: "create_error_rules_table",
+			sql: `CREATE TABLE IF NOT EXISTS error_rules (
 					id TEXT PRIMARY KEY,
 					name TEXT NOT NULL,
 					description TEXT NOT NULL DEFAULT '',
@@ -1662,16 +1663,16 @@ func runMigrations() error {
 					created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
 					updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
 				)`,
-			},
-			{
-				name: "create_error_rules_indexes",
-				sql: `CREATE UNIQUE INDEX IF NOT EXISTS idx_error_rules_request_pattern ON error_rules(request_type, pattern);
+		},
+		{
+			name: "create_error_rules_indexes",
+			sql: `CREATE UNIQUE INDEX IF NOT EXISTS idx_error_rules_request_pattern ON error_rules(request_type, pattern, is_default);
 					  CREATE INDEX IF NOT EXISTS idx_error_rules_enabled_priority ON error_rules(is_enabled, priority ASC, id ASC);
 					  CREATE INDEX IF NOT EXISTS idx_error_rules_default_pattern ON error_rules(is_default, pattern)`,
-			},
-			{
-				name: "create_request_filters_table",
-				sql: `CREATE TABLE IF NOT EXISTS request_filters (
+		},
+		{
+			name: "create_request_filters_table",
+			sql: `CREATE TABLE IF NOT EXISTS request_filters (
 					id TEXT PRIMARY KEY,
 					name TEXT NOT NULL,
 					description TEXT NOT NULL DEFAULT '',
@@ -1691,15 +1692,15 @@ func runMigrations() error {
 					created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
 					updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
 				)`,
-			},
-			{
-				name: "create_request_filters_indexes",
-				sql: `CREATE INDEX IF NOT EXISTS idx_request_filters_enabled_priority ON request_filters(is_enabled, priority ASC, id ASC);
+		},
+		{
+			name: "create_request_filters_indexes",
+			sql: `CREATE INDEX IF NOT EXISTS idx_request_filters_enabled_priority ON request_filters(is_enabled, priority ASC, id ASC);
 					  CREATE INDEX IF NOT EXISTS idx_request_filters_binding_phase ON request_filters(binding_type, execution_phase, priority ASC)`,
-			},
-			{
-				name: "create_status_monitor_tables",
-				sql: `CREATE TABLE IF NOT EXISTS status_monitors (
+		},
+		{
+			name: "create_status_monitor_tables",
+			sql: `CREATE TABLE IF NOT EXISTS status_monitors (
 				id TEXT PRIMARY KEY,
 				name TEXT NOT NULL,
 				group_name TEXT NOT NULL DEFAULT '',
@@ -1981,6 +1982,12 @@ func ensureCriticalSchema() error {
 	if err := ensureRequestLogsSessionSchema(); err != nil {
 		return err
 	}
+	if err := ensureAPIKeyProviderSchema(); err != nil {
+		return err
+	}
+	if err := ensureErrorRuleSchema(); err != nil {
+		return err
+	}
 	if err := ensurePurchaseSchema(); err != nil {
 		return err
 	}
@@ -2008,6 +2015,23 @@ func ensureRequestLogsSessionSchema() error {
 		}
 	}
 
+	return nil
+}
+
+func ensureAPIKeyProviderSchema() error {
+	if err := ensureColumnWithDefault("user_api_keys", "allowed_providers_json", "TEXT NOT NULL DEFAULT '[]'"); err != nil {
+		return err
+	}
+	return nil
+}
+
+func ensureErrorRuleSchema() error {
+	if _, err := db.Exec(`DROP INDEX IF EXISTS idx_error_rules_request_pattern`); err != nil {
+		return fmt.Errorf("drop idx_error_rules_request_pattern failed: %w", err)
+	}
+	if _, err := db.Exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_error_rules_request_pattern ON error_rules(request_type, pattern, is_default)`); err != nil {
+		return fmt.Errorf("create idx_error_rules_request_pattern failed: %w", err)
+	}
 	return nil
 }
 
@@ -2068,6 +2092,7 @@ func ensurePurchaseSchema() error {
 			id TEXT PRIMARY KEY,
 			batch_no TEXT NOT NULL UNIQUE,
 			mode TEXT NOT NULL,
+			debug_settlement INTEGER NOT NULL DEFAULT 0,
 			created_by TEXT NOT NULL DEFAULT '',
 			note TEXT NOT NULL DEFAULT '',
 			order_count INTEGER NOT NULL DEFAULT 0,
@@ -2092,6 +2117,9 @@ func ensurePurchaseSchema() error {
 		if _, err := db.Exec(adaptCriticalSchemaSQL(statement)); err != nil {
 			return err
 		}
+	}
+	if err := ensureColumnWithDefault("purchase_manual_settlement_batches", "debug_settlement", "INTEGER NOT NULL DEFAULT 0"); err != nil {
+		return err
 	}
 	return nil
 }
