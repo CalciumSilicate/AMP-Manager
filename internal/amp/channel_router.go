@@ -506,6 +506,11 @@ func ChannelProxyHandler() gin.HandlerFunc {
 				log.Debugf("channel proxy: applied S2T traditional Chinese conversion to request body")
 			}
 
+			if injectedBody, injected := injectPromptCacheKeyForResponses(convertedBody, incomingFormat, outgoingFormat, requestSession); injected {
+				convertedBody = injectedBody
+				log.Debugf("channel proxy: injected prompt_cache_key from session id for %s -> %s", incomingFormat, outgoingFormat)
+			}
+
 			if !bytes.Equal(convertedBody, bodyBytes) {
 				c.Request.Body = io.NopCloser(bytes.NewReader(convertedBody))
 				c.Request.ContentLength = int64(len(convertedBody))

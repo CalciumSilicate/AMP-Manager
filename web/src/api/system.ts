@@ -778,6 +778,7 @@ export interface SessionStickyConfig {
   enabled: boolean
   windowMinutes: number
   logSearchMinChars: number
+  injectPromptCacheKeyResponses: boolean
 }
 
 export interface SessionStickyRuntimeStatus {

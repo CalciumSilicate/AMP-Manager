@@ -54,9 +54,10 @@ func newSessionStickyRuntime() *sessionStickyRuntime {
 
 func defaultSessionStickyConfig() model.SessionStickyConfigResponse {
 	return model.SessionStickyConfigResponse{
-		Enabled:           false,
-		WindowMinutes:     defaultSessionStickyWindowMinutes,
-		LogSearchMinChars: defaultSessionStickyLogSearchMinChars,
+		Enabled:                       false,
+		WindowMinutes:                 defaultSessionStickyWindowMinutes,
+		LogSearchMinChars:             defaultSessionStickyLogSearchMinChars,
+		InjectPromptCacheKeyResponses: false,
 	}
 }
 

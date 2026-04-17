@@ -6,15 +6,17 @@ type SessionStickyPublicConfig struct {
 }
 
 type SessionStickyConfigResponse struct {
-	Enabled           bool `json:"enabled"`
-	WindowMinutes     int  `json:"windowMinutes"`
-	LogSearchMinChars int  `json:"logSearchMinChars"`
+	Enabled                       bool `json:"enabled"`
+	WindowMinutes                 int  `json:"windowMinutes"`
+	LogSearchMinChars             int  `json:"logSearchMinChars"`
+	InjectPromptCacheKeyResponses bool `json:"injectPromptCacheKeyResponses"`
 }
 
 type SessionStickyConfigRequest struct {
-	Enabled           bool `json:"enabled"`
-	WindowMinutes     int  `json:"windowMinutes"`
-	LogSearchMinChars int  `json:"logSearchMinChars"`
+	Enabled                       bool `json:"enabled"`
+	WindowMinutes                 int  `json:"windowMinutes"`
+	LogSearchMinChars             int  `json:"logSearchMinChars"`
+	InjectPromptCacheKeyResponses bool `json:"injectPromptCacheKeyResponses"`
 }
 
 type SessionStickyRuntimeResponse struct {

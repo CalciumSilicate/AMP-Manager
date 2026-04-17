@@ -32,6 +32,7 @@ const (
 	sessionStickyEnabledKey              = "session_sticky_enabled"
 	sessionStickyWindowMinutesKey        = "session_sticky_window_minutes"
 	sessionStickyLogSearchMinCharsKey    = "session_sticky_log_search_min_chars"
+	sessionStickyInjectPromptCacheKeyKey = "session_sticky_inject_prompt_cache_key_responses"
 	siteNameKey                          = "site_name"
 	allowAmpProxySettingsKey             = "allow_amp_proxy_settings"
 	allowAmpSettingsKey                  = "allow_amp_settings"
@@ -309,9 +310,10 @@ func (s *SystemConfigService) GetSiteConfig() (model.SiteConfigResponse, error) 
 
 func (s *SystemConfigService) GetSessionStickyConfig() (model.SessionStickyConfigResponse, error) {
 	resp := model.SessionStickyConfigResponse{
-		Enabled:           false,
-		WindowMinutes:     5,
-		LogSearchMinChars: 4,
+		Enabled:                       false,
+		WindowMinutes:                 5,
+		LogSearchMinChars:             4,
+		InjectPromptCacheKeyResponses: false,
 	}
 
 	if value, err := s.repo.Get(sessionStickyEnabledKey); err == nil && value != "" {
@@ -327,15 +329,19 @@ func (s *SystemConfigService) GetSessionStickyConfig() (model.SessionStickyConfi
 			resp.LogSearchMinChars = parsed
 		}
 	}
+	if value, err := s.repo.Get(sessionStickyInjectPromptCacheKeyKey); err == nil && value != "" {
+		resp.InjectPromptCacheKeyResponses = value == "true"
+	}
 
 	return resp, nil
 }
 
 func (s *SystemConfigService) SetSessionStickyConfig(req model.SessionStickyConfigRequest) (model.SessionStickyConfigResponse, error) {
 	resp := model.SessionStickyConfigResponse{
-		Enabled:           req.Enabled,
-		WindowMinutes:     req.WindowMinutes,
-		LogSearchMinChars: req.LogSearchMinChars,
+		Enabled:                       req.Enabled,
+		WindowMinutes:                 req.WindowMinutes,
+		LogSearchMinChars:             req.LogSearchMinChars,
+		InjectPromptCacheKeyResponses: req.InjectPromptCacheKeyResponses,
 	}
 	if resp.WindowMinutes <= 0 {
 		resp.WindowMinutes = 5
@@ -345,9 +351,10 @@ func (s *SystemConfigService) SetSessionStickyConfig(req model.SessionStickyConf
 	}
 
 	entries := map[string]string{
-		sessionStickyEnabledKey:           boolToConfigString(resp.Enabled),
-		sessionStickyWindowMinutesKey:     formatInt(resp.WindowMinutes),
-		sessionStickyLogSearchMinCharsKey: formatInt(resp.LogSearchMinChars),
+		sessionStickyEnabledKey:              boolToConfigString(resp.Enabled),
+		sessionStickyWindowMinutesKey:        formatInt(resp.WindowMinutes),
+		sessionStickyLogSearchMinCharsKey:    formatInt(resp.LogSearchMinChars),
+		sessionStickyInjectPromptCacheKeyKey: boolToConfigString(resp.InjectPromptCacheKeyResponses),
 	}
 	for key, value := range entries {
 		if err := s.repo.Set(key, value); err != nil {

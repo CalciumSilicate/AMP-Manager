@@ -1041,6 +1041,20 @@ export default function SystemSettings({
                         />
                       </div>
 
+                      <div className="flex items-start justify-between gap-4 rounded-lg border px-4 py-3">
+                        <div className="space-y-1">
+                          <Label htmlFor="sessionStickyInjectPromptCacheKeyResponses">转 Responses 时注入 prompt cache key</Label>
+                          <p className="text-sm text-muted-foreground">
+                            仅在非 Responses 请求被翻译到 Responses 上游时生效，使用当前 SessionID 写入 <span className="font-mono">prompt_cache_key</span>。
+                          </p>
+                        </div>
+                        <Switch
+                          id="sessionStickyInjectPromptCacheKeyResponses"
+                          checked={sessionStickyConfig.injectPromptCacheKeyResponses}
+                          onCheckedChange={(checked) => handleSessionStickyConfigChange('injectPromptCacheKeyResponses', checked)}
+                        />
+                      </div>
+
                       <div className="grid gap-4 md:grid-cols-2">
                         <div className="space-y-2">
                           <Label htmlFor="sessionStickyWindowMinutes">窗口 (分钟)</Label>
