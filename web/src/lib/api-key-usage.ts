@@ -1,16 +1,14 @@
+import { listAvailableModels, type AvailableModel } from '@/api/models'
+
 export type CCSwitchApp = 'codex' | 'opencode' | 'openclaw'
 
 const CODEX_PROVIDER_NAME = 'OpenAI'
 
-interface ModelLimit {
-  context: number
-  output: number
-}
-
 export interface APIKeyUsageContent {
   defaultModel: string
-  models: string[]
+  models: AvailableModel[]
   ccSwitchLinks: Record<CCSwitchApp, string>
+  ccSwitchFallbackPatch: string
   codex: {
     configToml: string
     authJson: string
@@ -32,54 +30,30 @@ export interface APIKeyUsageContent {
 }
 
 export async function getAPIKeyAvailableModels({
-  origin,
-  apiBaseUrl,
-  apiKey,
   signal,
 }: {
-  origin: string
-  apiBaseUrl: string
-  apiKey: string
   signal?: AbortSignal
-}): Promise<string[]> {
-  const candidates = [
-    `${origin}/api/provider/openai/v1/models`,
-    `${apiBaseUrl}/models`,
-  ]
+}): Promise<AvailableModel[]> {
+  if (signal?.aborted) {
+    throw new DOMException('Aborted', 'AbortError')
+  }
 
-  for (const url of candidates) {
-    try {
-      const response = await fetch(url, {
-        method: 'GET',
-        signal,
-        headers: {
-          Authorization: `Bearer ${apiKey}`,
-          'X-Api-Key': apiKey,
-        },
-      })
+  const models = await listAvailableModels()
+  const deduped = new Map<string, AvailableModel>()
 
-      if (!response.ok) continue
-
-      const payload = await response.json() as { data?: Array<{ id?: string }> }
-      const models = Array.from(
-        new Set(
-          (payload.data || [])
-            .map((item) => item.id?.trim())
-            .filter((value): value is string => Boolean(value)),
-        ),
-      )
-
-      if (models.length > 0) {
-        return models
-      }
-    } catch (error) {
-      if (error instanceof DOMException && error.name === 'AbortError') {
-        throw error
-      }
+  for (const item of models) {
+    const modelId = item.modelId?.trim()
+    if (!modelId) continue
+    if (!deduped.has(modelId)) {
+      deduped.set(modelId, item)
     }
   }
 
-  throw new Error('获取模型列表失败')
+  if (deduped.size === 0) {
+    throw new Error('获取模型列表失败')
+  }
+
+  return Array.from(deduped.values())
 }
 
 export function buildAPIKeyUsageContent({
@@ -88,14 +62,17 @@ export function buildAPIKeyUsageContent({
   apiKey,
   keyName,
   models,
+  selectedModelId,
 }: {
   origin: string
   apiBaseUrl: string
   apiKey: string
   keyName: string
-  models: string[]
+  models: AvailableModel[]
+  selectedModelId: string
 }): APIKeyUsageContent {
-  const defaultModel = models[0]
+  const selectedModel = models.find((item) => item.modelId === selectedModelId) ?? models[0]
+  const defaultModel = selectedModel.modelId
 
   return {
     defaultModel,
@@ -126,13 +103,14 @@ export function buildAPIKeyUsageContent({
         defaultModel,
       }),
     },
+    ccSwitchFallbackPatch: buildCCSwitchFallbackPatch(defaultModel),
     codex: {
-      configToml: buildCodexConfigToml(apiBaseUrl, defaultModel, false),
+      configToml: buildCodexConfigToml(apiBaseUrl, selectedModel, false),
       authJson: buildCodexAuthJson(apiKey),
       command: 'codex',
     },
     codexWebsocket: {
-      configToml: buildCodexConfigToml(apiBaseUrl, defaultModel, true),
+      configToml: buildCodexConfigToml(apiBaseUrl, selectedModel, true),
       authJson: buildCodexAuthJson(apiKey),
       command: 'codex',
     },
@@ -162,8 +140,6 @@ function buildCCSwitchDeepLink({
   keyName: string
   defaultModel: string
 }): string {
-  const inlineConfig = buildCCSwitchInlineConfig(app, apiBaseUrl, apiKey, defaultModel)
-
   const params = new URLSearchParams({
     resource: 'provider',
     app,
@@ -173,92 +149,60 @@ function buildCCSwitchDeepLink({
     apiKey,
     model: defaultModel,
     enabled: 'true',
-    configFormat: 'json',
-    config: encodeBase64Utf8(JSON.stringify(inlineConfig)),
   })
 
   return `ccswitch://v1/import?${params.toString()}`
 }
 
-function buildCCSwitchInlineConfig(app: CCSwitchApp, apiBaseUrl: string, apiKey: string, defaultModel: string): Record<string, unknown> {
-  switch (app) {
-    case 'codex':
-      return {
-        auth: {
-          OPENAI_API_KEY: apiKey,
+function buildCCSwitchFallbackPatch(defaultModel: string): string {
+  return JSON.stringify(
+    {
+      meta: {
+        testConfig: {
+          enabled: true,
+          testModel: defaultModel,
         },
-        config: buildCodexConfigToml(apiBaseUrl, defaultModel, true),
-        meta: {
-          testConfig: {
-            enabled: true,
-            testModel: defaultModel,
-          },
-        },
-      }
-    case 'opencode':
-      return {
-        options: {
-          baseURL: apiBaseUrl,
-          apiKey,
-        },
-        models: {
-          [defaultModel]: {
-            name: defaultModel,
-          },
-        },
-        meta: {
-          testConfig: {
-            enabled: true,
-            testModel: defaultModel,
-          },
-        },
-      }
-    case 'openclaw':
-      return {
-        baseUrl: apiBaseUrl,
-        apiKey,
-        api: 'openai-responses',
-        models: [
-          {
-            id: defaultModel,
-            name: defaultModel,
-          },
-        ],
-        meta: {
-          testConfig: {
-            enabled: true,
-            testModel: defaultModel,
-          },
-        },
-      }
-  }
+      },
+    },
+    null,
+    2,
+  )
 }
 
-function buildCodexConfigToml(apiBaseUrl: string, defaultModel: string, websocket: boolean): string {
+function buildCodexConfigToml(apiBaseUrl: string, selectedModel: AvailableModel, websocket: boolean): string {
+  const lines = [
+    `model_provider = "${CODEX_PROVIDER_NAME}"`,
+    `model = "${selectedModel.modelId}"`,
+    `review_model = "${selectedModel.modelId}"`,
+    'model_reasoning_effort = "xhigh"',
+    'disable_response_storage = true',
+    'network_access = "enabled"',
+    'windows_wsl_setup_acknowledged = true',
+  ]
+
+  if (selectedModel.contextLength && selectedModel.contextLength > 0) {
+    lines.push(`model_context_window = ${selectedModel.contextLength}`)
+    lines.push(`model_auto_compact_token_limit = ${Math.floor(selectedModel.contextLength * 0.9)}`)
+  }
+
+  lines.push('')
+  lines.push(`[model_providers.${CODEX_PROVIDER_NAME}]`)
+  lines.push(`name = "${CODEX_PROVIDER_NAME}"`)
+  lines.push(`base_url = "${apiBaseUrl}"`)
+  lines.push('wire_api = "responses"')
+  lines.push('requires_openai_auth = true')
+  if (websocket) {
+    lines.push('supports_websockets = true')
+  }
+
   const featureSection = websocket
     ? `
 
 [features]
 responses_websockets_v2 = true`
     : ''
-  const websocketField = websocket ? '\nsupports_websockets = true' : ''
 
-  return `model_provider = "${CODEX_PROVIDER_NAME}"
-model = "${defaultModel}"
-review_model = "${defaultModel}"
-model_reasoning_effort = "xhigh"
-disable_response_storage = true
-network_access = "enabled"
-windows_wsl_setup_acknowledged = true
-model_context_window = 1000000
-model_auto_compact_token_limit = 900000
-
-[model_providers.${CODEX_PROVIDER_NAME}]
-name = "${CODEX_PROVIDER_NAME}"
-base_url = "${apiBaseUrl}"
-wire_api = "responses"
-requires_openai_auth = true${websocketField}${featureSection}
-`
+  return `${lines.join('\n')}${featureSection}\n`
 }
 
 function buildCodexAuthJson(apiKey: string): string {
@@ -271,16 +215,11 @@ function buildCodexAuthJson(apiKey: string): string {
   )
 }
 
-function buildOpencodeConfig(apiBaseUrl: string, apiKey: string, models: string[]): string {
+function buildOpencodeConfig(apiBaseUrl: string, apiKey: string, models: AvailableModel[]): string {
   const modelEntries = Object.fromEntries(
-    models.map((modelId) => [
-      modelId,
-      {
-        name: modelId,
-        limit: {
-          context: getModelLimits(modelId).context,
-          output: getModelLimits(modelId).output,
-        },
+    models.map((modelItem) => {
+      const modelConfig: Record<string, unknown> = {
+        name: modelItem.modelId,
         options: {
           store: false,
         },
@@ -290,8 +229,17 @@ function buildOpencodeConfig(apiBaseUrl: string, apiKey: string, models: string[
           high: {},
           xhigh: {},
         },
-      },
-    ]),
+      }
+
+      if ((modelItem.contextLength && modelItem.contextLength > 0) || (modelItem.maxCompletionTokens && modelItem.maxCompletionTokens > 0)) {
+        modelConfig.limit = {
+          ...(modelItem.contextLength && modelItem.contextLength > 0 ? { context: modelItem.contextLength } : {}),
+          ...(modelItem.maxCompletionTokens && modelItem.maxCompletionTokens > 0 ? { output: modelItem.maxCompletionTokens } : {}),
+        }
+      }
+
+      return [modelItem.modelId, modelConfig]
+    }),
   )
 
   return JSON.stringify(
@@ -324,7 +272,7 @@ function buildOpencodeConfig(apiBaseUrl: string, apiKey: string, models: string[
   )
 }
 
-function buildOpenclawConfig(apiBaseUrl: string, apiKey: string, models: string[]): string {
+function buildOpenclawConfig(apiBaseUrl: string, apiKey: string, models: AvailableModel[]): string {
   return JSON.stringify(
     {
       models: {
@@ -334,9 +282,9 @@ function buildOpenclawConfig(apiBaseUrl: string, apiKey: string, models: string[
             baseUrl: apiBaseUrl,
             apiKey,
             api: 'openai-responses',
-            models: models.map((modelId) => ({
-              id: modelId,
-              name: modelId,
+            models: models.map((modelItem) => ({
+              id: modelItem.modelId,
+              name: modelItem.modelId,
             })),
           },
         },
@@ -344,7 +292,7 @@ function buildOpenclawConfig(apiBaseUrl: string, apiKey: string, models: string[
       agents: {
         defaults: {
           model: {
-            primary: `amp-manager/${models[0]}`,
+            primary: `amp-manager/${models[0].modelId}`,
           },
         },
       },
@@ -352,47 +300,4 @@ function buildOpenclawConfig(apiBaseUrl: string, apiKey: string, models: string[
     null,
     2,
   )
-}
-
-function getModelLimits(modelId: string): ModelLimit {
-  const normalized = modelId.toLowerCase()
-
-  if (normalized.startsWith('gpt-4.1')) {
-    return { context: 1_047_576, output: 32_768 }
-  }
-  if (normalized.startsWith('gpt-5')) {
-    return { context: 400_000, output: 128_000 }
-  }
-  if (normalized.includes('gpt-5-codex') || normalized.includes('codex')) {
-    return { context: 400_000, output: 128_000 }
-  }
-  if (normalized.startsWith('gpt-4') || normalized.startsWith('gpt-4o')) {
-    return { context: 128_000, output: 16_384 }
-  }
-  if (normalized.startsWith('claude-4') || normalized.includes('claude-sonnet') || normalized.includes('claude-opus') || normalized.includes('claude-haiku')) {
-    return { context: 200_000, output: 64_000 }
-  }
-  if (normalized.startsWith('claude-3') || normalized.startsWith('claude')) {
-    return { context: 200_000, output: 8_192 }
-  }
-  if (normalized.startsWith('gemini-2.5') || normalized.startsWith('gemini-3') || normalized.startsWith('gemini')) {
-    return { context: 1_048_576, output: 65_536 }
-  }
-  if (normalized.startsWith('deepseek')) {
-    return { context: 128_000, output: 8_192 }
-  }
-  if (normalized.startsWith('qwen3')) {
-    return { context: 32_768, output: 8_192 }
-  }
-
-  return { context: 128_000, output: 32_768 }
-}
-
-function encodeBase64Utf8(value: string): string {
-  const bytes = new TextEncoder().encode(value)
-  let binary = ''
-  for (const byte of bytes) {
-    binary += String.fromCharCode(byte)
-  }
-  return btoa(binary)
 }

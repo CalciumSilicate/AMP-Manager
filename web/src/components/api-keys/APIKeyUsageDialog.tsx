@@ -1,9 +1,19 @@
 import { useEffect, useMemo, useState } from 'react'
 
-import { AnimatePresence, motion } from '@/lib/motion'
-import { buildAPIKeyUsageContent, getAPIKeyAvailableModels, type CCSwitchApp } from '@/lib/api-key-usage'
+import { Check, ChevronsUpDown } from 'lucide-react'
+
+import { type APIKeyRevealResponse } from '@/api/amp'
+import { type AvailableModel } from '@/api/models'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
+import {
+  Command,
+  CommandEmpty,
+  CommandGroup,
+  CommandInput,
+  CommandItem,
+  CommandList,
+} from '@/components/ui/command'
 import {
   Dialog,
   DialogContent,
@@ -12,7 +22,10 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog'
 import { Label } from '@/components/ui/label'
-import type { APIKeyRevealResponse } from '@/api/amp'
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
+import { buildAPIKeyUsageContent, getAPIKeyAvailableModels, type CCSwitchApp } from '@/lib/api-key-usage'
+import { AnimatePresence, motion } from '@/lib/motion'
+import { cn } from '@/lib/utils'
 
 type UsageTab = 'cc-switch' | 'codex-cli' | 'codex-websocket' | 'opencode' | 'openclaw'
 
@@ -41,7 +54,8 @@ const ccSwitchApps: { app: CCSwitchApp; label: string }[] = [
 
 export function APIKeyUsageDialog({ open, onOpenChange, revealKey, apiBaseUrl, copied, onCopy }: APIKeyUsageDialogProps) {
   const [activeTab, setActiveTab] = useState<UsageTab>('cc-switch')
-  const [availableModels, setAvailableModels] = useState<string[]>([])
+  const [availableModels, setAvailableModels] = useState<AvailableModel[]>([])
+  const [selectedModelId, setSelectedModelId] = useState('')
   const [loadingModels, setLoadingModels] = useState(false)
   const [loadError, setLoadError] = useState('')
 
@@ -53,9 +67,6 @@ export function APIKeyUsageDialog({ open, onOpenChange, revealKey, apiBaseUrl, c
     setLoadError('')
 
     void getAPIKeyAvailableModels({
-      origin: window.location.origin,
-      apiBaseUrl,
-      apiKey: revealKey.apiKey,
       signal: controller.signal,
     })
       .then((models) => {
@@ -75,10 +86,21 @@ export function APIKeyUsageDialog({ open, onOpenChange, revealKey, apiBaseUrl, c
       })
 
     return () => controller.abort()
-  }, [apiBaseUrl, open, revealKey])
+  }, [open, revealKey])
+
+  useEffect(() => {
+    if (availableModels.length === 0) {
+      setSelectedModelId('')
+      return
+    }
+
+    if (!selectedModelId || !availableModels.some((item) => item.modelId === selectedModelId)) {
+      setSelectedModelId(availableModels[0].modelId)
+    }
+  }, [availableModels, selectedModelId])
 
   const usageContent = useMemo(() => {
-    if (!revealKey || availableModels.length === 0) return null
+    if (!revealKey || availableModels.length === 0 || !selectedModelId) return null
 
     return buildAPIKeyUsageContent({
       origin: window.location.origin,
@@ -86,8 +108,9 @@ export function APIKeyUsageDialog({ open, onOpenChange, revealKey, apiBaseUrl, c
       apiKey: revealKey.apiKey,
       keyName: revealKey.name,
       models: availableModels,
+      selectedModelId,
     })
-  }, [apiBaseUrl, availableModels, revealKey])
+  }, [apiBaseUrl, availableModels, revealKey, selectedModelId])
 
   const renderContent = () => {
     if (!usageContent) return null
@@ -96,9 +119,9 @@ export function APIKeyUsageDialog({ open, onOpenChange, revealKey, apiBaseUrl, c
       case 'cc-switch':
         return (
           <div className="space-y-4">
-            <div className="grid gap-3 md:grid-cols-3">
+            <div className="space-y-3">
               {ccSwitchApps.map(({ app, label }) => (
-                <div key={app} className="rounded-lg border px-4 py-4 space-y-3">
+                <div key={app} className="flex flex-wrap items-center justify-between gap-3 rounded-lg border px-4 py-3">
                   <div className="text-sm font-medium">{label}</div>
                   <div className="flex flex-wrap gap-2">
                     <Button
@@ -120,6 +143,14 @@ export function APIKeyUsageDialog({ open, onOpenChange, revealKey, apiBaseUrl, c
                 </div>
               ))}
             </div>
+
+            <CodeBlock
+              label="testConfig patch"
+              value={usageContent.ccSwitchFallbackPatch}
+              copyKey="cc-switch-test-config"
+              copied={copied}
+              onCopy={onCopy}
+            />
           </div>
         )
       case 'codex-cli':
@@ -225,6 +256,7 @@ export function APIKeyUsageDialog({ open, onOpenChange, revealKey, apiBaseUrl, c
           setActiveTab('cc-switch')
           setLoadError('')
           setAvailableModels([])
+          setSelectedModelId('')
         }
         onOpenChange(nextOpen)
       }}
@@ -234,76 +266,86 @@ export function APIKeyUsageDialog({ open, onOpenChange, revealKey, apiBaseUrl, c
           <DialogTitle>{revealKey ? `使用 API Key · ${revealKey.name}` : '使用 API Key'}</DialogTitle>
         </DialogHeader>
 
-        {revealKey ? (
-          <div className="space-y-3 pb-4">
-            <div className="flex items-center justify-between gap-3">
-              <div className="text-sm font-medium text-foreground">{revealKey.name}</div>
-              <Badge variant="secondary">
-                {loadingModels ? '模型加载中' : usageContent ? `${usageContent.models.length} 个模型` : '模型未就绪'}
-              </Badge>
+        <div className="flex-1 min-h-0 overflow-y-auto pr-1">
+          {revealKey ? (
+            <div className="space-y-3 pb-4">
+              <div className="flex items-center justify-between gap-3">
+                <div className="text-sm font-medium text-foreground">{revealKey.name}</div>
+                <Badge variant="secondary">
+                  {loadingModels ? '模型加载中' : usageContent ? `${usageContent.models.length} 个模型` : '模型未就绪'}
+                </Badge>
+              </div>
+              <InlineCopyRow
+                label="API Base URL"
+                value={apiBaseUrl}
+                copyKey="usage-base-url"
+                copied={copied}
+                onCopy={onCopy}
+              />
+              <InlineCopyRow
+                label="API Key"
+                value={revealKey.apiKey}
+                copyKey="usage-api-key"
+                copied={copied}
+                onCopy={onCopy}
+              />
+              <ModelSelectRow
+                value={selectedModelId}
+                models={availableModels}
+                disabled={loadingModels || availableModels.length === 0}
+                onValueChange={setSelectedModelId}
+              />
             </div>
-            <InlineCopyRow
-              label="API Base URL"
-              value={apiBaseUrl}
-              copyKey="usage-base-url"
-              copied={copied}
-              onCopy={onCopy}
-            />
-            <InlineCopyRow
-              label="API Key"
-              value={revealKey.apiKey}
-              copyKey="usage-api-key"
-              copied={copied}
-              onCopy={onCopy}
-            />
-          </div>
-        ) : null}
+          ) : null}
 
-        <div className="overflow-x-auto overflow-y-hidden border-b pb-0 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-          <div className="flex min-w-max items-center gap-1">
-            {tabs.map((tab) => (
-              <button
-                key={tab.value}
-                type="button"
-                onClick={() => setActiveTab(tab.value)}
-                className={`relative rounded-t-md px-4 py-2 text-sm font-medium transition-colors whitespace-nowrap ${
-                  activeTab === tab.value ? 'text-foreground' : 'text-muted-foreground hover:text-foreground/80'
-                }`}
-              >
-                {tab.label}
-                {activeTab === tab.value ? (
-                  <motion.div
-                    layoutId="api-key-usage-tab-indicator"
-                    className="absolute inset-x-0 -bottom-px h-0.5 bg-primary"
-                    transition={{ type: 'spring', bounce: 0.2, duration: 0.4 }}
-                  />
-                ) : null}
-              </button>
-            ))}
+          <div className="sticky top-0 z-20 border-b bg-background/95 pb-0 backdrop-blur supports-[backdrop-filter]:bg-background/80">
+            <div className="overflow-x-auto overflow-y-hidden [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+              <div className="flex min-w-max items-center gap-1">
+                {tabs.map((tab) => (
+                  <button
+                    key={tab.value}
+                    type="button"
+                    onClick={() => setActiveTab(tab.value)}
+                    className={`relative rounded-t-md px-4 py-2 text-sm font-medium transition-colors whitespace-nowrap ${
+                      activeTab === tab.value ? 'text-foreground' : 'text-muted-foreground hover:text-foreground/80'
+                    }`}
+                  >
+                    {tab.label}
+                    {activeTab === tab.value ? (
+                      <motion.div
+                        layoutId="api-key-usage-tab-indicator"
+                        className="absolute inset-x-0 -bottom-px h-0.5 bg-primary"
+                        transition={{ type: 'spring', bounce: 0.2, duration: 0.4 }}
+                      />
+                    ) : null}
+                  </button>
+                ))}
+              </div>
+            </div>
           </div>
-        </div>
 
-        <div className="flex-1 min-h-0 overflow-y-auto pr-1 pt-5">
-          {loadingModels ? (
-            <div className="rounded-lg border px-4 py-10 text-center text-sm text-muted-foreground">模型加载中...</div>
-          ) : loadError ? (
-            <div className="rounded-lg border border-destructive/40 px-4 py-10 text-center text-sm text-destructive">{loadError}</div>
-          ) : usageContent ? (
-            <AnimatePresence mode="wait">
-              <motion.div
-                key={activeTab}
-                initial={{ opacity: 0, y: 16 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, y: -10 }}
-                transition={{ type: 'spring', bounce: 0.2, duration: 0.35 }}
-                className="space-y-4"
-              >
-                {renderContent()}
-              </motion.div>
-            </AnimatePresence>
-          ) : (
-            <div className="rounded-lg border px-4 py-10 text-center text-sm text-muted-foreground">暂无模型</div>
-          )}
+          <div className="pt-5">
+            {loadingModels ? (
+              <div className="rounded-lg border px-4 py-10 text-center text-sm text-muted-foreground">模型加载中...</div>
+            ) : loadError ? (
+              <div className="rounded-lg border border-destructive/40 px-4 py-10 text-center text-sm text-destructive">{loadError}</div>
+            ) : usageContent ? (
+              <AnimatePresence mode="wait">
+                <motion.div
+                  key={activeTab}
+                  initial={{ opacity: 0, y: 16 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: -10 }}
+                  transition={{ type: 'spring', bounce: 0.2, duration: 0.35 }}
+                  className="space-y-4"
+                >
+                  {renderContent()}
+                </motion.div>
+              </AnimatePresence>
+            ) : (
+              <div className="rounded-lg border px-4 py-10 text-center text-sm text-muted-foreground">暂无模型</div>
+            )}
+          </div>
         </div>
 
         <DialogFooter>
@@ -336,6 +378,94 @@ function InlineCopyRow({
       </Button>
     </div>
   )
+}
+
+function ModelSelectRow({
+  value,
+  models,
+  disabled,
+  onValueChange,
+}: {
+  value: string
+  models: AvailableModel[]
+  disabled: boolean
+  onValueChange: (value: string) => void
+}) {
+  return (
+    <div className="grid gap-2 md:grid-cols-[140px_minmax(0,1fr)] md:items-center">
+      <Label className="text-sm">主模型</Label>
+      <ModelSelect
+        value={value}
+        models={models}
+        disabled={disabled}
+        onValueChange={onValueChange}
+      />
+    </div>
+  )
+}
+
+function ModelSelect({
+  value,
+  models,
+  disabled,
+  onValueChange,
+}: {
+  value: string
+  models: AvailableModel[]
+  disabled: boolean
+  onValueChange: (value: string) => void
+}) {
+  const [open, setOpen] = useState(false)
+  const selected = models.find((item) => item.modelId === value)
+
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild>
+        <Button
+          variant="outline"
+          role="combobox"
+          aria-expanded={open}
+          disabled={disabled}
+          className="justify-between font-normal h-9"
+        >
+          <span className="truncate">{selected ? formatModelLabel(selected) : '选择模型'}</span>
+          <ChevronsUpDown className="ml-1 h-3.5 w-3.5 shrink-0 opacity-50" />
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent className="w-[--radix-popover-trigger-width] p-0" align="start">
+        <Command>
+          <CommandInput placeholder="搜索模型..." />
+          <CommandList>
+            <CommandEmpty>无匹配项</CommandEmpty>
+            <CommandGroup>
+              {models.map((modelItem) => (
+                <CommandItem
+                  key={modelItem.modelId}
+                  value={modelItem.modelId}
+                  keywords={[modelItem.displayName, modelItem.channelType, modelItem.channelName]}
+                  onSelect={() => {
+                    onValueChange(modelItem.modelId)
+                    setOpen(false)
+                  }}
+                >
+                  <Check className={cn('mr-2 h-4 w-4', value === modelItem.modelId ? 'opacity-100' : 'opacity-0')} />
+                  <div className="min-w-0 flex-1">
+                    <div className="truncate">{formatModelLabel(modelItem)}</div>
+                  </div>
+                </CommandItem>
+              ))}
+            </CommandGroup>
+          </CommandList>
+        </Command>
+      </PopoverContent>
+    </Popover>
+  )
+}
+
+function formatModelLabel(modelItem: AvailableModel) {
+  return modelItem.displayName && modelItem.displayName !== modelItem.modelId
+    ? `${modelItem.displayName} (${modelItem.modelId})`
+    : modelItem.modelId
 }
 
 function CodeBlock({

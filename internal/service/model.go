@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"slices"
 	"strings"
 	"time"
 
@@ -17,6 +18,7 @@ import (
 type ModelService struct {
 	channelRepo      *repository.ChannelRepository
 	channelModelRepo *repository.ChannelModelRepository
+	modelMetaRepo    *repository.ModelMetadataRepository
 	userRepo         *repository.UserRepository
 }
 
@@ -24,6 +26,7 @@ func NewModelService() *ModelService {
 	return &ModelService{
 		channelRepo:      repository.NewChannelRepository(),
 		channelModelRepo: repository.NewChannelModelRepository(),
+		modelMetaRepo:    repository.NewModelMetadataRepository(),
 		userRepo:         repository.NewUserRepository(),
 	}
 }
@@ -203,6 +206,8 @@ func (s *ModelService) ListAllAvailableModels() ([]*model.AvailableModel, error)
 		}
 		result = append(result, m)
 	}
+
+	s.enrichAvailableModels(result)
 	return result, nil
 }
 
@@ -266,4 +271,127 @@ func (s *ModelService) FetchAllChannelsModels() (map[string]int, error) {
 	}
 
 	return results, nil
+}
+
+var builtinAvailableModelMetadata = map[string]availableModelMetadata{
+	"claude-4":      {contextLength: 200000, maxCompletionTokens: 64000},
+	"claude-3":      {contextLength: 200000, maxCompletionTokens: 8192},
+	"claude-sonnet": {contextLength: 200000, maxCompletionTokens: 64000},
+	"claude-opus":   {contextLength: 200000, maxCompletionTokens: 64000},
+	"claude-haiku":  {contextLength: 200000, maxCompletionTokens: 64000},
+	"gpt-5":         {contextLength: 400000, maxCompletionTokens: 128000},
+	"gpt-5.1":       {contextLength: 400000, maxCompletionTokens: 128000},
+	"gpt-5.2":       {contextLength: 400000, maxCompletionTokens: 128000},
+	"gpt-5-codex":   {contextLength: 400000, maxCompletionTokens: 128000},
+	"gpt-4":         {contextLength: 128000, maxCompletionTokens: 16384},
+	"gpt-4o":        {contextLength: 128000, maxCompletionTokens: 16384},
+	"gpt-4.1":       {contextLength: 1047576, maxCompletionTokens: 32768},
+	"gemini-2.5":    {contextLength: 1048576, maxCompletionTokens: 65536},
+	"gemini-3":      {contextLength: 1048576, maxCompletionTokens: 65536},
+	"deepseek-v3":   {contextLength: 128000, maxCompletionTokens: 8192},
+	"deepseek-r1":   {contextLength: 128000, maxCompletionTokens: 8192},
+	"qwen3":         {contextLength: 32768, maxCompletionTokens: 8192},
+	"qwen3-coder":   {contextLength: 32768, maxCompletionTokens: 8192},
+}
+
+type availableModelMetadata struct {
+	contextLength       int
+	maxCompletionTokens int
+}
+
+func (s *ModelService) enrichAvailableModels(models []*model.AvailableModel) {
+	if len(models) == 0 {
+		return
+	}
+
+	dbMetadata, err := s.modelMetaRepo.List()
+	if err != nil {
+		dbMetadata = nil
+	}
+
+	for _, availableModel := range models {
+		if availableModel == nil {
+			continue
+		}
+
+		metadata := resolveAvailableModelMetadata(availableModel.ModelID, dbMetadata)
+		if metadata == nil {
+			continue
+		}
+
+		contextLength := metadata.contextLength
+		maxCompletionTokens := metadata.maxCompletionTokens
+		availableModel.ContextLength = &contextLength
+		availableModel.MaxTokens = &maxCompletionTokens
+	}
+}
+
+func resolveAvailableModelMetadata(modelID string, dbMetadata []*model.ModelMetadata) *availableModelMetadata {
+	if strings.TrimSpace(modelID) == "" {
+		return nil
+	}
+
+	if metadata := findDatabaseModelMetadata(modelID, dbMetadata); metadata != nil {
+		return metadata
+	}
+
+	if metadata := findBuiltinModelMetadata(modelID); metadata != nil {
+		return metadata
+	}
+
+	return nil
+}
+
+func findDatabaseModelMetadata(modelID string, dbMetadata []*model.ModelMetadata) *availableModelMetadata {
+	if len(dbMetadata) == 0 {
+		return nil
+	}
+
+	ordered := slices.Clone(dbMetadata)
+	slices.SortFunc(ordered, func(left, right *model.ModelMetadata) int {
+		return len(strings.TrimSpace(right.ModelPattern)) - len(strings.TrimSpace(left.ModelPattern))
+	})
+
+	for _, item := range ordered {
+		if item == nil {
+			continue
+		}
+		pattern := strings.TrimSpace(item.ModelPattern)
+		if pattern == "" {
+			continue
+		}
+		if modelID == pattern || strings.HasPrefix(modelID, pattern) {
+			return &availableModelMetadata{
+				contextLength:       item.ContextLength,
+				maxCompletionTokens: item.MaxCompletionTokens,
+			}
+		}
+	}
+
+	return nil
+}
+
+func findBuiltinModelMetadata(modelID string) *availableModelMetadata {
+	normalized := strings.ToLower(strings.TrimSpace(modelID))
+	if normalized == "" {
+		return nil
+	}
+
+	if exact, ok := builtinAvailableModelMetadata[normalized]; ok {
+		return &exact
+	}
+
+	for prefix, metadata := range builtinAvailableModelMetadata {
+		if strings.HasPrefix(normalized, prefix) {
+			return &metadata
+		}
+	}
+
+	for knownModel, metadata := range builtinAvailableModelMetadata {
+		if strings.Contains(knownModel, normalized) {
+			return &metadata
+		}
+	}
+
+	return nil
 }

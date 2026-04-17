@@ -80,6 +80,69 @@ func TestListAvailableModelsForUserFiltersByChannelGroups(t *testing.T) {
 	assertModelIDs(t, groupAModels, []string{"group-a-model", "public-model"})
 }
 
+func TestListAvailableModelsForUserIncludesModelMetadata(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "ampmanager-model-metadata.db")
+	if err := database.InitWithOptions(database.Options{
+		Type:       database.DBTypeSQLite,
+		SQLitePath: dbPath,
+	}); err != nil {
+		t.Fatalf("init database: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = database.CloseAndRelease()
+	})
+
+	userRepo := repository.NewUserRepository()
+	channelRepo := repository.NewChannelRepository()
+	channelModelRepo := repository.NewChannelModelRepository()
+	modelMetadataRepo := repository.NewModelMetadataRepository()
+
+	user := createTestUser(t, userRepo, "metadata-user", false)
+	channel := createTestChannel(t, channelRepo, "metadata-channel")
+
+	if err := channelModelRepo.ReplaceModels(channel.ID, []model.ChannelModel2{
+		{ModelID: "gpt-5.2", DisplayName: "GPT 5.2"},
+		{ModelID: "claude-sonnet-4.5", DisplayName: "Claude Sonnet 4.5"},
+	}); err != nil {
+		t.Fatalf("insert channel models: %v", err)
+	}
+
+	if err := modelMetadataRepo.Create(&model.ModelMetadata{
+		ModelPattern:        "claude-sonnet",
+		DisplayName:         "Claude Sonnet",
+		ContextLength:       222222,
+		MaxCompletionTokens: 33333,
+		Provider:            "anthropic",
+	}); err != nil {
+		t.Fatalf("create model metadata: %v", err)
+	}
+
+	service := NewModelService()
+	models, err := service.ListAvailableModelsForUser(user.ID, user.IsAdmin)
+	if err != nil {
+		t.Fatalf("list models: %v", err)
+	}
+
+	if len(models) != 2 {
+		t.Fatalf("expected 2 models, got %d", len(models))
+	}
+
+	byID := make(map[string]*model.AvailableModel, len(models))
+	for _, availableModel := range models {
+		byID[availableModel.ModelID] = availableModel
+	}
+
+	gpt := byID["gpt-5.2"]
+	if gpt == nil || gpt.ContextLength == nil || *gpt.ContextLength != 400000 || gpt.MaxTokens == nil || *gpt.MaxTokens != 128000 {
+		t.Fatalf("unexpected builtin metadata for gpt-5.2: %+v", gpt)
+	}
+
+	claude := byID["claude-sonnet-4.5"]
+	if claude == nil || claude.ContextLength == nil || *claude.ContextLength != 222222 || claude.MaxTokens == nil || *claude.MaxTokens != 33333 {
+		t.Fatalf("unexpected db metadata for claude-sonnet-4.5: %+v", claude)
+	}
+}
+
 func createTestUser(t *testing.T, userRepo *repository.UserRepository, username string, isAdmin bool) *model.User {
 	t.Helper()
 

@@ -143,6 +143,8 @@ type AvailableModel struct {
 	ChannelID      string      `json:"channelId"`
 	ChannelType    ChannelType `json:"channelType"`
 	ChannelName    string      `json:"channelName"`
+	ContextLength  *int        `json:"contextLength,omitempty"`
+	MaxTokens      *int        `json:"maxCompletionTokens,omitempty"`
 	ModelWhitelist bool        `json:"-"`
 	ModelsJSON     string      `json:"-"`
 }

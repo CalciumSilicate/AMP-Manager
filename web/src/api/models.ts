@@ -8,6 +8,8 @@ export interface AvailableModel {
   channelId: string
   channelType: 'openai' | 'claude' | 'gemini'
   channelName: string
+  contextLength?: number
+  maxCompletionTokens?: number
 }
 
 export interface FetchModelsResult {
