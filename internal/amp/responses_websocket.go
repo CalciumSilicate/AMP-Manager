@@ -372,15 +372,17 @@ func prepareResponsesWebsocketTurn(c *gin.Context, session *responsesWebsocketSe
 		return nil, &responsesWebsocketError{StatusCode: http.StatusBadRequest, Message: "failed to normalize request"}
 	}
 	requestSession := BuildRequestSession(c.Request.Context(), c.Request.Header, body, session.fallbackSessionID)
+	stickyChannelID := ""
 	stickyProvider := ""
 	if requestSession != nil {
 		if requestSession.SessionID != "" {
 			session.fallbackSessionID = requestSession.SessionID
 		}
+		stickyChannelID = strings.TrimSpace(requestSession.StickyChannelID)
 		stickyProvider = NormalizeStickyProvider(requestSession.StickyProvider)
 	}
 	continueWithPinned := !rootCreate || strings.TrimSpace(gjson.GetBytes(normalized, "previous_response_id").String()) != ""
-	channel, errSelect := selectResponsesWebsocketChannel(session, proxyCfg, result, continueWithPinned, stickyProvider)
+	channel, errSelect := selectResponsesWebsocketChannel(session, proxyCfg, result, continueWithPinned, stickyChannelID, stickyProvider)
 	if errSelect != nil {
 		return nil, errSelect
 	}
@@ -418,7 +420,7 @@ func prepareResponsesWebsocketTurn(c *gin.Context, session *responsesWebsocketSe
 	}, nil
 }
 
-func selectResponsesWebsocketChannel(session *responsesWebsocketSession, proxyCfg *ProxyConfig, result MappingResult, continueWithPinned bool, stickyProvider string) (*model.Channel, *responsesWebsocketError) {
+func selectResponsesWebsocketChannel(session *responsesWebsocketSession, proxyCfg *ProxyConfig, result MappingResult, continueWithPinned bool, stickyChannelID string, stickyProvider string) (*model.Channel, *responsesWebsocketError) {
 	incomingFormat := translator.FormatOpenAIResponses
 	if continueWithPinned && session.pinnedChannelID != "" {
 		channel, err := responsesWebsocketChannelService.SelectSpecificChannelForModelWithGroupsAndFormat(session.pinnedChannelID, result.MappedModel, proxyCfg.GroupIDs, incomingFormat, false)
@@ -426,6 +428,17 @@ func selectResponsesWebsocketChannel(session *responsesWebsocketSession, proxyCf
 			return nil, &responsesWebsocketError{StatusCode: http.StatusBadGateway, Message: "failed to resolve pinned channel"}
 		}
 		return channel, nil
+	}
+
+	if stickyChannelID != "" {
+		channel, err := responsesWebsocketChannelService.SelectSpecificChannelForModelWithGroupsAndFormat(stickyChannelID, result.MappedModel, proxyCfg.GroupIDs, incomingFormat, false)
+		if err != nil {
+			return nil, &responsesWebsocketError{StatusCode: http.StatusBadGateway, Message: "failed to resolve sticky channel"}
+		}
+		if channel != nil {
+			return channel, nil
+		}
+		log.Warnf("responses websocket: sticky channel '%s' is unavailable for model '%s', falling back to preferred/automatic selection", stickyChannelID, result.MappedModel)
 	}
 
 	if result.PreferredChannelID != "" {

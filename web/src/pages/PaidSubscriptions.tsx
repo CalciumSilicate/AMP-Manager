@@ -132,6 +132,7 @@ export default function PaidSubscriptions() {
   const [settings, setSettings] = useState<PurchaseSettingsResponse | null>(null)
   const [products, setProducts] = useState<PurchaseProduct[]>([])
   const [orders, setOrders] = useState<PurchaseOrder[]>([])
+  const [ordersTotal, setOrdersTotal] = useState(0)
   const [webhooks, setWebhooks] = useState<PurchaseWebhookTarget[]>([])
   const [plans, setPlans] = useState<SubscriptionPlanResponse[]>([])
   const [loading, setLoading] = useState(true)
@@ -218,7 +219,8 @@ export default function PaidSubscriptions() {
         fulfillmentStatus: '',
         username: '',
         productId: '',
-        limit: 100,
+        page: 1,
+        pageSize: ordersPageSize,
       })
     } catch (error) {
       showMessage('error', error instanceof Error ? error.message : '加载失败')
@@ -232,12 +234,22 @@ export default function PaidSubscriptions() {
     try {
       const response = await listPurchaseOrdersAdmin(filters)
       setOrders(response.items || [])
+      setOrdersTotal(response.total || 0)
     } catch (error) {
       showMessage('error', error instanceof Error ? error.message : '加载订单失败')
     } finally {
       setOrdersLoading(false)
     }
   }
+
+  const buildOrderFilters = (page: number, pageSize: number): AdminOrderFilters => ({
+    paymentStatus: orderFilters.paymentStatus === 'all' ? '' : orderFilters.paymentStatus as PurchaseOrder['paymentStatus'],
+    fulfillmentStatus: orderFilters.fulfillmentStatus === 'all' ? '' : orderFilters.fulfillmentStatus as PurchaseOrder['fulfillmentStatus'],
+    username: orderFilters.username.trim(),
+    productId: orderFilters.productId === 'all' ? '' : orderFilters.productId,
+    page,
+    pageSize,
+  })
 
   const refreshWebhooks = async () => {
     try {
@@ -426,20 +438,14 @@ export default function PaidSubscriptions() {
   const handleSearchOrders = async () => {
     setSelectedOrderNos([])
     setOrdersPage(1)
-    await loadOrders({
-      paymentStatus: orderFilters.paymentStatus === 'all' ? '' : orderFilters.paymentStatus as PurchaseOrder['paymentStatus'],
-      fulfillmentStatus: orderFilters.fulfillmentStatus === 'all' ? '' : orderFilters.fulfillmentStatus as PurchaseOrder['fulfillmentStatus'],
-      username: orderFilters.username.trim(),
-      productId: orderFilters.productId === 'all' ? '' : orderFilters.productId,
-      limit: 100,
-    })
+    await loadOrders(buildOrderFilters(1, ordersPageSize))
   }
 
   const handleRefreshOrder = async (orderNo: string) => {
     setRefreshingOrderNo(orderNo)
     try {
       await refreshPurchaseOrderAdmin(orderNo)
-      await handleSearchOrders()
+      await loadOrders(buildOrderFilters(ordersPage, ordersPageSize))
       showMessage('success', '订单状态已刷新')
     } catch (error) {
       showMessage('error', error instanceof Error ? error.message : '刷新失败')
@@ -469,7 +475,7 @@ export default function PaidSubscriptions() {
     try {
       await updatePurchaseOrderPaymentStatus(statusDialogOrder.orderNo, statusDraft, statusNote)
       setStatusDialogOrder(null)
-      await handleSearchOrders()
+      await loadOrders(buildOrderFilters(ordersPage, ordersPageSize))
       showMessage('success', '订单状态已更新')
     } catch (error) {
       showMessage('error', error instanceof Error ? error.message : '保存失败')
@@ -506,7 +512,7 @@ export default function PaidSubscriptions() {
       setSettlementDialogMode(null)
       setSettlementOrder(null)
       setSelectedOrderNos([])
-      await handleSearchOrders()
+      await loadOrders(buildOrderFilters(ordersPage, ordersPageSize))
       showMessage('success', `已记入批次 ${batch.batchNo}`)
     } catch (error) {
       showMessage('error', error instanceof Error ? error.message : '分账失败')
@@ -518,11 +524,6 @@ export default function PaidSubscriptions() {
   const toggleOrderSelection = (orderNo: string, checked: boolean) => {
     setSelectedOrderNos((current) => checked ? [...current, orderNo] : current.filter((item) => item !== orderNo))
   }
-
-  const visibleOrders = useMemo(() => {
-    const start = (ordersPage - 1) * ordersPageSize
-    return orders.slice(start, start + ordersPageSize)
-  }, [orders, ordersPage, ordersPageSize])
 
   const visibleProducts = useMemo(() => {
     const start = (productsPage - 1) * productsPageSize
@@ -654,9 +655,9 @@ export default function PaidSubscriptions() {
                   <TableRow>
                     <TableHead className="w-10">
                       <Checkbox
-                        checked={visibleOrders.length > 0 && visibleOrders.every((item) => selectedOrderNos.includes(item.orderNo))}
+                        checked={orders.length > 0 && orders.every((item) => selectedOrderNos.includes(item.orderNo))}
                         onCheckedChange={(checked) => {
-                          const next = checked ? Array.from(new Set([...selectedOrderNos, ...visibleOrders.map((item) => item.orderNo)])) : selectedOrderNos.filter((orderNo) => !visibleOrders.some((item) => item.orderNo === orderNo))
+                          const next = checked ? Array.from(new Set([...selectedOrderNos, ...orders.map((item) => item.orderNo)])) : selectedOrderNos.filter((orderNo) => !orders.some((item) => item.orderNo === orderNo))
                           setSelectedOrderNos(next)
                         }}
                       />
@@ -671,7 +672,7 @@ export default function PaidSubscriptions() {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {visibleOrders.map((order) => (
+                  {orders.map((order) => (
                     <TableRow key={order.id}>
                       <TableCell>
                         <Checkbox checked={selectedOrderNos.includes(order.orderNo)} onCheckedChange={(checked) => toggleOrderSelection(order.orderNo, checked === true)} />
@@ -708,16 +709,20 @@ export default function PaidSubscriptions() {
                 </TableBody>
               </Table>
               <div className="px-6 pb-6">
-                <TablePagination
-                  page={ordersPage}
-                  pageSize={ordersPageSize}
-                  total={orders.length}
-                  onPageChange={setOrdersPage}
-                  onPageSizeChange={(value) => {
-                    setOrdersPageSize(value)
-                    setOrdersPage(1)
-                  }}
-                />
+                  <TablePagination
+                    page={ordersPage}
+                    pageSize={ordersPageSize}
+                    total={ordersTotal}
+                    onPageChange={(page) => {
+                      setOrdersPage(page)
+                      void loadOrders(buildOrderFilters(page, ordersPageSize))
+                    }}
+                    onPageSizeChange={(value) => {
+                      setOrdersPageSize(value)
+                      setOrdersPage(1)
+                      void loadOrders(buildOrderFilters(1, value))
+                    }}
+                  />
               </div>
             </CardContent>
           </Card>

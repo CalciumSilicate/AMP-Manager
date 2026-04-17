@@ -1,12 +1,20 @@
 package amp
 
 import (
+	"context"
+	"fmt"
+	"io"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
+	"ampmanager/internal/config"
 	"ampmanager/internal/database"
+	"ampmanager/internal/model"
 	"ampmanager/internal/service"
+
+	"github.com/alicebob/miniredis/v2"
 )
 
 func TestLogWriterUpdateFromTraceWritesBillingResult(t *testing.T) {
@@ -124,5 +132,39 @@ func TestLogWriterUpdateFromTraceReplacesProjectedMinuteMetrics(t *testing.T) {
 	}
 	if requestCountSum != 1 || totalTokensSum != 17 {
 		t.Fatalf("unexpected second minute metrics = req:%d total:%d", requestCountSum, totalTokensSum)
+	}
+}
+
+func TestLoggingBodyWrapperCloseFinalizesSessionSticky(t *testing.T) {
+	mr := miniredis.RunT(t)
+	StopSessionStickyRuntime()
+	InitSessionStickyRuntime(&config.Config{
+		RedisURL:    fmt.Sprintf("redis://%s/0", mr.Addr()),
+		RedisPrefix: "log-writer-test",
+	})
+	UpdateSessionStickyConfig(model.SessionStickyConfigResponse{
+		Enabled:           true,
+		WindowMinutes:     5,
+		LogSearchMinChars: 4,
+	})
+	t.Cleanup(func() {
+		StopSessionStickyRuntime()
+	})
+
+	trace := NewRequestTrace("req-sticky", "user-1", "key-1", "POST", "/v1/responses")
+	trace.SetSessionID("sess-sticky")
+	trace.SetChannel("channel-sticky", "openai", string(model.ChannelEndpointResponses))
+
+	wrapper := NewLoggingBodyWrapper(io.NopCloser(strings.NewReader("ok")), trace, 200, context.Background())
+	if err := wrapper.Close(); err != nil {
+		t.Fatalf("Close returned error: %v", err)
+	}
+
+	binding, _, ok := GetSessionStickyBinding(context.Background(), "sess-sticky")
+	if !ok {
+		t.Fatal("expected sticky binding to be stored")
+	}
+	if binding != "channel-sticky" {
+		t.Fatalf("binding = %q, want channel-sticky", binding)
 	}
 }

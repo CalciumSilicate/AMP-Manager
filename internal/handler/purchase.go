@@ -375,13 +375,24 @@ func (h *PurchaseHandler) ListOrdersAdmin(c *gin.Context) {
 		FulfillmentStatus: model.PurchaseFulfillmentStatus(strings.TrimSpace(c.Query("fulfillmentStatus"))),
 		Username:          strings.TrimSpace(c.Query("username")),
 		ProductID:         strings.TrimSpace(c.Query("productId")),
-		Limit:             100,
+		Limit:             20,
 	}
-	if rawLimit := strings.TrimSpace(c.Query("limit")); rawLimit != "" {
+	if rawLimit := strings.TrimSpace(c.Query("pageSize")); rawLimit != "" {
+		if parsed, err := strconv.Atoi(rawLimit); err == nil && parsed > 0 && parsed <= 500 {
+			filters.Limit = parsed
+		}
+	} else if rawLimit := strings.TrimSpace(c.Query("limit")); rawLimit != "" {
 		if parsed, err := strconv.Atoi(rawLimit); err == nil && parsed > 0 && parsed <= 500 {
 			filters.Limit = parsed
 		}
 	}
+	page := 1
+	if rawPage := strings.TrimSpace(c.Query("page")); rawPage != "" {
+		if parsed, err := strconv.Atoi(rawPage); err == nil && parsed > 0 {
+			page = parsed
+		}
+	}
+	filters.Offset = (page - 1) * filters.Limit
 
 	orders, err := h.purchaseService.ListOrdersAdmin(filters)
 	if err != nil {

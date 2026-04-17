@@ -314,7 +314,8 @@ export interface AdminOrderFilters {
   fulfillmentStatus?: PurchaseFulfillmentStatus | ''
   username?: string
   productId?: string
-  limit?: number
+  page?: number
+  pageSize?: number
 }
 
 export async function listPurchaseOrdersAdmin(filters: AdminOrderFilters = {}): Promise<PurchaseOrderListResponse> {
@@ -323,7 +324,8 @@ export async function listPurchaseOrdersAdmin(filters: AdminOrderFilters = {}): 
   if (filters.fulfillmentStatus) params.set('fulfillmentStatus', filters.fulfillmentStatus)
   if (filters.username) params.set('username', filters.username)
   if (filters.productId) params.set('productId', filters.productId)
-  if (filters.limit) params.set('limit', String(filters.limit))
+  if (filters.page) params.set('page', String(filters.page))
+  if (filters.pageSize) params.set('pageSize', String(filters.pageSize))
   const query = params.toString()
   return fetchJson<PurchaseOrderListResponse>(`${API_BASE}/admin/purchase/orders${query ? `?${query}` : ''}`)
 }

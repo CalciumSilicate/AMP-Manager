@@ -252,6 +252,7 @@ type PurchaseOrderFilters struct {
 	Username          string
 	ProductID         string
 	Limit             int
+	Offset            int
 }
 
 type PurchaseWebhookTarget struct {

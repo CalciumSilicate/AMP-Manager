@@ -306,6 +306,7 @@ func (t *RequestTrace) Clone() RequestTrace {
 		Path:                      t.Path,
 		OriginalModel:             t.OriginalModel,
 		MappedModel:               t.MappedModel,
+		SessionID:                 t.SessionID,
 		Provider:                  t.Provider,
 		ChannelID:                 t.ChannelID,
 		Endpoint:                  t.Endpoint,

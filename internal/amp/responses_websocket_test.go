@@ -156,6 +156,66 @@ func TestPrepareResponsesWebsocketTurnSkipsMappingsWhenDisabled(t *testing.T) {
 	}
 }
 
+func TestSelectResponsesWebsocketChannelUsesStickyChannelBeforePreferred(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	modelsJSON, _ := json.Marshal([]model.ChannelModel{{Name: "gpt-4.1"}})
+	repo := &fakeChannelRepo{
+		channels: map[string]*model.Channel{
+			"preferred": {
+				ID:         "preferred",
+				Name:       "Preferred",
+				Type:       model.ChannelTypeOpenAI,
+				Endpoint:   model.ChannelEndpointResponses,
+				BaseURL:    "https://preferred.example.com",
+				APIKey:     "sk-preferred",
+				Enabled:    true,
+				Priority:   1,
+				Weight:     1,
+				ModelsJSON: string(modelsJSON),
+			},
+			"sticky": {
+				ID:         "sticky",
+				Name:       "Sticky",
+				Type:       model.ChannelTypeOpenAI,
+				Endpoint:   model.ChannelEndpointResponses,
+				BaseURL:    "https://sticky.example.com",
+				APIKey:     "sk-sticky",
+				Enabled:    true,
+				Priority:   1,
+				Weight:     1,
+				ModelsJSON: string(modelsJSON),
+			},
+		},
+		groups: map[string][]string{},
+	}
+
+	originalService := responsesWebsocketChannelService
+	responsesWebsocketChannelService = service.NewChannelServiceWithRepo(repo)
+	defer func() { responsesWebsocketChannelService = originalService }()
+
+	channel, errResp := selectResponsesWebsocketChannel(
+		&responsesWebsocketSession{},
+		&ProxyConfig{},
+		MappingResult{
+			MappedModel:        "gpt-4.1",
+			PreferredChannelID: "preferred",
+		},
+		false,
+		"sticky",
+		"",
+	)
+	if errResp != nil {
+		t.Fatalf("selectResponsesWebsocketChannel returned error: %v", errResp)
+	}
+	if channel == nil {
+		t.Fatal("expected selected channel")
+	}
+	if channel.ID != "sticky" {
+		t.Fatalf("expected sticky channel, got %q", channel.ID)
+	}
+}
+
 func TestResponsesWebsocketProxyHandlerAcceptsLargeCreatePayload(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 

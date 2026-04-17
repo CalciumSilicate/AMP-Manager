@@ -171,12 +171,16 @@ func (r *PurchaseOrderRepository) ListAdmin(filters model.PurchaseOrderFilters) 
 
 	limit := filters.Limit
 	if limit <= 0 {
-		limit = 100
+		limit = 20
+	}
+	offset := filters.Offset
+	if offset < 0 {
+		offset = 0
 	}
 	queryArgs := append([]interface{}{}, args...)
-	queryArgs = append(queryArgs, limit)
+	queryArgs = append(queryArgs, limit, offset)
 	rows, err := db.Query(
-		r.detailSelectSQL()+where+` ORDER BY o.created_at DESC LIMIT ?`,
+		r.detailSelectSQL()+where+` ORDER BY o.created_at DESC LIMIT ? OFFSET ?`,
 		queryArgs...,
 	)
 	if err != nil {
