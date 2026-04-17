@@ -23,7 +23,7 @@ interface Props {
   siteContact: SiteContactConfig
   announcements: Announcement[]
   onSwitch: () => void
-  onSuccess: (username: string, token?: string, isAdmin?: boolean) => void
+  onSuccess: (username: string, token?: string, isAdmin?: boolean, mustChangePassword?: boolean, mustChangeUsername?: boolean) => void
 }
 
 export default function Register({ siteName, siteContact, announcements, onSwitch, onSuccess }: Props) {

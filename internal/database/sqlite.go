@@ -279,6 +279,10 @@ func createTables() error {
 		is_admin INTEGER DEFAULT 0,
 		balance_micros BIGINT NOT NULL DEFAULT 0,
 		concurrency_limit INTEGER NOT NULL DEFAULT 0,
+		must_change_password INTEGER NOT NULL DEFAULT 0,
+		must_change_username INTEGER NOT NULL DEFAULT 0,
+		legacy_source TEXT NOT NULL DEFAULT '',
+		legacy_ref_id TEXT NOT NULL DEFAULT '',
 		created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
 		updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
 	);
@@ -644,6 +648,8 @@ func createTables() error {
 		enabled INTEGER NOT NULL DEFAULT 1,
 		upgrade_rank INTEGER NOT NULL DEFAULT 0,
 		upgrade_valuation_cny_cent_per_day BIGINT NOT NULL DEFAULT 0,
+		legacy_source TEXT NOT NULL DEFAULT '',
+		legacy_ref_id TEXT NOT NULL DEFAULT '',
 		created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
 		updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
 	);
@@ -679,6 +685,67 @@ func createTables() error {
 	CREATE INDEX IF NOT EXISTS idx_user_subs_status ON user_subscriptions(status);
 	CREATE UNIQUE INDEX IF NOT EXISTS idx_user_subs_active_unique ON user_subscriptions(user_id) WHERE status = 'active';
 
+	CREATE TABLE IF NOT EXISTS subscription_recharge_history (
+		id TEXT PRIMARY KEY,
+		user_id TEXT NOT NULL,
+		user_subscription_id TEXT NOT NULL,
+		plan_id TEXT NOT NULL DEFAULT '',
+		mode TEXT NOT NULL,
+		status TEXT NOT NULL DEFAULT '',
+		source_type TEXT NOT NULL DEFAULT '',
+		source_ref_id TEXT NOT NULL DEFAULT '',
+		source_daily_limit_micros BIGINT,
+		target_daily_limit_before_micros BIGINT,
+		peak_daily_limit_micros BIGINT,
+		target_expires_at_before DATETIME,
+		target_expires_at_after DATETIME,
+		preview_json TEXT NOT NULL DEFAULT '',
+		confirmed_at DATETIME,
+		applied_at DATETIME,
+		legacy_source TEXT NOT NULL DEFAULT '',
+		legacy_ref_id TEXT NOT NULL DEFAULT '',
+		created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+		updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+		FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+		FOREIGN KEY (user_subscription_id) REFERENCES user_subscriptions(id) ON DELETE CASCADE,
+		FOREIGN KEY (plan_id) REFERENCES subscription_plans(id) ON DELETE RESTRICT
+	);
+	CREATE INDEX IF NOT EXISTS idx_subscription_recharge_history_user_created ON subscription_recharge_history(user_id, created_at DESC);
+	CREATE INDEX IF NOT EXISTS idx_subscription_recharge_history_sub_created ON subscription_recharge_history(user_subscription_id, created_at DESC);
+	CREATE UNIQUE INDEX IF NOT EXISTS idx_subscription_recharge_history_legacy_ref ON subscription_recharge_history(legacy_source, legacy_ref_id) WHERE legacy_source <> '' AND legacy_ref_id <> '';
+
+	CREATE TABLE IF NOT EXISTS subscription_timeline_phases (
+		id TEXT PRIMARY KEY,
+		user_id TEXT NOT NULL,
+		user_subscription_id TEXT NOT NULL,
+		plan_id TEXT NOT NULL,
+		phase_type TEXT NOT NULL CHECK (phase_type IN ('boost', 'restore', 'converted_extension', 'overwrite', 'extend_duration')),
+		status TEXT NOT NULL DEFAULT 'scheduled' CHECK (status IN ('scheduled', 'active', 'completed', 'superseded', 'cancelled')),
+		source_type TEXT NOT NULL DEFAULT '',
+		source_ref_id TEXT NOT NULL DEFAULT '',
+		daily_limit_micros BIGINT,
+		weekly_limit_micros BIGINT,
+		monthly_limit_micros BIGINT,
+		rolling_5h_limit_micros BIGINT,
+		total_limit_micros BIGINT,
+		fixed_reset_minute INTEGER CHECK (fixed_reset_minute >= 0 AND fixed_reset_minute < 1440),
+		starts_at DATETIME NOT NULL,
+		ends_at DATETIME NOT NULL,
+		final_expires_at DATETIME,
+		preview_json TEXT NOT NULL DEFAULT '',
+		applied_at DATETIME,
+		legacy_source TEXT NOT NULL DEFAULT '',
+		legacy_ref_id TEXT NOT NULL DEFAULT '',
+		created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+		updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+		FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+		FOREIGN KEY (user_subscription_id) REFERENCES user_subscriptions(id) ON DELETE CASCADE,
+		FOREIGN KEY (plan_id) REFERENCES subscription_plans(id) ON DELETE RESTRICT
+	);
+	CREATE INDEX IF NOT EXISTS idx_subscription_timeline_phases_sub_status_start ON subscription_timeline_phases(user_subscription_id, status, starts_at);
+	CREATE INDEX IF NOT EXISTS idx_subscription_timeline_phases_source_ref ON subscription_timeline_phases(source_type, source_ref_id);
+	CREATE UNIQUE INDEX IF NOT EXISTS idx_subscription_timeline_phases_legacy_ref ON subscription_timeline_phases(legacy_source, legacy_ref_id) WHERE legacy_source <> '' AND legacy_ref_id <> '';
+
 	CREATE TABLE IF NOT EXISTS subscription_entitlements (
 		id TEXT PRIMARY KEY,
 		user_id TEXT NOT NULL,
@@ -713,9 +780,13 @@ func createTables() error {
 		id TEXT PRIMARY KEY,
 		name TEXT NOT NULL,
 		summary TEXT NOT NULL DEFAULT '',
+		product_kind TEXT NOT NULL DEFAULT 'subscription' CHECK (product_kind IN ('subscription', 'extend_duration', 'boost_quota', 'overwrite', 'balance_topup')),
 		subscription_plan_id TEXT NOT NULL,
 		duration_days INTEGER NOT NULL CHECK (duration_days > 0),
 		price_cny_cent BIGINT NOT NULL CHECK (price_cny_cent > 0),
+		action_snapshot_json TEXT NOT NULL DEFAULT '',
+		legacy_source TEXT NOT NULL DEFAULT '',
+		legacy_ref_id TEXT NOT NULL DEFAULT '',
 		group_name TEXT NOT NULL DEFAULT '',
 		group_sort INTEGER NOT NULL DEFAULT 0,
 		is_recommended INTEGER NOT NULL DEFAULT 0,
@@ -746,6 +817,10 @@ func createTables() error {
 		upgrade_credit_cny_cent BIGINT NOT NULL DEFAULT 0,
 		upgrade_locked_target_seconds BIGINT NOT NULL DEFAULT 0,
 		upgrade_state_token TEXT NOT NULL DEFAULT '',
+		action_snapshot_json TEXT NOT NULL DEFAULT '',
+		timeline_preview_json TEXT NOT NULL DEFAULT '',
+		legacy_source TEXT NOT NULL DEFAULT '',
+		legacy_ref_id TEXT NOT NULL DEFAULT '',
 		payment_status TEXT NOT NULL DEFAULT 'pending' CHECK (payment_status IN ('pending', 'paid', 'expired', 'refunded', 'closed', 'failed')),
 		fulfillment_status TEXT NOT NULL DEFAULT 'pending' CHECK (fulfillment_status IN ('pending', 'fulfilled', 'failed')),
 		manual_settlement_done INTEGER NOT NULL DEFAULT 0,
@@ -807,7 +882,7 @@ func createTables() error {
 		id TEXT PRIMARY KEY,
 		campaign_id TEXT,
 		batch_id TEXT,
-		source_type TEXT NOT NULL DEFAULT 'campaign' CHECK (source_type IN ('campaign', 'free', 'purchase_order')),
+		source_type TEXT NOT NULL DEFAULT 'campaign' CHECK (source_type IN ('campaign', 'free', 'purchase_order', 'legacy_delivery')),
 		source_ref_id TEXT NOT NULL DEFAULT '',
 		code_value TEXT NOT NULL UNIQUE,
 		code_hash TEXT NOT NULL UNIQUE,
@@ -815,6 +890,9 @@ func createTables() error {
 		subscription_plan_id TEXT,
 		subscription_duration_days INTEGER NOT NULL DEFAULT 0 CHECK (subscription_duration_days >= 0),
 		balance_micros BIGINT NOT NULL DEFAULT 0 CHECK (balance_micros >= 0),
+		reward_snapshot_json TEXT NOT NULL DEFAULT '',
+		legacy_source TEXT NOT NULL DEFAULT '',
+		legacy_ref_id TEXT NOT NULL DEFAULT '',
 		per_user_limit INTEGER NOT NULL DEFAULT 1 CHECK (per_user_limit > 0),
 		starts_at DATETIME,
 		ends_at DATETIME,
@@ -853,6 +931,7 @@ func createTables() error {
 		subscription_plan_id TEXT NOT NULL DEFAULT '',
 		subscription_duration_days INTEGER NOT NULL DEFAULT 0 CHECK (subscription_duration_days >= 0),
 		balance_micros BIGINT NOT NULL DEFAULT 0 CHECK (balance_micros >= 0),
+		reward_snapshot_json TEXT NOT NULL DEFAULT '',
 		status TEXT NOT NULL CHECK (status IN ('success', 'rejected')),
 		failure_reason TEXT NOT NULL DEFAULT '',
 		granted_subscription_id TEXT NOT NULL DEFAULT '',
@@ -946,6 +1025,8 @@ func createTables() error {
 		used_micros_before_reset BIGINT NOT NULL DEFAULT 0,
 		expires_at_before DATETIME NOT NULL,
 		expires_at_after DATETIME NOT NULL,
+		legacy_source TEXT NOT NULL DEFAULT '',
+		legacy_ref_id TEXT NOT NULL DEFAULT '',
 		created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
 		FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
 		FOREIGN KEY (user_subscription_id) REFERENCES user_subscriptions(id) ON DELETE CASCADE
@@ -2000,10 +2081,16 @@ func ensureCriticalSchema() error {
 	if err := ensureRequestLogsSessionSchema(); err != nil {
 		return err
 	}
+	if err := ensureUserBootstrapSchema(); err != nil {
+		return err
+	}
 	if err := ensureAPIKeyProviderSchema(); err != nil {
 		return err
 	}
 	if err := ensureErrorRuleSchema(); err != nil {
+		return err
+	}
+	if err := ensureSubscriptionRuntimeSchema(); err != nil {
 		return err
 	}
 	if err := ensurePurchaseSchema(); err != nil {
@@ -2036,6 +2123,22 @@ func ensureRequestLogsSessionSchema() error {
 	return nil
 }
 
+func ensureUserBootstrapSchema() error {
+	if err := ensureColumnWithDefault("users", "must_change_password", "INTEGER NOT NULL DEFAULT 0"); err != nil {
+		return err
+	}
+	if err := ensureColumnWithDefault("users", "must_change_username", "INTEGER NOT NULL DEFAULT 0"); err != nil {
+		return err
+	}
+	if err := ensureColumnWithDefault("users", "legacy_source", "TEXT NOT NULL DEFAULT ''"); err != nil {
+		return err
+	}
+	if err := ensureColumnWithDefault("users", "legacy_ref_id", "TEXT NOT NULL DEFAULT ''"); err != nil {
+		return err
+	}
+	return nil
+}
+
 func ensureAPIKeyProviderSchema() error {
 	if err := ensureColumnWithDefault("user_api_keys", "allowed_providers_json", "TEXT NOT NULL DEFAULT '[]'"); err != nil {
 		return err
@@ -2053,8 +2156,127 @@ func ensureErrorRuleSchema() error {
 	return nil
 }
 
+func ensureSubscriptionRuntimeSchema() error {
+	if err := ensureColumnWithDefault("subscription_plans", "legacy_source", "TEXT NOT NULL DEFAULT ''"); err != nil {
+		return err
+	}
+	if err := ensureColumnWithDefault("subscription_plans", "legacy_ref_id", "TEXT NOT NULL DEFAULT ''"); err != nil {
+		return err
+	}
+	if err := ensureColumnWithDefault("billing_daily_reset_records", "legacy_source", "TEXT NOT NULL DEFAULT ''"); err != nil {
+		return err
+	}
+	if err := ensureColumnWithDefault("billing_daily_reset_records", "legacy_ref_id", "TEXT NOT NULL DEFAULT ''"); err != nil {
+		return err
+	}
+
+	statements := []string{
+		`CREATE TABLE IF NOT EXISTS subscription_recharge_history (
+			id TEXT PRIMARY KEY,
+			user_id TEXT NOT NULL,
+			user_subscription_id TEXT NOT NULL,
+			plan_id TEXT NOT NULL DEFAULT '',
+			mode TEXT NOT NULL,
+			status TEXT NOT NULL DEFAULT '',
+			source_type TEXT NOT NULL DEFAULT '',
+			source_ref_id TEXT NOT NULL DEFAULT '',
+			source_daily_limit_micros BIGINT,
+			target_daily_limit_before_micros BIGINT,
+			peak_daily_limit_micros BIGINT,
+			target_expires_at_before DATETIME,
+			target_expires_at_after DATETIME,
+			preview_json TEXT NOT NULL DEFAULT '',
+			confirmed_at DATETIME,
+			applied_at DATETIME,
+			legacy_source TEXT NOT NULL DEFAULT '',
+			legacy_ref_id TEXT NOT NULL DEFAULT '',
+			created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+			updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+			FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+			FOREIGN KEY (user_subscription_id) REFERENCES user_subscriptions(id) ON DELETE CASCADE,
+			FOREIGN KEY (plan_id) REFERENCES subscription_plans(id) ON DELETE RESTRICT
+		)`,
+		`CREATE INDEX IF NOT EXISTS idx_subscription_recharge_history_user_created ON subscription_recharge_history(user_id, created_at DESC)`,
+		`CREATE INDEX IF NOT EXISTS idx_subscription_recharge_history_sub_created ON subscription_recharge_history(user_subscription_id, created_at DESC)`,
+		`CREATE UNIQUE INDEX IF NOT EXISTS idx_subscription_recharge_history_legacy_ref ON subscription_recharge_history(legacy_source, legacy_ref_id) WHERE legacy_source <> '' AND legacy_ref_id <> ''`,
+		`CREATE TABLE IF NOT EXISTS subscription_timeline_phases (
+			id TEXT PRIMARY KEY,
+			user_id TEXT NOT NULL,
+			user_subscription_id TEXT NOT NULL,
+			plan_id TEXT NOT NULL,
+			phase_type TEXT NOT NULL CHECK (phase_type IN ('boost', 'restore', 'converted_extension', 'overwrite', 'extend_duration')),
+			status TEXT NOT NULL DEFAULT 'scheduled' CHECK (status IN ('scheduled', 'active', 'completed', 'superseded', 'cancelled')),
+			source_type TEXT NOT NULL DEFAULT '',
+			source_ref_id TEXT NOT NULL DEFAULT '',
+			daily_limit_micros BIGINT,
+			weekly_limit_micros BIGINT,
+			monthly_limit_micros BIGINT,
+			rolling_5h_limit_micros BIGINT,
+			total_limit_micros BIGINT,
+			fixed_reset_minute INTEGER CHECK (fixed_reset_minute >= 0 AND fixed_reset_minute < 1440),
+			starts_at DATETIME NOT NULL,
+			ends_at DATETIME NOT NULL,
+			final_expires_at DATETIME,
+			preview_json TEXT NOT NULL DEFAULT '',
+			applied_at DATETIME,
+			legacy_source TEXT NOT NULL DEFAULT '',
+			legacy_ref_id TEXT NOT NULL DEFAULT '',
+			created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+			updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+			FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+			FOREIGN KEY (user_subscription_id) REFERENCES user_subscriptions(id) ON DELETE CASCADE,
+			FOREIGN KEY (plan_id) REFERENCES subscription_plans(id) ON DELETE RESTRICT
+		)`,
+		`CREATE INDEX IF NOT EXISTS idx_subscription_timeline_phases_sub_status_start ON subscription_timeline_phases(user_subscription_id, status, starts_at)`,
+		`CREATE INDEX IF NOT EXISTS idx_subscription_timeline_phases_source_ref ON subscription_timeline_phases(source_type, source_ref_id)`,
+		`CREATE UNIQUE INDEX IF NOT EXISTS idx_subscription_timeline_phases_legacy_ref ON subscription_timeline_phases(legacy_source, legacy_ref_id) WHERE legacy_source <> '' AND legacy_ref_id <> ''`,
+	}
+	for _, statement := range statements {
+		if _, err := db.Exec(adaptCriticalSchemaSQL(statement)); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func ensurePurchaseSchema() error {
 	if err := ensureColumnWithDefault("purchase_orders", "manual_settlement_done", "INTEGER NOT NULL DEFAULT 0"); err != nil {
+		return err
+	}
+	if err := ensureColumnWithDefault("purchase_products", "product_kind", "TEXT NOT NULL DEFAULT 'subscription'"); err != nil {
+		return err
+	}
+	if err := ensureColumnWithDefault("purchase_products", "action_snapshot_json", "TEXT NOT NULL DEFAULT ''"); err != nil {
+		return err
+	}
+	if err := ensureColumnWithDefault("purchase_products", "legacy_source", "TEXT NOT NULL DEFAULT ''"); err != nil {
+		return err
+	}
+	if err := ensureColumnWithDefault("purchase_products", "legacy_ref_id", "TEXT NOT NULL DEFAULT ''"); err != nil {
+		return err
+	}
+	if err := ensureColumnWithDefault("purchase_orders", "action_snapshot_json", "TEXT NOT NULL DEFAULT ''"); err != nil {
+		return err
+	}
+	if err := ensureColumnWithDefault("purchase_orders", "timeline_preview_json", "TEXT NOT NULL DEFAULT ''"); err != nil {
+		return err
+	}
+	if err := ensureColumnWithDefault("purchase_orders", "legacy_source", "TEXT NOT NULL DEFAULT ''"); err != nil {
+		return err
+	}
+	if err := ensureColumnWithDefault("purchase_orders", "legacy_ref_id", "TEXT NOT NULL DEFAULT ''"); err != nil {
+		return err
+	}
+	if err := ensureColumnWithDefault("redeem_codes", "reward_snapshot_json", "TEXT NOT NULL DEFAULT ''"); err != nil {
+		return err
+	}
+	if err := ensureColumnWithDefault("redeem_codes", "legacy_source", "TEXT NOT NULL DEFAULT ''"); err != nil {
+		return err
+	}
+	if err := ensureColumnWithDefault("redeem_codes", "legacy_ref_id", "TEXT NOT NULL DEFAULT ''"); err != nil {
+		return err
+	}
+	if err := ensureColumnWithDefault("redeem_redemptions", "reward_snapshot_json", "TEXT NOT NULL DEFAULT ''"); err != nil {
 		return err
 	}
 	if _, err := db.Exec(`CREATE INDEX IF NOT EXISTS idx_purchase_orders_manual_settlement_done ON purchase_orders(manual_settlement_done, created_at DESC)`); err != nil {

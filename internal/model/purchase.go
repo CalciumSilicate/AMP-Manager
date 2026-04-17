@@ -38,6 +38,16 @@ const (
 	PurchaseOrderKindBalanceTopup PurchaseOrderKind = "balance_topup"
 )
 
+type PurchaseProductKind string
+
+const (
+	PurchaseProductKindSubscription   PurchaseProductKind = "subscription"
+	PurchaseProductKindExtendDuration PurchaseProductKind = "extend_duration"
+	PurchaseProductKindBoostQuota     PurchaseProductKind = "boost_quota"
+	PurchaseProductKindOverwrite      PurchaseProductKind = "overwrite"
+	PurchaseProductKindBalanceTopup   PurchaseProductKind = "balance_topup"
+)
+
 type PurchaseDeliveryMode string
 
 const (
@@ -100,50 +110,60 @@ type PurchaseSettingsRequest struct {
 }
 
 type PurchaseProduct struct {
-	ID                 string    `json:"id"`
-	Name               string    `json:"name"`
-	Summary            string    `json:"summary"`
-	SubscriptionPlanID string    `json:"subscriptionPlanId"`
-	DurationDays       int       `json:"durationDays"`
-	PriceCNYCent       int64     `json:"priceCnyCent"`
-	GroupName          string    `json:"groupName"`
-	GroupSort          int       `json:"groupSort"`
-	IsRecommended      bool      `json:"isRecommended"`
-	SortOrder          int       `json:"sortOrder"`
-	Enabled            bool      `json:"enabled"`
-	CreatedAt          time.Time `json:"createdAt"`
-	UpdatedAt          time.Time `json:"updatedAt"`
+	ID                 string              `json:"id"`
+	Name               string              `json:"name"`
+	Summary            string              `json:"summary"`
+	ProductKind        PurchaseProductKind `json:"productKind"`
+	SubscriptionPlanID string              `json:"subscriptionPlanId"`
+	DurationDays       int                 `json:"durationDays"`
+	PriceCNYCent       int64               `json:"priceCnyCent"`
+	ActionSnapshotJSON string              `json:"-"`
+	LegacySource       string              `json:"legacySource"`
+	LegacyRefID        string              `json:"legacyRefId"`
+	GroupName          string              `json:"groupName"`
+	GroupSort          int                 `json:"groupSort"`
+	IsRecommended      bool                `json:"isRecommended"`
+	SortOrder          int                 `json:"sortOrder"`
+	Enabled            bool                `json:"enabled"`
+	CreatedAt          time.Time           `json:"createdAt"`
+	UpdatedAt          time.Time           `json:"updatedAt"`
 }
 
 type PurchaseProductRequest struct {
-	Name               string `json:"name" binding:"required,min=1,max=64"`
-	Summary            string `json:"summary" binding:"max=120"`
-	SubscriptionPlanID string `json:"subscriptionPlanId" binding:"required"`
-	DurationDays       int    `json:"durationDays" binding:"required,min=1,max=3650"`
-	PriceCNYCent       int64  `json:"priceCnyCent" binding:"required,min=1"`
-	GroupName          string `json:"groupName" binding:"max=64"`
-	GroupSort          int    `json:"groupSort"`
-	IsRecommended      bool   `json:"isRecommended"`
-	SortOrder          int    `json:"sortOrder"`
-	Enabled            bool   `json:"enabled"`
+	Name               string              `json:"name" binding:"required,min=1,max=64"`
+	Summary            string              `json:"summary" binding:"max=120"`
+	ProductKind        PurchaseProductKind `json:"productKind" binding:"omitempty,oneof=subscription extend_duration boost_quota overwrite balance_topup"`
+	SubscriptionPlanID string              `json:"subscriptionPlanId" binding:"required"`
+	DurationDays       int                 `json:"durationDays" binding:"required,min=1,max=3650"`
+	PriceCNYCent       int64               `json:"priceCnyCent" binding:"required,min=1"`
+	ActionSnapshotJSON string              `json:"actionSnapshotJson,omitempty"`
+	GroupName          string              `json:"groupName" binding:"max=64"`
+	GroupSort          int                 `json:"groupSort"`
+	IsRecommended      bool                `json:"isRecommended"`
+	SortOrder          int                 `json:"sortOrder"`
+	Enabled            bool                `json:"enabled"`
 }
 
 type PurchaseProductResponse struct {
-	ID                          string    `json:"id"`
-	Name                        string    `json:"name"`
-	Summary                     string    `json:"summary"`
-	SubscriptionPlanID          string    `json:"subscriptionPlanId"`
-	SubscriptionPlanName        string    `json:"subscriptionPlanName"`
-	SubscriptionPlanUpgradeRank int       `json:"subscriptionPlanUpgradeRank"`
-	DurationDays                int       `json:"durationDays"`
-	PriceCNYCent                int64     `json:"priceCnyCent"`
-	GroupName                   string    `json:"groupName"`
-	GroupSort                   int       `json:"groupSort"`
-	IsRecommended               bool      `json:"isRecommended"`
-	SortOrder                   int       `json:"sortOrder"`
-	Enabled                     bool      `json:"enabled"`
-	CreatedAt                   time.Time `json:"createdAt"`
-	UpdatedAt                   time.Time `json:"updatedAt"`
+	ID                          string              `json:"id"`
+	Name                        string              `json:"name"`
+	Summary                     string              `json:"summary"`
+	ProductKind                 PurchaseProductKind `json:"productKind"`
+	SubscriptionPlanID          string              `json:"subscriptionPlanId"`
+	SubscriptionPlanName        string              `json:"subscriptionPlanName"`
+	SubscriptionPlanUpgradeRank int                 `json:"subscriptionPlanUpgradeRank"`
+	DurationDays                int                 `json:"durationDays"`
+	PriceCNYCent                int64               `json:"priceCnyCent"`
+	ActionSnapshotJSON          string              `json:"actionSnapshotJson,omitempty"`
+	LegacySource                string              `json:"legacySource,omitempty"`
+	LegacyRefID                 string              `json:"legacyRefId,omitempty"`
+	GroupName                   string              `json:"groupName"`
+	GroupSort                   int                 `json:"groupSort"`
+	IsRecommended               bool                `json:"isRecommended"`
+	SortOrder                   int                 `json:"sortOrder"`
+	Enabled                     bool                `json:"enabled"`
+	CreatedAt                   time.Time           `json:"createdAt"`
+	UpdatedAt                   time.Time           `json:"updatedAt"`
 }
 
 type PurchaseOrder struct {
@@ -166,6 +186,10 @@ type PurchaseOrder struct {
 	UpgradeCreditCNYCent    int64                     `json:"upgradeCreditCnyCent"`
 	UpgradeLockedTargetSecs int64                     `json:"upgradeLockedTargetSeconds"`
 	UpgradeStateToken       string                    `json:"upgradeStateToken"`
+	ActionSnapshotJSON      string                    `json:"-"`
+	TimelinePreviewJSON     string                    `json:"-"`
+	LegacySource            string                    `json:"legacySource"`
+	LegacyRefID             string                    `json:"legacyRefId"`
 	AlipayTradeNo           string                    `json:"alipayTradeNo"`
 	ManualSettlementDone    bool                      `json:"manualSettlementDone"`
 	AlipayQRCode            string                    `json:"-"`
@@ -201,6 +225,10 @@ type PurchaseOrderResponse struct {
 	UpgradeSourceExpiresAt    *time.Time                `json:"upgradeSourceExpiresAt"`
 	UpgradeCreditCnyCent      int64                     `json:"upgradeCreditCnyCent"`
 	UpgradeLockedTargetSecs   int64                     `json:"upgradeLockedTargetSeconds"`
+	ActionSnapshotJSON        string                    `json:"actionSnapshotJson,omitempty"`
+	TimelinePreviewJSON       string                    `json:"timelinePreviewJson,omitempty"`
+	LegacySource              string                    `json:"legacySource,omitempty"`
+	LegacyRefID               string                    `json:"legacyRefId,omitempty"`
 	GeneratedRedeemCodeID     string                    `json:"generatedRedeemCodeId"`
 	GeneratedRedeemCode       string                    `json:"generatedRedeemCode"`
 	GeneratedRedeemCodeMask   string                    `json:"generatedRedeemCodeMask"`
@@ -240,6 +268,20 @@ type PurchaseOrderListResponse struct {
 type CreatePurchaseOrderRequest struct {
 	ProductID    string               `json:"productId" binding:"required"`
 	DeliveryMode PurchaseDeliveryMode `json:"deliveryMode" binding:"omitempty,oneof=account redeem_code"`
+}
+
+type PurchaseActionSnapshot struct {
+	ProductKind              PurchaseProductKind `json:"productKind"`
+	PlanID                   string              `json:"planId,omitempty"`
+	DurationDays             int                 `json:"durationDays,omitempty"`
+	BalanceTopupMicros       int64               `json:"balanceTopupMicros,omitempty"`
+	SourceDailyLimitMicros   int64               `json:"sourceDailyLimitMicros,omitempty"`
+	SourceWeeklyLimitMicros  int64               `json:"sourceWeeklyLimitMicros,omitempty"`
+	SourceMonthlyLimitMicros int64               `json:"sourceMonthlyLimitMicros,omitempty"`
+	SourceRolling5hMicros    int64               `json:"sourceRolling5hMicros,omitempty"`
+	SourceTotalLimitMicros   int64               `json:"sourceTotalLimitMicros,omitempty"`
+	FixedResetTime           *string             `json:"fixedResetTime,omitempty"`
+	LegacyTemplateID         string              `json:"legacyTemplateId,omitempty"`
 }
 
 type CreateBalanceTopupOrderRequest struct {

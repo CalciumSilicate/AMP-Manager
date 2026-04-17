@@ -62,11 +62,13 @@ func (h *UserHandler) Register(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusCreated, model.AuthResponse{
-		ID:       user.ID,
-		Username: user.Username,
-		Token:    token,
-		IsAdmin:  user.IsAdmin,
-		Message:  "注册成功",
+		ID:                 user.ID,
+		Username:           user.Username,
+		Token:              token,
+		IsAdmin:            user.IsAdmin,
+		MustChangePassword: user.MustChangePassword,
+		MustChangeUsername: user.MustChangeUsername,
+		Message:            "注册成功",
 	})
 }
 
@@ -95,11 +97,62 @@ func (h *UserHandler) Login(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, model.AuthResponse{
-		ID:       user.ID,
-		Username: user.Username,
-		Token:    token,
-		IsAdmin:  user.IsAdmin,
-		Message:  "登录成功",
+		ID:                 user.ID,
+		Username:           user.Username,
+		Token:              token,
+		IsAdmin:            user.IsAdmin,
+		MustChangePassword: user.MustChangePassword,
+		MustChangeUsername: user.MustChangeUsername,
+		Message:            "登录成功",
+	})
+}
+
+func (h *UserHandler) GetCredentialBootstrapState(c *gin.Context) {
+	userID := middleware.GetUserID(c)
+	if userID == "" {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "未授权"})
+		return
+	}
+
+	state, err := h.userService.GetCredentialBootstrapState(userID)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, state)
+}
+
+func (h *UserHandler) CompleteBootstrapCredentials(c *gin.Context) {
+	userID := middleware.GetUserID(c)
+	if userID == "" {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "未授权"})
+		return
+	}
+
+	var req model.CompleteBootstrapCredentialsRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "请求参数错误"})
+		return
+	}
+
+	user, token, err := h.userService.CompleteBootstrapCredentials(userID, &req)
+	if err != nil {
+		status := http.StatusBadRequest
+		if errors.Is(err, service.ErrUsernameExists) {
+			status = http.StatusConflict
+		}
+		c.JSON(status, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, model.AuthResponse{
+		ID:                 user.ID,
+		Username:           user.Username,
+		Token:              token,
+		IsAdmin:            user.IsAdmin,
+		MustChangePassword: user.MustChangePassword,
+		MustChangeUsername: user.MustChangeUsername,
+		Message:            "首次登录信息已更新",
 	})
 }
 

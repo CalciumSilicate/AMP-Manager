@@ -15,7 +15,22 @@ export interface AuthResponse {
   username: string
   token?: string
   isAdmin?: boolean
+  mustChangePassword?: boolean
+  mustChangeUsername?: boolean
   message: string
+}
+
+export interface CredentialBootstrapState {
+  userId: string
+  username: string
+  mustChangePassword: boolean
+  mustChangeUsername: boolean
+}
+
+export interface CompleteBootstrapCredentialsRequest {
+  currentPassword: string
+  newPassword: string
+  newUsername: string
 }
 
 export interface ApiError {
@@ -68,4 +83,28 @@ export async function login(data: LoginRequest): Promise<AuthResponse> {
   })
 
   return readApiPayload<AuthResponse>(response, '登录失败')
+}
+
+export async function getCredentialBootstrapState(token: string): Promise<CredentialBootstrapState> {
+  const response = await fetch(`${API_BASE}/me/bootstrap/state`, {
+    headers: {
+      Authorization: `Bearer ${token}`,
+    },
+  })
+  return readApiPayload<CredentialBootstrapState>(response, '获取首次登录状态失败')
+}
+
+export async function completeBootstrapCredentials(
+  token: string,
+  data: CompleteBootstrapCredentialsRequest,
+): Promise<AuthResponse> {
+  const response = await fetch(`${API_BASE}/me/bootstrap/credentials`, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${token}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(data),
+  })
+  return readApiPayload<AuthResponse>(response, '更新首次登录信息失败')
 }

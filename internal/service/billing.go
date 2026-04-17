@@ -27,6 +27,7 @@ type BillingService struct {
 	planRepo    repository.SubscriptionPlanRepositoryInterface
 	eventRepo   repository.BillingEventRepositoryInterface
 	userRepo    repository.UserRepositoryInterface
+	runtimeRepo *repository.SubscriptionRuntimeRepository
 	quotaSvc    *QuotaService
 	subSvc      *UserSubscriptionService
 }
@@ -51,6 +52,7 @@ func NewBillingService() *BillingService {
 		planRepo:    repository.NewSubscriptionPlanRepository(),
 		eventRepo:   repository.NewBillingEventRepository(),
 		userRepo:    repository.NewUserRepository(),
+		runtimeRepo: repository.NewSubscriptionRuntimeRepository(),
 		quotaSvc:    NewQuotaService(),
 		subSvc:      NewUserSubscriptionService(),
 	}
@@ -69,6 +71,7 @@ func NewBillingServiceWithRepo(
 		planRepo:    planRepo,
 		eventRepo:   eventRepo,
 		userRepo:    userRepo,
+		runtimeRepo: repository.NewSubscriptionRuntimeRepository(),
 		quotaSvc:    NewQuotaService(),
 		subSvc:      NewUserSubscriptionService(),
 	}
@@ -94,6 +97,13 @@ func (s *BillingService) canStartRequestLegacy(userID string) (bool, error) {
 		_, limits, err := s.planRepo.GetByID(sub.PlanID)
 		if err != nil {
 			return false, err
+		}
+		if s.runtimeRepo != nil {
+			if resolved, _, _, resolveErr := s.runtimeRepo.ResolveEffectiveLimitsBySubscription(sub, limits, time.Now().UTC()); resolveErr != nil {
+				return false, resolveErr
+			} else if len(resolved) > 0 {
+				limits = resolved
+			}
 		}
 		if len(limits) > 0 {
 			subscriptionRemaining = s.calcSubscriptionRemaining(sub, limits)
@@ -372,6 +382,34 @@ func (s *BillingService) GetBillingState(userID string) (*model.BillingStateResp
 		return nil, err
 	}
 
+	var timeline []*model.SubscriptionTimelinePhase
+	var finalExpiresAt *time.Time
+	if subResp != nil {
+		sub, subErr := s.subRepo.GetActiveByUserID(userID)
+		if subErr != nil {
+			return nil, subErr
+		}
+		if sub != nil {
+			_, baseLimits, baseErr := s.planRepo.GetByID(sub.PlanID)
+			if baseErr != nil {
+				return nil, baseErr
+			}
+			if s.runtimeRepo != nil {
+				resolvedLimits, resolvedTimeline, _, resolveErr := s.runtimeRepo.ResolveEffectiveLimitsBySubscription(sub, baseLimits, time.Now().UTC())
+				if resolveErr != nil {
+					return nil, resolveErr
+				}
+				if len(resolvedLimits) > 0 {
+					subResp.EffectiveLimits = resolvedLimits
+				}
+				timeline = resolvedTimeline
+			}
+			finalExpiresAt = sub.ExpiresAt
+			subResp.FinalExpiresAt = finalExpiresAt
+			subResp.Timeline = timeline
+		}
+	}
+
 	return &model.BillingStateResponse{
 		BalanceMicros:   balance,
 		BalanceUsd:      fmt.Sprintf("%.6f", float64(balance)/1e6),
@@ -380,6 +418,8 @@ func (s *BillingService) GetBillingState(userID string) (*model.BillingStateResp
 		DailyReset:      dailyReset,
 		PrimarySource:   setting.PrimarySource,
 		SecondarySource: setting.SecondarySource,
+		Timeline:        timeline,
+		FinalExpiresAt:  finalExpiresAt,
 	}, nil
 }
 
@@ -453,6 +493,13 @@ func (s *BillingService) calcSubscriptionRemainingTx(tx *sql.Tx, sub *model.User
 
 	if len(limits) == 0 {
 		return 0, nil
+	}
+	if s.runtimeRepo != nil {
+		if resolved, _, _, resolveErr := s.runtimeRepo.ResolveEffectiveLimitsBySubscription(sub, limits, time.Now().UTC()); resolveErr != nil {
+			return 0, resolveErr
+		} else if len(resolved) > 0 {
+			limits = resolved
+		}
 	}
 
 	now := time.Now().UTC()

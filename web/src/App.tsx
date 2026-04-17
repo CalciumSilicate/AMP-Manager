@@ -10,11 +10,15 @@ import { DEFAULT_SITE_TIME_ZONE, setActiveSiteTimeZone } from '@/lib/site-config
 
 const Login = lazy(() => import('./pages/Login'))
 const Register = lazy(() => import('./pages/Register'))
+const CredentialBootstrap = lazy(() => import('./pages/CredentialBootstrap'))
 const Dashboard = lazy(() => import('./pages/Dashboard'))
 
 interface UserState {
   username: string
   isAdmin: boolean
+  token: string
+  mustChangePassword: boolean
+  mustChangeUsername: boolean
 }
 
 function App() {
@@ -37,8 +41,10 @@ function App() {
     const token = localStorage.getItem('token')
     const username = localStorage.getItem('username')
     const isAdmin = localStorage.getItem('isAdmin') === 'true'
+    const mustChangePassword = localStorage.getItem('mustChangePassword') === 'true'
+    const mustChangeUsername = localStorage.getItem('mustChangeUsername') === 'true'
     if (token && username) {
-      setUser({ username, isAdmin })
+      setUser({ username, isAdmin, token, mustChangePassword, mustChangeUsername })
     }
   }, [])
 
@@ -113,19 +119,35 @@ function App() {
     document.title = `${page === 'login' ? '登录' : '注册'} - ${siteName}`
   }, [page, siteName, user])
 
-  const handleSuccess = (username: string, token?: string, isAdmin?: boolean) => {
+  const handleSuccess = (
+    username: string,
+    token?: string,
+    isAdmin?: boolean,
+    mustChangePassword = false,
+    mustChangeUsername = false,
+  ) => {
     if (token) {
       localStorage.setItem('token', token)
       localStorage.setItem('username', username)
       localStorage.setItem('isAdmin', String(isAdmin || false))
+      localStorage.setItem('mustChangePassword', String(mustChangePassword))
+      localStorage.setItem('mustChangeUsername', String(mustChangeUsername))
     }
-    setUser({ username, isAdmin: isAdmin || false })
+    setUser({
+      username,
+      isAdmin: isAdmin || false,
+      token: token || localStorage.getItem('token') || '',
+      mustChangePassword,
+      mustChangeUsername,
+    })
   }
 
   const handleLogout = () => {
     localStorage.removeItem('token')
     localStorage.removeItem('username')
     localStorage.removeItem('isAdmin')
+    localStorage.removeItem('mustChangePassword')
+    localStorage.removeItem('mustChangeUsername')
     setUser(null)
     setPage('login')
   }
@@ -136,21 +158,41 @@ function App() {
         <FontLoadCoordinator />
         <ChunkLoadBoundary scopeLabel="控制台">
           <Suspense fallback={<InlineLoader />}>
-            <Dashboard
-              username={user.username}
-              isAdmin={user.isAdmin}
-              siteName={siteName}
-              siteTimeZone={siteTimeZone}
-              ampProxySettingsPolicy={ampProxySettingsPolicy}
-              ampSettingsPolicy={ampSettingsPolicy}
-              siteContact={siteContact}
-              onSiteNameChange={setSiteName}
-              onSiteTimeZoneChange={setSiteTimeZone}
-              onAmpProxySettingsPolicyChange={setAmpProxySettingsPolicy}
-              onAmpSettingsPolicyChange={setAmpSettingsPolicy}
-              onSiteContactChange={setSiteContact}
-              onLogout={handleLogout}
-            />
+            {user.mustChangePassword || user.mustChangeUsername ? (
+              <div className="flex min-h-screen items-center justify-center auth-bg px-4">
+                <CredentialBootstrap
+                  siteName={siteName}
+                  token={user.token}
+                  username={user.username}
+                  mustChangePassword={user.mustChangePassword}
+                  mustChangeUsername={user.mustChangeUsername}
+                  onSuccess={(next) => handleSuccess(
+                    next.username,
+                    next.token || user.token,
+                    user.isAdmin,
+                    next.mustChangePassword || false,
+                    next.mustChangeUsername || false,
+                  )}
+                  onLogout={handleLogout}
+                />
+              </div>
+            ) : (
+              <Dashboard
+                username={user.username}
+                isAdmin={user.isAdmin}
+                siteName={siteName}
+                siteTimeZone={siteTimeZone}
+                ampProxySettingsPolicy={ampProxySettingsPolicy}
+                ampSettingsPolicy={ampSettingsPolicy}
+                siteContact={siteContact}
+                onSiteNameChange={setSiteName}
+                onSiteTimeZoneChange={setSiteTimeZone}
+                onAmpProxySettingsPolicyChange={setAmpProxySettingsPolicy}
+                onAmpSettingsPolicyChange={setAmpSettingsPolicy}
+                onSiteContactChange={setSiteContact}
+                onLogout={handleLogout}
+              />
+            )}
           </Suspense>
         </ChunkLoadBoundary>
       </GlobalToastProvider>

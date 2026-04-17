@@ -19,6 +19,7 @@ import (
 var (
 	ErrUsernameExists     = errors.New("用户名已存在")
 	ErrInvalidCredentials = errors.New("用户名或密码错误")
+	ErrBootstrapPending   = errors.New("请先完成首次改密和改名")
 )
 
 type UserService struct {
@@ -84,6 +85,76 @@ func (s *UserService) Login(req *model.LoginRequest) (*model.User, string, error
 	}
 
 	return user, token, nil
+}
+
+func (s *UserService) GetCredentialBootstrapState(userID string) (*model.CredentialBootstrapStateResponse, error) {
+	user, err := s.repo.GetByID(userID)
+	if err != nil {
+		return nil, err
+	}
+	if user == nil {
+		return nil, errors.New("用户不存在")
+	}
+	return &model.CredentialBootstrapStateResponse{
+		UserID:             user.ID,
+		Username:           user.Username,
+		MustChangePassword: user.MustChangePassword,
+		MustChangeUsername: user.MustChangeUsername,
+	}, nil
+}
+
+func (s *UserService) CompleteBootstrapCredentials(userID string, req *model.CompleteBootstrapCredentialsRequest) (*model.User, string, error) {
+	user, err := s.repo.GetByID(userID)
+	if err != nil {
+		return nil, "", err
+	}
+	if user == nil {
+		return nil, "", errors.New("用户不存在")
+	}
+	if !user.MustChangePassword && !user.MustChangeUsername {
+		return user, "", nil
+	}
+	if err := bcrypt.CompareHashAndPassword([]byte(user.PasswordHash), []byte(req.CurrentPassword)); err != nil {
+		return nil, "", errors.New("当前密码错误")
+	}
+
+	newUsername := strings.TrimSpace(req.NewUsername)
+	if newUsername == "" {
+		return nil, "", errors.New("新用户名不能为空")
+	}
+	if user.MustChangeUsername && newUsername == user.Username {
+		return nil, "", errors.New("首次登录必须修改用户名")
+	}
+	if newUsername != user.Username {
+		exists, err := s.repo.ExistsByUsername(newUsername)
+		if err != nil {
+			return nil, "", err
+		}
+		if exists {
+			return nil, "", ErrUsernameExists
+		}
+	}
+
+	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(req.NewPassword), bcrypt.DefaultCost)
+	if err != nil {
+		return nil, "", err
+	}
+	if err := s.repo.CompleteBootstrapCredentials(userID, newUsername, string(hashedPassword)); err != nil {
+		return nil, "", err
+	}
+
+	updated, err := s.repo.GetByID(userID)
+	if err != nil {
+		return nil, "", err
+	}
+	if updated == nil {
+		return nil, "", errors.New("用户不存在")
+	}
+	token, err := NewJWTService().GenerateToken(updated.ID, updated.Username)
+	if err != nil {
+		return nil, "", err
+	}
+	return updated, token, nil
 }
 
 func (s *UserService) EnsureAdmin() error {

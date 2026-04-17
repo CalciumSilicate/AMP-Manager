@@ -16,18 +16,20 @@ var (
 var farFuture = time.Date(2099, 12, 31, 23, 59, 59, 0, time.UTC)
 
 type QuotaService struct {
-	eventRepo repository.BillingEventRepositoryInterface
-	subRepo   repository.UserSubscriptionRepositoryInterface
-	planRepo  repository.SubscriptionPlanRepositoryInterface
-	configSvc *SystemConfigService
+	eventRepo   repository.BillingEventRepositoryInterface
+	subRepo     repository.UserSubscriptionRepositoryInterface
+	planRepo    repository.SubscriptionPlanRepositoryInterface
+	runtimeRepo *repository.SubscriptionRuntimeRepository
+	configSvc   *SystemConfigService
 }
 
 func NewQuotaService() *QuotaService {
 	return &QuotaService{
-		eventRepo: repository.NewBillingEventRepository(),
-		subRepo:   repository.NewUserSubscriptionRepository(),
-		planRepo:  repository.NewSubscriptionPlanRepository(),
-		configSvc: NewSystemConfigService(),
+		eventRepo:   repository.NewBillingEventRepository(),
+		subRepo:     repository.NewUserSubscriptionRepository(),
+		planRepo:    repository.NewSubscriptionPlanRepository(),
+		runtimeRepo: repository.NewSubscriptionRuntimeRepository(),
+		configSvc:   NewSystemConfigService(),
 	}
 }
 
@@ -37,10 +39,11 @@ func NewQuotaServiceWithRepo(
 	planRepo repository.SubscriptionPlanRepositoryInterface,
 ) *QuotaService {
 	return &QuotaService{
-		eventRepo: eventRepo,
-		subRepo:   subRepo,
-		planRepo:  planRepo,
-		configSvc: NewSystemConfigService(),
+		eventRepo:   eventRepo,
+		subRepo:     subRepo,
+		planRepo:    planRepo,
+		runtimeRepo: repository.NewSubscriptionRuntimeRepository(),
+		configSvc:   NewSystemConfigService(),
 	}
 }
 
@@ -158,6 +161,13 @@ func (s *QuotaService) GetSubscriptionRemaining(userID string) (int64, []model.W
 	}
 	if len(limits) == 0 {
 		return 0, nil, nil
+	}
+	if s.runtimeRepo != nil {
+		if resolved, _, _, resolveErr := s.runtimeRepo.ResolveEffectiveLimitsBySubscription(sub, limits, time.Now().UTC()); resolveErr != nil {
+			return 0, nil, resolveErr
+		} else if len(resolved) > 0 {
+			limits = resolved
+		}
 	}
 
 	now := time.Now().UTC()

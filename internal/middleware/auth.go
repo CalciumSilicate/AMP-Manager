@@ -13,15 +13,19 @@ import (
 )
 
 const (
-	ContextKeyUserID   = "user_id"
-	ContextKeyUsername = "username"
-	ContextKeyIsAdmin  = "is_admin"
+	ContextKeyUserID             = "user_id"
+	ContextKeyUsername           = "username"
+	ContextKeyIsAdmin            = "is_admin"
+	ContextKeyMustChangePassword = "must_change_password"
+	ContextKeyMustChangeUsername = "must_change_username"
 
 	// tokenRefreshThreshold 当 Token 签发超过此时间后，自动刷新（滑动过期）
 	tokenRefreshThreshold = 1 * time.Hour
 )
 
 func JWTAuthMiddleware() gin.HandlerFunc {
+	userRepo := repository.NewUserRepository()
+
 	return func(c *gin.Context) {
 		claims, newToken, err := authenticateJWTHeader(c.GetHeader("Authorization"))
 		if err != nil {
@@ -33,11 +37,56 @@ func JWTAuthMiddleware() gin.HandlerFunc {
 		c.Set(ContextKeyUserID, claims.UserID)
 		c.Set(ContextKeyUsername, claims.Username)
 		c.Set(ContextKeyIsAdmin, loadCachedUserAdminStatus(claims.UserID))
+		if user, userErr := userRepo.GetByID(claims.UserID); userErr == nil && user != nil {
+			c.Set(ContextKeyMustChangePassword, user.MustChangePassword)
+			c.Set(ContextKeyMustChangeUsername, user.MustChangeUsername)
+		}
 		if newToken != "" {
 			c.Header("X-New-Token", newToken)
 		}
 
 		c.Next()
+	}
+}
+
+func CredentialBootstrapMiddleware() gin.HandlerFunc {
+	userRepo := repository.NewUserRepository()
+
+	return func(c *gin.Context) {
+		userID := GetUserID(c)
+		if userID == "" {
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "未授权"})
+			c.Abort()
+			return
+		}
+
+		user, err := userRepo.GetByID(userID)
+		if err != nil || user == nil {
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "用户不存在"})
+			c.Abort()
+			return
+		}
+
+		c.Set(ContextKeyMustChangePassword, user.MustChangePassword)
+		c.Set(ContextKeyMustChangeUsername, user.MustChangeUsername)
+		if !user.MustChangePassword && !user.MustChangeUsername {
+			c.Next()
+			return
+		}
+
+		switch c.FullPath() {
+		case "/api/me/password", "/api/me/username", "/api/me/bootstrap/state", "/api/me/bootstrap/credentials":
+			c.Next()
+			return
+		default:
+			c.JSON(http.StatusPreconditionRequired, gin.H{
+				"error":              "请先完成首次改密和改名",
+				"mustChangePassword": user.MustChangePassword,
+				"mustChangeUsername": user.MustChangeUsername,
+			})
+			c.Abort()
+			return
+		}
 	}
 }
 

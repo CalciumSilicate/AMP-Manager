@@ -21,16 +21,18 @@ var (
 )
 
 type UserSubscriptionService struct {
-	subRepo  repository.UserSubscriptionRepositoryInterface
-	planRepo repository.SubscriptionPlanRepositoryInterface
-	entRepo  repository.SubscriptionEntitlementRepositoryInterface
+	subRepo     repository.UserSubscriptionRepositoryInterface
+	planRepo    repository.SubscriptionPlanRepositoryInterface
+	entRepo     repository.SubscriptionEntitlementRepositoryInterface
+	runtimeRepo *repository.SubscriptionRuntimeRepository
 }
 
 func NewUserSubscriptionService() *UserSubscriptionService {
 	return &UserSubscriptionService{
-		subRepo:  repository.NewUserSubscriptionRepository(),
-		planRepo: repository.NewSubscriptionPlanRepository(),
-		entRepo:  repository.NewSubscriptionEntitlementRepository(),
+		subRepo:     repository.NewUserSubscriptionRepository(),
+		planRepo:    repository.NewSubscriptionPlanRepository(),
+		entRepo:     repository.NewSubscriptionEntitlementRepository(),
+		runtimeRepo: repository.NewSubscriptionRuntimeRepository(),
 	}
 }
 
@@ -38,7 +40,12 @@ func NewUserSubscriptionServiceWithRepo(
 	subRepo repository.UserSubscriptionRepositoryInterface,
 	planRepo repository.SubscriptionPlanRepositoryInterface,
 ) *UserSubscriptionService {
-	return &UserSubscriptionService{subRepo: subRepo, planRepo: planRepo, entRepo: repository.NewSubscriptionEntitlementRepository()}
+	return &UserSubscriptionService{
+		subRepo:     subRepo,
+		planRepo:    planRepo,
+		entRepo:     repository.NewSubscriptionEntitlementRepository(),
+		runtimeRepo: repository.NewSubscriptionRuntimeRepository(),
+	}
 }
 
 func (s *UserSubscriptionService) Assign(userID string, req *model.AssignSubscriptionRequest) (*model.UserSubscriptionResponse, error) {
@@ -155,7 +162,7 @@ func (s *UserSubscriptionService) GetActive(userID string) (*model.UserSubscript
 		planName = plan.Name
 	}
 
-	return &model.UserSubscriptionResponse{
+	resp := &model.UserSubscriptionResponse{
 		ID:       sub.ID,
 		UserID:   sub.UserID,
 		PlanID:   sub.PlanID,
@@ -172,7 +179,15 @@ func (s *UserSubscriptionService) GetActive(userID string) (*model.UserSubscript
 		Limits:    limits,
 		CreatedAt: sub.CreatedAt,
 		UpdatedAt: sub.UpdatedAt,
-	}, nil
+	}
+	if s.runtimeRepo != nil {
+		if effective, timeline, _, err := s.runtimeRepo.ResolveEffectiveLimitsBySubscription(sub, limits, time.Now().UTC()); err == nil {
+			resp.EffectiveLimits = effective
+			resp.Timeline = timeline
+			resp.FinalExpiresAt = sub.ExpiresAt
+		}
+	}
+	return resp, nil
 }
 
 func (s *UserSubscriptionService) Cancel(userID string) error {

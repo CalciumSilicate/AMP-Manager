@@ -40,6 +40,26 @@ const (
 	SubscriptionStatusCancelled SubscriptionStatus = "cancelled"
 )
 
+type SubscriptionTimelinePhaseType string
+
+const (
+	SubscriptionTimelinePhaseTypeBoost              SubscriptionTimelinePhaseType = "boost"
+	SubscriptionTimelinePhaseTypeRestore            SubscriptionTimelinePhaseType = "restore"
+	SubscriptionTimelinePhaseTypeConvertedExtension SubscriptionTimelinePhaseType = "converted_extension"
+	SubscriptionTimelinePhaseTypeOverwrite          SubscriptionTimelinePhaseType = "overwrite"
+	SubscriptionTimelinePhaseTypeExtendDuration     SubscriptionTimelinePhaseType = "extend_duration"
+)
+
+type SubscriptionTimelinePhaseStatus string
+
+const (
+	SubscriptionTimelinePhaseStatusScheduled  SubscriptionTimelinePhaseStatus = "scheduled"
+	SubscriptionTimelinePhaseStatusActive     SubscriptionTimelinePhaseStatus = "active"
+	SubscriptionTimelinePhaseStatusCompleted  SubscriptionTimelinePhaseStatus = "completed"
+	SubscriptionTimelinePhaseStatusSuperseded SubscriptionTimelinePhaseStatus = "superseded"
+	SubscriptionTimelinePhaseStatusCancelled  SubscriptionTimelinePhaseStatus = "cancelled"
+)
+
 type SubscriptionPlan struct {
 	ID                            string    `json:"id"`
 	Name                          string    `json:"name"`
@@ -47,6 +67,8 @@ type SubscriptionPlan struct {
 	Enabled                       bool      `json:"enabled"`
 	UpgradeRank                   int       `json:"upgradeRank"`
 	UpgradeValuationCnyCentPerDay int64     `json:"upgradeValuationCnyCentPerDay"`
+	LegacySource                  string    `json:"legacySource,omitempty"`
+	LegacyRefID                   string    `json:"legacyRefId,omitempty"`
 	CreatedAt                     time.Time `json:"createdAt"`
 	UpdatedAt                     time.Time `json:"updatedAt"`
 }
@@ -72,6 +94,55 @@ type UserSubscription struct {
 	Status          SubscriptionStatus `json:"status"`
 	CreatedAt       time.Time          `json:"createdAt"`
 	UpdatedAt       time.Time          `json:"updatedAt"`
+}
+
+type SubscriptionTimelinePhase struct {
+	ID                   string                          `json:"id"`
+	UserID               string                          `json:"userId"`
+	UserSubscriptionID   string                          `json:"userSubscriptionId"`
+	PlanID               string                          `json:"planId"`
+	PhaseType            SubscriptionTimelinePhaseType   `json:"phaseType"`
+	Status               SubscriptionTimelinePhaseStatus `json:"status"`
+	SourceType           string                          `json:"sourceType"`
+	SourceRefID          string                          `json:"sourceRefId"`
+	DailyLimitMicros     *int64                          `json:"dailyLimitMicros,omitempty"`
+	WeeklyLimitMicros    *int64                          `json:"weeklyLimitMicros,omitempty"`
+	MonthlyLimitMicros   *int64                          `json:"monthlyLimitMicros,omitempty"`
+	Rolling5hLimitMicros *int64                          `json:"rolling5hLimitMicros,omitempty"`
+	TotalLimitMicros     *int64                          `json:"totalLimitMicros,omitempty"`
+	FixedResetTime       *string                         `json:"fixedResetTime,omitempty"`
+	StartsAt             time.Time                       `json:"startsAt"`
+	EndsAt               time.Time                       `json:"endsAt"`
+	FinalExpiresAt       *time.Time                      `json:"finalExpiresAt,omitempty"`
+	PreviewJSON          string                          `json:"previewJson,omitempty"`
+	AppliedAt            *time.Time                      `json:"appliedAt,omitempty"`
+	LegacySource         string                          `json:"legacySource,omitempty"`
+	LegacyRefID          string                          `json:"legacyRefId,omitempty"`
+	CreatedAt            time.Time                       `json:"createdAt"`
+	UpdatedAt            time.Time                       `json:"updatedAt"`
+}
+
+type SubscriptionRechargeHistory struct {
+	ID                           string     `json:"id"`
+	UserID                       string     `json:"userId"`
+	UserSubscriptionID           string     `json:"userSubscriptionId"`
+	PlanID                       string     `json:"planId"`
+	Mode                         string     `json:"mode"`
+	Status                       string     `json:"status"`
+	SourceType                   string     `json:"sourceType"`
+	SourceRefID                  string     `json:"sourceRefId"`
+	SourceDailyLimitMicros       *int64     `json:"sourceDailyLimitMicros,omitempty"`
+	TargetDailyLimitBeforeMicros *int64     `json:"targetDailyLimitBeforeMicros,omitempty"`
+	PeakDailyLimitMicros         *int64     `json:"peakDailyLimitMicros,omitempty"`
+	TargetExpiresAtBefore        *time.Time `json:"targetExpiresAtBefore,omitempty"`
+	TargetExpiresAtAfter         *time.Time `json:"targetExpiresAtAfter,omitempty"`
+	PreviewJSON                  string     `json:"previewJson,omitempty"`
+	ConfirmedAt                  *time.Time `json:"confirmedAt,omitempty"`
+	AppliedAt                    *time.Time `json:"appliedAt,omitempty"`
+	LegacySource                 string     `json:"legacySource,omitempty"`
+	LegacyRefID                  string     `json:"legacyRefId,omitempty"`
+	CreatedAt                    time.Time  `json:"createdAt"`
+	UpdatedAt                    time.Time  `json:"updatedAt"`
 }
 
 type SubscriptionEntitlementSourceType string
@@ -187,17 +258,20 @@ type AssignSubscriptionRequest struct {
 }
 
 type UserSubscriptionResponse struct {
-	ID              string                  `json:"id"`
-	UserID          string                  `json:"userId"`
-	PlanID          string                  `json:"planId"`
-	PlanName        string                  `json:"planName"`
-	PlanUpgradeRank int                     `json:"planUpgradeRank"`
-	StartsAt        time.Time               `json:"startsAt"`
-	ExpiresAt       *time.Time              `json:"expiresAt"`
-	Status          SubscriptionStatus      `json:"status"`
-	Limits          []SubscriptionPlanLimit `json:"limits"`
-	CreatedAt       time.Time               `json:"createdAt"`
-	UpdatedAt       time.Time               `json:"updatedAt"`
+	ID              string                       `json:"id"`
+	UserID          string                       `json:"userId"`
+	PlanID          string                       `json:"planId"`
+	PlanName        string                       `json:"planName"`
+	PlanUpgradeRank int                          `json:"planUpgradeRank"`
+	StartsAt        time.Time                    `json:"startsAt"`
+	ExpiresAt       *time.Time                   `json:"expiresAt"`
+	Status          SubscriptionStatus           `json:"status"`
+	Limits          []SubscriptionPlanLimit      `json:"limits"`
+	EffectiveLimits []SubscriptionPlanLimit      `json:"effectiveLimits,omitempty"`
+	Timeline        []*SubscriptionTimelinePhase `json:"timeline,omitempty"`
+	FinalExpiresAt  *time.Time                   `json:"finalExpiresAt,omitempty"`
+	CreatedAt       time.Time                    `json:"createdAt"`
+	UpdatedAt       time.Time                    `json:"updatedAt"`
 }
 
 type WindowRemaining struct {
@@ -211,13 +285,15 @@ type WindowRemaining struct {
 }
 
 type BillingStateResponse struct {
-	BalanceMicros   int64                     `json:"balanceMicros"`
-	BalanceUsd      string                    `json:"balanceUsd"`
-	Subscription    *UserSubscriptionResponse `json:"subscription"`
-	Windows         []WindowRemaining         `json:"windows"`
-	DailyReset      BillingDailyResetState    `json:"dailyReset"`
-	PrimarySource   BillingSource             `json:"primarySource"`
-	SecondarySource BillingSource             `json:"secondarySource"`
+	BalanceMicros   int64                        `json:"balanceMicros"`
+	BalanceUsd      string                       `json:"balanceUsd"`
+	Subscription    *UserSubscriptionResponse    `json:"subscription"`
+	Windows         []WindowRemaining            `json:"windows"`
+	DailyReset      BillingDailyResetState       `json:"dailyReset"`
+	PrimarySource   BillingSource                `json:"primarySource"`
+	SecondarySource BillingSource                `json:"secondarySource"`
+	Timeline        []*SubscriptionTimelinePhase `json:"timeline,omitempty"`
+	FinalExpiresAt  *time.Time                   `json:"finalExpiresAt,omitempty"`
 }
 
 type UpdateBillingPriorityRequest struct {

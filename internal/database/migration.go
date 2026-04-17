@@ -38,6 +38,8 @@ var migrationTables = []string{
 	"subscription_plans",
 	"subscription_plan_limits",
 	"user_subscriptions",
+	"subscription_recharge_history",
+	"subscription_timeline_phases",
 	"subscription_entitlements",
 	"user_billing_settings",
 	"billing_account_state",

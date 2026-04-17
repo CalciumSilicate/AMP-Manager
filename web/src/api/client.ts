@@ -30,6 +30,8 @@ export async function authFetch(url: string, options: RequestInit = {}): Promise
     localStorage.removeItem('token')
     localStorage.removeItem('username')
     localStorage.removeItem('isAdmin')
+    localStorage.removeItem('mustChangePassword')
+    localStorage.removeItem('mustChangeUsername')
     window.dispatchEvent(new CustomEvent('auth:expired'))
   }
 

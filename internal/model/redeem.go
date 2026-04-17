@@ -27,9 +27,10 @@ const (
 type RedeemCodeSourceType string
 
 const (
-	RedeemCodeSourceTypeCampaign      RedeemCodeSourceType = "campaign"
-	RedeemCodeSourceTypeFree          RedeemCodeSourceType = "free"
-	RedeemCodeSourceTypePurchaseOrder RedeemCodeSourceType = "purchase_order"
+	RedeemCodeSourceTypeCampaign       RedeemCodeSourceType = "campaign"
+	RedeemCodeSourceTypeFree           RedeemCodeSourceType = "free"
+	RedeemCodeSourceTypePurchaseOrder  RedeemCodeSourceType = "purchase_order"
+	RedeemCodeSourceTypeLegacyDelivery RedeemCodeSourceType = "legacy_delivery"
 )
 
 type RedeemCampaign struct {
@@ -130,6 +131,9 @@ type RedeemCode struct {
 	SubscriptionPlanID       *string              `json:"subscriptionPlanId"`
 	SubscriptionDurationDays int                  `json:"subscriptionDurationDays"`
 	BalanceMicros            int64                `json:"balanceMicros"`
+	RewardSnapshotJSON       string               `json:"rewardSnapshotJson,omitempty"`
+	LegacySource             string               `json:"legacySource,omitempty"`
+	LegacyRefID              string               `json:"legacyRefId,omitempty"`
 	PerUserLimit             int                  `json:"perUserLimit"`
 	StartsAt                 *time.Time           `json:"startsAt"`
 	EndsAt                   *time.Time           `json:"endsAt"`
@@ -156,6 +160,9 @@ type RedeemCodeResponse struct {
 	SubscriptionPlanName     string               `json:"subscriptionPlanName"`
 	SubscriptionDurationDays int                  `json:"subscriptionDurationDays"`
 	BalanceMicros            int64                `json:"balanceMicros"`
+	RewardSnapshotJSON       string               `json:"rewardSnapshotJson,omitempty"`
+	LegacySource             string               `json:"legacySource,omitempty"`
+	LegacyRefID              string               `json:"legacyRefId,omitempty"`
 	PerUserLimit             int                  `json:"perUserLimit"`
 	StartsAt                 *time.Time           `json:"startsAt"`
 	EndsAt                   *time.Time           `json:"endsAt"`
@@ -191,6 +198,7 @@ type RedeemRedemption struct {
 	SubscriptionPlanID       string                 `json:"subscriptionPlanId"`
 	SubscriptionDurationDays int                    `json:"subscriptionDurationDays"`
 	BalanceMicros            int64                  `json:"balanceMicros"`
+	RewardSnapshotJSON       string                 `json:"rewardSnapshotJson,omitempty"`
 	Status                   RedeemRedemptionStatus `json:"status"`
 	FailureReason            string                 `json:"failureReason"`
 	GrantedSubscriptionID    string                 `json:"grantedSubscriptionId"`
@@ -211,6 +219,7 @@ type RedeemRedemptionResponse struct {
 	SubscriptionPlanName     string                 `json:"subscriptionPlanName"`
 	SubscriptionDurationDays int                    `json:"subscriptionDurationDays"`
 	BalanceMicros            int64                  `json:"balanceMicros"`
+	RewardSnapshotJSON       string                 `json:"rewardSnapshotJson,omitempty"`
 	Status                   RedeemRedemptionStatus `json:"status"`
 	FailureReason            string                 `json:"failureReason"`
 	GrantedSubscriptionID    string                 `json:"grantedSubscriptionId"`

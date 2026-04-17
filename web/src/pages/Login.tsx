@@ -23,7 +23,7 @@ interface Props {
   siteContact: SiteContactConfig
   announcements: Announcement[]
   onSwitch: () => void
-  onSuccess: (username: string, token?: string, isAdmin?: boolean) => void
+  onSuccess: (username: string, token?: string, isAdmin?: boolean, mustChangePassword?: boolean, mustChangeUsername?: boolean) => void
 }
 
 export default function Login({ siteName, siteContact, announcements, onSwitch, onSuccess }: Props) {
@@ -42,7 +42,7 @@ export default function Login({ siteName, siteContact, announcements, onSwitch, 
     setLoading(true)
     try {
       const result = await login(formData)
-      onSuccess(result.username, result.token, result.isAdmin)
+      onSuccess(result.username, result.token, result.isAdmin, result.mustChangePassword, result.mustChangeUsername)
     } catch (err) {
       setError(err instanceof Error ? err.message : '登录失败')
     } finally {

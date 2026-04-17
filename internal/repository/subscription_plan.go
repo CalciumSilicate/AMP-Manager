@@ -56,13 +56,15 @@ func (r *SubscriptionPlanRepository) Create(plan *model.SubscriptionPlan, limits
 	plan.UpdatedAt = plan.CreatedAt
 
 	_, err = tx.Exec(
-		`INSERT INTO subscription_plans (id, name, description, enabled, upgrade_rank, upgrade_valuation_cny_cent_per_day, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+		`INSERT INTO subscription_plans (id, name, description, enabled, upgrade_rank, upgrade_valuation_cny_cent_per_day, legacy_source, legacy_ref_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		plan.ID,
 		plan.Name,
 		plan.Description,
 		plan.Enabled,
 		plan.UpgradeRank,
 		plan.UpgradeValuationCnyCentPerDay,
+		plan.LegacySource,
+		plan.LegacyRefID,
 		plan.CreatedAt,
 		plan.UpdatedAt,
 	)
@@ -95,8 +97,8 @@ func (r *SubscriptionPlanRepository) GetByID(id string) (*model.SubscriptionPlan
 	db := database.GetDB()
 	plan := &model.SubscriptionPlan{}
 	err := db.QueryRow(
-		`SELECT id, name, description, enabled, upgrade_rank, upgrade_valuation_cny_cent_per_day, created_at, updated_at FROM subscription_plans WHERE id = ?`, id,
-	).Scan(&plan.ID, &plan.Name, &plan.Description, &plan.Enabled, &plan.UpgradeRank, &plan.UpgradeValuationCnyCentPerDay, &plan.CreatedAt, &plan.UpdatedAt)
+		`SELECT id, name, description, enabled, upgrade_rank, upgrade_valuation_cny_cent_per_day, legacy_source, legacy_ref_id, created_at, updated_at FROM subscription_plans WHERE id = ?`, id,
+	).Scan(&plan.ID, &plan.Name, &plan.Description, &plan.Enabled, &plan.UpgradeRank, &plan.UpgradeValuationCnyCentPerDay, &plan.LegacySource, &plan.LegacyRefID, &plan.CreatedAt, &plan.UpdatedAt)
 	if err == sql.ErrNoRows {
 		return nil, nil, nil
 	}
@@ -115,7 +117,7 @@ func (r *SubscriptionPlanRepository) GetByID(id string) (*model.SubscriptionPlan
 func (r *SubscriptionPlanRepository) List() ([]*model.SubscriptionPlan, map[string][]model.SubscriptionPlanLimit, error) {
 	db := database.GetDB()
 	rows, err := db.Query(
-		`SELECT id, name, description, enabled, upgrade_rank, upgrade_valuation_cny_cent_per_day, created_at, updated_at FROM subscription_plans ORDER BY upgrade_rank ASC, created_at DESC`,
+		`SELECT id, name, description, enabled, upgrade_rank, upgrade_valuation_cny_cent_per_day, legacy_source, legacy_ref_id, created_at, updated_at FROM subscription_plans ORDER BY upgrade_rank ASC, created_at DESC`,
 	)
 	if err != nil {
 		return nil, nil, err
@@ -125,7 +127,7 @@ func (r *SubscriptionPlanRepository) List() ([]*model.SubscriptionPlan, map[stri
 	var plans []*model.SubscriptionPlan
 	for rows.Next() {
 		p := &model.SubscriptionPlan{}
-		if err := rows.Scan(&p.ID, &p.Name, &p.Description, &p.Enabled, &p.UpgradeRank, &p.UpgradeValuationCnyCentPerDay, &p.CreatedAt, &p.UpdatedAt); err != nil {
+		if err := rows.Scan(&p.ID, &p.Name, &p.Description, &p.Enabled, &p.UpgradeRank, &p.UpgradeValuationCnyCentPerDay, &p.LegacySource, &p.LegacyRefID, &p.CreatedAt, &p.UpdatedAt); err != nil {
 			return nil, nil, err
 		}
 		plans = append(plans, p)
@@ -156,12 +158,14 @@ func (r *SubscriptionPlanRepository) Update(id string, plan *model.SubscriptionP
 
 	now := time.Now().UTC()
 	result, err := tx.Exec(
-		`UPDATE subscription_plans SET name = ?, description = ?, enabled = ?, upgrade_rank = ?, upgrade_valuation_cny_cent_per_day = ?, updated_at = ? WHERE id = ?`,
+		`UPDATE subscription_plans SET name = ?, description = ?, enabled = ?, upgrade_rank = ?, upgrade_valuation_cny_cent_per_day = ?, legacy_source = ?, legacy_ref_id = ?, updated_at = ? WHERE id = ?`,
 		plan.Name,
 		plan.Description,
 		plan.Enabled,
 		plan.UpgradeRank,
 		plan.UpgradeValuationCnyCentPerDay,
+		plan.LegacySource,
+		plan.LegacyRefID,
 		now,
 		id,
 	)

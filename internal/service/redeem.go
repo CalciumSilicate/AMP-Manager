@@ -7,6 +7,7 @@ import (
 	"database/sql"
 	"encoding/csv"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -66,6 +67,7 @@ type redeemLookup struct {
 	SubscriptionPlanName     string
 	SubscriptionDurationDays int
 	BalanceMicros            int64
+	RewardSnapshotJSON       string
 	CodePerUserLimit         int
 	CodeStartsAt             *time.Time
 	CodeEndsAt               *time.Time
@@ -528,7 +530,11 @@ func (s *RedeemService) Redeem(_ context.Context, userID, username, rawCode stri
 	if err != nil {
 		return nil, err
 	}
-	if activeSub != nil && lookup.SubscriptionDurationDays > 0 {
+	actionSnapshot, err := decodeRedeemActionSnapshot(lookup.RewardSnapshotJSON)
+	if err != nil {
+		return nil, err
+	}
+	if activeSub != nil && lookup.SubscriptionDurationDays > 0 && actionSnapshot == nil {
 		if activeSub.PlanID != lookup.SubscriptionPlanID {
 			if err := s.insertRejectedLookupTx(tx, lookup, userID, username, codeInput, ErrDifferentPlanActive.Error(), now); err != nil {
 				return nil, err
@@ -550,7 +556,53 @@ func (s *RedeemService) Redeem(_ context.Context, userID, username, rawCode stri
 	}
 
 	var grantedSub *model.UserSubscription
-	if lookup.SubscriptionDurationDays > 0 {
+	switch {
+	case actionSnapshot != nil && actionSnapshot.ProductKind == model.PurchaseProductKindOverwrite:
+		grantedSub, err = s.grantSvc.OverwriteSubscriptionTx(
+			tx,
+			userID,
+			actionSnapshot.PlanID,
+			actionSnapshot.DurationDays,
+			model.SubscriptionEntitlementSourceRedeem,
+			lookup.CodeID,
+			now,
+		)
+		if err != nil {
+			return nil, err
+		}
+	case actionSnapshot != nil && actionSnapshot.ProductKind == model.PurchaseProductKindBoostQuota:
+		grantedSub, _, err = s.grantSvc.CreateBoostTimelineTx(
+			tx,
+			userID,
+			actionSnapshot.PlanID,
+			actionSnapshot.DurationDays,
+			model.SubscriptionEntitlementSourceRedeem,
+			lookup.CodeID,
+			now,
+		)
+		if err != nil {
+			return nil, err
+		}
+		if actionSnapshot.BalanceTopupMicros > 0 {
+			lookup.BalanceMicros = actionSnapshot.BalanceTopupMicros
+		}
+	case actionSnapshot != nil && (actionSnapshot.ProductKind == model.PurchaseProductKindExtendDuration || actionSnapshot.ProductKind == model.PurchaseProductKindSubscription):
+		grantedSub, err = s.grantSvc.GrantSubscriptionTxWithSource(
+			tx,
+			userID,
+			actionSnapshot.PlanID,
+			actionSnapshot.DurationDays,
+			model.SubscriptionEntitlementSourceRedeem,
+			lookup.CodeID,
+			now,
+		)
+		if err != nil {
+			return nil, err
+		}
+		if actionSnapshot.BalanceTopupMicros > 0 {
+			lookup.BalanceMicros = actionSnapshot.BalanceTopupMicros
+		}
+	case lookup.SubscriptionDurationDays > 0:
 		grantedSub, err = s.grantSvc.GrantSubscriptionTxWithSource(
 			tx,
 			userID,
@@ -611,6 +663,7 @@ func (s *RedeemService) Redeem(_ context.Context, userID, username, rawCode stri
 		SubscriptionPlanID:       lookup.SubscriptionPlanID,
 		SubscriptionDurationDays: lookup.SubscriptionDurationDays,
 		BalanceMicros:            lookup.BalanceMicros,
+		RewardSnapshotJSON:       lookup.RewardSnapshotJSON,
 		Status:                   model.RedeemRedemptionStatusSuccess,
 		GrantedSubscriptionID:    "",
 		BalanceAfterMicros:       balanceAfterMicros,
@@ -906,6 +959,7 @@ func (s *RedeemService) loadLookupByCodeTx(tx *sql.Tx, codeValue string) (*redee
 		        COALESCE(rc.subscription_plan_id, c.subscription_plan_id), COALESCE(sp.name, ''),
 		        CASE WHEN rc.campaign_id IS NULL THEN rc.subscription_duration_days ELSE c.subscription_duration_days END,
 		        CASE WHEN rc.campaign_id IS NULL THEN rc.balance_micros ELSE c.balance_micros END,
+		        COALESCE(rc.reward_snapshot_json, ''),
 		        CASE WHEN rc.campaign_id IS NULL THEN rc.per_user_limit ELSE 0 END,
 		        rc.starts_at, rc.ends_at,
 		        COALESCE(c.total_redemptions_limit, 0), COALESCE(c.redeemed_count, 0), COALESCE(c.per_user_limit, 0), c.starts_at, c.ends_at, COALESCE(c.enabled, 1)
@@ -931,6 +985,7 @@ func (s *RedeemService) loadLookupByCodeTx(tx *sql.Tx, codeValue string) (*redee
 		&item.SubscriptionPlanName,
 		&item.SubscriptionDurationDays,
 		&item.BalanceMicros,
+		&item.RewardSnapshotJSON,
 		&item.CodePerUserLimit,
 		&item.CodeStartsAt,
 		&item.CodeEndsAt,
@@ -1098,6 +1153,7 @@ func (s *RedeemService) insertRejectedLookupTx(tx *sql.Tx, lookup *redeemLookup,
 		SubscriptionPlanID:       lookup.SubscriptionPlanID,
 		SubscriptionDurationDays: lookup.SubscriptionDurationDays,
 		BalanceMicros:            lookup.BalanceMicros,
+		RewardSnapshotJSON:       lookup.RewardSnapshotJSON,
 		Status:                   model.RedeemRedemptionStatusRejected,
 		FailureReason:            failureReason,
 		CreatedAt:                now,
@@ -1116,9 +1172,9 @@ func (s *RedeemService) insertRedemptionTx(tx *sql.Tx, item *model.RedeemRedempt
 	_, err := tx.Exec(
 		`INSERT INTO redeem_redemptions (
 			id, campaign_id, code_id, user_id, username, code_input, code_mask,
-			subscription_plan_id, subscription_duration_days, balance_micros, status, failure_reason,
+			subscription_plan_id, subscription_duration_days, balance_micros, reward_snapshot_json, status, failure_reason,
 			granted_subscription_id, granted_expires_at, balance_after_micros, created_at
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		item.ID,
 		item.CampaignID,
 		item.CodeID,
@@ -1129,6 +1185,7 @@ func (s *RedeemService) insertRedemptionTx(tx *sql.Tx, item *model.RedeemRedempt
 		item.SubscriptionPlanID,
 		item.SubscriptionDurationDays,
 		item.BalanceMicros,
+		item.RewardSnapshotJSON,
 		item.Status,
 		item.FailureReason,
 		item.GrantedSubscriptionID,
@@ -1137,6 +1194,18 @@ func (s *RedeemService) insertRedemptionTx(tx *sql.Tx, item *model.RedeemRedempt
 		item.CreatedAt,
 	)
 	return err
+}
+
+func decodeRedeemActionSnapshot(raw string) (*model.PurchaseActionSnapshot, error) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return nil, nil
+	}
+	var snapshot model.PurchaseActionSnapshot
+	if err := json.Unmarshal([]byte(raw), &snapshot); err != nil {
+		return nil, err
+	}
+	return &snapshot, nil
 }
 
 func (s *RedeemService) loadSharedCodeTx(tx *sql.Tx, campaignID string) (*model.RedeemCode, error) {

@@ -7,14 +7,18 @@ import (
 )
 
 type User struct {
-	ID               string    `json:"id"`
-	Username         string    `json:"username"`
-	PasswordHash     string    `json:"-"`
-	IsAdmin          bool      `json:"is_admin"`
-	BalanceMicros    int64     `json:"balance_micros"`
-	ConcurrencyLimit int       `json:"concurrency_limit"`
-	CreatedAt        time.Time `json:"created_at"`
-	UpdatedAt        time.Time `json:"updated_at"`
+	ID                 string    `json:"id"`
+	Username           string    `json:"username"`
+	PasswordHash       string    `json:"-"`
+	IsAdmin            bool      `json:"is_admin"`
+	BalanceMicros      int64     `json:"balance_micros"`
+	ConcurrencyLimit   int       `json:"concurrency_limit"`
+	MustChangePassword bool      `json:"mustChangePassword"`
+	MustChangeUsername bool      `json:"mustChangeUsername"`
+	LegacySource       string    `json:"legacySource"`
+	LegacyRefID        string    `json:"legacyRefId"`
+	CreatedAt          time.Time `json:"created_at"`
+	UpdatedAt          time.Time `json:"updated_at"`
 }
 
 type RegisterRequest struct {
@@ -28,11 +32,13 @@ type LoginRequest struct {
 }
 
 type AuthResponse struct {
-	ID       string `json:"id"`
-	Username string `json:"username"`
-	Token    string `json:"token,omitempty"`
-	IsAdmin  bool   `json:"isAdmin"`
-	Message  string `json:"message"`
+	ID                 string `json:"id"`
+	Username           string `json:"username"`
+	Token              string `json:"token,omitempty"`
+	IsAdmin            bool   `json:"isAdmin"`
+	MustChangePassword bool   `json:"mustChangePassword"`
+	MustChangeUsername bool   `json:"mustChangeUsername"`
+	Message            string `json:"message"`
 }
 
 type UserInfo struct {
@@ -62,6 +68,19 @@ type ChangePasswordRequest struct {
 
 type ChangeUsernameRequest struct {
 	NewUsername string `json:"newUsername" binding:"required,min=3,max=32"`
+}
+
+type CompleteBootstrapCredentialsRequest struct {
+	CurrentPassword string `json:"currentPassword" binding:"required,min=6,max=128"`
+	NewPassword     string `json:"newPassword" binding:"required,min=6,max=128"`
+	NewUsername     string `json:"newUsername" binding:"required,min=3,max=32"`
+}
+
+type CredentialBootstrapStateResponse struct {
+	UserID             string `json:"userId"`
+	Username           string `json:"username"`
+	MustChangePassword bool   `json:"mustChangePassword"`
+	MustChangeUsername bool   `json:"mustChangeUsername"`
 }
 
 type SetAdminRequest struct {

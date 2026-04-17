@@ -1188,6 +1188,7 @@ func (r *Runtime) hydrateHotState(ctx context.Context, userID string) (*hotAccou
 	settingRepo := repository.NewBillingSettingRepository()
 	subRepo := repository.NewUserSubscriptionRepository()
 	planRepo := repository.NewSubscriptionPlanRepository()
+	runtimeRepo := repository.NewSubscriptionRuntimeRepository()
 	userRepo := repository.NewUserRepository()
 
 	setting, err := settingRepo.GetByUserID(userID)
@@ -1231,6 +1232,13 @@ func (r *Runtime) hydrateHotState(ctx context.Context, userID string) (*hotAccou
 		}
 		if plan != nil {
 			state.ActivePlanID = plan.ID
+		}
+		if runtimeRepo != nil {
+			if resolved, _, _, resolveErr := runtimeRepo.ResolveEffectiveLimitsBySubscription(sub, limits, now); resolveErr != nil {
+				return nil, resolveErr
+			} else if len(resolved) > 0 {
+				limits = resolved
+			}
 		}
 		location, err := loadBillingSiteLocation()
 		if err != nil {
@@ -1420,6 +1428,21 @@ func (r *Runtime) ensureWindowState(sub *model.UserSubscription, limit *model.Su
 	if existing, err := r.getWindowState(stateID); err != nil {
 		return nil, err
 	} else if existing != nil {
+		remaining := limit.LimitMicros - existing.UsedMicros - existing.ReservedMicros
+		if remaining < 0 {
+			remaining = 0
+		}
+		if existing.PlanID != sub.PlanID || existing.WindowMode != limit.WindowMode || existing.LimitMicros != limit.LimitMicros || existing.RemainingMicros != remaining {
+			if _, err := database.GetDB().Exec(
+				`UPDATE subscription_window_state
+				    SET plan_id = ?, window_mode = ?, limit_micros = ?, remaining_micros = ?, revision = revision + 1, updated_at = ?
+				  WHERE id = ?`,
+				sub.PlanID, limit.WindowMode, limit.LimitMicros, remaining, time.Now().UTC(), stateID,
+			); err != nil {
+				return nil, err
+			}
+			return r.getWindowState(stateID)
+		}
 		return existing, nil
 	}
 

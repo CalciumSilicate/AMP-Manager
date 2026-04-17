@@ -106,9 +106,12 @@ func Setup() *gin.Engine {
 
 		me := api.Group("/me")
 		me.Use(middleware.JWTAuthMiddleware())
+		me.Use(middleware.CredentialBootstrapMiddleware())
 		me.Use(middleware.InvalidateUserResponseCachesOnWrite())
 		me.Use(middleware.UserPanelRateLimit())
 		{
+			me.GET("/bootstrap/state", userHandler.GetCredentialBootstrapState)
+			me.POST("/bootstrap/credentials", userHandler.CompleteBootstrapCredentials)
 			me.PUT("/password", userHandler.ChangePassword)
 			me.PUT("/username", userHandler.ChangeUsername)
 			me.GET("/balance", userHandler.GetMyBalance)
