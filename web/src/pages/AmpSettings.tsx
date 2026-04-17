@@ -245,7 +245,7 @@ export default function AmpSettings({ canAccessRouteSettings = true, canAccessAm
     )
   }
 
-  const pageTitle = canAccessAmpUpstreamSettings ? 'Amp设置' : '路由设置'
+  const pageTitle = '路由设置'
   const pageDescription = canAccessRouteSettings && canAccessAmpUpstreamSettings
     ? '管理模型路由映射和 Amp 上游配置。'
     : canAccessRouteSettings
