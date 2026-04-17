@@ -126,6 +126,9 @@ type midwebDeliveryRow struct {
 	DeliveryCDK  string
 	TemplateID   sql.NullInt64
 	DurationDays sql.NullInt64
+	TemplateKind sql.NullString
+	UsedAt       sql.NullString
+	RemoteUserID sql.NullInt64
 }
 
 type preservedAdmin struct {
@@ -750,7 +753,7 @@ func importMidwebOrdersAndCodes(tx *sql.Tx, orders []midwebPurchaseOrderRow, del
 	deliveryIDsByOrder := make(map[int64][]string)
 	for _, item := range deliveries {
 		template, ok := templates[item.TemplateID.Int64]
-		if !ok || template.TemplateKind != "daily" {
+		if !ok {
 			continue
 		}
 		planID := planByTemplateID[item.TemplateID.Int64]
@@ -764,17 +767,40 @@ func importMidwebOrdersAndCodes(tx *sql.Tx, orders []midwebPurchaseOrderRow, del
 			SourceTotalLimitMicros:   microsFromNullableUSD(template.TotalQuotaUSD),
 			LegacyTemplateID:         fmt.Sprintf("%d", item.TemplateID.Int64),
 		}
+		subscriptionPlanID := planID
+		subscriptionDurationDays := int(item.DurationDays.Int64)
+		balanceMicros := int64(0)
+		if template.TemplateKind == "metered" {
+			subscriptionPlanID = midwebBalanceTopupPlanID
+			subscriptionDurationDays = 1
+			snapshot = model.PurchaseActionSnapshot{
+				ProductKind:        model.PurchaseProductKindBalanceTopup,
+				BalanceTopupMicros: microsFromNullableUSD(template.TotalQuotaUSD),
+				LegacyTemplateID:   fmt.Sprintf("%d", item.TemplateID.Int64),
+			}
+			balanceMicros = microsFromNullableUSD(template.TotalQuotaUSD)
+		} else if template.TemplateKind != "daily" {
+			continue
+		}
 		encodedSnapshot, err := json.Marshal(snapshot)
 		if err != nil {
 			return err
 		}
 		codeID := fmt.Sprintf("midweb-delivery-code-%d", item.ID)
+		codeStatus := model.RedeemCodeStatusActive
+		redeemedCount := 0
+		var lastRedeemedAt any = nil
+		if item.RemoteUserID.Valid || strings.TrimSpace(item.UsedAt.String) != "" {
+			codeStatus = model.RedeemCodeStatusConsumed
+			redeemedCount = 1
+			lastRedeemedAt = parseMidwebTime(item.UsedAt.String)
+		}
 		if _, err := tx.Exec(
 			`INSERT INTO redeem_codes (
 				id, campaign_id, batch_id, source_type, source_ref_id, code_value, code_hash, code_mask,
 				subscription_plan_id, subscription_duration_days, balance_micros, reward_snapshot_json, per_user_limit, starts_at, ends_at,
 				status, max_redemptions, redeemed_count, last_redeemed_at, created_at, updated_at
-			) VALUES (?, NULL, NULL, ?, ?, ?, ?, ?, ?, ?, 0, ?, 1, NULL, NULL, ?, 1, 0, NULL, ?, ?)
+			) VALUES (?, NULL, NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, NULL, NULL, ?, 1, ?, ?, ?, ?)
 			ON CONFLICT (id) DO NOTHING`,
 			codeID,
 			model.RedeemCodeSourceTypePurchaseOrder,
@@ -782,10 +808,13 @@ func importMidwebOrdersAndCodes(tx *sql.Tx, orders []midwebPurchaseOrderRow, del
 			item.DeliveryCDK,
 			sha256Hex(item.DeliveryCDK),
 			maskCodeValue(item.DeliveryCDK),
-			planID,
-			int(item.DurationDays.Int64),
+			subscriptionPlanID,
+			subscriptionDurationDays,
+			balanceMicros,
 			string(encodedSnapshot),
-			model.RedeemCodeStatusActive,
+			codeStatus,
+			redeemedCount,
+			lastRedeemedAt,
 			time.Now().UTC(),
 			time.Now().UTC(),
 		); err != nil {
@@ -817,12 +846,21 @@ func importMidwebOrdersAndCodes(tx *sql.Tx, orders []midwebPurchaseOrderRow, del
 		} else if item.TemplateID.Valid {
 			subscriptionPlanID = planByTemplateID[item.TemplateID.Int64]
 			productID = fmt.Sprintf("midweb-legacy-order-product-%d", item.TemplateID.Int64)
-			if template, ok := templates[item.TemplateID.Int64]; ok && template.DurationDays.Valid {
-				durationDays = int(template.DurationDays.Int64)
+			if template, ok := templates[item.TemplateID.Int64]; ok {
+				if template.DurationDays.Valid {
+					durationDays = int(template.DurationDays.Int64)
+				}
+				if template.TemplateKind == "metered" {
+					subscriptionPlanID = midwebBalanceTopupPlanID
+					orderKind = model.PurchaseOrderKindBalanceTopup
+					deliveryMode = model.PurchaseDeliveryModeRedeemCode
+					durationDays = 1
+					balanceTopupMicros = microsFromNullableUSD(template.TotalQuotaUSD)
+				}
 				if err := ensureMidwebLegacyOrderProductTx(tx, productID, subscriptionPlanID, template, item); err != nil {
 					return err
 				}
-				snapshot, err := json.Marshal(model.PurchaseActionSnapshot{
+				actionSnapshot := model.PurchaseActionSnapshot{
 					ProductKind:              model.PurchaseProductKindOverwrite,
 					PlanID:                   subscriptionPlanID,
 					DurationDays:             durationDays,
@@ -831,7 +869,15 @@ func importMidwebOrdersAndCodes(tx *sql.Tx, orders []midwebPurchaseOrderRow, del
 					SourceMonthlyLimitMicros: microsFromNullableUSD(template.MonthlyQuotaUSD),
 					SourceTotalLimitMicros:   microsFromNullableUSD(template.TotalQuotaUSD),
 					LegacyTemplateID:         fmt.Sprintf("%d", item.TemplateID.Int64),
-				})
+				}
+				if template.TemplateKind == "metered" {
+					actionSnapshot = model.PurchaseActionSnapshot{
+						ProductKind:        model.PurchaseProductKindBalanceTopup,
+						BalanceTopupMicros: balanceTopupMicros,
+						LegacyTemplateID:   fmt.Sprintf("%d", item.TemplateID.Int64),
+					}
+				}
+				snapshot, err := json.Marshal(actionSnapshot)
 				if err != nil {
 					return err
 				}
@@ -883,7 +929,7 @@ func importMidwebOrdersAndCodes(tx *sql.Tx, orders []midwebPurchaseOrderRow, del
 			parseMidwebTime(item.CreatedAt.String),
 			time.Now().UTC(),
 		); err != nil {
-			return err
+			return fmt.Errorf("insert legacy purchase_order %s failed (kind=%s template_id=%v product_id=%s subscription_plan_id=%s): %w", item.OrderNo, item.OrderKind, item.TemplateID, productID, subscriptionPlanID, err)
 		}
 	}
 	return nil
@@ -959,7 +1005,8 @@ func ensureMidwebLegacyOrderProductTx(
 	if priceCNYCent <= 0 {
 		priceCNYCent = 1
 	}
-	snapshot, err := json.Marshal(model.PurchaseActionSnapshot{
+	productKind := model.PurchaseProductKindOverwrite
+	snapshotPayload := model.PurchaseActionSnapshot{
 		ProductKind:              model.PurchaseProductKindOverwrite,
 		PlanID:                   planID,
 		DurationDays:             durationDays,
@@ -968,7 +1015,16 @@ func ensureMidwebLegacyOrderProductTx(
 		SourceMonthlyLimitMicros: microsFromNullableUSD(template.MonthlyQuotaUSD),
 		SourceTotalLimitMicros:   microsFromNullableUSD(template.TotalQuotaUSD),
 		LegacyTemplateID:         fmt.Sprintf("%d", template.ID),
-	})
+	}
+	if template.TemplateKind == "metered" {
+		productKind = model.PurchaseProductKindBalanceTopup
+		snapshotPayload = model.PurchaseActionSnapshot{
+			ProductKind:        model.PurchaseProductKindBalanceTopup,
+			BalanceTopupMicros: microsFromNullableUSD(template.TotalQuotaUSD),
+			LegacyTemplateID:   fmt.Sprintf("%d", template.ID),
+		}
+	}
+	snapshot, err := json.Marshal(snapshotPayload)
 	if err != nil {
 		return err
 	}
@@ -982,7 +1038,7 @@ func ensureMidwebLegacyOrderProductTx(
 		productID,
 		fmt.Sprintf("Midweb 历史模板 %d", template.ID),
 		"导入用历史订单占位商品",
-		model.PurchaseProductKindOverwrite,
+		productKind,
 		planID,
 		durationDays,
 		priceCNYCent,
@@ -1144,7 +1200,7 @@ func loadMidwebPurchaseOrders(db *sql.DB) ([]midwebPurchaseOrderRow, error) {
 
 func loadMidwebPurchaseDeliveries(db *sql.DB) ([]midwebDeliveryRow, error) {
 	rows, err := db.Query(
-		`SELECT d.id, d.order_id, d.cdk_id, d.delivery_cdk, c.template_id, t.duration_days
+		`SELECT d.id, d.order_id, d.cdk_id, d.delivery_cdk, c.template_id, t.duration_days, t.template_kind, c.used_at, c.remote_user_id
 		   FROM purchase_order_deliveries d
 		   INNER JOIN cdks c ON c.id = d.cdk_id
 		   LEFT JOIN cdk_templates t ON t.id = c.template_id
@@ -1157,7 +1213,7 @@ func loadMidwebPurchaseDeliveries(db *sql.DB) ([]midwebDeliveryRow, error) {
 	items := make([]midwebDeliveryRow, 0)
 	for rows.Next() {
 		var item midwebDeliveryRow
-		if err := rows.Scan(&item.ID, &item.OrderID, &item.CDKID, &item.DeliveryCDK, &item.TemplateID, &item.DurationDays); err != nil {
+		if err := rows.Scan(&item.ID, &item.OrderID, &item.CDKID, &item.DeliveryCDK, &item.TemplateID, &item.DurationDays, &item.TemplateKind, &item.UsedAt, &item.RemoteUserID); err != nil {
 			return nil, err
 		}
 		items = append(items, item)
