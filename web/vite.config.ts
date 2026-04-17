@@ -24,7 +24,12 @@ export default defineConfig({
           if (id.includes('/recharts/')) {
             return 'charts-vendor'
           }
-          if (id.includes('/motion/')) {
+          if (
+            id.includes('/motion/') ||
+            id.includes('/framer-motion/') ||
+            id.includes('/motion-dom/') ||
+            id.includes('/motion-utils/')
+          ) {
             return 'motion-vendor'
           }
           return 'vendor'

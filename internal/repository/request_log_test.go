@@ -299,7 +299,7 @@ func TestListFiltersByMultipleStatusCodes(t *testing.T) {
 	}
 }
 
-func TestGetAdminThroughputTrendBackfillsFromRequestLogs(t *testing.T) {
+func TestGetAdminThroughputTrendBackfillsProjectionsFromRequestLogs(t *testing.T) {
 	setupRequestLogTestDB(t)
 
 	now := time.Now().UTC().Truncate(time.Minute)
@@ -333,12 +333,20 @@ func TestGetAdminThroughputTrendBackfillsFromRequestLogs(t *testing.T) {
 	assertFloatEquals(t, lastPoint.RPM5m, 1.0)
 	assertFloatEquals(t, lastPoint.TPM5m, 120.0)
 
+	var projectionCount int64
+	if err := database.GetDB().QueryRow(`SELECT COUNT(*) FROM global_request_metric_projections`).Scan(&projectionCount); err != nil {
+		t.Fatalf("query global_request_metric_projections returned error: %v", err)
+	}
+	if projectionCount == 0 {
+		t.Fatal("expected global_request_metric_projections rows after backfill")
+	}
+
 	var aggregateCount int64
 	if err := database.GetDB().QueryRow(`SELECT COUNT(*) FROM global_request_minute_metrics`).Scan(&aggregateCount); err != nil {
 		t.Fatalf("query global_request_minute_metrics returned error: %v", err)
 	}
-	if aggregateCount == 0 {
-		t.Fatal("expected global_request_minute_metrics rows after backfill")
+	if aggregateCount != 0 {
+		t.Fatalf("expected throughput read path to avoid minute metrics, got %d rows", aggregateCount)
 	}
 }
 

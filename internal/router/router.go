@@ -362,7 +362,7 @@ func Setup() *gin.Engine {
 			admin.GET("/sessions/leaderboard", sessionHandler.GetLeaderboard)
 			admin.GET("/sessions/:id", sessionHandler.GetSession)
 			admin.GET("/usage/summary", requestLogHandler.AdminGetUsageSummary)
-			admin.GET("/dashboard", requestLogHandler.GetAdminDashboard)
+			admin.GET("/dashboard", middleware.AdminScopedResponseCache(3*time.Second), requestLogHandler.GetAdminDashboard)
 
 			// 价格表管理
 			prices := admin.Group("/prices")

@@ -1,7 +1,6 @@
 package repository
 
 import (
-	"database/sql"
 	"math"
 	"sort"
 	"time"
@@ -159,57 +158,21 @@ func buildDashboardTimingPoints(start, end time.Time, valuesByBucket map[time.Ti
 	return points
 }
 
-func applyMinuteMetricAggregateDeltaTx(tx *sql.Tx, minuteBucket time.Time, requestDelta, inputDelta, outputDelta, totalDelta int64, now time.Time) error {
-	if minuteBucket.IsZero() {
-		return nil
-	}
-	if requestDelta == 0 && inputDelta == 0 && outputDelta == 0 && totalDelta == 0 {
-		return nil
-	}
-
-	_, err := tx.Exec(`
-		INSERT INTO global_request_minute_metrics (
-			minute_bucket, request_count_sum, input_tokens_sum, output_tokens_sum, total_tokens_sum, updated_at
-		) VALUES (?, ?, ?, ?, ?, ?)
-		ON CONFLICT(minute_bucket) DO UPDATE SET
-			request_count_sum = global_request_minute_metrics.request_count_sum + excluded.request_count_sum,
-			input_tokens_sum = global_request_minute_metrics.input_tokens_sum + excluded.input_tokens_sum,
-			output_tokens_sum = global_request_minute_metrics.output_tokens_sum + excluded.output_tokens_sum,
-			total_tokens_sum = global_request_minute_metrics.total_tokens_sum + excluded.total_tokens_sum,
-			updated_at = excluded.updated_at
-	`,
-		minuteBucket.UTC(),
-		requestDelta,
-		inputDelta,
-		outputDelta,
-		totalDelta,
-		now.UTC(),
-	)
-	if err != nil {
-		return err
-	}
-
-	_, err = tx.Exec(`
-		DELETE FROM global_request_minute_metrics
-		WHERE minute_bucket = ?
-		  AND request_count_sum <= 0
-		  AND input_tokens_sum <= 0
-		  AND output_tokens_sum <= 0
-		  AND total_tokens_sum <= 0
-	`, minuteBucket.UTC())
-	return err
-}
-
 func (r *RequestLogRepository) GetAdminThroughputTrend(windowKey string) ([]DashboardThroughputPoint, error) {
 	start, end := adminThroughputWindowBounds(time.Now().UTC(), windowKey)
-	if err := r.ensureAdminThroughputMetricsWindow(start, end); err != nil {
+	if err := r.ensureAdminProjectionWindow(start, end); err != nil {
 		return nil, err
 	}
 
 	rows, err := database.GetDB().Query(`
-		SELECT minute_bucket, request_count_sum, input_tokens_sum, output_tokens_sum, total_tokens_sum
-		FROM global_request_minute_metrics
+		SELECT minute_bucket,
+		       COALESCE(SUM(request_count), 0) AS request_count_sum,
+		       COALESCE(SUM(input_tokens), 0) AS input_tokens_sum,
+		       COALESCE(SUM(output_tokens), 0) AS output_tokens_sum,
+		       COALESCE(SUM(total_tokens), 0) AS total_tokens_sum
+		FROM global_request_metric_projections
 		WHERE minute_bucket >= ? AND minute_bucket <= ?
+		GROUP BY minute_bucket
 		ORDER BY minute_bucket ASC
 	`, start.UTC(), end.UTC())
 	if err != nil {
@@ -245,7 +208,7 @@ func (r *RequestLogRepository) GetAdminThroughputTrend(windowKey string) ([]Dash
 
 func (r *RequestLogRepository) GetAdminTimingTrend(windowKey string) (ttfbTrend []DashboardTimingPoint, durationTrend []DashboardTimingPoint, err error) {
 	startMinute, endMinute := adminThroughputWindowBounds(time.Now().UTC(), windowKey)
-	if err = r.ensureAdminThroughputMetricsWindow(startMinute, endMinute); err != nil {
+	if err = r.ensureAdminProjectionWindow(startMinute, endMinute); err != nil {
 		return nil, nil, err
 	}
 
@@ -347,11 +310,11 @@ func (r *RequestLogRepository) getAdminConcurrencyByMinute(start, end time.Time)
 	return result, nil
 }
 
-func (r *RequestLogRepository) ensureAdminThroughputMetricsWindow(start, end time.Time) error {
+func (r *RequestLogRepository) ensureAdminProjectionWindow(start, end time.Time) error {
 	var count int64
 	err := database.GetDB().QueryRow(`
 		SELECT COUNT(*)
-		FROM global_request_minute_metrics
+		FROM global_request_metric_projections
 		WHERE minute_bucket >= ? AND minute_bucket <= ?
 	`, start.UTC(), end.UTC()).Scan(&count)
 	if err != nil {
@@ -360,10 +323,10 @@ func (r *RequestLogRepository) ensureAdminThroughputMetricsWindow(start, end tim
 	if count > 0 {
 		return nil
 	}
-	return r.rebuildAdminThroughputMetricsWindow(start, end)
+	return r.rebuildAdminProjectionWindow(start, end)
 }
 
-func (r *RequestLogRepository) rebuildAdminThroughputMetricsWindow(start, end time.Time) error {
+func (r *RequestLogRepository) rebuildAdminProjectionWindow(start, end time.Time) error {
 	tx, err := database.GetDB().Begin()
 	if err != nil {
 		return err
@@ -372,12 +335,6 @@ func (r *RequestLogRepository) rebuildAdminThroughputMetricsWindow(start, end ti
 
 	if _, err := tx.Exec(`
 		DELETE FROM global_request_metric_projections
-		WHERE minute_bucket >= ? AND minute_bucket <= ?
-	`, start.UTC(), end.UTC()); err != nil {
-		return err
-	}
-	if _, err := tx.Exec(`
-		DELETE FROM global_request_minute_metrics
 		WHERE minute_bucket >= ? AND minute_bucket <= ?
 	`, start.UTC(), end.UTC()); err != nil {
 		return err
@@ -406,28 +363,6 @@ func (r *RequestLogRepository) rebuildAdminThroughputMetricsWindow(start, end ti
 			return err
 		}
 
-		projection := &dashboardMinuteMetricRow{
-			MinuteBucket:    createdAt.UTC().Truncate(time.Minute),
-			RequestCountSum: 1,
-			InputTokensSum:  inputTokens,
-			OutputTokensSum: outputTokens,
-			TotalTokensSum:  inputTokens + outputTokens,
-			LatencyMs:       latencyMs,
-			TTFBMs:          ttfbMs,
-		}
-
-		if err := applyMinuteMetricAggregateDeltaTx(
-			tx,
-			projection.MinuteBucket,
-			projection.RequestCountSum,
-			projection.InputTokensSum,
-			projection.OutputTokensSum,
-			projection.TotalTokensSum,
-			now,
-		); err != nil {
-			return err
-		}
-
 		if _, err := tx.Exec(`
 			INSERT INTO global_request_metric_projections (
 				request_id, minute_bucket, request_count, input_tokens, output_tokens, total_tokens, latency_ms, ttfb_ms, updated_at
@@ -443,15 +378,15 @@ func (r *RequestLogRepository) rebuildAdminThroughputMetricsWindow(start, end ti
 				updated_at = excluded.updated_at
 		`,
 			requestID,
-			projection.MinuteBucket.UTC(),
-			projection.RequestCountSum,
-				projection.InputTokensSum,
-				projection.OutputTokensSum,
-				projection.TotalTokensSum,
-				projection.LatencyMs,
-				projection.TTFBMs,
-				now,
-			); err != nil {
+			createdAt.UTC().Truncate(time.Minute),
+			1,
+			inputTokens,
+			outputTokens,
+			inputTokens+outputTokens,
+			latencyMs,
+			ttfbMs,
+			now,
+		); err != nil {
 			return err
 		}
 	}

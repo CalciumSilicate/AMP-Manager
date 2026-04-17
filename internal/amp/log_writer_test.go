@@ -60,16 +60,36 @@ func TestLogWriterUpdateFromTraceWritesBillingResult(t *testing.T) {
 	}
 
 	minuteBucket := trace.StartTime.UTC().Truncate(time.Minute)
-	var requestCountSum, inputTokensSum, outputTokensSum, totalTokensSum int64
+	var requestCount, inputTokensSum, outputTokensSum, totalTokensSum int64
 	if err := database.GetDB().QueryRow(`
-		SELECT request_count_sum, input_tokens_sum, output_tokens_sum, total_tokens_sum
-		FROM global_request_minute_metrics
-		WHERE minute_bucket = ?
-	`, minuteBucket).Scan(&requestCountSum, &inputTokensSum, &outputTokensSum, &totalTokensSum); err != nil {
-		t.Fatalf("query global_request_minute_metrics returned error: %v", err)
+		SELECT request_count, input_tokens, output_tokens, total_tokens
+		FROM global_request_metric_projections
+		WHERE request_id = ?
+	`, "req-1").Scan(&requestCount, &inputTokensSum, &outputTokensSum, &totalTokensSum); err != nil {
+		t.Fatalf("query global_request_metric_projections returned error: %v", err)
 	}
-	if requestCountSum != 1 || inputTokensSum != 12 || outputTokensSum != 8 || totalTokensSum != 20 {
-		t.Fatalf("unexpected minute metrics = req:%d input:%d output:%d total:%d", requestCountSum, inputTokensSum, outputTokensSum, totalTokensSum)
+	if requestCount != 1 || inputTokensSum != 12 || outputTokensSum != 8 || totalTokensSum != 20 {
+		t.Fatalf("unexpected projection = req:%d input:%d output:%d total:%d", requestCount, inputTokensSum, outputTokensSum, totalTokensSum)
+	}
+
+	var projectedMinute time.Time
+	if err := database.GetDB().QueryRow(`
+		SELECT minute_bucket
+		FROM global_request_metric_projections
+		WHERE request_id = ?
+	`, "req-1").Scan(&projectedMinute); err != nil {
+		t.Fatalf("query projection minute returned error: %v", err)
+	}
+	if !projectedMinute.Equal(minuteBucket) {
+		t.Fatalf("projection minute = %s, want %s", projectedMinute.Format(time.RFC3339), minuteBucket.Format(time.RFC3339))
+	}
+
+	var minuteMetricCount int64
+	if err := database.GetDB().QueryRow(`SELECT COUNT(*) FROM global_request_minute_metrics`).Scan(&minuteMetricCount); err != nil {
+		t.Fatalf("query global_request_minute_metrics count returned error: %v", err)
+	}
+	if minuteMetricCount != 0 {
+		t.Fatalf("expected no minute metric writes, got %d rows", minuteMetricCount)
 	}
 }
 
@@ -113,25 +133,32 @@ func TestLogWriterUpdateFromTraceReplacesProjectedMinuteMetrics(t *testing.T) {
 	var count int64
 	if err := database.GetDB().QueryRow(`
 		SELECT COUNT(*)
-		FROM global_request_minute_metrics
-		WHERE minute_bucket = ?
-	`, firstMinute).Scan(&count); err != nil {
-		t.Fatalf("query first minute returned error: %v", err)
+		FROM global_request_metric_projections
+		WHERE request_id = ? AND minute_bucket = ?
+	`, "req-2", firstMinute).Scan(&count); err != nil {
+		t.Fatalf("query first projection minute returned error: %v", err)
 	}
 	if count != 0 {
-		t.Fatalf("expected first minute aggregate to be removed, got count %d", count)
+		t.Fatalf("expected projection to move off first minute, got count %d", count)
 	}
 
-	var requestCountSum, totalTokensSum int64
+	var requestCount, totalTokensSum int64
 	if err := database.GetDB().QueryRow(`
-		SELECT request_count_sum, total_tokens_sum
-		FROM global_request_minute_metrics
-		WHERE minute_bucket = ?
-	`, secondMinute).Scan(&requestCountSum, &totalTokensSum); err != nil {
-		t.Fatalf("query second minute returned error: %v", err)
+		SELECT request_count, total_tokens
+		FROM global_request_metric_projections
+		WHERE request_id = ? AND minute_bucket = ?
+	`, "req-2", secondMinute).Scan(&requestCount, &totalTokensSum); err != nil {
+		t.Fatalf("query second projection minute returned error: %v", err)
 	}
-	if requestCountSum != 1 || totalTokensSum != 17 {
-		t.Fatalf("unexpected second minute metrics = req:%d total:%d", requestCountSum, totalTokensSum)
+	if requestCount != 1 || totalTokensSum != 17 {
+		t.Fatalf("unexpected second projection = req:%d total:%d", requestCount, totalTokensSum)
+	}
+
+	if err := database.GetDB().QueryRow(`SELECT COUNT(*) FROM global_request_minute_metrics`).Scan(&count); err != nil {
+		t.Fatalf("query minute metric count returned error: %v", err)
+	}
+	if count != 0 {
+		t.Fatalf("expected no minute metric writes, got count %d", count)
 	}
 }
 
