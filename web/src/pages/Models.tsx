@@ -11,6 +11,13 @@ interface Props {
   isAdmin: boolean
 }
 
+interface AggregatedModel {
+  modelId: string
+  displayName: string
+  channelType: AvailableModel['channelType']
+  channelNames: string[]
+}
+
 export default function Models({ isAdmin }: Props) {
   const [models, setModels] = useState<AvailableModel[]>([])
   const [loading, setLoading] = useState(true)
@@ -55,15 +62,48 @@ export default function Models({ isAdmin }: Props) {
     [filter, models],
   )
 
+  const aggregatedModels = useMemo(() => {
+    const grouped = new Map<string, AggregatedModel>()
+
+    for (const model of filteredModels) {
+      const key = `${model.channelType}:${model.modelId}`
+      const existing = grouped.get(key)
+
+      if (existing) {
+        if (model.displayName !== model.modelId && existing.displayName === existing.modelId) {
+          existing.displayName = model.displayName
+        }
+        if (!existing.channelNames.includes(model.channelName)) {
+          existing.channelNames.push(model.channelName)
+        }
+        continue
+      }
+
+      grouped.set(key, {
+        modelId: model.modelId,
+        displayName: model.displayName,
+        channelType: model.channelType,
+        channelNames: [model.channelName],
+      })
+    }
+
+    return Array.from(grouped.values())
+      .map((model) => ({
+        ...model,
+        channelNames: [...model.channelNames].sort((a, b) => a.localeCompare(b, 'zh-CN')),
+      }))
+      .sort((a, b) => a.modelId.localeCompare(b.modelId, 'en'))
+  }, [filteredModels])
+
   const groupedModels = useMemo(
     () =>
-      filteredModels.reduce((acc, model) => {
+      aggregatedModels.reduce((acc, model) => {
         const key = model.channelType
         if (!acc[key]) acc[key] = []
         acc[key].push(model)
         return acc
-      }, {} as Record<string, AvailableModel[]>),
-    [filteredModels],
+      }, {} as Record<string, AggregatedModel[]>),
+    [aggregatedModels],
   )
 
   const getTypeBadgeVariant = (type: string): 'default' | 'secondary' | 'destructive' | 'outline' => {
@@ -123,8 +163,8 @@ export default function Models({ isAdmin }: Props) {
           <AdminSurface>
             <AdminToolbarRow>
               <div className="space-y-1">
-                <p className="text-sm font-medium text-foreground">共 {models.length} 个模型</p>
-                <p className="admin-inline-note">当前列表按渠道类型分组显示。</p>
+                <p className="text-sm font-medium text-foreground">共 {aggregatedModels.length} 个模型</p>
+                <p className="admin-inline-note">同一模型 ID 的不同渠道已合并展示，当前列表按渠道类型分组。</p>
               </div>
               <select
                 value={filter}
@@ -163,7 +203,7 @@ export default function Models({ isAdmin }: Props) {
                     <div className="overflow-hidden rounded-xl border border-border/70">
                       {typeModels.map((model, index) => (
                         <div
-                          key={`${model.channelName}-${model.modelId}`}
+                          key={`${model.channelType}-${model.modelId}`}
                           className={`grid gap-2 px-4 py-3 text-sm md:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)_150px] md:items-center ${
                             index === 0 ? '' : 'border-t border-border/70'
                           }`}
@@ -174,7 +214,14 @@ export default function Models({ isAdmin }: Props) {
                               <p className="truncate text-xs text-muted-foreground">{model.displayName}</p>
                             ) : null}
                           </div>
-                          <p className="truncate text-sm text-muted-foreground">{model.channelName}</p>
+                          <div className="min-w-0 space-y-1">
+                            <p className="text-sm text-muted-foreground">
+                              {model.channelNames.length} 个渠道
+                            </p>
+                            <p className="truncate text-xs text-muted-foreground" title={model.channelNames.join('、')}>
+                              {model.channelNames.join('、')}
+                            </p>
+                          </div>
                           <p className="text-xs uppercase tracking-[0.14em] text-muted-foreground md:text-right">
                             {model.channelType}
                           </p>
