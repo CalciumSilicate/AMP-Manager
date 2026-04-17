@@ -30,8 +30,9 @@ const (
 type requestSessionKey struct{}
 
 type RequestSession struct {
-	SessionID      string
-	StickyProvider string
+	SessionID       string
+	StickyChannelID string
+	StickyProvider  string
 }
 
 type sessionStickyRuntime struct {
@@ -167,8 +168,8 @@ func EnsureRequestSession(c *gin.Context) *RequestSession {
 	}
 	sessionID := resolveSessionIDFromHeadersAndBody(c.Request.Context(), c.Request.Header, requestBodyBytes(c), "", apiKeyID, c.ClientIP())
 	session := &RequestSession{SessionID: sessionID}
-	if provider, ok := LookupStickyProvider(c.Request.Context(), sessionID); ok {
-		session.StickyProvider = provider
+	if binding, ok := lookupStickyBinding(c.Request.Context(), sessionID); ok {
+		session.StickyChannelID, session.StickyProvider = parseStickyBinding(binding)
 	}
 	c.Request = c.Request.WithContext(WithRequestSession(c.Request.Context(), session))
 	return session
@@ -181,8 +182,8 @@ func BuildRequestSession(ctx context.Context, headers http.Header, body []byte, 
 	}
 	sessionID := resolveSessionIDFromHeadersAndBody(ctx, headers, body, fallback, apiKeyID, clientIPFromHeaders(headers, ""))
 	session := &RequestSession{SessionID: sessionID}
-	if provider, ok := LookupStickyProvider(ctx, sessionID); ok {
-		session.StickyProvider = provider
+	if binding, ok := lookupStickyBinding(ctx, sessionID); ok {
+		session.StickyChannelID, session.StickyProvider = parseStickyBinding(binding)
 	}
 	return session
 }
@@ -228,7 +229,25 @@ func StickyProviderMatchesChannel(provider string, channel *model.Channel) bool 
 	return StickyProviderFromChannel(channel) == provider
 }
 
-func LookupStickyProvider(ctx context.Context, sessionID string) (string, bool) {
+func parseStickyBinding(raw string) (string, string) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return "", ""
+	}
+
+	switch strings.ToLower(raw) {
+	case "claude", "anthropic":
+		return "", "anthropic"
+	case "openai", "openai_chat", "openai_responses":
+		return "", "openai"
+	case "gemini", "google":
+		return "", "gemini"
+	default:
+		return raw, ""
+	}
+}
+
+func lookupStickyBinding(ctx context.Context, sessionID string) (string, bool) {
 	sessionID = strings.TrimSpace(sessionID)
 	if sessionID == "" {
 		return "", false
@@ -244,7 +263,7 @@ func LookupStickyProvider(ctx context.Context, sessionID string) (string, bool) 
 		return "", false
 	}
 
-	provider, err := client.Get(runtimeContext(ctx), sessionStickyBindingKey(sessionID)).Result()
+	binding, err := client.Get(runtimeContext(ctx), sessionStickyBindingKey(sessionID)).Result()
 	if err != nil {
 		if err != redis.Nil {
 			markSessionStickyUnhealthy(err)
@@ -252,7 +271,17 @@ func LookupStickyProvider(ctx context.Context, sessionID string) (string, bool) 
 		return "", false
 	}
 
-	provider = NormalizeStickyProvider(provider)
+	binding = strings.TrimSpace(binding)
+	return binding, binding != ""
+}
+
+func LookupStickyProvider(ctx context.Context, sessionID string) (string, bool) {
+	binding, ok := lookupStickyBinding(ctx, sessionID)
+	if !ok {
+		return "", false
+	}
+
+	_, provider := parseStickyBinding(binding)
 	if provider == "" {
 		return "", false
 	}
@@ -272,7 +301,7 @@ func GetSessionStickyBinding(ctx context.Context, sessionID string) (string, tim
 
 	ctx = runtimeContext(ctx)
 	key := sessionStickyBindingKey(sessionID)
-	provider, err := client.Get(ctx, key).Result()
+	binding, err := client.Get(ctx, key).Result()
 	if err != nil {
 		if err != redis.Nil {
 			markSessionStickyUnhealthy(err)
@@ -284,7 +313,10 @@ func GetSessionStickyBinding(ctx context.Context, sessionID string) (string, tim
 		markSessionStickyUnhealthy(ttlErr)
 		ttl = 0
 	}
-	provider = NormalizeStickyProvider(provider)
+	channelID, provider := parseStickyBinding(binding)
+	if channelID != "" {
+		return channelID, ttl, true
+	}
 	return provider, ttl, provider != ""
 }
 
@@ -297,20 +329,15 @@ func FinalizeSessionSticky(ctx context.Context, trace *RequestTrace) {
 		return
 	}
 
-	provider := NormalizeStickyProvider(snapshot.Provider)
-	if provider == "" {
-		return
-	}
-
 	if snapshot.ErrorType == "" && snapshot.StatusCode >= 200 && snapshot.StatusCode < 300 {
-		bindStickyProvider(ctx, snapshot.SessionID, provider)
+		bindStickyChannel(ctx, snapshot.SessionID, snapshot.ChannelID)
 		return
 	}
 
 	clearStickyProvider(ctx, snapshot.SessionID)
 }
 
-func bindStickyProvider(ctx context.Context, sessionID string, provider string) {
+func bindStickyChannel(ctx context.Context, sessionID string, channelID string) {
 	cfg := GetSessionStickyConfig()
 	if !cfg.Enabled {
 		return
@@ -320,12 +347,12 @@ func bindStickyProvider(ctx context.Context, sessionID string, provider string) 
 		return
 	}
 
-	provider = NormalizeStickyProvider(provider)
-	if provider == "" {
+	channelID = strings.TrimSpace(channelID)
+	if channelID == "" {
 		return
 	}
 
-	if err := client.Set(runtimeContext(ctx), sessionStickyBindingKey(sessionID), provider, time.Duration(cfg.WindowMinutes)*time.Minute).Err(); err != nil {
+	if err := client.Set(runtimeContext(ctx), sessionStickyBindingKey(sessionID), channelID, time.Duration(cfg.WindowMinutes)*time.Minute).Err(); err != nil {
 		markSessionStickyUnhealthy(err)
 	}
 }

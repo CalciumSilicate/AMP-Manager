@@ -214,20 +214,41 @@ func ChannelRouterMiddleware() gin.HandlerFunc {
 		}
 		incomingFormat := detectIncomingFormat(c.Request.URL.Path)
 		requestSession := EnsureRequestSession(c)
+		stickyChannelID := ""
 		stickyProvider := ""
 		if requestSession != nil {
+			stickyChannelID = strings.TrimSpace(requestSession.StickyChannelID)
 			stickyProvider = NormalizeStickyProvider(requestSession.StickyProvider)
 		}
 
 		var channel *model.Channel
 		var err error
 		proxyCfg := GetProxyConfig(c.Request.Context())
+		groupIDs := []string(nil)
+		if proxyCfg != nil {
+			groupIDs = proxyCfg.GroupIDs
+		}
+		if stickyChannelID != "" {
+			channel, err = channelService.SelectSpecificChannelForModelWithGroupsAndFormat(stickyChannelID, modelName, groupIDs, incomingFormat, true)
+			if err != nil {
+				log.Errorf("channel router: failed to resolve sticky channel %s: %v", stickyChannelID, err)
+				c.Next()
+				return
+			}
+			if channel != nil {
+				log.Infof("channel router: routing model '%s' to sticky channel '%s' (%s)", modelName, channel.Name, channel.Type)
+				WithChannelConfig(c, &ChannelConfig{
+					Channel: channel,
+					Model:   modelName,
+				})
+				c.Next()
+				return
+			}
+			log.Warnf("channel router: sticky channel '%s' is unavailable for model '%s', falling back to preferred/automatic selection", stickyChannelID, modelName)
+		}
+
 		preferredChannelID := GetPreferredChannelID(c)
 		if preferredChannelID != "" {
-			groupIDs := []string(nil)
-			if proxyCfg != nil {
-				groupIDs = proxyCfg.GroupIDs
-			}
 			channel, err = channelService.SelectSpecificChannelForModelWithGroupsAndFormat(preferredChannelID, modelName, groupIDs, incomingFormat, true)
 			if err != nil {
 				log.Errorf("channel router: failed to select preferred channel %s: %v", preferredChannelID, err)

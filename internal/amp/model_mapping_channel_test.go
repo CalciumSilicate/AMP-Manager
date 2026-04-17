@@ -284,6 +284,58 @@ func TestChannelRouterMiddleware_UsesPreferredChannel(t *testing.T) {
 	}
 }
 
+func TestChannelRouterMiddleware_UsesStickyChannelBeforePreferredAndRoundRobin(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	repo := &fakeChannelRepo{
+		channels: map[string]*model.Channel{
+			"auto":      testChannel("auto", "Auto"),
+			"preferred": testChannel("preferred", "Preferred"),
+			"sticky":    testChannel("sticky", "Sticky"),
+		},
+		groups: map[string][]string{},
+	}
+
+	originalService := channelService
+	channelService = service.NewChannelServiceWithRepo(repo)
+	defer func() { channelService = originalService }()
+
+	selectedChannelID := ""
+
+	router := gin.New()
+	router.Use(func(c *gin.Context) {
+		ctx := WithProxyConfig(c.Request.Context(), &ProxyConfig{})
+		ctx = WithRequestSession(ctx, &RequestSession{
+			SessionID:       "sess-1",
+			StickyChannelID: "sticky",
+		})
+		c.Request = c.Request.WithContext(ctx)
+		c.Set(PreferredChannelContextKey, "preferred")
+		c.Next()
+	})
+	router.Use(ChannelRouterMiddleware())
+	router.POST("/", func(c *gin.Context) {
+		cfg := GetChannelConfig(c)
+		if cfg == nil || cfg.Channel == nil {
+			t.Fatalf("expected channel config to be set")
+		}
+		selectedChannelID = cfg.Channel.ID
+		c.Status(204)
+	})
+
+	req := httptest.NewRequest("POST", "/", strings.NewReader(`{"model":"gpt-4o"}`))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != 204 {
+		t.Fatalf("expected status 204, got %d", rec.Code)
+	}
+	if selectedChannelID != "sticky" {
+		t.Fatalf("expected sticky channel to be selected, got %q", selectedChannelID)
+	}
+}
+
 func TestChannelRouterMiddleware_FallsBackWhenPreferredChannelIsInaccessible(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
