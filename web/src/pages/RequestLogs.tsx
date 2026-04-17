@@ -36,6 +36,12 @@ interface Props {
   isAdmin: boolean
 }
 
+function getLiveFlushDelay(pageSize: number) {
+  if (pageSize >= 100) return 1500
+  if (pageSize >= 50) return 1000
+  return 500
+}
+
 function matchesRequestLogFilters(log: RequestLog, filters: FilterValues) {
   if (filters.userId && log.userId !== filters.userId) {
     return false
@@ -419,13 +425,15 @@ export default function RequestLogs({ isAdmin }: Props) {
 
   const [autoRefresh, setAutoRefresh] = useState(true)
   const wsCloseRef = useRef<(() => void) | null>(null)
-  const wsBufRef = useRef<RequestLog[]>([])
+  const wsBufRef = useRef<Map<string, RequestLog>>(new Map())
+  const pendingLogsRef = useRef<Map<string, RequestLog>>(new Map())
   const flushTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const logsRef = useRef<RequestLog[]>([])
   const totalRef = useRef(0)
   const knownLogIDsRef = useRef<Set<string>>(new Set())
   const filtersRef = useRef<FilterValues>({ userId: '', apiKeyId: '', model: '', channel: '', statuses: [], from: '', to: '' })
   const abortControllerRef = useRef<AbortController | null>(null)
+  const [pendingCount, setPendingCount] = useState(0)
 
   const [selectedLogId, setSelectedLogId] = useState<string | null>(null)
   const [detailModalOpen, setDetailModalOpen] = useState(false)
@@ -482,17 +490,40 @@ export default function RequestLogs({ isAdmin }: Props) {
     filtersRef.current = filters
   }, [filters])
 
+  const liveFlushDelay = getLiveFlushDelay(pageSize)
+
+  const applyPendingLogs = useCallback(() => {
+    if (pendingLogsRef.current.size === 0) return
+
+    const pendingBatch = Array.from(pendingLogsRef.current.values()).sort((a, b) => (
+      new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+    ))
+    pendingLogsRef.current.clear()
+    setPendingCount(0)
+
+    const next = [...pendingBatch, ...logsRef.current]
+      .filter((log, index, arr) => arr.findIndex((item) => item.id === log.id) === index)
+      .slice(0, pageSize)
+
+    logsRef.current = next
+    knownLogIDsRef.current = new Set(next.map((item) => item.id))
+    startTransition(() => {
+      setLogs(next)
+    })
+  }, [pageSize])
+
   useEffect(() => {
     if (liveInsertEnabled) {
       const flushBuf = () => {
-        const batch = wsBufRef.current
-        wsBufRef.current = []
+        const batch = Array.from(wsBufRef.current.values())
+        wsBufRef.current.clear()
         flushTimerRef.current = null
         if (batch.length === 0) return
 
         let next = [...logsRef.current]
         let newCount = 0
         let removedCount = 0
+        let visibleChanged = false
         const activeFilters = filtersRef.current
         for (const log of batch) {
           const matchesFilters = matchesRequestLogFilters(log, activeFilters)
@@ -500,25 +531,31 @@ export default function RequestLogs({ isAdmin }: Props) {
           if (idx >= 0) {
             if (matchesFilters) {
               next[idx] = log
+              visibleChanged = true
             } else {
               next.splice(idx, 1)
               knownLogIDsRef.current.delete(log.id)
               removedCount++
+              visibleChanged = true
             }
           } else if (matchesFilters) {
-            next.unshift(log)
-            if (!knownLogIDsRef.current.has(log.id)) {
-              knownLogIDsRef.current.add(log.id)
+            if (!pendingLogsRef.current.has(log.id)) {
               newCount++
             }
+            pendingLogsRef.current.set(log.id, log)
           }
         }
 
-        next = next.slice(0, pageSize)
-        logsRef.current = next
-        startTransition(() => {
-          setLogs(next)
+        if (visibleChanged) {
+          next = next.slice(0, pageSize)
+          logsRef.current = next
+        }
 
+        startTransition(() => {
+          if (visibleChanged) {
+            setLogs(next)
+          }
+          setPendingCount(pendingLogsRef.current.size)
           if (newCount > 0 || removedCount > 0) {
             totalRef.current += newCount - removedCount
             setTotal(totalRef.current)
@@ -528,9 +565,9 @@ export default function RequestLogs({ isAdmin }: Props) {
 
       const close = connectRequestLogsWS(
         (newLog) => {
-          wsBufRef.current.push(newLog)
+          wsBufRef.current.set(newLog.id, newLog)
           if (flushTimerRef.current === null) {
-            flushTimerRef.current = setTimeout(flushBuf, 100)
+            flushTimerRef.current = setTimeout(flushBuf, liveFlushDelay)
           }
         },
         () => {
@@ -549,13 +586,15 @@ export default function RequestLogs({ isAdmin }: Props) {
         clearTimeout(flushTimerRef.current)
         flushTimerRef.current = null
       }
-      wsBufRef.current = []
+      wsBufRef.current.clear()
+      pendingLogsRef.current.clear()
+      setPendingCount(0)
       if (wsCloseRef.current) {
         wsCloseRef.current()
         wsCloseRef.current = null
       }
     }
-  }, [liveInsertEnabled, pageSize])
+  }, [liveInsertEnabled, liveFlushDelay, pageSize])
 
   useEffect(() => {
     return () => {
@@ -589,6 +628,8 @@ export default function RequestLogs({ isAdmin }: Props) {
       const items = result.items || []
       logsRef.current = items
       knownLogIDsRef.current = new Set(items.map(item => item.id))
+      pendingLogsRef.current.clear()
+      setPendingCount(0)
       setLogs(items)
 
       totalRef.current = result.total
@@ -656,6 +697,14 @@ export default function RequestLogs({ isAdmin }: Props) {
                 <CardDescription>共 {total} 条记录</CardDescription>
               </div>
               <div className="flex items-center gap-3">
+                {isAdmin && pendingCount > 0 ? (
+                  <div className="flex items-center gap-2">
+                    <Badge variant="secondary">新 {pendingCount}</Badge>
+                    <Button variant="outline" size="sm" onClick={applyPendingLogs}>
+                      插入
+                    </Button>
+                  </div>
+                ) : null}
                 {isAdmin ? (
                   <div className="flex items-center gap-2 border-l pl-3">
                     <Switch id="auto-refresh" checked={autoRefresh} onCheckedChange={setAutoRefresh} />
