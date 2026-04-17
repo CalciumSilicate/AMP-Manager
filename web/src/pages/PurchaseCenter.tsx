@@ -28,7 +28,7 @@ const tabs: TabbedSettingsPageTab<PurchaseCenterTab>[] = [
   { key: 'subscription', label: '当前订阅' },
   { key: 'redeem', label: '兑换码' },
   { key: 'orders', label: '我的订单' },
-  { key: 'products', label: '可购商品' },
+  { key: 'products', label: '商店' },
 ]
 
 function formatCNY(cents: number): string {
@@ -241,7 +241,7 @@ export default function PurchaseCenter() {
     if (!confirmProduct || !catalog?.currentSubscription) return ''
     const current = catalog.currentSubscription
     if (current.planId === confirmProduct.subscriptionPlanId) {
-      return '直充会续期到当前账号。'
+      return ''
     }
     if (confirmProduct.subscriptionPlanUpgradeRank > current.planUpgradeRank) {
       return '直充会按升级处理；拿兑换码不会改当前账号。'
@@ -253,7 +253,7 @@ export default function PurchaseCenter() {
     <>
       <TabbedSettingsPage
         title="购买订阅"
-        description="查看当前订阅、兑换入口、订单状态和可购买商品"
+        description="查看订阅、兑换入口、订单和商店"
         tabs={tabs}
         activeTab={activeTab}
         onTabChange={setActiveTab}
@@ -266,13 +266,13 @@ export default function PurchaseCenter() {
               <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                 <div className="space-y-1">
                   <CardTitle>当前订阅</CardTitle>
-                  <CardDescription>查看当前套餐、支付方式和续费规则</CardDescription>
+                  <CardDescription>查看当前套餐和续费规则</CardDescription>
                 </div>
                 <div className="flex flex-wrap gap-2">
                   {catalog?.currentSubscription ? (
-                    <Button type="button" variant="outline" size="sm" onClick={() => navigateDashboard('overview')}>
+                    <Button type="button" variant="outline" size="sm" onClick={() => navigateDashboard('account-settings')}>
                       <CreditCard className="mr-2 h-4 w-4" />
-                      查看当前额度
+                      充值额度
                     </Button>
                   ) : null}
                   <Button type="button" variant="outline" size="sm" onClick={() => void loadAll(true)} disabled={reloading}>
@@ -283,49 +283,46 @@ export default function PurchaseCenter() {
               </div>
             </CardHeader>
             <CardContent className="space-y-4">
-              <div className="grid gap-4 md:grid-cols-2">
-                <div className="space-y-3 rounded-lg border p-4">
-                  <div className="flex items-center justify-between">
-                    <span className="text-sm text-muted-foreground">套餐</span>
-                    <Badge variant={catalog?.purchaseEnabled ? 'default' : 'secondary'}>
-                      {catalog?.purchaseEnabled ? '可下单' : '已关闭'}
-                    </Badge>
+              <div className="space-y-4 rounded-lg border p-4">
+                <div className="flex flex-wrap items-start justify-between gap-3 border-b border-border/70 pb-4">
+                  <div className="space-y-1">
+                    <div className="text-sm text-muted-foreground">套餐</div>
+                    <p className="text-2xl font-semibold tracking-tight">
+                      {catalog?.currentSubscription?.planName || '未订阅'}
+                    </p>
+                    <p className="text-sm text-muted-foreground">
+                      {catalog?.currentSubscription?.expiresAt
+                        ? `到期 ${formatDateTime(catalog.currentSubscription.expiresAt)}`
+                        : catalog?.currentSubscription
+                          ? '永久有效'
+                          : catalog?.renewalRule || '-'}
+                    </p>
                   </div>
-                  <p className="text-2xl font-semibold tracking-tight">
-                    {catalog?.currentSubscription?.planName || '未订阅'}
-                  </p>
-                  <p className="text-sm text-muted-foreground">
-                    {catalog?.currentSubscription?.expiresAt
-                      ? `到期 ${formatDateTime(catalog.currentSubscription.expiresAt)}`
-                      : catalog?.currentSubscription
-                        ? '永久有效'
-                        : catalog?.renewalRule || '-'}
-                  </p>
-                  <div className="flex flex-wrap gap-2">
-                    {pendingOrders.length > 0 ? (
-                      <Badge variant="outline">{pendingOrders.length} 个待支付订单</Badge>
-                    ) : null}
-                    <Badge variant="outline">{orders.length} 条最近订单</Badge>
+                  <Badge variant={catalog?.purchaseEnabled ? 'default' : 'secondary'}>
+                    {catalog?.purchaseEnabled ? '可下单' : '已关闭'}
+                  </Badge>
+                </div>
+
+                <div className="grid gap-3 sm:grid-cols-3">
+                  <div className="space-y-1">
+                    <div className="text-xs text-muted-foreground">支付</div>
+                    <div className="text-sm font-medium">{paymentChannelLabel(catalog)}</div>
+                  </div>
+                  <div className="space-y-1">
+                    <div className="text-xs text-muted-foreground">商品</div>
+                    <div className="text-sm font-medium">{catalog?.products.length || 0}</div>
+                  </div>
+                  <div className="space-y-1">
+                    <div className="text-xs text-muted-foreground">订单</div>
+                    <div className="text-sm font-medium">{orders.length}</div>
                   </div>
                 </div>
-                <div className="space-y-2 rounded-lg border p-4">
-                  <div className="flex items-center justify-between">
-                    <span className="text-sm text-muted-foreground">支付方式</span>
-                    <Badge variant="outline">{paymentChannelLabel(catalog)}</Badge>
-                  </div>
-                  <p className="text-sm text-muted-foreground">
-                    {catalog?.paymentConfigured ? '已配置扫码支付，可直接创建订单。' : '当前支付配置不完整，暂时不能下单。'}
-                  </p>
-                  <div className="grid gap-3 pt-2 sm:grid-cols-2">
-                    <div className="rounded-md bg-muted/40 p-3">
-                      <div className="text-xs text-muted-foreground">可购商品</div>
-                      <div className="mt-1 text-2xl font-semibold">{catalog?.products.length || 0}</div>
-                    </div>
-                    <div className="rounded-md bg-muted/40 p-3">
-                      <div className="text-xs text-muted-foreground">续费规则</div>
-                      <div className="mt-1 text-sm font-semibold">{catalog?.renewalRule || '-'}</div>
-                    </div>
-                  </div>
+
+                <div className="flex flex-wrap gap-2">
+                  {pendingOrders.length > 0 ? (
+                    <Badge variant="outline">{pendingOrders.length} 个待支付订单</Badge>
+                  ) : null}
+                  <Badge variant="outline">{catalog?.renewalRule || '暂无续费规则'}</Badge>
                 </div>
               </div>
             </CardContent>
@@ -374,7 +371,67 @@ export default function PurchaseCenter() {
                   <div className="px-6 py-10 text-sm text-muted-foreground">暂无订单。</div>
                 ) : (
                   <div className="px-6 pb-6">
-                    <Table>
+                    <div className="space-y-3 md:hidden">
+                      {visibleOrders.map((order) => (
+                        <div key={order.id} className="rounded-xl border border-border/70 px-4 py-4">
+                          <div className="flex items-start justify-between gap-3">
+                            <div className="min-w-0">
+                              <p className="font-mono text-xs text-muted-foreground">{order.orderNo}</p>
+                              <p className="mt-1 font-medium">{order.productName}</p>
+                              <p className="text-xs text-muted-foreground">{order.subscriptionPlanName}</p>
+                            </div>
+                            <div className="text-right">
+                              <p className="text-lg font-semibold">{formatCNY(order.amountCnyCent)}</p>
+                              <p className="text-xs text-muted-foreground">{formatDateTime(order.createdAt)}</p>
+                            </div>
+                          </div>
+
+                          <div className="mt-3 flex flex-wrap gap-2">
+                            <Badge variant="outline" className={paymentTone(order.paymentStatus)}>
+                              {paymentLabel(order.paymentStatus)}
+                            </Badge>
+                            <Badge variant="outline" className={fulfillmentTone(order)}>
+                              {fulfillmentLabel(order)}
+                            </Badge>
+                            <Badge variant="outline">
+                              {order.deliveryMode === 'redeem_code' ? '兑换码' : '本账号'}
+                            </Badge>
+                          </div>
+
+                          <div className="mt-3 flex flex-wrap gap-2">
+                            {order.paymentStatus === 'pending' ? (
+                              <Button type="button" variant="outline" size="sm" onClick={() => setPendingOrder(order)}>
+                                <QrCode className="mr-2 h-4 w-4" />
+                                支付
+                              </Button>
+                            ) : null}
+                            {order.canRefresh ? (
+                              <Button
+                                type="button"
+                                size="sm"
+                                onClick={() => void handleRefreshOrder(order.orderNo, false)}
+                                disabled={refreshingOrderNo === order.orderNo}
+                              >
+                                <RefreshCw className={`mr-2 h-4 w-4 ${refreshingOrderNo === order.orderNo ? 'animate-spin' : ''}`} />
+                                刷新
+                              </Button>
+                            ) : null}
+                          </div>
+
+                          {order.failureReason ? (
+                            <p className="mt-3 text-xs text-rose-600">{order.failureReason}</p>
+                          ) : null}
+                          {order.generatedRedeemCode ? (
+                            <div className="mt-3 rounded-lg border border-border/70 px-3 py-2">
+                              <p className="text-[11px] uppercase tracking-[0.16em] text-muted-foreground">兑换码</p>
+                              <p className="mt-1 font-mono text-xs">{order.generatedRedeemCode}</p>
+                            </div>
+                          ) : null}
+                        </div>
+                      ))}
+                    </div>
+
+                    <Table className="hidden md:table">
                       <TableHeader>
                         <TableRow>
                           <TableHead>订单</TableHead>
@@ -472,14 +529,14 @@ export default function PurchaseCenter() {
             <CardHeader>
               <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                 <div className="space-y-1">
-                  <CardTitle>可购商品</CardTitle>
-                  <CardDescription>选择商品后直接创建订单，支付成功后自动续订到当前账号</CardDescription>
+                  <CardTitle>商店</CardTitle>
+                  <CardDescription>选择商品后创建订单</CardDescription>
                 </div>
                 <div className="flex flex-wrap gap-2">
                   {catalog?.currentSubscription ? (
-                    <Button type="button" variant="outline" size="sm" onClick={() => navigateDashboard('overview')}>
+                    <Button type="button" variant="outline" size="sm" onClick={() => navigateDashboard('account-settings')}>
                       <CreditCard className="mr-2 h-4 w-4" />
-                      查看当前额度
+                      充值额度
                     </Button>
                   ) : null}
                   <Button type="button" variant="outline" size="sm" onClick={() => void loadAll(true)} disabled={reloading}>
@@ -494,11 +551,11 @@ export default function PurchaseCenter() {
                 <div className="space-y-6">
                   {groupedProducts.map((group) => (
                     <section key={group.key} className="space-y-3">
-                      <div className="flex items-center justify-between border-b border-border/60 pb-2">
+                      <div className="flex flex-col gap-2 border-b border-border/60 pb-2 sm:flex-row sm:items-center sm:justify-between">
                         <h3 className="text-sm font-semibold uppercase tracking-[0.16em] text-muted-foreground">{group.groupName}</h3>
                         <span className="text-xs text-muted-foreground">{group.items.length} 项</span>
                       </div>
-                      <div className="grid gap-4 xl:grid-cols-3">
+                      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
                         {group.items.map((product) => (
                           <button
                             key={product.id}
@@ -548,26 +605,26 @@ export default function PurchaseCenter() {
         <DialogContent className="max-w-md">
           <DialogHeader>
             <DialogTitle className="text-xl">确认下单</DialogTitle>
-            <DialogDescription>{deliveryMode === 'redeem_code' ? '支付成功后生成兑换码。' : '支付成功后自动续到当前账号。'}</DialogDescription>
+            <DialogDescription>{deliveryMode === 'redeem_code' ? '支付后生成兑换码。' : '支付后直接生效。'}</DialogDescription>
           </DialogHeader>
           {confirmProduct ? (
             <div className="space-y-4 py-2">
-              <div className="rounded-xl border border-border/70 px-4 py-4">
+              <div className="space-y-1 border-b border-border/70 pb-4">
                 <p className="text-[11px] uppercase tracking-[0.18em] text-muted-foreground">商品</p>
-                <p className="mt-3 text-lg font-semibold">{confirmProduct.name}</p>
-                <p className="mt-1 text-sm text-muted-foreground">{confirmProduct.summary || confirmProduct.subscriptionPlanName}</p>
+                <p className="text-lg font-semibold">{confirmProduct.name}</p>
+                <p className="text-sm text-muted-foreground">{confirmProduct.summary || confirmProduct.subscriptionPlanName}</p>
               </div>
-              <div className="rounded-xl border border-border/70 px-4 py-4">
+              <div className="space-y-3 border-b border-border/70 pb-4">
                 <div className="text-[11px] uppercase tracking-[0.18em] text-muted-foreground">交付方式</div>
-                <RadioGroup value={deliveryMode} onValueChange={(value) => setDeliveryMode(value as 'account' | 'redeem_code')} className="mt-3 grid gap-3 md:grid-cols-2">
-                  <label className={`flex items-start gap-3 rounded-xl border px-4 py-3 ${deliveryMode === 'account' ? 'border-primary bg-primary/5' : 'border-border/70'}`}>
+                <RadioGroup value={deliveryMode} onValueChange={(value) => setDeliveryMode(value as 'account' | 'redeem_code')} className="divide-y divide-border/70">
+                  <label className={`flex items-start gap-3 py-3 ${deliveryMode === 'account' ? 'text-foreground' : 'text-muted-foreground'}`}>
                     <RadioGroupItem value="account" className="mt-0.5" />
                     <div>
                       <div className="font-medium">直充本账号</div>
                       <div className="text-xs text-muted-foreground">支付成功后直接生效</div>
                     </div>
                   </label>
-                  <label className={`flex items-start gap-3 rounded-xl border px-4 py-3 ${deliveryMode === 'redeem_code' ? 'border-primary bg-primary/5' : 'border-border/70'}`}>
+                  <label className={`flex items-start gap-3 py-3 ${deliveryMode === 'redeem_code' ? 'text-foreground' : 'text-muted-foreground'}`}>
                     <RadioGroupItem value="redeem_code" className="mt-0.5" />
                     <div>
                       <div className="font-medium">拿兑换码</div>
@@ -577,14 +634,14 @@ export default function PurchaseCenter() {
                 </RadioGroup>
                 {purchaseHint ? <p className="mt-3 text-xs text-muted-foreground">{purchaseHint}</p> : null}
               </div>
-              <div className="grid grid-cols-2 gap-3">
-                <div className="rounded-xl border border-border/70 px-4 py-4">
-                  <p className="text-[11px] uppercase tracking-[0.18em] text-muted-foreground">时长</p>
-                  <p className="mt-3 text-lg font-semibold">{confirmProduct.durationDays} 天</p>
+              <div className="space-y-3 text-sm">
+                <div className="flex items-center justify-between gap-4">
+                  <span className="text-muted-foreground">时长</span>
+                  <span className="font-medium">{confirmProduct.durationDays} 天</span>
                 </div>
-                <div className="rounded-xl border border-border/70 px-4 py-4">
-                  <p className="text-[11px] uppercase tracking-[0.18em] text-muted-foreground">金额</p>
-                  <p className="mt-3 text-2xl font-semibold">{formatCNY(confirmProduct.priceCnyCent)}</p>
+                <div className="flex items-center justify-between gap-4">
+                  <span className="text-muted-foreground">金额</span>
+                  <span className="text-lg font-semibold">{formatCNY(confirmProduct.priceCnyCent)}</span>
                 </div>
               </div>
             </div>

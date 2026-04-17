@@ -182,11 +182,18 @@ export interface PurchaseManualSettlementBatch {
   id: string
   batchNo: string
   mode: PurchaseManualSettlementBatchMode
+  debugSettlement: boolean
   createdBy: string
   note: string
   orderCount: number
   totalAmountCnyCent: number
   createdAt: string
+}
+
+export interface PurchaseManualSettlementPreviewResponse {
+  items: PurchaseOrder[]
+  total: number
+  totalAmountCnyCent: number
 }
 
 export async function getPurchaseCatalog(): Promise<PurchaseCatalogResponse> {
@@ -356,10 +363,17 @@ export async function createSinglePurchaseManualSettlement(orderNo: string, note
   return data.batch
 }
 
-export async function createBatchPurchaseManualSettlement(orderNos: string[], note: string): Promise<PurchaseManualSettlementBatch> {
+export async function previewBatchPurchaseManualSettlement(payload: { paidFrom: string; paidTo: string; limit?: number }): Promise<PurchaseManualSettlementPreviewResponse> {
+  return fetchJson<PurchaseManualSettlementPreviewResponse>(`${API_BASE}/admin/purchase/manual-settlements/preview`, {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  })
+}
+
+export async function createBatchPurchaseManualSettlement(payload: { orderNos?: string[]; paidFrom?: string; paidTo?: string; note: string; debugSettlement?: boolean }): Promise<PurchaseManualSettlementBatch> {
   const data = await fetchJson<{ batch: PurchaseManualSettlementBatch }>(`${API_BASE}/admin/purchase/manual-settlements/confirm`, {
     method: 'POST',
-    body: JSON.stringify({ orderNos, note }),
+    body: JSON.stringify(payload),
   })
   return data.batch
 }

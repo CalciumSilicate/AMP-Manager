@@ -10,7 +10,6 @@ import {
   type PurchaseOrder,
 } from '@/api/purchase'
 import { RedeemQuickEntry, RedeemRecordTable } from '@/components/redeem/RedeemPanels'
-import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
@@ -18,6 +17,7 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group'
+import { useGlobalToast } from '@/components/ui/use-global-toast'
 import { formatDateTime, formatDecimal } from '@/lib/formatters'
 import { AnimatePresence, motion } from '@/lib/motion'
 import { ArrowRightLeft, CreditCard, QrCode, RefreshCw, Shield } from 'lucide-react'
@@ -58,8 +58,8 @@ function formatSubscriptionStatus(status: string): string {
 
 export default function AccountSettings({ username, onUsernameChange }: Props) {
   const [activeTab, setActiveTab] = useState<AccountTab>('balance')
-  const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
   const [redeemRefreshKey, setRedeemRefreshKey] = useState(0)
+  const { showToast } = useGlobalToast()
 
   const [oldPassword, setOldPassword] = useState('')
   const [newPassword, setNewPassword] = useState('')
@@ -89,8 +89,7 @@ export default function AccountSettings({ username, onUsernameChange }: Props) {
   }, [])
 
   const showMessage = (type: 'success' | 'error', text: string) => {
-    setMessage({ type, text })
-    window.setTimeout(() => setMessage(null), 5000)
+    showToast(type, text)
   }
 
   const fetchBalance = async () => {
@@ -270,21 +269,6 @@ export default function AccountSettings({ username, onUsernameChange }: Props) {
         ))}
       </motion.div>
 
-      <AnimatePresence>
-        {message && (
-          <motion.div
-            initial={{ opacity: 0, y: -20, scale: 0.95 }}
-            animate={{ opacity: 1, y: 0, scale: 1 }}
-            exit={{ opacity: 0, y: -20, scale: 0.95 }}
-            transition={{ type: 'spring', bounce: 0.3, duration: 0.5 }}
-          >
-            <Alert variant={message.type === 'error' ? 'destructive' : 'default'}>
-              <AlertDescription>{message.text}</AlertDescription>
-            </Alert>
-          </motion.div>
-        )}
-      </AnimatePresence>
-
       <AnimatePresence mode="wait">
         <motion.div
           key={activeTab}
@@ -316,7 +300,7 @@ export default function AccountSettings({ username, onUsernameChange }: Props) {
                   {balanceLoading ? (
                     <div className="py-4 text-center text-muted-foreground">加载中...</div>
                   ) : (
-                    <div className="space-y-2 rounded-lg border p-4">
+                    <div className="space-y-4">
                       <div className="flex items-center justify-between">
                         <span className="text-sm text-muted-foreground">当前余额</span>
                         <Badge variant="outline">USD</Badge>
@@ -324,23 +308,21 @@ export default function AccountSettings({ username, onUsernameChange }: Props) {
                       <p className="text-3xl font-semibold tracking-tight">
                         {balance ? formatBalance(balance.balanceMicros) : '-'}
                       </p>
-                      <p className="text-sm text-muted-foreground">
+                      <div className="text-sm text-muted-foreground">
                         {purchaseCatalog?.balanceTopupEnabled
                           ? `单价 ¥${(purchaseCatalog.balanceTopupPriceCnyPerUsd || 0).toFixed(2)}/$1`
                           : '充值未开启'}
-                      </p>
-                      <div className="pt-2">
-                        <Button
-                          type="button"
-                          variant="outline"
-                          size="sm"
-                          onClick={() => setTopupDialogOpen(true)}
-                          disabled={!purchaseCatalog?.balanceTopupEnabled}
-                        >
-                          <CreditCard className="mr-2 h-4 w-4" />
-                          充值余额
-                        </Button>
                       </div>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        onClick={() => setTopupDialogOpen(true)}
+                        disabled={!purchaseCatalog?.balanceTopupEnabled}
+                      >
+                        <CreditCard className="mr-2 h-4 w-4" />
+                        充值余额
+                      </Button>
                     </div>
                   )}
                 </CardContent>
@@ -357,8 +339,8 @@ export default function AccountSettings({ username, onUsernameChange }: Props) {
                   {billingLoading && !billingState ? (
                     <div className="py-4 text-center text-muted-foreground">加载中...</div>
                   ) : billingState?.subscription ? (
-                    <>
-                      <div className="space-y-2 rounded-lg border p-4">
+                    <div className="overflow-hidden rounded-lg border">
+                      <div className="space-y-3 px-4 py-4">
                         <div className="flex items-center justify-between">
                           <span className="text-sm text-muted-foreground">套餐</span>
                           <Badge variant={billingState.subscription.status === 'active' ? 'default' : 'secondary'}>
@@ -374,33 +356,31 @@ export default function AccountSettings({ username, onUsernameChange }: Props) {
                       </div>
 
                       {billingState.windows?.length ? (
-                        <div className="overflow-hidden rounded-lg border">
-                          <div className="divide-y">
-                            {billingState.windows.map((item) => (
-                              <div
-                                key={`${item.limitType}-${item.windowMode}`}
-                                className="grid gap-2 px-4 py-3 md:grid-cols-[0.8fr_1.4fr_0.8fr] md:items-center"
-                              >
-                                <div>
-                                  <p className="font-medium">{LIMIT_TYPE_LABELS[item.limitType] || item.limitType}</p>
-                                  <p className="text-xs text-muted-foreground">{WINDOW_MODE_LABELS[item.windowMode] || item.windowMode}</p>
-                                </div>
-                                <p className="font-mono text-xs text-muted-foreground">
-                                  已用 ${formatDecimal(item.usedMicros / 1e6, 2)} / 剩余 ${formatDecimal(item.leftMicros / 1e6, 2)} / 限额 ${formatDecimal(item.limitMicros / 1e6, 2)}
-                                </p>
-                                <p className="text-xs text-muted-foreground md:text-right">
-                                  {formatDateTime(item.windowStart)} - {formatDateTime(item.windowEnd)}
-                                </p>
+                        <div className="divide-y border-t">
+                          {billingState.windows.map((item) => (
+                            <div
+                              key={`${item.limitType}-${item.windowMode}`}
+                              className="grid gap-2 px-4 py-3 md:grid-cols-[0.8fr_1.4fr_0.8fr] md:items-center"
+                            >
+                              <div>
+                                <p className="font-medium">{LIMIT_TYPE_LABELS[item.limitType] || item.limitType}</p>
+                                <p className="text-xs text-muted-foreground">{WINDOW_MODE_LABELS[item.windowMode] || item.windowMode}</p>
                               </div>
-                            ))}
-                          </div>
+                              <p className="font-mono text-xs text-muted-foreground">
+                                已用 ${formatDecimal(item.usedMicros / 1e6, 2)} / 剩余 ${formatDecimal(item.leftMicros / 1e6, 2)} / 限额 ${formatDecimal(item.limitMicros / 1e6, 2)}
+                              </p>
+                              <p className="text-xs text-muted-foreground md:text-right">
+                                {formatDateTime(item.windowStart)} - {formatDateTime(item.windowEnd)}
+                              </p>
+                            </div>
+                          ))}
                         </div>
                       ) : (
-                        <div className="rounded-lg border border-dashed px-5 py-8 text-center text-sm text-muted-foreground">
+                        <div className="border-t px-4 py-8 text-center text-sm text-muted-foreground">
                           当前订阅暂未返回额度窗口信息
                         </div>
                       )}
-                    </>
+                    </div>
                   ) : (
                     <div className="rounded-lg border border-dashed px-5 py-8 text-center text-sm text-muted-foreground">
                       暂无生效中的订阅

@@ -16,6 +16,8 @@ export interface FilterValues {
   sessionId: string
   model: string
   channel: string
+  requestFormat: string
+  upstreamFormat: string
   statuses: string[]
   from: string
   to: string
@@ -30,6 +32,7 @@ interface LogFilterBarProps {
   onChange: (values: FilterValues) => void
   showStatusFilter?: boolean
   showSessionFilter?: boolean
+  showTranslatorFilters?: boolean
   sessionSearchMinChars?: number
 }
 
@@ -48,6 +51,13 @@ const statusOptions: MultiSelectOption[] = [
   '400', '401', '403', '404', '408', '409', '422', '429',
   '500', '502', '503', '504',
 ].map((status) => ({ value: status, label: status }))
+
+const translatorOptions: SelectOption[] = [
+  { value: 'responses', label: 'OpenAI Responses' },
+  { value: 'chat_completions', label: 'OpenAI Compatible' },
+  { value: 'generate_content', label: 'Gemini' },
+  { value: 'messages', label: 'Anthropic Messages' },
+]
 
 function toLocalDatetimeString(date: Date): string {
   const pad = (n: number) => n.toString().padStart(2, '0')
@@ -96,6 +106,7 @@ export function LogFilterBar({
   onChange,
   showStatusFilter = true,
   showSessionFilter = true,
+  showTranslatorFilters = true,
   sessionSearchMinChars = 3,
 }: LogFilterBarProps) {
   const [activePreset, setActivePreset] = useState<PresetKey>('custom')
@@ -138,7 +149,7 @@ export function LogFilterBar({
 
   const handleClearAll = () => {
     setActivePreset('custom')
-    onChange({ userId: '', apiKeyId: '', sessionId: '', model: '', channel: '', statuses: [], from: '', to: '' })
+    onChange({ userId: '', apiKeyId: '', sessionId: '', model: '', channel: '', requestFormat: '', upstreamFormat: '', statuses: [], from: '', to: '' })
   }
 
   const handleUserChange = (userId: string) => {
@@ -149,7 +160,7 @@ export function LogFilterBar({
   const keyOptions: SelectOption[] = keys.map(k => ({ value: k.id, label: `${k.name} (${k.prefix})`, keywords: [k.prefix] }))
   const modelOptions: SelectOption[] = models.map(m => ({ value: m, label: m }))
 
-  const hasAnyFilter = values.userId || values.apiKeyId || values.sessionId || values.model || values.channel || values.statuses.length > 0 || values.from || values.to
+  const hasAnyFilter = values.userId || values.apiKeyId || values.sessionId || values.model || values.channel || values.requestFormat || values.upstreamFormat || values.statuses.length > 0 || values.from || values.to
 
   return (
     <motion.div
@@ -221,6 +232,34 @@ export function LogFilterBar({
                 className="h-9 w-48"
               />
             </div>
+
+            {showTranslatorFilters && (
+              <div className="flex items-center gap-2">
+                <Label className="text-sm text-muted-foreground whitespace-nowrap">源格式</Label>
+                <SearchableSelect
+                  value={values.requestFormat}
+                  onValueChange={(value) => update({ requestFormat: value })}
+                  options={translatorOptions}
+                  searchPlaceholder="搜索源格式..."
+                  allLabel="不限"
+                  className="w-48"
+                />
+              </div>
+            )}
+
+            {showTranslatorFilters && (
+              <div className="flex items-center gap-2">
+                <Label className="text-sm text-muted-foreground whitespace-nowrap">上游格式</Label>
+                <SearchableSelect
+                  value={values.upstreamFormat}
+                  onValueChange={(value) => update({ upstreamFormat: value })}
+                  options={translatorOptions}
+                  searchPlaceholder="搜索上游格式..."
+                  allLabel="不限"
+                  className="w-48"
+                />
+              </div>
+            )}
 
             {showStatusFilter && (
               <div className="flex items-center gap-2">

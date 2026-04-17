@@ -12,6 +12,7 @@ import {
   listPurchaseOrdersAdmin,
   listPurchaseProductsAdmin,
   listPurchaseWebhookTargets,
+  previewBatchPurchaseManualSettlement,
   refreshPurchaseOrderAdmin,
   setPurchaseProductEnabled,
   setPurchaseWebhookTargetEnabled,
@@ -23,6 +24,7 @@ import {
   type AdminOrderFilters,
   type AlipayEnvironment,
   type PurchaseManualSettlementBatch,
+  type PurchaseManualSettlementPreviewResponse,
   type PurchaseOrder,
   type PurchaseOrderPaymentStatusHistory,
   type PurchaseProduct,
@@ -38,7 +40,6 @@ import { TabbedSettingsPage, type TabbedSettingsPageTab } from '@/components/lay
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
-import { Checkbox } from '@/components/ui/checkbox'
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -61,6 +62,32 @@ const tabs: TabbedSettingsPageTab<PaidSubscriptionsTab>[] = [
 
 function formatCNY(cents: number): string {
   return `¥${(cents / 100).toFixed(2)}`
+}
+
+function toDatetimeLocal(value?: string | null): string {
+  if (!value) return ''
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return ''
+  const offset = date.getTimezoneOffset()
+  const local = new Date(date.getTime() - offset * 60_000)
+  return local.toISOString().slice(0, 16)
+}
+
+function normalizeDatetimeLocal(value: string): string | undefined {
+  if (!value) return undefined
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return undefined
+  return date.toISOString()
+}
+
+function defaultBatchSettlementRange() {
+  const now = new Date()
+  const from = new Date(now)
+  from.setHours(0, 0, 0, 0)
+  return {
+    paidFrom: toDatetimeLocal(from.toISOString()),
+    paidTo: toDatetimeLocal(now.toISOString()),
+  }
 }
 
 function paymentLabel(status: PurchaseOrder['paymentStatus']): string {
@@ -171,7 +198,6 @@ export default function PaidSubscriptions() {
     productId: 'all',
   })
   const [refreshingOrderNo, setRefreshingOrderNo] = useState<string | null>(null)
-  const [selectedOrderNos, setSelectedOrderNos] = useState<string[]>([])
   const [statusDialogOrder, setStatusDialogOrder] = useState<PurchaseOrder | null>(null)
   const [statusDraft, setStatusDraft] = useState<'paid' | 'expired' | 'refunded'>('paid')
   const [statusNote, setStatusNote] = useState('')
@@ -181,6 +207,10 @@ export default function PaidSubscriptions() {
   const [settlementDialogMode, setSettlementDialogMode] = useState<'single' | 'batch' | null>(null)
   const [settlementOrder, setSettlementOrder] = useState<PurchaseOrder | null>(null)
   const [settlementNote, setSettlementNote] = useState('')
+  const [batchSettlementRange, setBatchSettlementRange] = useState(defaultBatchSettlementRange)
+  const [batchSettlementPreview, setBatchSettlementPreview] = useState<PurchaseManualSettlementPreviewResponse | null>(null)
+  const [batchPreviewLoading, setBatchPreviewLoading] = useState(false)
+  const [batchDebugSettlement, setBatchDebugSettlement] = useState(false)
   const [settlementSaving, setSettlementSaving] = useState(false)
 
   const [productsPage, setProductsPage] = useState(1)
@@ -436,7 +466,6 @@ export default function PaidSubscriptions() {
   }
 
   const handleSearchOrders = async () => {
-    setSelectedOrderNos([])
     setOrdersPage(1)
     await loadOrders(buildOrderFilters(1, ordersPageSize))
   }
@@ -491,13 +520,37 @@ export default function PaidSubscriptions() {
   }
 
   const openBatchSettlementDialog = () => {
-    if (selectedOrderNos.length === 0) {
-      showMessage('error', '先选择订单')
-      return
-    }
     setSettlementDialogMode('batch')
     setSettlementOrder(null)
     setSettlementNote('')
+    setBatchSettlementRange(defaultBatchSettlementRange())
+    setBatchSettlementPreview(null)
+    setBatchDebugSettlement(false)
+  }
+
+  const handlePreviewBatchSettlement = async () => {
+    const paidFrom = normalizeDatetimeLocal(batchSettlementRange.paidFrom)
+    const paidTo = normalizeDatetimeLocal(batchSettlementRange.paidTo)
+    if (!paidFrom || !paidTo) {
+      showMessage('error', '请选择完整时间区间')
+      return
+    }
+
+    setBatchPreviewLoading(true)
+    try {
+      const preview = await previewBatchPurchaseManualSettlement({
+        paidFrom,
+        paidTo,
+      })
+      setBatchSettlementPreview(preview)
+      if (preview.total === 0) {
+        showMessage('success', '当前时间区间内没有待分账订单')
+      }
+    } catch (error) {
+      showMessage('error', error instanceof Error ? error.message : '预览失败')
+    } finally {
+      setBatchPreviewLoading(false)
+    }
   }
 
   const handleConfirmSettlement = async () => {
@@ -507,22 +560,31 @@ export default function PaidSubscriptions() {
       if (settlementDialogMode === 'single' && settlementOrder) {
         batch = await createSinglePurchaseManualSettlement(settlementOrder.orderNo, settlementNote)
       } else {
-        batch = await createBatchPurchaseManualSettlement(selectedOrderNos, settlementNote)
+        const paidFrom = normalizeDatetimeLocal(batchSettlementRange.paidFrom)
+        const paidTo = normalizeDatetimeLocal(batchSettlementRange.paidTo)
+        if (!paidFrom || !paidTo) {
+          throw new Error('请选择完整时间区间')
+        }
+        if (!batchSettlementPreview || batchSettlementPreview.total === 0) {
+          throw new Error('请先生成分账预览')
+        }
+        batch = await createBatchPurchaseManualSettlement({
+          paidFrom,
+          paidTo,
+          note: settlementNote,
+          debugSettlement: batchDebugSettlement,
+        })
       }
       setSettlementDialogMode(null)
       setSettlementOrder(null)
-      setSelectedOrderNos([])
+      setBatchSettlementPreview(null)
       await loadOrders(buildOrderFilters(ordersPage, ordersPageSize))
-      showMessage('success', `已记入批次 ${batch.batchNo}`)
+      showMessage('success', `${batch.debugSettlement ? '已记入 DEBUG 批次' : '已记入批次'} ${batch.batchNo}`)
     } catch (error) {
       showMessage('error', error instanceof Error ? error.message : '分账失败')
     } finally {
       setSettlementSaving(false)
     }
-  }
-
-  const toggleOrderSelection = (orderNo: string, checked: boolean) => {
-    setSelectedOrderNos((current) => checked ? [...current, orderNo] : current.filter((item) => item !== orderNo))
   }
 
   const visibleProducts = useMemo(() => {
@@ -547,15 +609,40 @@ export default function PaidSubscriptions() {
       >
         {activeTab === 'products' && (
           <Card>
-            <CardHeader className="flex flex-row items-center justify-between">
+            <CardHeader className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
               <CardTitle>售卖商品</CardTitle>
-              <div className="flex gap-2">
+              <div className="flex flex-wrap gap-2">
                 <Button type="button" variant="outline" size="sm" onClick={() => void loadBase()}><RefreshCw className="mr-2 h-4 w-4" />刷新</Button>
                 <Button type="button" size="sm" onClick={openCreateProduct}><Plus className="mr-2 h-4 w-4" />新建</Button>
               </div>
             </CardHeader>
             <CardContent className="px-0">
-              <Table>
+              <div className="space-y-3 px-4 md:hidden">
+                {visibleProducts.map((product) => (
+                  <div key={product.id} className="rounded-xl border border-border/70 px-4 py-4">
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <div className="font-medium">{product.name}</div>
+                        <div className="text-xs text-muted-foreground">{product.subscriptionPlanName}</div>
+                        <div className="mt-1 text-xs text-muted-foreground">{product.summary || '-'}</div>
+                      </div>
+                      <Badge variant="outline" className={product.enabled ? 'border-emerald-200 bg-emerald-50 text-emerald-700' : 'border-slate-200 bg-slate-100 text-slate-600'}>
+                        {product.enabled ? '上架' : '下架'}
+                      </Badge>
+                    </div>
+                    <div className="mt-3 flex items-center justify-between text-sm">
+                      <span className="text-muted-foreground">{product.durationDays} 天</span>
+                      <span className="font-semibold">{formatCNY(product.priceCnyCent)}</span>
+                    </div>
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      <Button type="button" variant="outline" size="sm" onClick={() => openEditProduct(product)}>编辑</Button>
+                      <Button type="button" variant="outline" size="sm" onClick={() => void handleToggleProduct(product)}>{product.enabled ? '下架' : '上架'}</Button>
+                      <Button type="button" variant="destructive" size="sm" onClick={() => void handleDeleteProduct(product)}>删除</Button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+              <Table className="hidden md:table">
                 <TableHeader>
                   <TableRow>
                     <TableHead>商品</TableHead>
@@ -611,10 +698,7 @@ export default function PaidSubscriptions() {
             <CardHeader className="space-y-4">
               <div className="flex flex-wrap items-center justify-between gap-3">
                 <CardTitle>订单</CardTitle>
-                <div className="flex gap-2">
-                  <Badge variant="outline">已选 {selectedOrderNos.length}</Badge>
-                  <Button type="button" variant="outline" size="sm" onClick={openBatchSettlementDialog} disabled={selectedOrderNos.length === 0}>批量分账</Button>
-                </div>
+                <Button type="button" variant="outline" size="sm" onClick={openBatchSettlementDialog}>批量分账</Button>
               </div>
               <div className="grid gap-3 md:grid-cols-[1fr_180px_180px_220px_auto]">
                 <Input value={orderFilters.username} onChange={(event) => setOrderFilters((current) => ({ ...current, username: event.target.value }))} placeholder="搜索用户" />
@@ -650,33 +734,64 @@ export default function PaidSubscriptions() {
               </div>
             </CardHeader>
             <CardContent className="px-0">
-              <Table>
+              <div className="space-y-3 px-4 md:hidden">
+                {orders.map((order) => (
+                  <div key={order.id} className="rounded-xl border border-border/70 px-4 py-4">
+                    <div className="min-w-0">
+                      <div className="font-mono text-xs text-muted-foreground">{order.orderNo}</div>
+                      <div className="mt-1 font-medium">{order.productName}</div>
+                      <div className="text-xs text-muted-foreground">{order.username || '-'}</div>
+                    </div>
+
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      <Badge variant="outline" className={paymentTone(order.paymentStatus)}>{paymentLabel(order.paymentStatus)}</Badge>
+                      <Badge variant="outline">{fulfillmentLabel(order)}</Badge>
+                      <Badge
+                        variant="outline"
+                        className={order.manualSettlementDone
+                          ? 'border-slate-200 bg-slate-100 text-slate-700'
+                          : 'border-dashed text-muted-foreground'}
+                      >
+                        {order.manualSettlementDone ? '已分账' : '未分账'}
+                      </Badge>
+                    </div>
+
+                    <div className="mt-3 grid gap-2 text-sm text-muted-foreground">
+                      <div className="flex items-center justify-between gap-3">
+                        <span>金额</span>
+                        <span className="font-medium text-foreground">{formatCNY(order.amountCnyCent)}</span>
+                      </div>
+                      <div className="flex items-center justify-between gap-3">
+                        <span>时间</span>
+                        <span>{formatDateTime(order.createdAt)}</span>
+                      </div>
+                    </div>
+
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      {order.canRefresh && <Button type="button" size="sm" variant="outline" disabled={refreshingOrderNo === order.orderNo} onClick={() => void handleRefreshOrder(order.orderNo)}><RefreshCw className={`mr-2 h-4 w-4 ${refreshingOrderNo === order.orderNo ? 'animate-spin' : ''}`} />刷新</Button>}
+                      <Button type="button" size="sm" variant="outline" onClick={() => void openStatusDialog(order)}>修改订单信息</Button>
+                      <Button type="button" size="sm" variant="outline" disabled={order.manualSettlementDone || !['paid', 'refunded'].includes(order.paymentStatus)} onClick={() => openSingleSettlementDialog(order)}>单笔分账</Button>
+                    </div>
+                    {order.failureReason && <div className="mt-2 text-xs text-rose-600">{order.failureReason}</div>}
+                  </div>
+                ))}
+              </div>
+              <Table className="hidden md:table">
                 <TableHeader>
                   <TableRow>
-                    <TableHead className="w-10">
-                      <Checkbox
-                        checked={orders.length > 0 && orders.every((item) => selectedOrderNos.includes(item.orderNo))}
-                        onCheckedChange={(checked) => {
-                          const next = checked ? Array.from(new Set([...selectedOrderNos, ...orders.map((item) => item.orderNo)])) : selectedOrderNos.filter((orderNo) => !orders.some((item) => item.orderNo === orderNo))
-                          setSelectedOrderNos(next)
-                        }}
-                      />
-                    </TableHead>
                     <TableHead>订单</TableHead>
                     <TableHead>用户</TableHead>
                     <TableHead>商品</TableHead>
                     <TableHead>金额</TableHead>
                     <TableHead>支付</TableHead>
                     <TableHead>发放</TableHead>
+                    <TableHead>分账</TableHead>
                     <TableHead className="text-right">操作</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
                   {orders.map((order) => (
                     <TableRow key={order.id}>
-                      <TableCell>
-                        <Checkbox checked={selectedOrderNos.includes(order.orderNo)} onCheckedChange={(checked) => toggleOrderSelection(order.orderNo, checked === true)} />
-                      </TableCell>
                       <TableCell>
                         <div className="font-mono text-xs">{order.orderNo}</div>
                         <div className="text-xs text-muted-foreground">{formatDateTime(order.createdAt)}</div>
@@ -691,10 +806,17 @@ export default function PaidSubscriptions() {
                       <TableCell>{formatCNY(order.amountCnyCent)}</TableCell>
                       <TableCell><Badge variant="outline" className={paymentTone(order.paymentStatus)}>{paymentLabel(order.paymentStatus)}</Badge></TableCell>
                       <TableCell>
-                        <div className="flex flex-col items-start gap-1">
-                          <Badge variant="outline">{fulfillmentLabel(order)}</Badge>
-                          {order.manualSettlementDone && <Badge variant="outline" className="border-slate-200 bg-slate-100 text-slate-700">已分账</Badge>}
-                        </div>
+                        <Badge variant="outline">{fulfillmentLabel(order)}</Badge>
+                      </TableCell>
+                      <TableCell>
+                        <Badge
+                          variant="outline"
+                          className={order.manualSettlementDone
+                            ? 'border-slate-200 bg-slate-100 text-slate-700'
+                            : 'border-dashed text-muted-foreground'}
+                        >
+                          {order.manualSettlementDone ? '已分账' : '未分账'}
+                        </Badge>
                       </TableCell>
                       <TableCell className="text-right">
                         <div className="flex justify-end gap-2">
@@ -730,9 +852,9 @@ export default function PaidSubscriptions() {
 
         {activeTab === 'webhooks' && (
           <div className="space-y-4">
-            <div className="flex items-center justify-between border-b pb-3">
-              <div className="text-sm text-muted-foreground">{'{{ orderNo }} {{ amountCny }} {{ amountToday }} {{ amountTotal }} {{ billsToday }} {{ billsTotal }} {{ subscriptionName }} {{ quantity }} {{ deliveryCdk }} {{ alipayTradeNo }} {{ createdAt }}'}</div>
-              <div className="flex gap-2">
+            <div className="flex flex-col gap-3 border-b pb-3 lg:flex-row lg:items-center lg:justify-between">
+              <div className="text-sm text-muted-foreground break-all">{'{{ orderNo }} {{ amountCny }} {{ amountToday }} {{ amountTotal }} {{ billsToday }} {{ billsTotal }} {{ subscriptionName }} {{ quantity }} {{ deliveryCdk }} {{ alipayTradeNo }} {{ createdAt }}'}</div>
+              <div className="flex flex-wrap gap-2">
                 <Button type="button" variant="outline" size="sm" onClick={() => void refreshWebhooks()}><RefreshCw className="mr-2 h-4 w-4" />刷新</Button>
                 <Button type="button" size="sm" onClick={openCreateWebhook}><Plus className="mr-2 h-4 w-4" />新建</Button>
               </div>
@@ -752,7 +874,7 @@ export default function PaidSubscriptions() {
                       <pre className="overflow-auto rounded border bg-muted/40 p-3">{item.bodyTemplate || ''}</pre>
                     </div>
                   </div>
-                  <div className="flex shrink-0 gap-2">
+                  <div className="flex shrink-0 flex-wrap gap-2">
                     <Button type="button" variant="outline" size="sm" disabled={testingWebhookID === item.id} onClick={() => void handleTestWebhook(item)}><Send className="mr-2 h-4 w-4" />测试发送</Button>
                     <Button type="button" variant="outline" size="sm" onClick={() => openEditWebhook(item)}><Pencil className="mr-2 h-4 w-4" />编辑</Button>
                     <Button type="button" variant="outline" size="sm" onClick={() => void handleToggleWebhook(item)}>{item.enabled ? '停用' : '启用'}</Button>
@@ -779,7 +901,7 @@ export default function PaidSubscriptions() {
 
         {activeTab === 'settings' && (
           <Card>
-            <CardHeader className="flex flex-row items-center justify-between">
+            <CardHeader className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
               <CardTitle>支付设置</CardTitle>
               <Badge variant="outline" className={settings?.paymentConfigured ? 'border-emerald-200 bg-emerald-50 text-emerald-700' : 'border-slate-200 bg-slate-100 text-slate-600'}>
                 {settings?.paymentConfigured ? '配置完整' : '待补齐'}
@@ -917,17 +1039,115 @@ export default function PaidSubscriptions() {
       </Dialog>
 
       <Dialog open={settlementDialogMode !== null} onOpenChange={(open) => !open && setSettlementDialogMode(null)}>
-        <DialogContent className="max-w-xl">
+        <DialogContent className="max-h-[calc(100vh-2rem)] overflow-y-auto max-w-3xl">
           <DialogHeader><DialogTitle>{settlementDialogMode === 'single' ? '单笔分账' : '批量分账'}</DialogTitle></DialogHeader>
-          <div className="space-y-4 py-2">
-            <div className="text-sm text-muted-foreground">
-              {settlementDialogMode === 'single' ? settlementOrder?.orderNo : `共 ${selectedOrderNos.length} 笔`}
+          {settlementDialogMode === 'single' ? (
+            <div className="space-y-4 py-2">
+              <div className="text-sm text-muted-foreground">{settlementOrder?.orderNo}</div>
+              <div className="space-y-2"><Label>备注</Label><Textarea value={settlementNote} onChange={(event) => setSettlementNote(event.target.value)} className="min-h-[120px]" /></div>
             </div>
-            <div className="space-y-2"><Label>备注</Label><Textarea value={settlementNote} onChange={(event) => setSettlementNote(event.target.value)} className="min-h-[120px]" /></div>
-          </div>
+          ) : (
+            <div className="space-y-4 py-2">
+              <div className="grid gap-4 md:grid-cols-2">
+                <div className="space-y-2">
+                  <Label htmlFor="batchSettlementPaidFrom">支付开始</Label>
+                  <Input
+                    id="batchSettlementPaidFrom"
+                    type="datetime-local"
+                    value={batchSettlementRange.paidFrom}
+                    onChange={(event) => {
+                      setBatchSettlementRange((current) => ({ ...current, paidFrom: event.target.value }))
+                      setBatchSettlementPreview(null)
+                    }}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="batchSettlementPaidTo">支付结束</Label>
+                  <Input
+                    id="batchSettlementPaidTo"
+                    type="datetime-local"
+                    value={batchSettlementRange.paidTo}
+                    onChange={(event) => {
+                      setBatchSettlementRange((current) => ({ ...current, paidTo: event.target.value }))
+                      setBatchSettlementPreview(null)
+                    }}
+                  />
+                </div>
+              </div>
+
+              <div className="flex items-center justify-between rounded-lg border px-4 py-3">
+                <div>
+                  <p className="text-sm font-medium">DEBUG 分账</p>
+                  <p className="text-xs text-muted-foreground">用于测试批次标记，不改变订单筛选条件。</p>
+                </div>
+                <Switch checked={batchDebugSettlement} onCheckedChange={setBatchDebugSettlement} />
+              </div>
+
+              <div className="space-y-2">
+                <div className="flex items-center justify-between gap-3">
+                  <Label>分账预览</Label>
+                  <Button type="button" variant="outline" size="sm" onClick={() => void handlePreviewBatchSettlement()} disabled={batchPreviewLoading}>
+                    {batchPreviewLoading ? <RefreshCw className="mr-2 h-4 w-4 animate-spin" /> : null}
+                    生成预览
+                  </Button>
+                </div>
+                <div className="rounded-lg border">
+                  {batchSettlementPreview ? (
+                    <div className="space-y-4 p-4">
+                      <div className="flex flex-wrap gap-2">
+                        <Badge variant="outline">订单 {batchSettlementPreview.total}</Badge>
+                        <Badge variant="outline">金额 {formatCNY(batchSettlementPreview.totalAmountCnyCent)}</Badge>
+                        {batchSettlementPreview.total > batchSettlementPreview.items.length ? (
+                          <Badge variant="secondary">仅展示前 {batchSettlementPreview.items.length} 笔</Badge>
+                        ) : null}
+                      </div>
+                      {batchSettlementPreview.items.length === 0 ? (
+                        <div className="text-sm text-muted-foreground">当前时间区间内没有待分账订单。</div>
+                      ) : (
+                        <div className="space-y-3">
+                          {batchSettlementPreview.items.map((order) => (
+                            <div key={order.id} className="rounded-lg border border-border/70 px-4 py-3">
+                              <div className="flex flex-wrap items-start justify-between gap-3">
+                                <div className="min-w-0">
+                                  <div className="font-mono text-xs text-muted-foreground">{order.orderNo}</div>
+                                  <div className="mt-1 font-medium">{order.productName}</div>
+                                  <div className="text-xs text-muted-foreground">{order.username || '-'}</div>
+                                </div>
+                                <div className="text-right">
+                                  <div className="font-medium">{formatCNY(order.amountCnyCent)}</div>
+                                  <div className="mt-1 text-xs text-muted-foreground">{formatDateTime(order.paidAt || order.createdAt)}</div>
+                                </div>
+                              </div>
+                              <div className="mt-3 flex flex-wrap gap-2">
+                                <Badge variant="outline" className={paymentTone(order.paymentStatus)}>{paymentLabel(order.paymentStatus)}</Badge>
+                                <Badge variant="outline">{fulfillmentLabel(order)}</Badge>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  ) : (
+                    <div className="p-4 text-sm text-muted-foreground">选择时间区间后生成预览。</div>
+                  )}
+                </div>
+              </div>
+
+              <div className="space-y-2">
+                <Label>备注</Label>
+                <Textarea value={settlementNote} onChange={(event) => setSettlementNote(event.target.value)} className="min-h-[120px]" />
+              </div>
+            </div>
+          )}
           <DialogFooter>
             <Button variant="outline" onClick={() => setSettlementDialogMode(null)}>取消</Button>
-            <Button onClick={() => void handleConfirmSettlement()} disabled={settlementSaving}>{settlementSaving && <RefreshCw className="mr-2 h-4 w-4 animate-spin" />}确认</Button>
+            <Button
+              onClick={() => void handleConfirmSettlement()}
+              disabled={settlementSaving || (settlementDialogMode === 'batch' && (!batchSettlementPreview || batchSettlementPreview.total === 0))}
+            >
+              {settlementSaving && <RefreshCw className="mr-2 h-4 w-4 animate-spin" />}
+              确认
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

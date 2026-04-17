@@ -1,4 +1,4 @@
-import { Fragment, memo, startTransition, useDeferredValue, useState, useEffect, useRef, useMemo, useCallback } from 'react'
+import { type ReactNode, Fragment, memo, startTransition, useDeferredValue, useState, useEffect, useRef, useMemo, useCallback } from 'react'
 import {
   getRequestLogs, getAdminRequestLogs, getAdminDistinctModels, getAdminDistinctKeys, getDistinctKeys, getDistinctModels,
   RequestLog, DistinctAPIKey,
@@ -38,6 +38,21 @@ interface Props {
   isAdmin: boolean
 }
 
+function MobileInfoRow({
+  label,
+  value,
+}: {
+  label: string
+  value: ReactNode
+}) {
+  return (
+    <div className="flex items-start justify-between gap-3">
+      <span className="text-muted-foreground">{label}</span>
+      <div className="min-w-0 text-right text-foreground">{value}</div>
+    </div>
+  )
+}
+
 function getLiveFlushDelay(pageSize: number) {
   if (pageSize >= 100) return 1500
   if (pageSize >= 50) return 1000
@@ -62,6 +77,16 @@ function matchesRequestLogFilters(log: RequestLog, filters: FilterValues) {
   if (filters.channel) {
     const channelText = (log.channelName || log.provider || '').toLowerCase()
     if (!channelText.includes(filters.channel.toLowerCase())) {
+      return false
+    }
+  }
+  if (filters.requestFormat) {
+    if (normalizeRequestFormatKey(log.requestFormat, log.path) !== filters.requestFormat) {
+      return false
+    }
+  }
+  if (filters.upstreamFormat) {
+    if (normalizeRequestFormatKey(log.upstreamFormat) !== filters.upstreamFormat) {
       return false
     }
   }
@@ -236,6 +261,48 @@ function formatMethodLabel(method?: string) {
   return method.toUpperCase()
 }
 
+function describeStatusCode(status: number) {
+  switch (status) {
+    case 0:
+      return '请求进行中'
+    case 200:
+      return '成功'
+    case 201:
+      return '已创建'
+    case 204:
+      return '无返回体'
+    case 400:
+      return '请求参数错误'
+    case 401:
+      return '认证失败'
+    case 403:
+      return '权限不足'
+    case 404:
+      return '接口不存在'
+    case 408:
+      return '请求超时'
+    case 409:
+      return '请求冲突'
+    case 422:
+      return '请求体无法处理'
+    case 429:
+      return '限流'
+    case 500:
+      return '服务内部错误'
+    case 502:
+      return '上游网关错误'
+    case 503:
+      return '服务暂不可用'
+    case 504:
+      return '上游超时'
+    default:
+      if (status >= 200 && status < 300) return '请求成功'
+      if (status >= 400 && status < 500) return '客户端请求错误'
+      if (status >= 500) return '服务端或上游错误'
+      return '状态未知'
+  }
+}
+
 function methodBadgeClass(log: Pick<RequestLog, 'method' | 'transportFallbackReason'>) {
   if (log.method?.toLowerCase() !== 'websocket') return ''
   if (log.transportFallbackReason) {
@@ -300,6 +367,21 @@ const RequestLogRow = memo(function RequestLogRow({
   const channelBadgeTone = translationPath ? requestFormatBadgeClass(log.requestFormat, log.path) : ''
   const canOpenDetail = isAdmin || log.statusCode >= 400
   const sessionDisplay = log.sessionId || '-'
+  const statusTooltip = `${log.statusCode} · ${describeStatusCode(log.statusCode)}`
+  const statusBadge = canOpenDetail ? (
+    <button
+      type="button"
+      onClick={() => onOpenDetail(log.id)}
+      className="cursor-pointer whitespace-nowrap transition-opacity hover:opacity-80"
+      title={isAdmin ? '点击查看请求详情' : '点击查看失败请求详情'}
+    >
+      <StatusBadge status={log.statusCode} />
+    </button>
+  ) : (
+    <span className="inline-flex">
+      <StatusBadge status={log.statusCode} />
+    </span>
+  )
 
   return (
     <TableRow>
@@ -414,17 +496,14 @@ const RequestLogRow = memo(function RequestLogRow({
         </Tooltip>
       </TableCell>
       <TableCell className="whitespace-nowrap">
-        {canOpenDetail ? (
-          <button
-            onClick={() => onOpenDetail(log.id)}
-            className="cursor-pointer whitespace-nowrap hover:opacity-80 transition-opacity"
-            title={isAdmin ? '点击查看请求详情' : '点击查看失败请求详情'}
-          >
-            <StatusBadge status={log.statusCode} />
-          </button>
-        ) : (
-          <StatusBadge status={log.statusCode} />
-        )}
+        <Tooltip>
+          <TooltipTrigger asChild>
+            {statusBadge}
+          </TooltipTrigger>
+          <TooltipContent side="bottom">
+            <p>{statusTooltip}</p>
+          </TooltipContent>
+        </Tooltip>
       </TableCell>
       <TableCell className="whitespace-nowrap text-right text-muted-foreground">
         {renderDuration(log.ttfbMs)}
@@ -499,6 +578,136 @@ const RequestLogRow = memo(function RequestLogRow({
   )
 })
 
+const RequestLogMobileCard = memo(function RequestLogMobileCard({
+  log,
+  isAdmin,
+  userIdToUsername,
+  onOpenDetail,
+}: {
+  log: RequestLog
+  isAdmin: boolean
+  userIdToUsername: Map<string, string>
+  onOpenDetail: (logId: string) => void
+}) {
+  const userDisplay = log.username || userIdToUsername.get(log.userId) || `${log.userId.slice(0, 8)}...`
+  const keyDisplay = log.apiKeyName ? `${log.apiKeyName}${log.apiKeyPrefix ? ` (${log.apiKeyPrefix})` : ''}` : (log.apiKeyPrefix || log.apiKeyId || '-')
+  const translationPath = translationPathLabel(log)
+  const channelBadgeTone = translationPath ? requestFormatBadgeClass(log.requestFormat, log.path) : ''
+  const canOpenDetail = isAdmin || log.statusCode >= 400
+  const modelLabel = log.mappedModel || log.originalModel || '-'
+  const mappedFromLabel = log.mappedModel && log.originalModel && log.mappedModel !== log.originalModel ? log.originalModel : null
+  const statusContent = canOpenDetail ? (
+    <button
+      type="button"
+      onClick={() => onOpenDetail(log.id)}
+      className="cursor-pointer whitespace-nowrap transition-opacity hover:opacity-80"
+      title={isAdmin ? '点击查看请求详情' : '点击查看失败请求详情'}
+    >
+      <StatusBadge status={log.statusCode} />
+    </button>
+  ) : (
+    <span className="inline-flex">
+      <StatusBadge status={log.statusCode} />
+    </span>
+  )
+
+  return (
+    <div className="rounded-xl border border-border/70 px-4 py-4">
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <div className="font-medium">{modelLabel}</div>
+          {mappedFromLabel ? (
+            <div className="mt-1 text-xs text-muted-foreground">← {mappedFromLabel}</div>
+          ) : null}
+          <div className="mt-1 text-xs text-muted-foreground">{formatDateTimeWithSeconds(log.createdAt)}</div>
+        </div>
+        <div className="flex flex-col items-end gap-2">
+          <Tooltip>
+            <TooltipTrigger asChild>
+              {statusContent}
+            </TooltipTrigger>
+            <TooltipContent side="bottom">
+              <p>{`${log.statusCode} · ${describeStatusCode(log.statusCode)}`}</p>
+            </TooltipContent>
+          </Tooltip>
+          {log.thinkingLevel ? (
+            <Badge variant="secondary" className="text-xs whitespace-nowrap">{log.thinkingLevel}</Badge>
+          ) : null}
+        </div>
+      </div>
+
+      <div className="mt-3 flex flex-wrap gap-2">
+        {(log.channelName || log.provider) ? (
+          <Badge
+            variant="outline"
+            className={cn(
+              'max-w-full truncate text-xs',
+              channelBadgeTone,
+            )}
+          >
+            {log.channelName || log.provider}
+          </Badge>
+        ) : null}
+        {translationPath ? (
+          <Badge variant="secondary" className="max-w-full truncate text-xs">
+            {translationPath}
+          </Badge>
+        ) : null}
+        <Badge
+          variant="outline"
+          className={cn(
+            'text-xs',
+            methodBadgeClass(log),
+          )}
+        >
+          {formatMethodLabel(log.method)}
+        </Badge>
+      </div>
+
+      <div className="mt-3 grid gap-2 text-sm">
+        {isAdmin ? (
+          <>
+            <MobileInfoRow label="用户" value={userDisplay} />
+            <MobileInfoRow label="Key" value={keyDisplay} />
+          </>
+        ) : null}
+        <MobileInfoRow
+          label="Session"
+          value={
+            log.sessionId ? (
+              <span className="font-mono text-xs break-all">{log.sessionId}</span>
+            ) : '-'
+          }
+        />
+        <MobileInfoRow label="TTFB" value={renderDuration(log.ttfbMs)} />
+        <MobileInfoRow label="TPS" value={typeof log.tps === 'number' ? `${log.tps.toFixed(1)}/s` : '-'} />
+        <MobileInfoRow label="用时" value={renderDuration(log.latencyMs)} />
+        <MobileInfoRow label="输入" value={<Num value={log.inputTokens} />} />
+        <MobileInfoRow label="输出" value={<Num value={log.outputTokens} />} />
+        <MobileInfoRow label="缓存读" value={<Num value={log.cacheReadInputTokens} />} />
+        <MobileInfoRow label="缓存写" value={<Num value={log.cacheCreationInputTokens} />} />
+        <MobileInfoRow label="成本" value={log.costUsd ? `$${log.costUsd}` : '-'} />
+        <MobileInfoRow
+          label="倍率"
+          value={typeof log.rateMultiplier === 'number' ? (
+            <Badge variant="outline" className={cn('font-mono whitespace-nowrap', multiplierBadgeClass(log.rateMultiplier))}>
+              {formatDecimal(log.rateMultiplier, 2)}x
+            </Badge>
+          ) : '-'}
+        />
+      </div>
+
+      {canOpenDetail ? (
+        <div className="mt-3 flex justify-end">
+          <Button variant="outline" size="sm" onClick={() => onOpenDetail(log.id)}>
+            查看详情
+          </Button>
+        </div>
+      ) : null}
+    </div>
+  )
+})
+
 export default function RequestLogs({ isAdmin }: Props) {
   const [logs, setLogs] = useState<RequestLog[]>([])
   const [loading, setLoading] = useState(true)
@@ -510,7 +719,7 @@ export default function RequestLogs({ isAdmin }: Props) {
   const [pageSize, setPageSize] = useState(20)
   const [sessionSearchMinChars, setSessionSearchMinChars] = useState(3)
 
-  const [filters, setFilters] = useState<FilterValues>({ userId: '', apiKeyId: '', sessionId: '', model: '', channel: '', statuses: [], from: '', to: '' })
+  const [filters, setFilters] = useState<FilterValues>({ userId: '', apiKeyId: '', sessionId: '', model: '', channel: '', requestFormat: '', upstreamFormat: '', statuses: [], from: '', to: '' })
 
   const [users, setUsers] = useState<UserInfo[]>([])
   const [models, setModels] = useState<string[]>([])
@@ -524,7 +733,7 @@ export default function RequestLogs({ isAdmin }: Props) {
   const logsRef = useRef<RequestLog[]>([])
   const totalRef = useRef(0)
   const knownLogIDsRef = useRef<Set<string>>(new Set())
-  const filtersRef = useRef<FilterValues>({ userId: '', apiKeyId: '', sessionId: '', model: '', channel: '', statuses: [], from: '', to: '' })
+  const filtersRef = useRef<FilterValues>({ userId: '', apiKeyId: '', sessionId: '', model: '', channel: '', requestFormat: '', upstreamFormat: '', statuses: [], from: '', to: '' })
   const abortControllerRef = useRef<AbortController | null>(null)
   const [pendingCount, setPendingCount] = useState(0)
 
@@ -736,6 +945,8 @@ export default function RequestLogs({ isAdmin }: Props) {
         sessionId: normalizedSessionId || undefined,
         model: filters.model || undefined,
         channel: filters.channel || undefined,
+        requestFormat: filters.requestFormat || undefined,
+        upstreamFormat: filters.upstreamFormat || undefined,
         statusCodes: filters.statuses.length ? filters.statuses.map((status) => Number.parseInt(status, 10)) : undefined,
         from: filters.from ? localToISO(filters.from) : sessionWindow?.from,
         to: filters.to ? localToISO(filters.to) : sessionWindow?.to,
@@ -812,12 +1023,12 @@ export default function RequestLogs({ isAdmin }: Props) {
       <motion.div initial={{ opacity: 0, y: 30 }} animate={{ opacity: 1, y: 0 }} transition={{ type: 'spring', bounce: 0.2, duration: 0.6, delay: 0.1 }}>
         <Card>
           <CardHeader>
-            <div className="flex items-center justify-between">
+            <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
               <div>
                 <CardTitle>请求记录</CardTitle>
                 <CardDescription>共 {total} 条记录{shouldApplyImplicitSessionWindow ? ' · Session 搜索按最近 6 小时查询' : ''}</CardDescription>
               </div>
-              <div className="flex items-center gap-3">
+              <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center">
                 {isAdmin && pendingCount > 0 ? (
                   <div className="flex items-center gap-2">
                     <Badge variant="secondary">新 {pendingCount}</Badge>
@@ -827,7 +1038,7 @@ export default function RequestLogs({ isAdmin }: Props) {
                   </div>
                 ) : null}
                 {isAdmin ? (
-                  <div className="flex items-center gap-2 border-l pl-3">
+                  <div className="flex items-center gap-2 sm:border-l sm:pl-3">
                     <Switch id="auto-refresh" checked={autoRefresh} onCheckedChange={setAutoRefresh} />
                     <Label htmlFor="auto-refresh" className="text-sm">自动刷新</Label>
                   </div>
@@ -843,54 +1054,66 @@ export default function RequestLogs({ isAdmin }: Props) {
               <p className="text-center text-muted-foreground py-8">暂无请求记录</p>
             ) : (
               <>
-                <div className={`relative overflow-auto max-h-[calc(100vh-320px)] min-h-[400px] rounded-md border transition-opacity ${fetching ? 'opacity-50 pointer-events-none' : ''}`}>
-                <Table className="min-w-full w-max" containerClassName="overflow-visible">
-                  <TableHeader className="sticky top-0 z-10 bg-background">
-                    <TableRow>
-                      <TableHead className="whitespace-nowrap">时间</TableHead>
-                      {isAdmin && <TableHead className="whitespace-nowrap">用户</TableHead>}
-                      <TableHead className="w-[11rem] min-w-[11rem] whitespace-nowrap">Session</TableHead>
-                      <TableHead className="whitespace-nowrap">模型</TableHead>
-                      <TableHead className="whitespace-nowrap">渠道</TableHead>
-                      <TableHead className="whitespace-nowrap">思维等级</TableHead>
-                      <TableHead className="whitespace-nowrap">方法</TableHead>
-                      <TableHead className="whitespace-nowrap">状态</TableHead>
-                      <TableHead className="whitespace-nowrap text-right">TTFB</TableHead>
-                      <TableHead className="whitespace-nowrap text-right">TPS</TableHead>
-                      <TableHead className="whitespace-nowrap text-right">用时</TableHead>
-                      <TableHead className="whitespace-nowrap text-right">
-                        <Tooltip>
-                          <TooltipTrigger asChild>
-                            <span className="cursor-help underline decoration-dotted underline-offset-4">输入</span>
-                          </TooltipTrigger>
-                          <TooltipContent side="bottom">
-                            <p>这里的输入 Tokens 已扣除缓存读取命中的部分。</p>
-                          </TooltipContent>
-                        </Tooltip>
-                      </TableHead>
-                      <TableHead className="whitespace-nowrap text-right">输出</TableHead>
-                      <TableHead className="whitespace-nowrap text-right">缓存读</TableHead>
-                      <TableHead className="whitespace-nowrap text-right">缓存写</TableHead>
-                      <TableHead className="whitespace-nowrap text-right">成本</TableHead>
-                      <TableHead className="whitespace-nowrap text-right">倍率</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {deferredLogs.map((log) => (
-                      <RequestLogRow
-                        key={log.id}
-                        log={log}
-                        isAdmin={isAdmin}
-                        userIdToUsername={userIdToUsername}
-                        onOpenDetail={handleOpenDetail}
-                      />
-                    ))}
-                  </TableBody>
-                </Table>
+                <div className={cn('space-y-3 md:hidden', fetching && 'opacity-50 pointer-events-none')}>
+                  {deferredLogs.map((log) => (
+                    <RequestLogMobileCard
+                      key={log.id}
+                      log={log}
+                      isAdmin={isAdmin}
+                      userIdToUsername={userIdToUsername}
+                      onOpenDetail={handleOpenDetail}
+                    />
+                  ))}
                 </div>
 
-                <div className="flex items-center justify-between mt-4">
-                  <div className="flex items-center gap-4">
+                <div className={`relative hidden overflow-auto max-h-[calc(100vh-320px)] min-h-[400px] rounded-md border transition-opacity md:block ${fetching ? 'opacity-50 pointer-events-none' : ''}`}>
+                  <Table className="min-w-full w-max" containerClassName="overflow-visible">
+                    <TableHeader className="sticky top-0 z-10 bg-background">
+                      <TableRow>
+                        <TableHead className="whitespace-nowrap">时间</TableHead>
+                        {isAdmin && <TableHead className="whitespace-nowrap">用户</TableHead>}
+                        <TableHead className="w-[11rem] min-w-[11rem] whitespace-nowrap">Session</TableHead>
+                        <TableHead className="whitespace-nowrap">模型</TableHead>
+                        <TableHead className="whitespace-nowrap">渠道</TableHead>
+                        <TableHead className="whitespace-nowrap">思维等级</TableHead>
+                        <TableHead className="whitespace-nowrap">方法</TableHead>
+                        <TableHead className="whitespace-nowrap">状态</TableHead>
+                        <TableHead className="whitespace-nowrap text-right">TTFB</TableHead>
+                        <TableHead className="whitespace-nowrap text-right">TPS</TableHead>
+                        <TableHead className="whitespace-nowrap text-right">用时</TableHead>
+                        <TableHead className="whitespace-nowrap text-right">
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <span className="cursor-help underline decoration-dotted underline-offset-4">输入</span>
+                            </TooltipTrigger>
+                            <TooltipContent side="bottom">
+                              <p>这里的输入 Tokens 已扣除缓存读取命中的部分。</p>
+                            </TooltipContent>
+                          </Tooltip>
+                        </TableHead>
+                        <TableHead className="whitespace-nowrap text-right">输出</TableHead>
+                        <TableHead className="whitespace-nowrap text-right">缓存读</TableHead>
+                        <TableHead className="whitespace-nowrap text-right">缓存写</TableHead>
+                        <TableHead className="whitespace-nowrap text-right">成本</TableHead>
+                        <TableHead className="whitespace-nowrap text-right">倍率</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {deferredLogs.map((log) => (
+                        <RequestLogRow
+                          key={log.id}
+                          log={log}
+                          isAdmin={isAdmin}
+                          userIdToUsername={userIdToUsername}
+                          onOpenDetail={handleOpenDetail}
+                        />
+                      ))}
+                    </TableBody>
+                  </Table>
+                </div>
+
+                <div className="mt-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                  <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:gap-4">
                     <p className="text-sm text-muted-foreground">
                       第 {page} 页，共 {totalPages} 页
                     </p>
