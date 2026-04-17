@@ -156,19 +156,69 @@ function buildPricingTitle(log: RequestLog) {
   return `${modelLabel} 计费标准`
 }
 
-function formatRequestFormatLabel(format?: string) {
-  switch (format) {
-    case 'openai-chat':
+type RequestFormatKey = 'chat_completions' | 'responses' | 'messages' | 'generate_content'
+
+function detectRequestFormatKeyFromPath(path?: string): RequestFormatKey | null {
+  if (!path) return null
+
+  const normalizedPath = path.toLowerCase()
+  if (normalizedPath.includes('/v1/chat/completions')) return 'chat_completions'
+  if (normalizedPath.includes('/v1/responses')) return 'responses'
+  if (normalizedPath.includes('/v1/messages')) return 'messages'
+  if (normalizedPath.includes('/v1beta/models/') || normalizedPath.includes('/v1beta1/publishers/google/models/')) {
+    return 'generate_content'
+  }
+
+  return null
+}
+
+function normalizeRequestFormatKey(format?: string, path?: string): RequestFormatKey | null {
+  switch (format?.trim().toLowerCase()) {
     case 'openai':
-      return 'Compatible'
+    case 'openai-chat':
+    case 'chat_completions':
+      return 'chat_completions'
     case 'openai-responses':
-      return 'Responses'
+    case 'responses':
+      return 'responses'
     case 'claude':
-      return 'Anthropic Messages'
+    case 'messages':
+      return 'messages'
     case 'gemini':
+    case 'generate_content':
+      return 'generate_content'
+    default:
+      return detectRequestFormatKeyFromPath(path)
+  }
+}
+
+function formatRequestFormatLabel(format?: string) {
+  switch (normalizeRequestFormatKey(format)) {
+    case 'chat_completions':
+      return 'Chat Completions'
+    case 'responses':
+      return 'Responses'
+    case 'messages':
+      return 'Anthropic Messages'
+    case 'generate_content':
       return 'Gemini'
     default:
       return format || ''
+  }
+}
+
+function requestFormatBadgeClass(format?: string, path?: string) {
+  switch (normalizeRequestFormatKey(format, path)) {
+    case 'chat_completions':
+      return 'border-emerald-300 bg-emerald-50 text-emerald-700 hover:bg-emerald-100'
+    case 'responses':
+      return 'border-sky-300 bg-sky-50 text-sky-700 hover:bg-sky-100'
+    case 'messages':
+      return 'border-amber-300 bg-amber-50 text-amber-700 hover:bg-amber-100'
+    case 'generate_content':
+      return 'border-violet-300 bg-violet-50 text-violet-700 hover:bg-violet-100'
+    default:
+      return ''
   }
 }
 
@@ -183,6 +233,14 @@ function formatMethodLabel(method?: string) {
   if (!method) return '-'
   if (method.toLowerCase() === 'websocket') return 'WebSocket'
   return method.toUpperCase()
+}
+
+function methodBadgeClass(log: Pick<RequestLog, 'method' | 'transportFallbackReason'>) {
+  if (log.method?.toLowerCase() !== 'websocket') return ''
+  if (log.transportFallbackReason) {
+    return 'font-medium border-rose-300 bg-rose-50 text-rose-700 hover:bg-rose-100'
+  }
+  return 'font-medium'
 }
 
 function TransportMetaTooltip({
@@ -238,6 +296,7 @@ const RequestLogRow = memo(function RequestLogRow({
   const userDisplay = log.username || userIdToUsername.get(log.userId) || `${log.userId.slice(0, 8)}...`
   const keyDisplay = log.apiKeyName ? `${log.apiKeyName}${log.apiKeyPrefix ? ` (${log.apiKeyPrefix})` : ''}` : (log.apiKeyPrefix || log.apiKeyId || '-')
   const translationPath = translationPathLabel(log)
+  const channelBadgeTone = requestFormatBadgeClass(log.requestFormat, log.path)
   const canOpenDetail = isAdmin || log.statusCode >= 400
   const sessionDisplay = log.sessionId || '-'
 
@@ -302,7 +361,7 @@ const RequestLogRow = memo(function RequestLogRow({
                   variant="outline"
                   className={cn(
                     'max-w-[10rem] cursor-help truncate text-xs whitespace-nowrap',
-                    translationPath ? 'border-sky-300 bg-sky-50 text-sky-700 hover:bg-sky-100' : undefined,
+                    channelBadgeTone,
                   )}
                 >
                   {log.channelName || log.provider}
@@ -342,7 +401,7 @@ const RequestLogRow = memo(function RequestLogRow({
               variant="outline"
               className={cn(
                 'cursor-help whitespace-nowrap',
-                log.method?.toLowerCase() === 'websocket' ? 'font-medium' : undefined,
+                methodBadgeClass(log),
               )}
             >
               {formatMethodLabel(log.method)}
