@@ -174,7 +174,7 @@ func TestGetUsageSummaryDisplaysUncachedInputTokens(t *testing.T) {
 
 	repo := NewRequestLogRepository()
 	userID := "user-1"
-	summaries, err := repo.GetUsageSummary(&userID, nil, nil, "model", "")
+	summaries, err := repo.GetUsageSummary(&userID, nil, nil, "model", "", time.UTC)
 	if err != nil {
 		t.Fatalf("GetUsageSummary returned error: %v", err)
 	}
@@ -202,7 +202,7 @@ func TestGetDashboardStatsDisplaysUncachedInputTokens(t *testing.T) {
 	insertRequestLogForCacheTest(t, "log-openai-2", "user-1", "gpt-5.4", 200, 50, 0, now)
 
 	repo := NewRequestLogRepository()
-	today, week, month, _, _, err := repo.GetDashboardStats("user-1")
+	today, week, month, _, _, err := repo.GetDashboardStats("user-1", time.UTC)
 	if err != nil {
 		t.Fatalf("GetDashboardStats returned error: %v", err)
 	}
@@ -219,7 +219,7 @@ func TestGetDashboardStatsFillsMissingDaysWithZeroes(t *testing.T) {
 	insertRequestLogForCacheTest(t, "log-openai-filled", "user-1", "gpt-5.4", 100, 0, 0, now)
 
 	repo := NewRequestLogRepository()
-	_, _, _, _, dailyTrend, err := repo.GetDashboardStats("user-1")
+	_, _, _, _, dailyTrend, err := repo.GetDashboardStats("user-1", time.UTC)
 	if err != nil {
 		t.Fatalf("GetDashboardStats returned error: %v", err)
 	}
@@ -244,6 +244,42 @@ func TestGetDashboardStatsFillsMissingDaysWithZeroes(t *testing.T) {
 	}
 	if requestDays != 1 {
 		t.Fatalf("expected exactly one populated trend day, got %d", requestDays)
+	}
+}
+
+func TestGetDashboardStatsUsesProvidedTimeZoneForDailyBuckets(t *testing.T) {
+	setupRequestLogTestDB(t)
+
+	location := time.FixedZone("UTC+8", 8*3600)
+	localNow := time.Now().In(location)
+	todayLocal := time.Date(localNow.Year(), localNow.Month(), localNow.Day(), 0, 0, 0, 0, location)
+	createdAt := todayLocal.UTC()
+
+	insertRequestLogForCacheTest(t, "log-local-day", "user-1", "gpt-5.4", 100, 0, 0, createdAt)
+
+	repo := NewRequestLogRepository()
+	today, _, _, _, dailyTrend, err := repo.GetDashboardStats("user-1", location)
+	if err != nil {
+		t.Fatalf("GetDashboardStats returned error: %v", err)
+	}
+
+	if today.RequestCount != 1 {
+		t.Fatalf("expected today request count to use provided time zone, got %d", today.RequestCount)
+	}
+
+	wantDate := todayLocal.Format("2006-01-02")
+	found := false
+	for _, point := range dailyTrend {
+		if point.Date == wantDate {
+			found = true
+			if point.Requests != 1 {
+				t.Fatalf("expected %s to contain request, got %+v", wantDate, point)
+			}
+		}
+	}
+
+	if !found {
+		t.Fatalf("expected trend to contain local date %s, got %+v", wantDate, dailyTrend)
 	}
 }
 

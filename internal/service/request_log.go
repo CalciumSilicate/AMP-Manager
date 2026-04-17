@@ -17,6 +17,14 @@ func NewRequestLogService() *RequestLogService {
 	}
 }
 
+func loadStatsLocation() *time.Location {
+	location, err := NewSystemConfigService().GetSiteLocation()
+	if err != nil || location == nil {
+		return time.UTC
+	}
+	return location
+}
+
 // ListParams 列表查询参数
 type ListRequestLogsParams struct {
 	UserID         string
@@ -67,7 +75,7 @@ func (s *RequestLogService) List(params ListRequestLogsParams) (*model.RequestLo
 
 // GetUsageSummary 获取用量统计（用户自身）
 func (s *RequestLogService) GetUsageSummary(userID string, from, to *time.Time, groupBy string, modelFilter string) (*model.UsageSummaryResponse, error) {
-	summaries, err := s.repo.GetUsageSummary(&userID, from, to, groupBy, modelFilter)
+	summaries, err := s.repo.GetUsageSummary(&userID, from, to, groupBy, modelFilter, loadStatsLocation())
 	if err != nil {
 		return nil, err
 	}
@@ -79,7 +87,7 @@ func (s *RequestLogService) GetUsageSummary(userID string, from, to *time.Time, 
 
 // GetUsageSummaryAdmin 获取用量统计（管理员，查看所有用户）
 func (s *RequestLogService) GetUsageSummaryAdmin(userID *string, from, to *time.Time, groupBy string, modelFilter string) (*model.UsageSummaryResponse, error) {
-	summaries, err := s.repo.GetUsageSummary(userID, from, to, groupBy, modelFilter)
+	summaries, err := s.repo.GetUsageSummary(userID, from, to, groupBy, modelFilter, loadStatsLocation())
 	if err != nil {
 		return nil, err
 	}
@@ -137,7 +145,7 @@ func (s *RequestLogService) GetDistinctAPIKeys(userID string) ([]repository.Dist
 
 // GetDashboardStats 获取仪表盘统计数据
 func (s *RequestLogService) GetDashboardStats(userID string) (today, week, month repository.DashboardPeriodStats, topModels []repository.DashboardTopModel, dailyTrend []repository.DashboardDailyTrend, err error) {
-	return s.repo.GetDashboardStats(userID)
+	return s.repo.GetDashboardStats(userID, loadStatsLocation())
 }
 
 // GetCacheHitRateByProvider 按提供商获取缓存命中率
@@ -147,7 +155,7 @@ func (s *RequestLogService) GetCacheHitRateByProvider(userID string) ([]reposito
 
 // GetAdminDashboardStats 获取管理员仪表盘统计数据
 func (s *RequestLogService) GetAdminDashboardStats(windowKey string) (today, week, month repository.DashboardPeriodStats, topModels []repository.DashboardTopModel, dailyTrend []repository.DashboardDailyTrend, throughputTrend []repository.DashboardThroughputPoint, ttfbTrend []repository.DashboardTimingPoint, durationTrend []repository.DashboardTimingPoint, err error) {
-	return s.repo.GetAdminDashboardStats(windowKey)
+	return s.repo.GetAdminDashboardStats(windowKey, loadStatsLocation())
 }
 
 // GetAdminCacheHitRateByProvider 管理员全局缓存命中率

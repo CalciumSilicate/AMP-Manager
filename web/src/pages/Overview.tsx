@@ -69,6 +69,7 @@ export default function Overview() {
   const [error, setError] = useState('')
   const [billingState, setBillingState] = useState<BillingStateResponse | null>(null)
   const [billingLoading, setBillingLoading] = useState(true)
+  const [isCompactViewport, setIsCompactViewport] = useState(false)
   const [priorityPopoverOpen, setPriorityPopoverOpen] = useState(false)
   const [prioritySaving, setPrioritySaving] = useState(false)
   const [billingResetting, setBillingResetting] = useState(false)
@@ -140,6 +141,15 @@ export default function Overview() {
     loadDashboard()
   }, [])
 
+  useEffect(() => {
+    const media = window.matchMedia('(max-width: 430px)')
+    const syncViewport = () => setIsCompactViewport(media.matches)
+
+    syncViewport()
+    media.addEventListener('change', syncViewport)
+    return () => media.removeEventListener('change', syncViewport)
+  }, [])
+
   const trendData = useMemo(() => {
     if (!data?.dailyTrend?.length) return []
     return data.dailyTrend.map(d => ({
@@ -153,16 +163,17 @@ export default function Overview() {
     if (!data?.topModels?.length) return []
     return data.topModels.map((m, i) => {
       const key = `model${i}`
+      const maxLabelLength = isCompactViewport ? 12 : 20
       return {
         key,
-        name: m.model.length > 20 ? m.model.slice(0, 18) + '…' : m.model,
+        name: m.model.length > maxLabelLength ? m.model.slice(0, maxLabelLength - 2) + '…' : m.model,
         fullName: m.model,
         requests: m.requestCount,
         cost: parseFloat(m.costUsd),
         fill: `var(--color-${key})`,
       }
     })
-  }, [data?.topModels])
+  }, [data?.topModels, isCompactViewport])
 
   if (loading && !data) {
     return (
@@ -338,14 +349,14 @@ export default function Overview() {
       </motion.div>
 
       {/* Billing Status + Daily Cost Trend */}
-      <div className="grid gap-6 xl:grid-cols-2">
+      <div className="grid gap-4 md:gap-6 xl:grid-cols-2">
         <motion.div
           initial={{ opacity: 0, y: 30, scale: 0.95 }}
           animate={{ opacity: 1, y: 0, scale: 1 }}
           transition={{ type: 'spring', bounce: 0.25, duration: 0.7, delay: 0.15 }}
-          className="h-full"
+          className="min-w-0 h-full"
         >
-          <Card className="flex h-full flex-col">
+          <Card className="flex h-full min-w-0 flex-col">
             <CardHeader className="pb-2">
               <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
                 <div className="min-w-0">
@@ -357,11 +368,11 @@ export default function Overview() {
                 {billingLoading ? (
                   <div className="h-9 w-40 rounded-md loading-shimmer" />
                 ) : billingState ? (
-                  <div className="flex flex-wrap items-center gap-2 lg:justify-end">
+                  <div className="flex flex-col items-stretch gap-2 sm:flex-row sm:flex-wrap sm:items-center lg:justify-end">
                     <Button
                       variant="outline"
                       size="sm"
-                      className="h-9 rounded-md px-3"
+                      className="h-9 rounded-md px-3 justify-start sm:justify-center"
                       onClick={() => navigateDashboard('purchase-center')}
                     >
                       <CreditCard className="mr-2 h-4 w-4" />
@@ -374,7 +385,7 @@ export default function Overview() {
                             <Button
                               variant="outline"
                               size="sm"
-                              className="h-9 rounded-md px-3"
+                              className="h-9 rounded-md px-3 justify-start sm:justify-center"
                               onClick={() => void handleResetBillingDaily()}
                               disabled={!billingState.dailyReset.allowed || billingResetting}
                             >
@@ -391,7 +402,7 @@ export default function Overview() {
                     ) : null}
                     <Popover open={priorityPopoverOpen} onOpenChange={setPriorityPopoverOpen}>
                       <PopoverTrigger asChild>
-                        <Button variant="outline" size="sm" className="h-9 rounded-md px-3">
+                        <Button variant="outline" size="sm" className="h-9 rounded-md px-3 justify-start sm:justify-center">
                           <ArrowRightLeft className="mr-2 h-4 w-4" />
                           {billingState.primarySource === 'subscription' ? '订阅优先' : '余额优先'}
                         </Button>
@@ -454,7 +465,7 @@ export default function Overview() {
                 )}
               </div>
             </CardHeader>
-            <CardContent className="flex-1 space-y-2.5">
+            <CardContent className="min-w-0 flex-1 space-y-2.5">
               {billingLoading ? (
                 <div className="space-y-2.5">
                   <div className="grid gap-4 border-b pb-2.5 sm:grid-cols-[minmax(0,1fr)_200px]">
@@ -574,9 +585,9 @@ export default function Overview() {
           initial={{ opacity: 0, y: 30, scale: 0.97 }}
           animate={{ opacity: 1, y: 0, scale: 1 }}
           transition={{ type: 'spring', bounce: 0.25, duration: 0.7, delay: 0.22 }}
-          className="h-full"
+          className="min-w-0 h-full"
         >
-          <Card className="flex h-full flex-col">
+          <Card className="flex h-full min-w-0 flex-col">
             <CardHeader className="pb-3">
               <CardTitle className="text-base flex items-center gap-2">
                 <DollarSign className="h-4 w-4 text-emerald-500" />
@@ -584,12 +595,12 @@ export default function Overview() {
               </CardTitle>
               <CardDescription>近 14 天成本变化 (USD)</CardDescription>
             </CardHeader>
-            <CardContent className="flex-1">
+            <CardContent className="min-w-0 flex-1">
               {trendData.length === 0 ? (
                 <p className="text-center text-muted-foreground py-12">暂无数据</p>
               ) : (
-                <ChartContainer config={trendChartConfig} className="h-[216px] w-full">
-                  <AreaChart accessibilityLayer data={trendData} margin={{ top: 8, right: 12, left: -4, bottom: 0 }}>
+                <ChartContainer config={trendChartConfig} className="h-[216px] min-w-0 w-full">
+                  <AreaChart accessibilityLayer data={trendData} margin={isCompactViewport ? { top: 8, right: 4, left: -24, bottom: 0 } : { top: 8, right: 12, left: -4, bottom: 0 }}>
                     <defs>
                       <linearGradient id="fillCost" x1="0" y1="0" x2="0" y2="1">
                         <stop offset="5%" stopColor="var(--color-cost)" stopOpacity={0.4} />
@@ -605,6 +616,7 @@ export default function Overview() {
                       tickFormatter={v => v}
                     />
                     <YAxis
+                      hide={isCompactViewport}
                       tickLine={false}
                       axisLine={false}
                       tickMargin={4}
@@ -637,27 +649,27 @@ export default function Overview() {
       </div>
 
       {/* Top Models + Daily Requests */}
-      <div className="grid gap-6 xl:grid-cols-2">
+      <div className="grid gap-4 md:gap-6 xl:grid-cols-2">
         <motion.div
           initial={{ opacity: 0, y: 30, scale: 0.95 }}
           animate={{ opacity: 1, y: 0, scale: 1 }}
           transition={{ type: 'spring', bounce: 0.25, duration: 0.7, delay: 0.3 }}
         >
-          <Card className="h-full">
+          <Card className="h-full min-w-0">
             <CardHeader className="pb-3">
               <CardTitle className="text-base">热门模型排行（30天）</CardTitle>
               <CardDescription>按请求次数和成本排名</CardDescription>
             </CardHeader>
-            <CardContent>
+            <CardContent className="min-w-0">
               {modelBarData.length === 0 ? (
                 <p className="text-center text-muted-foreground py-12">暂无数据</p>
               ) : (
-                <ChartContainer config={modelChartConfig} className="h-[216px] w-full">
+                <ChartContainer config={modelChartConfig} className="h-[216px] min-w-0 w-full">
                   <BarChart
                     accessibilityLayer
                     data={modelBarData}
                     layout="vertical"
-                    margin={{ top: 4, right: 16, left: 4, bottom: 0 }}
+                    margin={isCompactViewport ? { top: 4, right: 8, left: 0, bottom: 0 } : { top: 4, right: 16, left: 4, bottom: 0 }}
                   >
                     <CartesianGrid horizontal={false} />
                     <XAxis type="number" tickLine={false} axisLine={false} tickMargin={4} />
@@ -666,7 +678,7 @@ export default function Overview() {
                       dataKey="name"
                       tickLine={false}
                       axisLine={false}
-                      width={120}
+                      width={isCompactViewport ? 72 : 120}
                       tick={{ fontSize: 11 }}
                     />
                     <ChartTooltip
@@ -708,7 +720,7 @@ export default function Overview() {
           animate={{ opacity: 1, y: 0, scale: 1 }}
           transition={{ type: 'spring', bounce: 0.25, duration: 0.7, delay: 0.38 }}
         >
-          <Card className="h-full">
+          <Card className="h-full min-w-0">
             <CardHeader className="pb-3">
               <CardTitle className="text-base flex items-center gap-2">
                 <Activity className="h-4 w-4 text-blue-500" />
@@ -716,12 +728,12 @@ export default function Overview() {
               </CardTitle>
               <CardDescription>近 14 天请求数变化</CardDescription>
             </CardHeader>
-            <CardContent>
+            <CardContent className="min-w-0">
               {trendData.length === 0 ? (
                 <p className="text-center text-muted-foreground py-12">暂无数据</p>
               ) : (
-                <ChartContainer config={trendChartConfig} className="h-[216px] w-full">
-                  <BarChart accessibilityLayer data={trendData} margin={{ top: 8, right: 12, left: -4, bottom: 0 }}>
+                <ChartContainer config={trendChartConfig} className="h-[216px] min-w-0 w-full">
+                  <BarChart accessibilityLayer data={trendData} margin={isCompactViewport ? { top: 8, right: 4, left: -24, bottom: 0 } : { top: 8, right: 12, left: -4, bottom: 0 }}>
                     <defs>
                       <linearGradient id="fillRequests" x1="0" y1="0" x2="0" y2="1">
                         <stop offset="0%" stopColor="var(--color-requests)" stopOpacity={0.9} />
@@ -736,6 +748,7 @@ export default function Overview() {
                       tickMargin={8}
                     />
                     <YAxis
+                      hide={isCompactViewport}
                       tickLine={false}
                       axisLine={false}
                       tickMargin={4}

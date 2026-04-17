@@ -537,13 +537,14 @@ func (r *RequestLogRepository) List(params ListParams) ([]model.RequestLog, int6
 
 // GetUsageSummary 获取用量统计
 // userID 为 nil 或空字符串时查询所有用户
-func (r *RequestLogRepository) GetUsageSummary(userID *string, from, to *time.Time, groupBy string, modelFilter string) ([]model.UsageSummary, error) {
+func (r *RequestLogRepository) GetUsageSummary(userID *string, from, to *time.Time, groupBy string, modelFilter string, location *time.Location) ([]model.UsageSummary, error) {
 	db := database.GetDB()
+	location = normalizeDashboardLocation(location)
 
 	var groupColumn string
 	switch groupBy {
 	case "day":
-		groupColumn = database.DayBucketExpr("created_at")
+		groupColumn = database.DayBucketExprInLocation("created_at", location)
 	case "model":
 		groupColumn = "COALESCE(mapped_model, original_model, 'unknown')"
 	case "apiKey":
@@ -551,7 +552,7 @@ func (r *RequestLogRepository) GetUsageSummary(userID *string, from, to *time.Ti
 	case "user":
 		groupColumn = "user_id"
 	default:
-		groupColumn = database.DayBucketExpr("created_at")
+		groupColumn = database.DayBucketExprInLocation("created_at", location)
 	}
 
 	conditions := []string{"1=1"}
@@ -784,6 +785,50 @@ func fillDashboardDailyTrend(start time.Time, days int, trends []DashboardDailyT
 	return filled
 }
 
+func normalizeDashboardLocation(location *time.Location) *time.Location {
+	if location == nil {
+		return time.UTC
+	}
+	return location
+}
+
+func dashboardWindowStarts(now time.Time, location *time.Location) (todayStartLocal time.Time, todayStartUTC time.Time, weekStartUTC time.Time, monthStartUTC time.Time, trendStartLocal time.Time, trendStartUTC time.Time) {
+	location = normalizeDashboardLocation(location)
+
+	localNow := now.In(location)
+	todayStartLocal = time.Date(localNow.Year(), localNow.Month(), localNow.Day(), 0, 0, 0, 0, location)
+	trendStartLocal = todayStartLocal.AddDate(0, 0, -13)
+
+	return todayStartLocal, todayStartLocal.UTC(), todayStartLocal.AddDate(0, 0, -7).UTC(), todayStartLocal.AddDate(0, 0, -30).UTC(), trendStartLocal, trendStartLocal.UTC()
+}
+
+func fillDashboardDailyTrendInLocation(start time.Time, days int, location *time.Location, trends []DashboardDailyTrend) []DashboardDailyTrend {
+	location = normalizeDashboardLocation(location)
+
+	byDate := make(map[string]DashboardDailyTrend, len(trends))
+	for _, trend := range trends {
+		byDate[trend.Date] = trend
+	}
+
+	filled := make([]DashboardDailyTrend, 0, days)
+	localStart := start.In(location)
+	for i := 0; i < days; i++ {
+		day := localStart.AddDate(0, 0, i)
+		key := day.Format("2006-01-02")
+		if trend, ok := byDate[key]; ok {
+			filled = append(filled, trend)
+			continue
+		}
+		filled = append(filled, DashboardDailyTrend{
+			Date:       key,
+			CostMicros: 0,
+			Requests:   0,
+		})
+	}
+
+	return filled
+}
+
 // DashboardCacheHitRate 按提供商分类的缓存命中率
 type DashboardCacheHitRate struct {
 	Provider            string
@@ -795,13 +840,10 @@ type DashboardCacheHitRate struct {
 }
 
 // GetDashboardStats 获取仪表盘统计数据
-func (r *RequestLogRepository) GetDashboardStats(userID string) (today, week, month DashboardPeriodStats, topModels []DashboardTopModel, dailyTrend []DashboardDailyTrend, err error) {
+func (r *RequestLogRepository) GetDashboardStats(userID string, location *time.Location) (today, week, month DashboardPeriodStats, topModels []DashboardTopModel, dailyTrend []DashboardDailyTrend, err error) {
 	db := database.GetDB()
-	now := time.Now().UTC()
-	todayStart := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, time.UTC)
-	weekStart := todayStart.AddDate(0, 0, -7)
-	monthStart := todayStart.AddDate(0, 0, -30)
-	trendStart := todayStart.AddDate(0, 0, -13)
+	location = normalizeDashboardLocation(location)
+	_, todayStartUTC, weekStartUTC, monthStartUTC, trendStartLocal, trendStartUTC := dashboardWindowStarts(time.Now().UTC(), location)
 
 	queryPeriod := func(from time.Time) (DashboardPeriodStats, error) {
 		var s DashboardPeriodStats
@@ -820,15 +862,15 @@ func (r *RequestLogRepository) GetDashboardStats(userID string) (today, week, mo
 		return s, err
 	}
 
-	today, err = queryPeriod(todayStart)
+	today, err = queryPeriod(todayStartUTC)
 	if err != nil {
 		return
 	}
-	week, err = queryPeriod(weekStart)
+	week, err = queryPeriod(weekStartUTC)
 	if err != nil {
 		return
 	}
-	month, err = queryPeriod(monthStart)
+	month, err = queryPeriod(monthStartUTC)
 	if err != nil {
 		return
 	}
@@ -842,7 +884,7 @@ func (r *RequestLogRepository) GetDashboardStats(userID string) (today, week, mo
 		GROUP BY model
 		ORDER BY cnt DESC
 		LIMIT 5
-	`, userID, monthStart.UTC())
+	`, userID, monthStartUTC)
 	if err != nil {
 		return
 	}
@@ -866,7 +908,7 @@ func (r *RequestLogRepository) GetDashboardStats(userID string) (today, week, mo
 		WHERE user_id = ? AND created_at >= ?
 		GROUP BY day
 		ORDER BY day ASC
-	`, database.DayBucketExpr("created_at")), userID, trendStart.UTC())
+	`, database.DayBucketExprInLocation("created_at", location)), userID, trendStartUTC)
 	if err != nil {
 		return
 	}
@@ -880,7 +922,7 @@ func (r *RequestLogRepository) GetDashboardStats(userID string) (today, week, mo
 	}
 	err = rows2.Err()
 	if err == nil {
-		dailyTrend = fillDashboardDailyTrend(trendStart, 14, dailyTrend)
+		dailyTrend = fillDashboardDailyTrendInLocation(trendStartLocal, 14, location, dailyTrend)
 	}
 	return
 }
@@ -937,13 +979,10 @@ func (r *RequestLogRepository) GetCacheHitRateByProvider(userID string) ([]Dashb
 }
 
 // GetAdminDashboardStats 获取管理员仪表盘统计数据（全局，不按用户过滤）
-func (r *RequestLogRepository) GetAdminDashboardStats(windowKey string) (today, week, month DashboardPeriodStats, topModels []DashboardTopModel, dailyTrend []DashboardDailyTrend, throughputTrend []DashboardThroughputPoint, ttfbTrend []DashboardTimingPoint, durationTrend []DashboardTimingPoint, err error) {
+func (r *RequestLogRepository) GetAdminDashboardStats(windowKey string, location *time.Location) (today, week, month DashboardPeriodStats, topModels []DashboardTopModel, dailyTrend []DashboardDailyTrend, throughputTrend []DashboardThroughputPoint, ttfbTrend []DashboardTimingPoint, durationTrend []DashboardTimingPoint, err error) {
 	db := database.GetDB()
-	now := time.Now().UTC()
-	todayStart := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, time.UTC)
-	weekStart := todayStart.AddDate(0, 0, -7)
-	monthStart := todayStart.AddDate(0, 0, -30)
-	trendStart := todayStart.AddDate(0, 0, -13)
+	location = normalizeDashboardLocation(location)
+	_, todayStartUTC, weekStartUTC, monthStartUTC, trendStartLocal, trendStartUTC := dashboardWindowStarts(time.Now().UTC(), location)
 
 	queryPeriod := func(from time.Time) (DashboardPeriodStats, error) {
 		var s DashboardPeriodStats
@@ -962,15 +1001,15 @@ func (r *RequestLogRepository) GetAdminDashboardStats(windowKey string) (today, 
 		return s, err
 	}
 
-	today, err = queryPeriod(todayStart)
+	today, err = queryPeriod(todayStartUTC)
 	if err != nil {
 		return
 	}
-	week, err = queryPeriod(weekStart)
+	week, err = queryPeriod(weekStartUTC)
 	if err != nil {
 		return
 	}
-	month, err = queryPeriod(monthStart)
+	month, err = queryPeriod(monthStartUTC)
 	if err != nil {
 		return
 	}
@@ -984,7 +1023,7 @@ func (r *RequestLogRepository) GetAdminDashboardStats(windowKey string) (today, 
 		GROUP BY model
 		ORDER BY cnt DESC
 		LIMIT 10
-	`, monthStart.UTC())
+	`, monthStartUTC)
 	if err != nil {
 		return
 	}
@@ -1008,7 +1047,7 @@ func (r *RequestLogRepository) GetAdminDashboardStats(windowKey string) (today, 
 		WHERE created_at >= ?
 		GROUP BY day
 		ORDER BY day ASC
-	`, database.DayBucketExpr("created_at")), trendStart.UTC())
+	`, database.DayBucketExprInLocation("created_at", location)), trendStartUTC)
 	if err != nil {
 		return
 	}
@@ -1022,7 +1061,7 @@ func (r *RequestLogRepository) GetAdminDashboardStats(windowKey string) (today, 
 	}
 	err = rows2.Err()
 	if err == nil {
-		dailyTrend = fillDashboardDailyTrend(trendStart, 14, dailyTrend)
+		dailyTrend = fillDashboardDailyTrendInLocation(trendStartLocal, 14, location, dailyTrend)
 	}
 	if err != nil {
 		return

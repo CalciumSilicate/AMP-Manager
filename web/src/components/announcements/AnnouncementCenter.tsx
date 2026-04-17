@@ -88,6 +88,7 @@ interface AnnouncementCenterProps {
   triggerClassName?: string
   triggerLabel?: string
   triggerVariant?: 'default' | 'outline' | 'ghost' | 'secondary'
+  compact?: boolean
   unreadCount?: number
   description?: string
   onMarkRead?: (announcement: Announcement) => void | Promise<void>
@@ -102,6 +103,7 @@ export function AnnouncementCenter({
   triggerClassName,
   triggerLabel = '公告',
   triggerVariant = 'outline',
+  compact = false,
   unreadCount = 0,
   description = '查看当前适用的系统公告。',
   onMarkRead,
@@ -113,11 +115,24 @@ export function AnnouncementCenter({
 
   return (
     <>
-      <Button variant={triggerVariant} className={cn('gap-2', triggerClassName)} onClick={() => setOpen(true)}>
+      <Button
+        variant={triggerVariant}
+        size={compact ? 'icon' : undefined}
+        className={cn(compact ? 'relative' : 'gap-2', triggerClassName)}
+        aria-label={triggerLabel}
+        onClick={() => setOpen(true)}
+      >
         <Bell className="h-4 w-4" />
-        <span>{triggerLabel}</span>
+        {!compact ? <span>{triggerLabel}</span> : null}
         {unreadCount > 0 ? (
-          <span className="rounded-full bg-primary px-1.5 py-0.5 text-[10px] font-semibold text-primary-foreground">
+          <span
+            className={cn(
+              'bg-primary text-[10px] font-semibold text-primary-foreground',
+              compact
+                ? 'absolute -right-1 -top-1 flex h-4 min-w-4 items-center justify-center rounded-full px-1'
+                : 'rounded-full px-1.5 py-0.5',
+            )}
+          >
             {unreadCount}
           </span>
         ) : null}
@@ -150,6 +165,7 @@ interface ContactCenterProps {
   triggerClassName?: string
   triggerLabel?: string
   triggerVariant?: 'default' | 'outline' | 'ghost' | 'secondary'
+  compact?: boolean
 }
 
 export function ContactCenter({
@@ -157,6 +173,7 @@ export function ContactCenter({
   triggerClassName,
   triggerLabel = '联系方式',
   triggerVariant = 'outline',
+  compact = false,
 }: ContactCenterProps) {
   const [open, setOpen] = useState(false)
 
@@ -166,9 +183,15 @@ export function ContactCenter({
 
   return (
     <>
-      <Button variant={triggerVariant} className={cn('gap-2', triggerClassName)} onClick={() => setOpen(true)}>
+      <Button
+        variant={triggerVariant}
+        size={compact ? 'icon' : undefined}
+        className={cn(compact ? '' : 'gap-2', triggerClassName)}
+        aria-label={triggerLabel}
+        onClick={() => setOpen(true)}
+      >
         <MessageCircle className="h-4 w-4" />
-        <span>{triggerLabel}</span>
+        {!compact ? <span>{triggerLabel}</span> : null}
       </Button>
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogContent className="sm:max-w-lg">

@@ -170,10 +170,28 @@ func SupportsFileBackups() bool {
 }
 
 func DayBucketExpr(column string) string {
-	if IsPostgres() {
-		return fmt.Sprintf("TO_CHAR(%s AT TIME ZONE 'UTC', 'YYYY-MM-DD')", column)
+	return DayBucketExprInLocation(column, time.UTC)
+}
+
+func DayBucketExprInLocation(column string, location *time.Location) string {
+	if location == nil {
+		location = time.UTC
 	}
-	return fmt.Sprintf("substr(%s, 1, 10)", column)
+
+	if IsPostgres() {
+		return fmt.Sprintf("TO_CHAR(%s AT TIME ZONE '%s', 'YYYY-MM-DD')", column, escapeSQLStringLiteral(location.String()))
+	}
+
+	return fmt.Sprintf("strftime('%%Y-%%m-%%d', substr(%s, 1, 19), '%s')", column, sqliteTimezoneModifier(location))
+}
+
+func escapeSQLStringLiteral(value string) string {
+	return strings.ReplaceAll(value, "'", "''")
+}
+
+func sqliteTimezoneModifier(location *time.Location) string {
+	_, offsetSec := time.Now().In(location).Zone()
+	return fmt.Sprintf("%+d minutes", offsetSec/60)
 }
 
 func Rebind(query string) string {

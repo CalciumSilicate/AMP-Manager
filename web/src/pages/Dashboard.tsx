@@ -478,7 +478,7 @@ export default function Dashboard({
                   animate={{ opacity: 1, y: 0 }}
                   exit={{ opacity: 0, y: -8 }}
                   transition={{ type: 'spring', bounce: 0.15, duration: 0.35 }}
-                  className="flex items-center gap-3"
+                  className="flex min-w-0 items-center gap-3"
                 >
                   {isMobileViewport ? (
                     <Button variant="outline" size="icon" className="h-9 w-9 md:hidden" onClick={() => setMobileNavOpen(true)}>
@@ -489,12 +489,13 @@ export default function Dashboard({
                     const Icon = navIcons[currentPage]
                     return <Icon className="h-5 w-5 text-primary" />
                   })()}
-                  <h2 className="text-lg font-semibold">{currentPageLabel}</h2>
+                  <h2 className="truncate text-base font-semibold md:text-lg">{currentPageLabel}</h2>
                 </motion.div>
               </AnimatePresence>
               <div className="flex items-center gap-2 md:gap-3">
                 <AnnouncementCenter
                   announcements={announcements}
+                  compact={isMobileViewport}
                   unreadCount={unreadAnnouncements.length}
                   triggerLabel="公告"
                   description="查看当前账号适用的公告，并可手动标记为已读。"
@@ -503,19 +504,22 @@ export default function Dashboard({
                   busyId={announcementBusyId}
                   busyAll={announcementBusyAll}
                 />
-                <ContactCenter contact={siteContact} />
+                <ContactCenter contact={siteContact} compact={isMobileViewport} />
                 <DropdownMenu>
                   <DropdownMenuTrigger asChild>
-                    <Button variant="outline" className="gap-2 rounded-full pl-3 pr-4">
+                    <Button
+                      variant="outline"
+                      className={isMobileViewport ? 'h-9 w-9 rounded-full p-0' : 'gap-2 rounded-full pl-3 pr-4'}
+                    >
                       <div className="flex h-7 w-7 items-center justify-center rounded-full bg-primary/10 text-primary text-xs font-bold">
                         {username[0]?.toUpperCase()}
                       </div>
-                      <span className="font-medium">{username}</span>
-                      {isAdmin && (
+                      {!isMobileViewport ? <span className="font-medium">{username}</span> : null}
+                      {!isMobileViewport && isAdmin ? (
                         <Badge variant="default" className="text-[10px] px-1.5 py-0">
                           管理员
                         </Badge>
-                      )}
+                      ) : null}
                     </Button>
                   </DropdownMenuTrigger>
                   <DropdownMenuContent align="end" className="w-48">
