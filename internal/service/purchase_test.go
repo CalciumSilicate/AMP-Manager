@@ -3,8 +3,12 @@ package service
 import (
 	"context"
 	"errors"
+	"io"
+	"net/http"
+	"net/http/httptest"
 	"net/url"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -509,5 +513,111 @@ func TestPurchaseServiceUpgradeToHigherRankConsumesOldEntitlements(t *testing.T)
 	}
 	if sub.ExpiresAt == nil || !sub.ExpiresAt.After(time.Now().UTC()) {
 		t.Fatalf("expected upgraded subscription expiry in the future, got %v", sub.ExpiresAt)
+	}
+}
+
+func TestPurchaseServiceApplySuccessfulPaymentQueuesAndDeliversWebhook(t *testing.T) {
+	setupPurchaseServiceTestDB(t)
+
+	user := createPurchaseTestUser(t, "buyer-webhook")
+	plan := createPurchaseTestPlan(t, "Webhook Plan")
+	product := createPurchaseTestProduct(t, plan.ID, "Webhook 商品", 30, 990)
+	order := createPendingPurchaseTestOrder(t, user.ID, product, model.PurchaseOrderKindSubscription, 0)
+
+	var receivedBody string
+	var receivedHeader string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		receivedBody = string(body)
+		receivedHeader = r.Header.Get("X-Order-No")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"ok":true}`))
+	}))
+	defer server.Close()
+
+	adminRepo := repository.NewPurchaseAdminRepository()
+	if err := adminRepo.CreateWebhookTarget(&model.PurchaseWebhookTarget{
+		Name:            "primary",
+		TargetURL:       server.URL,
+		BodyTemplate:    `{"orderNo":"{{ orderNo }}","amount":"{{ amountCny }}"}`,
+		HeadersTemplate: `{"X-Order-No":"{{ orderNo }}"}`,
+		Enabled:         true,
+	}); err != nil {
+		t.Fatalf("CreateWebhookTarget returned error: %v", err)
+	}
+
+	svc := NewPurchaseService()
+	if _, err := svc.applySuccessfulPayment(order.OrderNo, "trade-webhook", nil); err != nil {
+		t.Fatalf("applySuccessfulPayment returned error: %v", err)
+	}
+	if err := svc.ProcessPendingWebhookEvents(context.Background(), 1); err != nil {
+		t.Fatalf("ProcessPendingWebhookEvents returned error: %v", err)
+	}
+
+	if !strings.Contains(receivedBody, order.OrderNo) {
+		t.Fatalf("expected webhook body to contain order no, got %q", receivedBody)
+	}
+	if receivedHeader != order.OrderNo {
+		t.Fatalf("expected webhook header %q, got %q", order.OrderNo, receivedHeader)
+	}
+}
+
+func TestPurchaseServiceUpdateOrderPaymentStatusAdminCreatesHistory(t *testing.T) {
+	setupPurchaseServiceTestDB(t)
+
+	user := createPurchaseTestUser(t, "buyer-admin-status")
+	plan := createPurchaseTestPlan(t, "Admin Status Plan")
+	product := createPurchaseTestProduct(t, plan.ID, "Admin Status 商品", 30, 990)
+	order := createPendingPurchaseTestOrder(t, user.ID, product, model.PurchaseOrderKindSubscription, 0)
+
+	svc := NewPurchaseService()
+	if _, err := svc.UpdateOrderPaymentStatusAdmin(order.OrderNo, &model.PurchaseOrderPaymentStatusUpdateRequest{
+		PaymentStatus: model.PurchasePaymentStatusRefunded,
+		Note:          "manual mark",
+	}, "admin"); err != nil {
+		t.Fatalf("UpdateOrderPaymentStatusAdmin returned error: %v", err)
+	}
+
+	updated, err := svc.orderRepo.GetDetailByOrderNo(order.OrderNo)
+	if err != nil {
+		t.Fatalf("GetDetailByOrderNo returned error: %v", err)
+	}
+	if updated == nil || updated.PaymentStatus != model.PurchasePaymentStatusRefunded {
+		t.Fatalf("unexpected payment status: %+v", updated)
+	}
+
+	history, err := svc.ListOrderPaymentStatusHistory(order.OrderNo)
+	if err != nil {
+		t.Fatalf("ListOrderPaymentStatusHistory returned error: %v", err)
+	}
+	if len(history) != 1 {
+		t.Fatalf("history count = %d, want 1", len(history))
+	}
+	if history[0].Note != "manual mark" {
+		t.Fatalf("history note = %q", history[0].Note)
+	}
+}
+
+func TestPurchaseServiceSingleManualSettlementRejectsDuplicate(t *testing.T) {
+	setupPurchaseServiceTestDB(t)
+
+	user := createPurchaseTestUser(t, "buyer-manual-settlement")
+	plan := createPurchaseTestPlan(t, "Settlement Plan")
+	product := createPurchaseTestProduct(t, plan.ID, "Settlement 商品", 30, 990)
+	order := createPendingPurchaseTestOrder(t, user.ID, product, model.PurchaseOrderKindSubscription, 0)
+
+	svc := NewPurchaseService()
+	if _, err := svc.UpdateOrderPaymentStatusAdmin(order.OrderNo, &model.PurchaseOrderPaymentStatusUpdateRequest{
+		PaymentStatus: model.PurchasePaymentStatusPaid,
+		Note:          "paid",
+	}, "admin"); err != nil {
+		t.Fatalf("UpdateOrderPaymentStatusAdmin returned error: %v", err)
+	}
+
+	if _, err := svc.CreateSingleManualSettlement(order.OrderNo, "batch-1", "admin"); err != nil {
+		t.Fatalf("CreateSingleManualSettlement returned error: %v", err)
+	}
+	if _, err := svc.CreateSingleManualSettlement(order.OrderNo, "batch-2", "admin"); !errors.Is(err, ErrPurchaseManualSettlementDup) {
+		t.Fatalf("expected ErrPurchaseManualSettlementDup, got %v", err)
 	}
 }

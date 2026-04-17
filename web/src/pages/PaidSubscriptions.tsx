@@ -1,26 +1,44 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { formatDateTime } from '@/lib/formatters'
 import {
+  createBatchPurchaseManualSettlement,
   createPurchaseProduct,
+  createPurchaseWebhookTarget,
+  createSinglePurchaseManualSettlement,
   deletePurchaseProduct,
+  deletePurchaseWebhookTarget,
   getPurchaseSettings,
+  listPurchaseOrderPaymentStatusHistory,
   listPurchaseOrdersAdmin,
   listPurchaseProductsAdmin,
+  listPurchaseWebhookTargets,
   refreshPurchaseOrderAdmin,
   setPurchaseProductEnabled,
+  setPurchaseWebhookTargetEnabled,
+  testPurchaseWebhookTarget,
+  updatePurchaseOrderPaymentStatus,
   updatePurchaseProduct,
   updatePurchaseSettings,
+  updatePurchaseWebhookTarget,
   type AdminOrderFilters,
+  type AlipayEnvironment,
+  type PurchaseManualSettlementBatch,
   type PurchaseOrder,
+  type PurchaseOrderPaymentStatusHistory,
   type PurchaseProduct,
   type PurchaseProductRequest,
   type PurchaseSettingsResponse,
-  type AlipayEnvironment,
+  type PurchaseWebhookTarget,
+  type PurchaseWebhookTargetRequest,
+  type PurchaseWebhookTestResponse,
 } from '@/api/purchase'
 import { getPlans, type SubscriptionPlanResponse } from '@/api/subscription'
+import { TablePagination } from '@/components/TablePagination'
+import { TabbedSettingsPage, type TabbedSettingsPageTab } from '@/components/layout/TabbedSettingsPage'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { Checkbox } from '@/components/ui/checkbox'
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -28,9 +46,18 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Switch } from '@/components/ui/switch'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { Textarea } from '@/components/ui/textarea'
-import { TablePagination } from '@/components/TablePagination'
-import { TabbedSettingsPage, type TabbedSettingsPageTab } from '@/components/layout/TabbedSettingsPage'
-import { CreditCard, Pencil, Plus, RefreshCw, Trash2 } from 'lucide-react'
+import { CreditCard, Pencil, Plus, RefreshCw, Send, Trash2 } from 'lucide-react'
+
+type PaidSubscriptionsTab = 'products' | 'orders' | 'webhooks' | 'settings'
+
+const DEFAULT_ALIPAY_NOTIFY_URL = 'https://amphk.asxs.top/api/public/purchase/alipay/notify'
+
+const tabs: TabbedSettingsPageTab<PaidSubscriptionsTab>[] = [
+  { key: 'products', label: '售卖商品' },
+  { key: 'orders', label: '订单' },
+  { key: 'webhooks', label: '订单通知' },
+  { key: 'settings', label: '支付设置' },
+]
 
 function formatCNY(cents: number): string {
   return `¥${(cents / 100).toFixed(2)}`
@@ -42,6 +69,8 @@ function paymentLabel(status: PurchaseOrder['paymentStatus']): string {
       return '已支付'
     case 'expired':
       return '已过期'
+    case 'refunded':
+      return '已退款'
     case 'closed':
       return '已关闭'
     case 'failed':
@@ -51,25 +80,12 @@ function paymentLabel(status: PurchaseOrder['paymentStatus']): string {
   }
 }
 
-function fulfillmentLabel(order: PurchaseOrder): string {
-  if (order.orderKind === 'balance_topup') {
-    return order.fulfillmentStatus === 'fulfilled' ? '已到账' : order.fulfillmentStatus === 'failed' ? '入账失败' : '待入账'
-  }
-  const status = order.fulfillmentStatus
-  switch (status) {
-    case 'fulfilled':
-      return '已开通'
-    case 'failed':
-      return '失败'
-    default:
-      return '待发放'
-  }
-}
-
 function paymentTone(status: PurchaseOrder['paymentStatus']): string {
   switch (status) {
     case 'paid':
       return 'border-emerald-200 bg-emerald-50 text-emerald-700'
+    case 'refunded':
+      return 'border-sky-200 bg-sky-50 text-sky-700'
     case 'expired':
     case 'closed':
     case 'failed':
@@ -79,16 +95,11 @@ function paymentTone(status: PurchaseOrder['paymentStatus']): string {
   }
 }
 
-function fulfillmentTone(order: PurchaseOrder): string {
-  const status = order.fulfillmentStatus
-  switch (status) {
-    case 'fulfilled':
-      return 'border-sky-200 bg-sky-50 text-sky-700'
-    case 'failed':
-      return 'border-rose-200 bg-rose-50 text-rose-700'
-    default:
-      return 'border-slate-200 bg-slate-100 text-slate-600'
+function fulfillmentLabel(order: PurchaseOrder): string {
+  if (order.orderKind === 'balance_topup') {
+    return order.fulfillmentStatus === 'fulfilled' ? '已到账' : order.fulfillmentStatus === 'failed' ? '入账失败' : '待入账'
   }
+  return order.fulfillmentStatus === 'fulfilled' ? '已开通' : order.fulfillmentStatus === 'failed' ? '失败' : '待发放'
 }
 
 function initialProductForm(): PurchaseProductRequest {
@@ -106,40 +117,33 @@ function initialProductForm(): PurchaseProductRequest {
   }
 }
 
-type PaidSubscriptionsTab = 'products' | 'orders' | 'settings'
-
-const DEFAULT_ALIPAY_NOTIFY_URL = 'https://amphk.asxs.top/api/public/purchase/alipay/notify'
-
-const tabs: TabbedSettingsPageTab<PaidSubscriptionsTab>[] = [
-  { key: 'products', label: '售卖商品' },
-  { key: 'orders', label: '订单' },
-  { key: 'settings', label: '支付设置' },
-]
+function initialWebhookForm(): PurchaseWebhookTargetRequest {
+  return {
+    name: '',
+    targetUrl: '',
+    bodyTemplate: '{"orderNo":"{{ orderNo }}","subscriptionName":"{{ subscriptionName }}","amountCny":"{{ amountCny }}"}',
+    headersTemplate: '{"X-Order-No":"{{ orderNo }}"}',
+    enabled: true,
+  }
+}
 
 export default function PaidSubscriptions() {
   const [activeTab, setActiveTab] = useState<PaidSubscriptionsTab>('products')
   const [settings, setSettings] = useState<PurchaseSettingsResponse | null>(null)
-  const [plans, setPlans] = useState<SubscriptionPlanResponse[]>([])
   const [products, setProducts] = useState<PurchaseProduct[]>([])
   const [orders, setOrders] = useState<PurchaseOrder[]>([])
+  const [webhooks, setWebhooks] = useState<PurchaseWebhookTarget[]>([])
+  const [plans, setPlans] = useState<SubscriptionPlanResponse[]>([])
   const [loading, setLoading] = useState(true)
   const [ordersLoading, setOrdersLoading] = useState(false)
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
 
-  const [settingsDraft, setSettingsDraft] = useState<{
-    purchaseEnabled: boolean
-    debugAutoPaid: boolean
-    alipayAppId: string
-    alipayPid: string
-    alipayEnvironment: AlipayEnvironment
-    alipayNotifyUrl: string
-    alipayPublicKey: string
-  }>({
+  const [settingsDraft, setSettingsDraft] = useState({
     purchaseEnabled: false,
     debugAutoPaid: false,
     alipayAppId: '',
     alipayPid: '',
-    alipayEnvironment: 'sandbox',
+    alipayEnvironment: 'sandbox' as AlipayEnvironment,
     alipayNotifyUrl: DEFAULT_ALIPAY_NOTIFY_URL,
     alipayPublicKey: '',
   })
@@ -151,8 +155,13 @@ export default function PaidSubscriptions() {
   const [productForm, setProductForm] = useState<PurchaseProductRequest>(initialProductForm())
   const [productPriceInput, setProductPriceInput] = useState('0.00')
   const [savingProduct, setSavingProduct] = useState(false)
-  const [productsPage, setProductsPage] = useState(1)
-  const [productsPageSize, setProductsPageSize] = useState(10)
+
+  const [webhookDialogOpen, setWebhookDialogOpen] = useState(false)
+  const [editingWebhook, setEditingWebhook] = useState<PurchaseWebhookTarget | null>(null)
+  const [webhookForm, setWebhookForm] = useState<PurchaseWebhookTargetRequest>(initialWebhookForm())
+  const [savingWebhook, setSavingWebhook] = useState(false)
+  const [testingWebhookID, setTestingWebhookID] = useState<string | null>(null)
+  const [testResult, setTestResult] = useState<PurchaseWebhookTestResponse | null>(null)
 
   const [orderFilters, setOrderFilters] = useState({
     paymentStatus: 'all',
@@ -161,6 +170,20 @@ export default function PaidSubscriptions() {
     productId: 'all',
   })
   const [refreshingOrderNo, setRefreshingOrderNo] = useState<string | null>(null)
+  const [selectedOrderNos, setSelectedOrderNos] = useState<string[]>([])
+  const [statusDialogOrder, setStatusDialogOrder] = useState<PurchaseOrder | null>(null)
+  const [statusDraft, setStatusDraft] = useState<'paid' | 'expired' | 'refunded'>('paid')
+  const [statusNote, setStatusNote] = useState('')
+  const [statusHistory, setStatusHistory] = useState<PurchaseOrderPaymentStatusHistory[]>([])
+  const [statusSaving, setStatusSaving] = useState(false)
+  const [historyLoading, setHistoryLoading] = useState(false)
+  const [settlementDialogMode, setSettlementDialogMode] = useState<'single' | 'batch' | null>(null)
+  const [settlementOrder, setSettlementOrder] = useState<PurchaseOrder | null>(null)
+  const [settlementNote, setSettlementNote] = useState('')
+  const [settlementSaving, setSettlementSaving] = useState(false)
+
+  const [productsPage, setProductsPage] = useState(1)
+  const [productsPageSize, setProductsPageSize] = useState(10)
   const [ordersPage, setOrdersPage] = useState(1)
   const [ordersPageSize, setOrdersPageSize] = useState(20)
 
@@ -168,19 +191,19 @@ export default function PaidSubscriptions() {
     void loadBase()
   }, [])
 
-  const pendingOrders = orders.filter((item) => item.paymentStatus === 'pending').length
-
   const loadBase = async () => {
     setLoading(true)
     try {
-      const [settingsData, productData, planData] = await Promise.all([
+      const [settingsData, productData, planData, webhookData] = await Promise.all([
         getPurchaseSettings(),
         listPurchaseProductsAdmin(),
         getPlans(),
+        listPurchaseWebhookTargets(),
       ])
       setSettings(settingsData)
       setProducts(productData)
       setPlans(planData)
+      setWebhooks(webhookData)
       setSettingsDraft({
         purchaseEnabled: settingsData.purchaseEnabled,
         debugAutoPaid: settingsData.debugAutoPaid,
@@ -197,8 +220,8 @@ export default function PaidSubscriptions() {
         productId: '',
         limit: 100,
       })
-    } catch (err) {
-      showMessage('error', err instanceof Error ? err.message : '加载失败')
+    } catch (error) {
+      showMessage('error', error instanceof Error ? error.message : '加载失败')
     } finally {
       setLoading(false)
     }
@@ -209,42 +232,24 @@ export default function PaidSubscriptions() {
     try {
       const response = await listPurchaseOrdersAdmin(filters)
       setOrders(response.items || [])
-    } catch (err) {
-      showMessage('error', err instanceof Error ? err.message : '加载订单失败')
+    } catch (error) {
+      showMessage('error', error instanceof Error ? error.message : '加载订单失败')
     } finally {
       setOrdersLoading(false)
     }
   }
 
-  const showMessage = (type: 'success' | 'error', text: string) => {
-    setMessage({ type, text })
-    window.setTimeout(() => setMessage(null), 5000)
+  const refreshWebhooks = async () => {
+    try {
+      setWebhooks(await listPurchaseWebhookTargets())
+    } catch (error) {
+      showMessage('error', error instanceof Error ? error.message : '加载通知目标失败')
+    }
   }
 
-  const handleSaveSettings = async () => {
-    setSavingSettings(true)
-    try {
-      const response = await updatePurchaseSettings({
-        ...settingsDraft,
-        alipayPrivateKey: alipayPrivateKeyInput.trim() || undefined,
-      })
-      setSettings(response.settings)
-      setSettingsDraft({
-        purchaseEnabled: response.settings.purchaseEnabled,
-        debugAutoPaid: response.settings.debugAutoPaid,
-        alipayAppId: response.settings.alipayAppId,
-        alipayPid: response.settings.alipayPid,
-        alipayEnvironment: response.settings.alipayEnvironment,
-        alipayNotifyUrl: response.settings.alipayNotifyUrl,
-        alipayPublicKey: response.settings.alipayPublicKey,
-      })
-      setAlipayPrivateKeyInput('')
-      showMessage('success', '支付配置已保存')
-    } catch (err) {
-      showMessage('error', err instanceof Error ? err.message : '保存失败')
-    } finally {
-      setSavingSettings(false)
-    }
+  const showMessage = (type: 'success' | 'error', text: string) => {
+    setMessage({ type, text })
+    window.setTimeout(() => setMessage(null), 4000)
   }
 
   const openCreateProduct = () => {
@@ -276,64 +281,151 @@ export default function PaidSubscriptions() {
   }
 
   const handleSaveProduct = async () => {
-    if (!productForm.subscriptionPlanId) {
-      showMessage('error', '请选择套餐')
-      return
-    }
     const priceYuan = Number.parseFloat(productPriceInput)
-    if (Number.isNaN(priceYuan) || priceYuan <= 0) {
-      showMessage('error', '售价必须大于 0')
+    if (!productForm.subscriptionPlanId || Number.isNaN(priceYuan) || priceYuan <= 0) {
+      showMessage('error', '商品参数无效')
       return
     }
-
-    const payload: PurchaseProductRequest = {
-      ...productForm,
-      priceCnyCent: Math.round(priceYuan * 100),
-    }
-
     setSavingProduct(true)
     try {
+      const payload = { ...productForm, priceCnyCent: Math.round(priceYuan * 100) }
       if (editingProduct) {
         await updatePurchaseProduct(editingProduct.id, payload)
-        showMessage('success', '商品已更新')
       } else {
         await createPurchaseProduct(payload)
-        showMessage('success', '商品已创建')
       }
+      setProducts(await listPurchaseProductsAdmin())
       setProductDialogOpen(false)
-      const refreshed = await listPurchaseProductsAdmin()
-      setProducts(refreshed)
-    } catch (err) {
-      showMessage('error', err instanceof Error ? err.message : '保存失败')
+      showMessage('success', editingProduct ? '商品已更新' : '商品已创建')
+    } catch (error) {
+      showMessage('error', error instanceof Error ? error.message : '保存失败')
     } finally {
       setSavingProduct(false)
     }
   }
 
   const handleDeleteProduct = async (product: PurchaseProduct) => {
-    if (!window.confirm(`确定删除商品 ${product.name} 吗？`)) {
-      return
-    }
+    if (!window.confirm(`确定删除 ${product.name}？`)) return
     try {
       await deletePurchaseProduct(product.id)
       setProducts((current) => current.filter((item) => item.id !== product.id))
       showMessage('success', '商品已删除')
-    } catch (err) {
-      showMessage('error', err instanceof Error ? err.message : '删除失败')
+    } catch (error) {
+      showMessage('error', error instanceof Error ? error.message : '删除失败')
     }
   }
 
   const handleToggleProduct = async (product: PurchaseProduct) => {
     try {
       await setPurchaseProductEnabled(product.id, !product.enabled)
-      setProducts((current) => current.map((item) => (item.id === product.id ? { ...item, enabled: !item.enabled } : item)))
+      setProducts((current) => current.map((item) => item.id === product.id ? { ...item, enabled: !item.enabled } : item))
       showMessage('success', product.enabled ? '商品已下架' : '商品已上架')
-    } catch (err) {
-      showMessage('error', err instanceof Error ? err.message : '操作失败')
+    } catch (error) {
+      showMessage('error', error instanceof Error ? error.message : '操作失败')
+    }
+  }
+
+  const openCreateWebhook = () => {
+    setEditingWebhook(null)
+    setWebhookForm(initialWebhookForm())
+    setTestResult(null)
+    setWebhookDialogOpen(true)
+  }
+
+  const openEditWebhook = (item: PurchaseWebhookTarget) => {
+    setEditingWebhook(item)
+    setWebhookForm({
+      name: item.name,
+      targetUrl: item.targetUrl,
+      bodyTemplate: item.bodyTemplate,
+      headersTemplate: item.headersTemplate,
+      enabled: item.enabled,
+    })
+    setTestResult(null)
+    setWebhookDialogOpen(true)
+  }
+
+  const handleSaveWebhook = async () => {
+    setSavingWebhook(true)
+    try {
+      if (editingWebhook) {
+        await updatePurchaseWebhookTarget(editingWebhook.id, webhookForm)
+      } else {
+        await createPurchaseWebhookTarget(webhookForm)
+      }
+      setWebhooks(await listPurchaseWebhookTargets())
+      setWebhookDialogOpen(false)
+      showMessage('success', editingWebhook ? '通知目标已更新' : '通知目标已创建')
+    } catch (error) {
+      showMessage('error', error instanceof Error ? error.message : '保存失败')
+    } finally {
+      setSavingWebhook(false)
+    }
+  }
+
+  const handleDeleteWebhook = async (item: PurchaseWebhookTarget) => {
+    if (!window.confirm(`确定删除 ${item.name}？`)) return
+    try {
+      await deletePurchaseWebhookTarget(item.id)
+      setWebhooks((current) => current.filter((target) => target.id !== item.id))
+      showMessage('success', '通知目标已删除')
+    } catch (error) {
+      showMessage('error', error instanceof Error ? error.message : '删除失败')
+    }
+  }
+
+  const handleToggleWebhook = async (item: PurchaseWebhookTarget) => {
+    try {
+      await setPurchaseWebhookTargetEnabled(item.id, !item.enabled)
+      setWebhooks((current) => current.map((target) => target.id === item.id ? { ...target, enabled: !target.enabled } : target))
+      showMessage('success', item.enabled ? '已停用' : '已启用')
+    } catch (error) {
+      showMessage('error', error instanceof Error ? error.message : '操作失败')
+    }
+  }
+
+  const handleTestWebhook = async (item: PurchaseWebhookTarget) => {
+    setTestingWebhookID(item.id)
+    setTestResult(null)
+    try {
+      setTestResult(await testPurchaseWebhookTarget(item.id))
+      showMessage('success', '测试完成')
+    } catch (error) {
+      showMessage('error', error instanceof Error ? error.message : '测试失败')
+    } finally {
+      setTestingWebhookID(null)
+    }
+  }
+
+  const handleSaveSettings = async () => {
+    setSavingSettings(true)
+    try {
+      const response = await updatePurchaseSettings({
+        ...settingsDraft,
+        alipayPrivateKey: alipayPrivateKeyInput.trim() || undefined,
+      })
+      setSettings(response.settings)
+      setSettingsDraft({
+        purchaseEnabled: response.settings.purchaseEnabled,
+        debugAutoPaid: response.settings.debugAutoPaid,
+        alipayAppId: response.settings.alipayAppId,
+        alipayPid: response.settings.alipayPid,
+        alipayEnvironment: response.settings.alipayEnvironment,
+        alipayNotifyUrl: response.settings.alipayNotifyUrl || DEFAULT_ALIPAY_NOTIFY_URL,
+        alipayPublicKey: response.settings.alipayPublicKey,
+      })
+      setAlipayPrivateKeyInput('')
+      showMessage('success', '支付设置已保存')
+    } catch (error) {
+      showMessage('error', error instanceof Error ? error.message : '保存失败')
+    } finally {
+      setSavingSettings(false)
     }
   }
 
   const handleSearchOrders = async () => {
+    setSelectedOrderNos([])
+    setOrdersPage(1)
     await loadOrders({
       paymentStatus: orderFilters.paymentStatus === 'all' ? '' : orderFilters.paymentStatus as PurchaseOrder['paymentStatus'],
       fulfillmentStatus: orderFilters.fulfillmentStatus === 'all' ? '' : orderFilters.fulfillmentStatus as PurchaseOrder['fulfillmentStatus'],
@@ -341,7 +433,6 @@ export default function PaidSubscriptions() {
       productId: orderFilters.productId === 'all' ? '' : orderFilters.productId,
       limit: 100,
     })
-    setOrdersPage(1)
   }
 
   const handleRefreshOrder = async (orderNo: string) => {
@@ -350,33 +441,103 @@ export default function PaidSubscriptions() {
       await refreshPurchaseOrderAdmin(orderNo)
       await handleSearchOrders()
       showMessage('success', '订单状态已刷新')
-    } catch (err) {
-      showMessage('error', err instanceof Error ? err.message : '刷新失败')
+    } catch (error) {
+      showMessage('error', error instanceof Error ? error.message : '刷新失败')
     } finally {
       setRefreshingOrderNo(null)
     }
   }
 
-  if (loading) {
-    return (
-      <div className="flex h-64 items-center justify-center">
-        <RefreshCw className="h-6 w-6 animate-spin text-muted-foreground" />
-      </div>
-    )
+  const openStatusDialog = async (order: PurchaseOrder) => {
+    setStatusDialogOrder(order)
+    setStatusDraft((order.paymentStatus === 'paid' || order.paymentStatus === 'expired' || order.paymentStatus === 'refunded') ? order.paymentStatus : 'paid')
+    setStatusNote('')
+    setHistoryLoading(true)
+    try {
+      setStatusHistory(await listPurchaseOrderPaymentStatusHistory(order.orderNo))
+    } catch (error) {
+      showMessage('error', error instanceof Error ? error.message : '加载历史失败')
+      setStatusHistory([])
+    } finally {
+      setHistoryLoading(false)
+    }
   }
 
-  const ordersTotalPages = Math.max(1, Math.ceil(orders.length / ordersPageSize))
-  const currentOrdersPage = Math.min(ordersPage, ordersTotalPages)
-  const visibleOrders = orders.slice((currentOrdersPage - 1) * ordersPageSize, currentOrdersPage * ordersPageSize)
-  const productsTotalPages = Math.max(1, Math.ceil(products.length / productsPageSize))
-  const currentProductsPage = Math.min(productsPage, productsTotalPages)
-  const visibleProducts = products.slice((currentProductsPage - 1) * productsPageSize, currentProductsPage * productsPageSize)
+  const handleSaveStatus = async () => {
+    if (!statusDialogOrder) return
+    setStatusSaving(true)
+    try {
+      await updatePurchaseOrderPaymentStatus(statusDialogOrder.orderNo, statusDraft, statusNote)
+      setStatusDialogOrder(null)
+      await handleSearchOrders()
+      showMessage('success', '订单状态已更新')
+    } catch (error) {
+      showMessage('error', error instanceof Error ? error.message : '保存失败')
+    } finally {
+      setStatusSaving(false)
+    }
+  }
+
+  const openSingleSettlementDialog = (order: PurchaseOrder) => {
+    setSettlementDialogMode('single')
+    setSettlementOrder(order)
+    setSettlementNote('')
+  }
+
+  const openBatchSettlementDialog = () => {
+    if (selectedOrderNos.length === 0) {
+      showMessage('error', '先选择订单')
+      return
+    }
+    setSettlementDialogMode('batch')
+    setSettlementOrder(null)
+    setSettlementNote('')
+  }
+
+  const handleConfirmSettlement = async () => {
+    setSettlementSaving(true)
+    try {
+      let batch: PurchaseManualSettlementBatch
+      if (settlementDialogMode === 'single' && settlementOrder) {
+        batch = await createSinglePurchaseManualSettlement(settlementOrder.orderNo, settlementNote)
+      } else {
+        batch = await createBatchPurchaseManualSettlement(selectedOrderNos, settlementNote)
+      }
+      setSettlementDialogMode(null)
+      setSettlementOrder(null)
+      setSelectedOrderNos([])
+      await handleSearchOrders()
+      showMessage('success', `已记入批次 ${batch.batchNo}`)
+    } catch (error) {
+      showMessage('error', error instanceof Error ? error.message : '分账失败')
+    } finally {
+      setSettlementSaving(false)
+    }
+  }
+
+  const toggleOrderSelection = (orderNo: string, checked: boolean) => {
+    setSelectedOrderNos((current) => checked ? [...current, orderNo] : current.filter((item) => item !== orderNo))
+  }
+
+  const visibleOrders = useMemo(() => {
+    const start = (ordersPage - 1) * ordersPageSize
+    return orders.slice(start, start + ordersPageSize)
+  }, [orders, ordersPage, ordersPageSize])
+
+  const visibleProducts = useMemo(() => {
+    const start = (productsPage - 1) * productsPageSize
+    return products.slice(start, start + productsPageSize)
+  }, [products, productsPage, productsPageSize])
+
+  if (loading) {
+    return <div className="flex h-64 items-center justify-center"><RefreshCw className="h-6 w-6 animate-spin text-muted-foreground" /></div>
+  }
 
   return (
     <>
       <TabbedSettingsPage
         title="付费订阅"
-        description="管理售卖商品、订单履约和支付设置"
+        description="商品、订单、通知"
         tabs={tabs}
         activeTab={activeTab}
         onTabChange={setActiveTab}
@@ -385,108 +546,60 @@ export default function PaidSubscriptions() {
       >
         {activeTab === 'products' && (
           <Card>
-            <CardHeader>
-              <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-                <div className="space-y-1">
-                  <CardTitle>售卖商品</CardTitle>
-                </div>
-                <div className="flex flex-wrap gap-2">
-                  <Button type="button" variant="outline" size="sm" className="min-w-24" onClick={() => void loadBase()}>
-                    <RefreshCw className="mr-2 h-4 w-4" />
-                    刷新
-                  </Button>
-                  <Button type="button" size="sm" className="min-w-24" onClick={openCreateProduct}>
-                    <Plus className="mr-2 h-4 w-4" />
-                    新建商品
-                  </Button>
-                </div>
+            <CardHeader className="flex flex-row items-center justify-between">
+              <CardTitle>售卖商品</CardTitle>
+              <div className="flex gap-2">
+                <Button type="button" variant="outline" size="sm" onClick={() => void loadBase()}><RefreshCw className="mr-2 h-4 w-4" />刷新</Button>
+                <Button type="button" size="sm" onClick={openCreateProduct}><Plus className="mr-2 h-4 w-4" />新建</Button>
               </div>
             </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="rounded-lg border">
-                {products.length === 0 ? (
-                  <div className="px-5 py-10 text-sm text-muted-foreground">暂无商品。</div>
-                ) : (
-                  <>
-                    <div className="overflow-x-auto">
-                      <Table>
-                        <TableHeader>
-                          <TableRow>
-                            <TableHead>商品</TableHead>
-                            <TableHead>分组</TableHead>
-                            <TableHead>套餐</TableHead>
-                            <TableHead>时长</TableHead>
-                            <TableHead>售价</TableHead>
-                            <TableHead>排序</TableHead>
-                            <TableHead>状态</TableHead>
-                            <TableHead className="text-right">操作</TableHead>
-                          </TableRow>
-                        </TableHeader>
-                        <TableBody>
-                          {visibleProducts.map((product) => (
-                            <TableRow key={product.id}>
-                              <TableCell>
-                                <div>
-                                  <p className="font-medium">{product.name}</p>
-                                  <p className="text-xs text-muted-foreground">{product.summary || '-'}</p>
-                                </div>
-                              </TableCell>
-                              <TableCell>
-                                <div>
-                                  <p>{product.groupName || '-'}</p>
-                                  <p className="text-xs text-muted-foreground">组序 {product.groupSort}</p>
-                                </div>
-                              </TableCell>
-                              <TableCell>{product.subscriptionPlanName || '-'}</TableCell>
-                              <TableCell>{product.durationDays} 天</TableCell>
-                              <TableCell>{formatCNY(product.priceCnyCent)}</TableCell>
-                              <TableCell>{product.sortOrder}</TableCell>
-                              <TableCell>
-                                <div className="flex flex-wrap gap-2">
-                                  <Badge variant="outline" className={`${product.enabled ? 'border-emerald-200 bg-emerald-50 text-emerald-700' : 'border-slate-200 bg-slate-100 text-slate-600'}`}>
-                                    {product.enabled ? '上架' : '下架'}
-                                  </Badge>
-                                  {product.isRecommended && (
-                                    <Badge variant="outline" className="border-sky-200 bg-sky-50 text-sky-700">
-                                      推荐
-                                    </Badge>
-                                  )}
-                                </div>
-                              </TableCell>
-                              <TableCell className="text-right">
-                                <div className="flex justify-end gap-2">
-                                  <Button type="button" variant="outline" size="sm" onClick={() => openEditProduct(product)}>
-                                    <Pencil className="mr-2 h-4 w-4" />
-                                    编辑
-                                  </Button>
-                                  <Button type="button" variant="outline" size="sm" onClick={() => void handleToggleProduct(product)}>
-                                    {product.enabled ? '下架' : '上架'}
-                                  </Button>
-                                  <Button type="button" variant="destructive" size="sm" onClick={() => void handleDeleteProduct(product)}>
-                                    <Trash2 className="mr-2 h-4 w-4" />
-                                    删除
-                                  </Button>
-                                </div>
-                              </TableCell>
-                            </TableRow>
-                          ))}
-                        </TableBody>
-                      </Table>
-                    </div>
-                    <div className="px-6 pb-6">
-                      <TablePagination
-                        page={currentProductsPage}
-                        pageSize={productsPageSize}
-                        total={products.length}
-                        onPageChange={setProductsPage}
-                        onPageSizeChange={(nextPageSize) => {
-                          setProductsPageSize(nextPageSize)
-                          setProductsPage(1)
-                        }}
-                      />
-                    </div>
-                  </>
-                )}
+            <CardContent className="px-0">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>商品</TableHead>
+                    <TableHead>套餐</TableHead>
+                    <TableHead>时长</TableHead>
+                    <TableHead>售价</TableHead>
+                    <TableHead>状态</TableHead>
+                    <TableHead className="text-right">操作</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {visibleProducts.map((product) => (
+                    <TableRow key={product.id}>
+                      <TableCell>
+                        <div>
+                          <div className="font-medium">{product.name}</div>
+                          <div className="text-xs text-muted-foreground">{product.summary || '-'}</div>
+                        </div>
+                      </TableCell>
+                      <TableCell>{product.subscriptionPlanName}</TableCell>
+                      <TableCell>{product.durationDays} 天</TableCell>
+                      <TableCell>{formatCNY(product.priceCnyCent)}</TableCell>
+                      <TableCell><Badge variant="outline" className={product.enabled ? 'border-emerald-200 bg-emerald-50 text-emerald-700' : 'border-slate-200 bg-slate-100 text-slate-600'}>{product.enabled ? '上架' : '下架'}</Badge></TableCell>
+                      <TableCell className="text-right">
+                        <div className="flex justify-end gap-2">
+                          <Button type="button" variant="outline" size="sm" onClick={() => openEditProduct(product)}><Pencil className="mr-2 h-4 w-4" />编辑</Button>
+                          <Button type="button" variant="outline" size="sm" onClick={() => void handleToggleProduct(product)}>{product.enabled ? '下架' : '上架'}</Button>
+                          <Button type="button" variant="destructive" size="sm" onClick={() => void handleDeleteProduct(product)}><Trash2 className="mr-2 h-4 w-4" />删除</Button>
+                        </div>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+              <div className="px-6 pb-6">
+                <TablePagination
+                  page={productsPage}
+                  pageSize={productsPageSize}
+                  total={products.length}
+                  onPageChange={setProductsPage}
+                  onPageSizeChange={(value) => {
+                    setProductsPageSize(value)
+                    setProductsPage(1)
+                  }}
+                />
               </div>
             </CardContent>
           </Card>
@@ -494,41 +607,30 @@ export default function PaidSubscriptions() {
 
         {activeTab === 'orders' && (
           <Card>
-            <CardHeader>
-              <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-                <div className="space-y-1">
-                  <CardTitle>订单</CardTitle>
-                </div>
-                <div className="flex flex-wrap gap-2">
-                  <Badge variant="outline">待支付 {pendingOrders}</Badge>
-                  <Badge variant="outline">共 {orders.length} 条</Badge>
+            <CardHeader className="space-y-4">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <CardTitle>订单</CardTitle>
+                <div className="flex gap-2">
+                  <Badge variant="outline">已选 {selectedOrderNos.length}</Badge>
+                  <Button type="button" variant="outline" size="sm" onClick={openBatchSettlementDialog} disabled={selectedOrderNos.length === 0}>批量分账</Button>
                 </div>
               </div>
-            </CardHeader>
-            <CardContent className="space-y-4 px-0 pb-0">
-              <div className="grid gap-3 px-6 md:grid-cols-[1fr_180px_180px_220px_auto]">
-                <Input
-                  value={orderFilters.username}
-                  onChange={(event) => setOrderFilters((current) => ({ ...current, username: event.target.value }))}
-                  placeholder="搜索用户名"
-                />
+              <div className="grid gap-3 md:grid-cols-[1fr_180px_180px_220px_auto]">
+                <Input value={orderFilters.username} onChange={(event) => setOrderFilters((current) => ({ ...current, username: event.target.value }))} placeholder="搜索用户" />
                 <Select value={orderFilters.paymentStatus} onValueChange={(value) => setOrderFilters((current) => ({ ...current, paymentStatus: value }))}>
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
+                  <SelectTrigger><SelectValue /></SelectTrigger>
                   <SelectContent>
                     <SelectItem value="all">全部支付状态</SelectItem>
                     <SelectItem value="pending">待支付</SelectItem>
                     <SelectItem value="paid">已支付</SelectItem>
+                    <SelectItem value="refunded">已退款</SelectItem>
                     <SelectItem value="expired">已过期</SelectItem>
                     <SelectItem value="closed">已关闭</SelectItem>
                     <SelectItem value="failed">失败</SelectItem>
                   </SelectContent>
                 </Select>
                 <Select value={orderFilters.fulfillmentStatus} onValueChange={(value) => setOrderFilters((current) => ({ ...current, fulfillmentStatus: value }))}>
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
+                  <SelectTrigger><SelectValue /></SelectTrigger>
                   <SelectContent>
                     <SelectItem value="all">全部发放状态</SelectItem>
                     <SelectItem value="pending">待发放</SelectItem>
@@ -537,226 +639,181 @@ export default function PaidSubscriptions() {
                   </SelectContent>
                 </Select>
                 <Select value={orderFilters.productId} onValueChange={(value) => setOrderFilters((current) => ({ ...current, productId: value }))}>
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
+                  <SelectTrigger><SelectValue /></SelectTrigger>
                   <SelectContent>
                     <SelectItem value="all">全部商品</SelectItem>
-                    {products.map((product) => (
-                      <SelectItem key={product.id} value={product.id}>{product.name}</SelectItem>
-                    ))}
+                    {products.map((product) => <SelectItem key={product.id} value={product.id}>{product.name}</SelectItem>)}
                   </SelectContent>
                 </Select>
-                <Button type="button" onClick={() => void handleSearchOrders()} disabled={ordersLoading}>
-                  <RefreshCw className={`mr-2 h-4 w-4 ${ordersLoading ? 'animate-spin' : ''}`} />
-                  查询
-                </Button>
+                <Button type="button" onClick={() => void handleSearchOrders()} disabled={ordersLoading}><RefreshCw className={`mr-2 h-4 w-4 ${ordersLoading ? 'animate-spin' : ''}`} />查询</Button>
               </div>
-
-              <div className="overflow-x-auto border-t">
-                {orders.length === 0 ? (
-                  <div className="px-5 py-10 text-sm text-muted-foreground">暂无订单。</div>
-                ) : (
-                  <div className="px-6 pb-6">
-                    <Table>
-                      <TableHeader>
-                        <TableRow>
-                          <TableHead>订单</TableHead>
-                          <TableHead>用户</TableHead>
-                          <TableHead>商品</TableHead>
-                          <TableHead>金额</TableHead>
-                          <TableHead>支付</TableHead>
-                          <TableHead>发放</TableHead>
-                          <TableHead>时间</TableHead>
-                          <TableHead className="text-right">操作</TableHead>
-                        </TableRow>
-                      </TableHeader>
-                      <TableBody>
-                        {visibleOrders.map((order) => (
-                          <TableRow key={order.id}>
-                            <TableCell>
-                              <div>
-                                <p className="font-mono text-xs">{order.orderNo}</p>
-                                {order.alipayTradeNo && <p className="mt-1 text-xs text-muted-foreground">{order.alipayTradeNo}</p>}
-                              </div>
-                            </TableCell>
-                            <TableCell>{order.username || '-'}</TableCell>
-                            <TableCell>
-                              <div>
-                                <p className="font-medium">{order.productName}</p>
-                                <p className="text-xs text-muted-foreground">{order.subscriptionPlanName}</p>
-                              </div>
-                            </TableCell>
-                            <TableCell>{formatCNY(order.amountCnyCent)}</TableCell>
-                            <TableCell>
-                              <Badge variant="outline" className={paymentTone(order.paymentStatus)}>
-                                {paymentLabel(order.paymentStatus)}
-                              </Badge>
-                            </TableCell>
-                            <TableCell>
-                              <Badge variant="outline" className={fulfillmentTone(order)}>
-                                {fulfillmentLabel(order)}
-                              </Badge>
-                            </TableCell>
-                            <TableCell className="text-xs text-muted-foreground">{formatDateTime(order.createdAt)}</TableCell>
-                            <TableCell className="text-right">
-                              <div className="flex justify-end gap-2">
-                                {order.canRefresh && (
-                                  <Button
-                                    type="button"
-                                    size="sm"
-                                    variant="outline"
-                                    onClick={() => void handleRefreshOrder(order.orderNo)}
-                                    disabled={refreshingOrderNo === order.orderNo}
-                                  >
-                                    <RefreshCw className={`mr-2 h-4 w-4 ${refreshingOrderNo === order.orderNo ? 'animate-spin' : ''}`} />
-                                    刷新
-                                  </Button>
-                                )}
-                              </div>
-                              {order.failureReason && (
-                                <p className="mt-2 text-xs text-rose-600">{order.failureReason}</p>
-                              )}
-                            </TableCell>
-                          </TableRow>
-                        ))}
-                      </TableBody>
-                    </Table>
-                    <TablePagination
-                      page={currentOrdersPage}
-                      pageSize={ordersPageSize}
-                      total={orders.length}
-                      onPageChange={setOrdersPage}
-                      onPageSizeChange={(nextPageSize) => {
-                        setOrdersPageSize(nextPageSize)
-                        setOrdersPage(1)
-                      }}
-                    />
-                  </div>
-                )}
+            </CardHeader>
+            <CardContent className="px-0">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead className="w-10">
+                      <Checkbox
+                        checked={visibleOrders.length > 0 && visibleOrders.every((item) => selectedOrderNos.includes(item.orderNo))}
+                        onCheckedChange={(checked) => {
+                          const next = checked ? Array.from(new Set([...selectedOrderNos, ...visibleOrders.map((item) => item.orderNo)])) : selectedOrderNos.filter((orderNo) => !visibleOrders.some((item) => item.orderNo === orderNo))
+                          setSelectedOrderNos(next)
+                        }}
+                      />
+                    </TableHead>
+                    <TableHead>订单</TableHead>
+                    <TableHead>用户</TableHead>
+                    <TableHead>商品</TableHead>
+                    <TableHead>金额</TableHead>
+                    <TableHead>支付</TableHead>
+                    <TableHead>发放</TableHead>
+                    <TableHead className="text-right">操作</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {visibleOrders.map((order) => (
+                    <TableRow key={order.id}>
+                      <TableCell>
+                        <Checkbox checked={selectedOrderNos.includes(order.orderNo)} onCheckedChange={(checked) => toggleOrderSelection(order.orderNo, checked === true)} />
+                      </TableCell>
+                      <TableCell>
+                        <div className="font-mono text-xs">{order.orderNo}</div>
+                        <div className="text-xs text-muted-foreground">{formatDateTime(order.createdAt)}</div>
+                      </TableCell>
+                      <TableCell>{order.username || '-'}</TableCell>
+                      <TableCell>
+                        <div>
+                          <div className="font-medium">{order.productName}</div>
+                          <div className="text-xs text-muted-foreground">{order.subscriptionPlanName}</div>
+                        </div>
+                      </TableCell>
+                      <TableCell>{formatCNY(order.amountCnyCent)}</TableCell>
+                      <TableCell><Badge variant="outline" className={paymentTone(order.paymentStatus)}>{paymentLabel(order.paymentStatus)}</Badge></TableCell>
+                      <TableCell>
+                        <div className="flex flex-col items-start gap-1">
+                          <Badge variant="outline">{fulfillmentLabel(order)}</Badge>
+                          {order.manualSettlementDone && <Badge variant="outline" className="border-slate-200 bg-slate-100 text-slate-700">已分账</Badge>}
+                        </div>
+                      </TableCell>
+                      <TableCell className="text-right">
+                        <div className="flex justify-end gap-2">
+                          {order.canRefresh && <Button type="button" size="sm" variant="outline" disabled={refreshingOrderNo === order.orderNo} onClick={() => void handleRefreshOrder(order.orderNo)}><RefreshCw className={`mr-2 h-4 w-4 ${refreshingOrderNo === order.orderNo ? 'animate-spin' : ''}`} />刷新</Button>}
+                          <Button type="button" size="sm" variant="outline" onClick={() => void openStatusDialog(order)}>修改订单信息</Button>
+                          <Button type="button" size="sm" variant="outline" disabled={order.manualSettlementDone || !['paid', 'refunded'].includes(order.paymentStatus)} onClick={() => openSingleSettlementDialog(order)}>单笔分账</Button>
+                        </div>
+                        {order.failureReason && <div className="mt-2 text-xs text-rose-600">{order.failureReason}</div>}
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+              <div className="px-6 pb-6">
+                <TablePagination
+                  page={ordersPage}
+                  pageSize={ordersPageSize}
+                  total={orders.length}
+                  onPageChange={setOrdersPage}
+                  onPageSizeChange={(value) => {
+                    setOrdersPageSize(value)
+                    setOrdersPage(1)
+                  }}
+                />
               </div>
             </CardContent>
           </Card>
         )}
 
-        {activeTab === 'settings' && (
-          <Card>
-            <CardHeader>
-              <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-                <div className="space-y-1">
-                  <CardTitle>支付设置</CardTitle>
+        {activeTab === 'webhooks' && (
+          <div className="space-y-4">
+            <div className="flex items-center justify-between border-b pb-3">
+              <div className="text-sm text-muted-foreground">{'{{ orderNo }} {{ amountCny }} {{ amountToday }} {{ amountTotal }} {{ billsToday }} {{ billsTotal }} {{ subscriptionName }} {{ quantity }} {{ deliveryCdk }} {{ alipayTradeNo }} {{ createdAt }}'}</div>
+              <div className="flex gap-2">
+                <Button type="button" variant="outline" size="sm" onClick={() => void refreshWebhooks()}><RefreshCw className="mr-2 h-4 w-4" />刷新</Button>
+                <Button type="button" size="sm" onClick={openCreateWebhook}><Plus className="mr-2 h-4 w-4" />新建</Button>
+              </div>
+            </div>
+            <div className="divide-y rounded-lg border">
+              {webhooks.length === 0 && <div className="px-4 py-8 text-sm text-muted-foreground">暂无通知目标</div>}
+              {webhooks.map((item) => (
+                <div key={item.id} className="flex flex-col gap-3 px-4 py-4 lg:flex-row lg:items-start lg:justify-between">
+                  <div className="min-w-0 space-y-2">
+                    <div className="flex items-center gap-2">
+                      <div className="font-medium">{item.name}</div>
+                      <Badge variant="outline" className={item.enabled ? 'border-emerald-200 bg-emerald-50 text-emerald-700' : 'border-slate-200 bg-slate-100 text-slate-600'}>{item.enabled ? '启用' : '停用'}</Badge>
+                    </div>
+                    <div className="truncate text-xs text-muted-foreground">{item.targetUrl}</div>
+                    <div className="grid gap-2 text-xs text-muted-foreground md:grid-cols-2">
+                      <pre className="overflow-auto rounded border bg-muted/40 p-3">{item.headersTemplate || '{}'}</pre>
+                      <pre className="overflow-auto rounded border bg-muted/40 p-3">{item.bodyTemplate || ''}</pre>
+                    </div>
+                  </div>
+                  <div className="flex shrink-0 gap-2">
+                    <Button type="button" variant="outline" size="sm" disabled={testingWebhookID === item.id} onClick={() => void handleTestWebhook(item)}><Send className="mr-2 h-4 w-4" />测试发送</Button>
+                    <Button type="button" variant="outline" size="sm" onClick={() => openEditWebhook(item)}><Pencil className="mr-2 h-4 w-4" />编辑</Button>
+                    <Button type="button" variant="outline" size="sm" onClick={() => void handleToggleWebhook(item)}>{item.enabled ? '停用' : '启用'}</Button>
+                    <Button type="button" variant="destructive" size="sm" onClick={() => void handleDeleteWebhook(item)}><Trash2 className="mr-2 h-4 w-4" />删除</Button>
+                  </div>
                 </div>
-                <div className="flex flex-wrap gap-2">
-                  <Badge variant="outline" className={settings?.paymentConfigured ? 'border-emerald-200 bg-emerald-50 text-emerald-700' : 'border-slate-200 bg-slate-100 text-slate-600'}>
-                    {settings?.paymentConfigured ? '支付配置完整' : '支付配置待补齐'}
-                  </Badge>
-                  <Button type="button" variant="outline" size="sm" onClick={() => void loadBase()}>
-                    <RefreshCw className="mr-2 h-4 w-4" />
-                    刷新
-                  </Button>
+              ))}
+            </div>
+            {testResult && (
+              <div className="grid gap-3 rounded-lg border p-4 md:grid-cols-2">
+                <div className="space-y-2">
+                  <div className="flex items-center gap-2">
+                    <Badge variant="outline" className={testResult.ok ? 'border-emerald-200 bg-emerald-50 text-emerald-700' : 'border-rose-200 bg-rose-50 text-rose-700'}>{testResult.responseStatusCode}</Badge>
+                  </div>
+                  <pre className="max-h-64 overflow-auto rounded border bg-muted/40 p-3 text-xs">{testResult.responseBody || '(empty)'}</pre>
+                </div>
+                <div className="space-y-2">
+                  <pre className="max-h-64 overflow-auto rounded border bg-muted/40 p-3 text-xs">{JSON.stringify(testResult.variables, null, 2)}</pre>
                 </div>
               </div>
+            )}
+          </div>
+        )}
+
+        {activeTab === 'settings' && (
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between">
+              <CardTitle>支付设置</CardTitle>
+              <Badge variant="outline" className={settings?.paymentConfigured ? 'border-emerald-200 bg-emerald-50 text-emerald-700' : 'border-slate-200 bg-slate-100 text-slate-600'}>
+                {settings?.paymentConfigured ? '配置完整' : '待补齐'}
+              </Badge>
             </CardHeader>
             <CardContent className="space-y-6">
-              <div className="grid gap-5 lg:grid-cols-2">
+              <div className="grid gap-6 lg:grid-cols-2">
                 <div className="space-y-4">
-                  <div className="flex items-center justify-between border-b border-border/70 pb-3">
-                    <div>
-                      <p className="text-sm font-medium">支付功能</p>
-                    </div>
-                    <Switch
-                      checked={settingsDraft.purchaseEnabled}
-                      onCheckedChange={(checked) => setSettingsDraft((current) => ({ ...current, purchaseEnabled: checked }))}
-                    />
-                  </div>
-                  <div className="flex items-center justify-between border-b border-border/70 pb-3">
-                    <div>
-                      <p className="text-sm font-medium">DEBUG 自动支付</p>
-                    </div>
-                    <Switch
-                      checked={settingsDraft.debugAutoPaid}
-                      onCheckedChange={(checked) => setSettingsDraft((current) => ({ ...current, debugAutoPaid: checked }))}
-                    />
-                  </div>
+                  <div className="flex items-center justify-between border-b pb-3"><Label>支付功能</Label><Switch checked={settingsDraft.purchaseEnabled} onCheckedChange={(checked) => setSettingsDraft((current) => ({ ...current, purchaseEnabled: checked }))} /></div>
+                  <div className="flex items-center justify-between border-b pb-3"><Label>DEBUG 自动支付</Label><Switch checked={settingsDraft.debugAutoPaid} onCheckedChange={(checked) => setSettingsDraft((current) => ({ ...current, debugAutoPaid: checked }))} /></div>
                   <div className="grid gap-4 sm:grid-cols-2">
-                    <div className="space-y-2">
-                      <Label htmlFor="alipayAppId">App ID</Label>
-                      <Input
-                        id="alipayAppId"
-                        value={settingsDraft.alipayAppId}
-                        onChange={(event) => setSettingsDraft((current) => ({ ...current, alipayAppId: event.target.value }))}
-                        placeholder="支付宝 APPID"
-                      />
-                    </div>
-                    <div className="space-y-2">
-                      <Label htmlFor="alipayPid">PID</Label>
-                      <Input
-                        id="alipayPid"
-                        value={settingsDraft.alipayPid}
-                        onChange={(event) => setSettingsDraft((current) => ({ ...current, alipayPid: event.target.value }))}
-                        placeholder="可选"
-                      />
-                    </div>
+                    <div className="space-y-2"><Label htmlFor="alipayAppId">App ID</Label><Input id="alipayAppId" value={settingsDraft.alipayAppId} onChange={(event) => setSettingsDraft((current) => ({ ...current, alipayAppId: event.target.value }))} /></div>
+                    <div className="space-y-2"><Label htmlFor="alipayPid">PID</Label><Input id="alipayPid" value={settingsDraft.alipayPid} onChange={(event) => setSettingsDraft((current) => ({ ...current, alipayPid: event.target.value }))} /></div>
                     <div className="space-y-2">
                       <Label>环境</Label>
-                      <Select
-                        value={settingsDraft.alipayEnvironment}
-                        onValueChange={(value: 'sandbox' | 'production') => setSettingsDraft((current) => ({ ...current, alipayEnvironment: value }))}
-                      >
-                        <SelectTrigger>
-                          <SelectValue />
-                        </SelectTrigger>
+                      <Select value={settingsDraft.alipayEnvironment} onValueChange={(value: AlipayEnvironment) => setSettingsDraft((current) => ({ ...current, alipayEnvironment: value }))}>
+                        <SelectTrigger><SelectValue /></SelectTrigger>
                         <SelectContent>
                           <SelectItem value="sandbox">沙箱</SelectItem>
                           <SelectItem value="production">生产</SelectItem>
                         </SelectContent>
                       </Select>
                     </div>
-                    <div className="space-y-2">
-                      <Label htmlFor="alipayNotifyUrl">回调地址</Label>
-                      <Input
-                        id="alipayNotifyUrl"
-                        value={settingsDraft.alipayNotifyUrl}
-                        onChange={(event) => setSettingsDraft((current) => ({ ...current, alipayNotifyUrl: event.target.value }))}
-                        placeholder="https://..."
-                      />
-                    </div>
+                    <div className="space-y-2"><Label htmlFor="alipayNotifyUrl">回调地址</Label><Input id="alipayNotifyUrl" value={settingsDraft.alipayNotifyUrl} onChange={(event) => setSettingsDraft((current) => ({ ...current, alipayNotifyUrl: event.target.value }))} /></div>
                   </div>
                 </div>
-
                 <div className="space-y-4">
-                  <div className="space-y-2">
-                    <Label htmlFor="alipayPublicKey">支付宝公钥</Label>
-                    <Textarea
-                      id="alipayPublicKey"
-                      value={settingsDraft.alipayPublicKey}
-                      onChange={(event) => setSettingsDraft((current) => ({ ...current, alipayPublicKey: event.target.value }))}
-                      placeholder="-----BEGIN PUBLIC KEY-----"
-                      className="min-h-[148px] rounded-xl"
-                    />
-                  </div>
+                  <div className="space-y-2"><Label htmlFor="alipayPublicKey">支付宝公钥</Label><Textarea id="alipayPublicKey" value={settingsDraft.alipayPublicKey} onChange={(event) => setSettingsDraft((current) => ({ ...current, alipayPublicKey: event.target.value }))} className="min-h-[148px]" /></div>
                   <div className="space-y-2">
                     <div className="flex items-center justify-between">
                       <Label htmlFor="alipayPrivateKey">应用私钥</Label>
-                      {settings?.privateKeySet && (
-                        <Badge variant="outline" className="border-sky-200 bg-sky-50 text-sky-700">
-                          已设置
-                        </Badge>
-                      )}
+                      {settings?.privateKeySet && <Badge variant="outline">已设置</Badge>}
                     </div>
-                    <Textarea
-                      id="alipayPrivateKey"
-                      value={alipayPrivateKeyInput}
-                      onChange={(event) => setAlipayPrivateKeyInput(event.target.value)}
-                      placeholder={settings?.privateKeySet ? '留空表示保持现有私钥' : '-----BEGIN PRIVATE KEY-----'}
-                      className="min-h-[148px] rounded-xl"
-                    />
+                    <Textarea id="alipayPrivateKey" value={alipayPrivateKeyInput} onChange={(event) => setAlipayPrivateKeyInput(event.target.value)} placeholder={settings?.privateKeySet ? '留空保持现有私钥' : '-----BEGIN PRIVATE KEY-----'} className="min-h-[148px]" />
                   </div>
                 </div>
               </div>
-
-              <div className="flex justify-end border-t border-border/70 pt-4">
-                <Button type="button" onClick={handleSaveSettings} disabled={savingSettings}>
+              <div className="flex justify-end">
+                <Button type="button" disabled={savingSettings} onClick={() => void handleSaveSettings()}>
                   {savingSettings ? <RefreshCw className="mr-2 h-4 w-4 animate-spin" /> : <CreditCard className="mr-2 h-4 w-4" />}
                   保存设置
                 </Button>
@@ -767,123 +824,105 @@ export default function PaidSubscriptions() {
       </TabbedSettingsPage>
 
       <Dialog open={productDialogOpen} onOpenChange={setProductDialogOpen}>
-      <DialogContent className="max-w-2xl border-border/80">
-        <DialogHeader>
-          <DialogTitle className="text-xl">{editingProduct ? '编辑商品' : '新建商品'}</DialogTitle>
-        </DialogHeader>
-
+        <DialogContent className="max-w-2xl">
+          <DialogHeader><DialogTitle>{editingProduct ? '编辑商品' : '新建商品'}</DialogTitle></DialogHeader>
           <div className="grid gap-4 py-2 lg:grid-cols-2">
-            <div className="space-y-2 lg:col-span-2">
-              <Label htmlFor="productName">名称</Label>
-              <Input
-                id="productName"
-                value={productForm.name}
-                onChange={(event) => setProductForm((current) => ({ ...current, name: event.target.value }))}
-                placeholder="月付标准版"
-              />
-            </div>
-            <div className="space-y-2 lg:col-span-2">
-              <Label htmlFor="productSummary">摘要</Label>
-              <Input
-                id="productSummary"
-                value={productForm.summary}
-                onChange={(event) => setProductForm((current) => ({ ...current, summary: event.target.value }))}
-                placeholder="一句说明"
-              />
-            </div>
+            <div className="space-y-2 lg:col-span-2"><Label>名称</Label><Input value={productForm.name} onChange={(event) => setProductForm((current) => ({ ...current, name: event.target.value }))} /></div>
+            <div className="space-y-2 lg:col-span-2"><Label>摘要</Label><Input value={productForm.summary} onChange={(event) => setProductForm((current) => ({ ...current, summary: event.target.value }))} /></div>
             <div className="space-y-2">
-              <Label>绑定套餐</Label>
-              <Select
-                value={productForm.subscriptionPlanId}
-                onValueChange={(value) => setProductForm((current) => ({ ...current, subscriptionPlanId: value }))}
-              >
-                <SelectTrigger>
-                  <SelectValue placeholder="选择套餐" />
-                </SelectTrigger>
+              <Label>套餐</Label>
+              <Select value={productForm.subscriptionPlanId} onValueChange={(value) => setProductForm((current) => ({ ...current, subscriptionPlanId: value }))}>
+                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectContent>{plans.map((plan) => <SelectItem key={plan.id} value={plan.id}>{plan.name}</SelectItem>)}</SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-2"><Label>时长</Label><Input type="number" min="1" value={productForm.durationDays} onChange={(event) => setProductForm((current) => ({ ...current, durationDays: Number(event.target.value || 0) }))} /></div>
+            <div className="space-y-2"><Label>售价</Label><Input type="number" min="0.01" step="0.01" value={productPriceInput} onChange={(event) => setProductPriceInput(event.target.value)} /></div>
+            <div className="space-y-2"><Label>分组</Label><Input value={productForm.groupName} onChange={(event) => setProductForm((current) => ({ ...current, groupName: event.target.value }))} /></div>
+            <div className="space-y-2"><Label>组序</Label><Input type="number" value={productForm.groupSort} onChange={(event) => setProductForm((current) => ({ ...current, groupSort: Number(event.target.value || 0) }))} /></div>
+            <div className="space-y-2"><Label>排序</Label><Input type="number" value={productForm.sortOrder} onChange={(event) => setProductForm((current) => ({ ...current, sortOrder: Number(event.target.value || 0) }))} /></div>
+            <div className="flex items-center justify-between rounded border px-4 py-3"><Label>推荐</Label><Switch checked={productForm.isRecommended} onCheckedChange={(checked) => setProductForm((current) => ({ ...current, isRecommended: checked }))} /></div>
+            <div className="flex items-center justify-between rounded border px-4 py-3"><Label>上架</Label><Switch checked={productForm.enabled} onCheckedChange={(checked) => setProductForm((current) => ({ ...current, enabled: checked }))} /></div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setProductDialogOpen(false)}>取消</Button>
+            <Button onClick={() => void handleSaveProduct()} disabled={savingProduct}>{savingProduct && <RefreshCw className="mr-2 h-4 w-4 animate-spin" />}保存</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={webhookDialogOpen} onOpenChange={setWebhookDialogOpen}>
+        <DialogContent className="max-w-3xl">
+          <DialogHeader><DialogTitle>{editingWebhook ? '编辑订单通知' : '新建订单通知'}</DialogTitle></DialogHeader>
+          <div className="grid gap-4 py-2">
+            <div className="space-y-2"><Label>名称</Label><Input value={webhookForm.name} onChange={(event) => setWebhookForm((current) => ({ ...current, name: event.target.value }))} /></div>
+            <div className="space-y-2"><Label>目标地址</Label><Input value={webhookForm.targetUrl} onChange={(event) => setWebhookForm((current) => ({ ...current, targetUrl: event.target.value }))} placeholder="https://example.com/webhook" /></div>
+            <div className="grid gap-4 lg:grid-cols-2">
+              <div className="space-y-2"><Label>Headers JSON</Label><Textarea value={webhookForm.headersTemplate} onChange={(event) => setWebhookForm((current) => ({ ...current, headersTemplate: event.target.value }))} className="min-h-[180px]" /></div>
+              <div className="space-y-2"><Label>Body 模板</Label><Textarea value={webhookForm.bodyTemplate} onChange={(event) => setWebhookForm((current) => ({ ...current, bodyTemplate: event.target.value }))} className="min-h-[180px]" /></div>
+            </div>
+            <div className="flex items-center justify-between rounded border px-4 py-3"><Label>启用</Label><Switch checked={webhookForm.enabled} onCheckedChange={(checked) => setWebhookForm((current) => ({ ...current, enabled: checked }))} /></div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setWebhookDialogOpen(false)}>取消</Button>
+            <Button onClick={() => void handleSaveWebhook()} disabled={savingWebhook}>{savingWebhook && <RefreshCw className="mr-2 h-4 w-4 animate-spin" />}保存</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={statusDialogOrder !== null} onOpenChange={(open) => !open && setStatusDialogOrder(null)}>
+        <DialogContent className="max-w-2xl">
+          <DialogHeader><DialogTitle>修改订单信息</DialogTitle></DialogHeader>
+          <div className="grid gap-4 py-2">
+            <div className="space-y-2">
+              <Label>付款状态</Label>
+              <Select value={statusDraft} onValueChange={(value: 'paid' | 'expired' | 'refunded') => setStatusDraft(value)}>
+                <SelectTrigger><SelectValue /></SelectTrigger>
                 <SelectContent>
-                  {plans.map((plan) => (
-                    <SelectItem key={plan.id} value={plan.id}>{plan.name}</SelectItem>
-                  ))}
+                  <SelectItem value="paid">paid</SelectItem>
+                  <SelectItem value="expired">expired</SelectItem>
+                  <SelectItem value="refunded">refunded</SelectItem>
                 </SelectContent>
               </Select>
             </div>
-            <div className="space-y-2">
-              <Label htmlFor="durationDays">时长</Label>
-              <Input
-                id="durationDays"
-                type="number"
-                min="1"
-                value={productForm.durationDays}
-                onChange={(event) => setProductForm((current) => ({ ...current, durationDays: Number(event.target.value || 0) }))}
-              />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="priceCnyCent">售价</Label>
-              <Input
-                id="priceCnyCent"
-                type="number"
-                min="0.01"
-                step="0.01"
-                value={productPriceInput}
-                onChange={(event) => setProductPriceInput(event.target.value)}
-              />
-              <p className="text-xs text-muted-foreground">单位：元，支持两位小数</p>
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="groupName">分组</Label>
-              <Input
-                id="groupName"
-                value={productForm.groupName}
-                onChange={(event) => setProductForm((current) => ({ ...current, groupName: event.target.value }))}
-                placeholder="标准版"
-              />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="groupSort">组序</Label>
-              <Input
-                id="groupSort"
-                type="number"
-                value={productForm.groupSort}
-                onChange={(event) => setProductForm((current) => ({ ...current, groupSort: Number(event.target.value || 0) }))}
-              />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="sortOrder">排序</Label>
-              <Input
-                id="sortOrder"
-                type="number"
-                value={productForm.sortOrder}
-                onChange={(event) => setProductForm((current) => ({ ...current, sortOrder: Number(event.target.value || 0) }))}
-              />
-            </div>
-            <div className="flex items-center justify-between rounded-xl border border-border/70 px-4 py-3">
-              <div>
-                <p className="text-sm font-medium">推荐</p>
-                <p className="text-xs text-muted-foreground">前排展示</p>
+            <div className="space-y-2"><Label>备注</Label><Textarea value={statusNote} onChange={(event) => setStatusNote(event.target.value)} className="min-h-[100px]" /></div>
+            <div className="rounded border">
+              <div className="border-b px-4 py-3 text-sm font-medium">备注历史</div>
+              <div className="max-h-64 overflow-auto px-4 py-3 text-sm">
+                {historyLoading && <div className="text-muted-foreground">加载中...</div>}
+                {!historyLoading && statusHistory.length === 0 && <div className="text-muted-foreground">暂无历史</div>}
+                {!historyLoading && statusHistory.map((item) => (
+                  <div key={item.id} className="border-b py-3 last:border-b-0">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <Badge variant="outline">{item.fromStatus} → {item.toStatus}</Badge>
+                      <span className="text-xs text-muted-foreground">{item.createdBy || '-'}</span>
+                      <span className="text-xs text-muted-foreground">{formatDateTime(item.createdAt)}</span>
+                    </div>
+                    <div className="mt-2 whitespace-pre-wrap text-sm">{item.note || '-'}</div>
+                  </div>
+                ))}
               </div>
-              <Switch
-                checked={productForm.isRecommended}
-                onCheckedChange={(checked) => setProductForm((current) => ({ ...current, isRecommended: checked }))}
-              />
-            </div>
-            <div className="flex items-center justify-between rounded-xl border border-border/70 px-4 py-3">
-              <div>
-                <p className="text-sm font-medium">上架</p>
-                <p className="text-xs text-muted-foreground">用户可见</p>
-              </div>
-              <Switch
-                checked={productForm.enabled}
-                onCheckedChange={(checked) => setProductForm((current) => ({ ...current, enabled: checked }))}
-              />
             </div>
           </div>
-
           <DialogFooter>
-            <Button variant="outline" onClick={() => setProductDialogOpen(false)}>取消</Button>
-            <Button onClick={handleSaveProduct} disabled={savingProduct}>
-              {savingProduct ? <RefreshCw className="mr-2 h-4 w-4 animate-spin" /> : null}
-              保存
-            </Button>
+            <Button variant="outline" onClick={() => setStatusDialogOrder(null)}>取消</Button>
+            <Button onClick={() => void handleSaveStatus()} disabled={statusSaving}>{statusSaving && <RefreshCw className="mr-2 h-4 w-4 animate-spin" />}保存</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={settlementDialogMode !== null} onOpenChange={(open) => !open && setSettlementDialogMode(null)}>
+        <DialogContent className="max-w-xl">
+          <DialogHeader><DialogTitle>{settlementDialogMode === 'single' ? '单笔分账' : '批量分账'}</DialogTitle></DialogHeader>
+          <div className="space-y-4 py-2">
+            <div className="text-sm text-muted-foreground">
+              {settlementDialogMode === 'single' ? settlementOrder?.orderNo : `共 ${selectedOrderNos.length} 笔`}
+            </div>
+            <div className="space-y-2"><Label>备注</Label><Textarea value={settlementNote} onChange={(event) => setSettlementNote(event.target.value)} className="min-h-[120px]" /></div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setSettlementDialogMode(null)}>取消</Button>
+            <Button onClick={() => void handleConfirmSettlement()} disabled={settlementSaving}>{settlementSaving && <RefreshCw className="mr-2 h-4 w-4 animate-spin" />}确认</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

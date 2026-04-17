@@ -51,6 +51,7 @@ type purchasePaymentGateway interface {
 type PurchaseService struct {
 	productRepo repository.PurchaseProductRepositoryInterface
 	orderRepo   repository.PurchaseOrderRepositoryInterface
+	adminRepo   *repository.PurchaseAdminRepository
 	planRepo    repository.SubscriptionPlanRepositoryInterface
 	subRepo     repository.UserSubscriptionRepositoryInterface
 	settingsSvc *PurchaseSettingsService
@@ -71,6 +72,7 @@ func NewPurchaseService() *PurchaseService {
 	return &PurchaseService{
 		productRepo: repository.NewPurchaseProductRepository(),
 		orderRepo:   repository.NewPurchaseOrderRepository(),
+		adminRepo:   repository.NewPurchaseAdminRepository(),
 		planRepo:    repository.NewSubscriptionPlanRepository(),
 		subRepo:     repository.NewUserSubscriptionRepository(),
 		settingsSvc: NewPurchaseSettingsService(),
@@ -96,6 +98,7 @@ func NewPurchaseServiceWithDeps(
 	return &PurchaseService{
 		productRepo: productRepo,
 		orderRepo:   orderRepo,
+		adminRepo:   repository.NewPurchaseAdminRepository(),
 		planRepo:    planRepo,
 		subRepo:     subRepo,
 		settingsSvc: settingsSvc,
@@ -831,6 +834,9 @@ func (s *PurchaseService) applySuccessfulPayment(orderNo, tradeNo string, paidAt
 	if err != nil {
 		return nil, err
 	}
+	if err := s.adminRepo.QueueWebhookEventsTx(tx, order.ID, order.OrderNo); err != nil {
+		return nil, err
+	}
 
 	if err := tx.Commit(); err != nil {
 		return nil, err
@@ -1084,7 +1090,7 @@ func (s *PurchaseService) getOrderByOrderNoTx(tx *sql.Tx, orderNo string) (*mode
 	err := tx.QueryRow(
 		`SELECT id, order_no, user_id, product_id, subscription_plan_id, duration_days, amount_cny_cent, order_kind, delivery_mode, balance_topup_micros, payment_channel, payment_status,
 		        fulfillment_status, generated_redeem_code_id, upgrade_source_plan_id, upgrade_source_expires_at, upgrade_credit_cny_cent, upgrade_locked_target_seconds, upgrade_state_token,
-		        alipay_trade_no, alipay_qr_code, alipay_qr_url, expires_at, paid_at, fulfilled_at, failure_reason,
+		        manual_settlement_done, alipay_trade_no, alipay_qr_code, alipay_qr_url, expires_at, paid_at, fulfilled_at, failure_reason,
 		        created_at, updated_at
 		   FROM purchase_orders
 		  WHERE order_no = ?`,
@@ -1109,6 +1115,7 @@ func (s *PurchaseService) getOrderByOrderNoTx(tx *sql.Tx, orderNo string) (*mode
 		&order.UpgradeCreditCNYCent,
 		&order.UpgradeLockedTargetSecs,
 		&order.UpgradeStateToken,
+		&order.ManualSettlementDone,
 		&order.AlipayTradeNo,
 		&order.AlipayQRCode,
 		&order.AlipayQRURL,

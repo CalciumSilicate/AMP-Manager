@@ -366,6 +366,12 @@ func Setup() *gin.Engine {
 			{
 				purchase.GET("/settings", purchaseHandler.GetSettings)
 				purchase.PUT("/settings", purchaseHandler.UpdateSettings)
+				purchase.GET("/webhooks", purchaseHandler.ListWebhookTargets)
+				purchase.POST("/webhooks", purchaseHandler.CreateWebhookTarget)
+				purchase.PUT("/webhooks/:id", purchaseHandler.UpdateWebhookTarget)
+				purchase.PATCH("/webhooks/:id/enabled", purchaseHandler.SetWebhookTargetEnabled)
+				purchase.DELETE("/webhooks/:id", purchaseHandler.DeleteWebhookTarget)
+				purchase.POST("/webhooks/:id/test", purchaseHandler.TestWebhookTarget)
 
 				purchase.GET("/products", purchaseHandler.ListProductsAdmin)
 				purchase.POST("/products", purchaseHandler.CreateProduct)
@@ -375,6 +381,10 @@ func Setup() *gin.Engine {
 
 				purchase.GET("/orders", purchaseHandler.ListOrdersAdmin)
 				purchase.POST("/orders/:orderNo/refresh", purchaseHandler.RefreshOrderAdmin)
+				purchase.POST("/orders/:orderNo/payment-status", purchaseHandler.UpdateOrderPaymentStatus)
+				purchase.GET("/orders/:orderNo/payment-status-history", purchaseHandler.ListOrderPaymentStatusHistory)
+				purchase.POST("/orders/:orderNo/manual-settlement", purchaseHandler.CreateSingleManualSettlement)
+				purchase.POST("/manual-settlements/confirm", purchaseHandler.CreateBatchManualSettlement)
 			}
 
 			redeem := admin.Group("/redeem")

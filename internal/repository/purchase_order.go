@@ -33,8 +33,8 @@ func (r *PurchaseOrderRepository) Create(order *model.PurchaseOrder) error {
 		`INSERT INTO purchase_orders
 		 (id, order_no, user_id, product_id, subscription_plan_id, duration_days, amount_cny_cent, order_kind, delivery_mode, balance_topup_micros, payment_channel, payment_status, fulfillment_status,
 		  generated_redeem_code_id, upgrade_source_plan_id, upgrade_source_expires_at, upgrade_credit_cny_cent, upgrade_locked_target_seconds, upgrade_state_token,
-		  alipay_trade_no, alipay_qr_code, alipay_qr_url, expires_at, paid_at, fulfilled_at, failure_reason, created_at, updated_at)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		  manual_settlement_done, alipay_trade_no, alipay_qr_code, alipay_qr_url, expires_at, paid_at, fulfilled_at, failure_reason, created_at, updated_at)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		order.ID,
 		order.OrderNo,
 		order.UserID,
@@ -54,6 +54,7 @@ func (r *PurchaseOrderRepository) Create(order *model.PurchaseOrder) error {
 		order.UpgradeCreditCNYCent,
 		order.UpgradeLockedTargetSecs,
 		order.UpgradeStateToken,
+		order.ManualSettlementDone,
 		order.AlipayTradeNo,
 		order.AlipayQRCode,
 		order.AlipayQRURL,
@@ -73,7 +74,7 @@ func (r *PurchaseOrderRepository) GetByOrderNo(orderNo string) (*model.PurchaseO
 		db.QueryRow(
 			`SELECT id, order_no, user_id, product_id, subscription_plan_id, duration_days, amount_cny_cent, order_kind, delivery_mode, balance_topup_micros, payment_channel, payment_status,
 			        fulfillment_status, generated_redeem_code_id, upgrade_source_plan_id, upgrade_source_expires_at, upgrade_credit_cny_cent, upgrade_locked_target_seconds, upgrade_state_token,
-			        alipay_trade_no, alipay_qr_code, alipay_qr_url, expires_at, paid_at, fulfilled_at, failure_reason,
+			        manual_settlement_done, alipay_trade_no, alipay_qr_code, alipay_qr_url, expires_at, paid_at, fulfilled_at, failure_reason,
 			        created_at, updated_at
 			   FROM purchase_orders
 			  WHERE order_no = ?`,
@@ -233,6 +234,7 @@ func (r *PurchaseOrderRepository) getOrderByQuery(row *sql.Row) (*model.Purchase
 		&order.UpgradeCreditCNYCent,
 		&order.UpgradeLockedTargetSecs,
 		&order.UpgradeStateToken,
+		&order.ManualSettlementDone,
 		&order.AlipayTradeNo,
 		&order.AlipayQRCode,
 		&order.AlipayQRURL,
@@ -254,7 +256,7 @@ func (r *PurchaseOrderRepository) detailSelectSQL() string {
 	               o.duration_days, o.amount_cny_cent, o.order_kind, o.delivery_mode, o.balance_topup_micros, o.payment_channel, o.payment_status, o.fulfillment_status,
 	               o.upgrade_source_plan_id, COALESCE(source_plan.name, ''), o.upgrade_source_expires_at, o.upgrade_credit_cny_cent, o.upgrade_locked_target_seconds,
 	               o.generated_redeem_code_id, COALESCE(generated_code.code_value, ''), COALESCE(generated_code.code_mask, ''), COALESCE(generated_code.status, ''), generated_code.last_redeemed_at,
-	               o.alipay_trade_no, o.alipay_qr_code, o.alipay_qr_url, o.expires_at, o.paid_at, o.fulfilled_at,
+	               o.manual_settlement_done, o.alipay_trade_no, o.alipay_qr_code, o.alipay_qr_url, o.expires_at, o.paid_at, o.fulfilled_at,
 	               o.failure_reason, o.created_at, o.updated_at
 	          FROM purchase_orders o
 	          INNER JOIN users u ON u.id = o.user_id
@@ -294,6 +296,7 @@ func (r *PurchaseOrderRepository) getOrderDetailByQuery(row *sql.Row) (*model.Pu
 		&order.GeneratedRedeemCodeMask,
 		&order.GeneratedRedeemCodeStatus,
 		&order.GeneratedRedeemedAt,
+		&order.ManualSettlementDone,
 		&order.AlipayTradeNo,
 		&order.PaymentQRCode,
 		&order.PaymentQRURL,
@@ -342,6 +345,7 @@ func (r *PurchaseOrderRepository) scanOrderDetails(rows *sql.Rows) ([]*model.Pur
 			&order.GeneratedRedeemCodeMask,
 			&order.GeneratedRedeemCodeStatus,
 			&order.GeneratedRedeemedAt,
+			&order.ManualSettlementDone,
 			&order.AlipayTradeNo,
 			&order.PaymentQRCode,
 			&order.PaymentQRURL,

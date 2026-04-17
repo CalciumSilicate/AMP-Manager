@@ -68,6 +68,8 @@ func main() {
 
 	service.InitStatusMonitorScheduler()
 	defer service.StopStatusMonitorScheduler()
+	service.StartPurchaseWebhookWorker()
+	defer service.StopPurchaseWebhookWorker()
 
 	// 初始化实时推送 hub
 	logRepo := repository.NewRequestLogRepository()
