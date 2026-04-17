@@ -111,7 +111,7 @@ export default function StatusMonitor() {
                 </span>
                 <span className="inline-flex items-center gap-1.5">
                   <TimerReset className="h-4 w-4" />
-                  轮询周期 {data?.pollIntervalSec ? `${Math.round(data.pollIntervalSec / 60)} 分钟` : '-'}
+                  轮询周期 {formatPollInterval(data?.pollIntervalSec)}
                 </span>
                 <span className="inline-flex items-center gap-1.5">
                   <Waves className="h-4 w-4" />
@@ -289,6 +289,13 @@ function MetricTile({
 
 function formatMs(value: number) {
   return value > 0 ? `${value} ms` : '-'
+}
+
+function formatPollInterval(value?: number) {
+  if (!value || value <= 0) return '-'
+  if (value < 60) return `${value} 秒`
+  if (value % 60 === 0) return `${value / 60} 分钟`
+  return `${Math.floor(value / 60)} 分 ${value % 60} 秒`
 }
 
 function sanitizeLatestMessage(message?: string) {
