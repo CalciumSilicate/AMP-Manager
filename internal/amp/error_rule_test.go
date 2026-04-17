@@ -11,15 +11,18 @@ import (
 func TestMatchErrorRuleMatchesBuiltInFake200(t *testing.T) {
 	SetErrorRules([]model.ErrorRule{
 		{
-			ID:              "custom-fake-200",
-			Name:            "fake 200",
-			BuiltIn:         false,
-			Enabled:         true,
-			RequestType:     model.ErrorRuleRequestTypeResponses,
-			UpstreamStatus:  "200",
-			Pattern:         "An Error Occurred",
-			MatchMode:       model.ErrorRuleMatchModeSubstring,
-			OverrideStatus:  http.StatusBadGateway,
+			ID:             "custom-fake-200",
+			Name:           "fake 200",
+			IsDefault:      false,
+			IsEnabled:      true,
+			RequestType:    model.ErrorRuleRequestTypeResponses,
+			UpstreamStatus: "200",
+			Pattern:        "An Error Occurred",
+			MatchType:      model.ErrorRuleMatchTypeContains,
+			OverrideStatusCode: func() *int {
+				value := http.StatusBadGateway
+				return &value
+			}(),
 			OverrideMessage: "上游返回了错误内容",
 		},
 	})
@@ -31,8 +34,8 @@ func TestMatchErrorRuleMatchesBuiltInFake200(t *testing.T) {
 	if match == nil {
 		t.Fatal("expected match")
 	}
-	if match.Rule.OverrideStatus != http.StatusBadGateway {
-		t.Fatalf("unexpected override status: %d", match.Rule.OverrideStatus)
+	if match.Rule.OverrideStatusCode == nil || *match.Rule.OverrideStatusCode != http.StatusBadGateway {
+		t.Fatalf("unexpected override status: %+v", match.Rule.OverrideStatusCode)
 	}
 }
 

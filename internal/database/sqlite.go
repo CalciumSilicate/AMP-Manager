@@ -538,9 +538,9 @@ func createTables() error {
 	CREATE INDEX IF NOT EXISTS idx_status_monitor_results_monitor_checked ON status_monitor_results(monitor_id, checked_at DESC);
 	CREATE INDEX IF NOT EXISTS idx_status_monitor_results_checked ON status_monitor_results(checked_at DESC);
 
-	CREATE TABLE IF NOT EXISTS request_log_details (
-		request_id TEXT PRIMARY KEY,
-		request_headers TEXT,
+		CREATE TABLE IF NOT EXISTS request_log_details (
+			request_id TEXT PRIMARY KEY,
+			request_headers TEXT,
 		request_body TEXT,
 		translated_request_body TEXT,
 		translated_request_headers TEXT,
@@ -548,11 +548,56 @@ func createTables() error {
 		response_body TEXT,
 		translated_response_body TEXT,
 		created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
-	);
-	CREATE INDEX IF NOT EXISTS idx_request_log_details_created ON request_log_details(created_at DESC);
+		);
+		CREATE INDEX IF NOT EXISTS idx_request_log_details_created ON request_log_details(created_at DESC);
 
-	CREATE TABLE IF NOT EXISTS announcements (
-		id TEXT PRIMARY KEY,
+		CREATE TABLE IF NOT EXISTS error_rules (
+			id TEXT PRIMARY KEY,
+			name TEXT NOT NULL,
+			description TEXT NOT NULL DEFAULT '',
+			request_type TEXT NOT NULL CHECK (request_type IN ('responses', 'chat_completions', 'gemini', 'messages')),
+			upstream_status TEXT NOT NULL DEFAULT '*',
+			pattern TEXT NOT NULL,
+			match_type TEXT NOT NULL CHECK (match_type IN ('contains', 'exact', 'regex')),
+			category TEXT NOT NULL DEFAULT '',
+			priority INTEGER NOT NULL DEFAULT 0,
+			is_enabled INTEGER NOT NULL DEFAULT 1,
+			is_default INTEGER NOT NULL DEFAULT 0,
+			override_status_code INTEGER,
+			override_message TEXT NOT NULL DEFAULT '',
+			override_response TEXT NOT NULL DEFAULT '',
+			created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+			updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+		);
+		CREATE UNIQUE INDEX IF NOT EXISTS idx_error_rules_request_pattern ON error_rules(request_type, pattern);
+		CREATE INDEX IF NOT EXISTS idx_error_rules_enabled_priority ON error_rules(is_enabled, priority ASC, id ASC);
+		CREATE INDEX IF NOT EXISTS idx_error_rules_default_pattern ON error_rules(is_default, pattern);
+
+		CREATE TABLE IF NOT EXISTS request_filters (
+			id TEXT PRIMARY KEY,
+			name TEXT NOT NULL,
+			description TEXT NOT NULL DEFAULT '',
+			scope TEXT NOT NULL CHECK (scope IN ('header', 'body')),
+			action TEXT NOT NULL CHECK (action IN ('remove', 'set', 'json_path', 'text_replace')),
+			match_type TEXT,
+			target TEXT NOT NULL DEFAULT '',
+			replacement TEXT NOT NULL DEFAULT '',
+			priority INTEGER NOT NULL DEFAULT 0,
+			is_enabled INTEGER NOT NULL DEFAULT 1,
+			binding_type TEXT NOT NULL DEFAULT 'global' CHECK (binding_type IN ('global', 'channels', 'groups')),
+			channel_ids_json TEXT NOT NULL DEFAULT '[]',
+			group_ids_json TEXT NOT NULL DEFAULT '[]',
+			rule_mode TEXT NOT NULL DEFAULT 'simple' CHECK (rule_mode IN ('simple', 'advanced')),
+			execution_phase TEXT NOT NULL DEFAULT 'guard' CHECK (execution_phase IN ('guard', 'final')),
+			operations_json TEXT NOT NULL DEFAULT '[]',
+			created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+			updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+		);
+		CREATE INDEX IF NOT EXISTS idx_request_filters_enabled_priority ON request_filters(is_enabled, priority ASC, id ASC);
+		CREATE INDEX IF NOT EXISTS idx_request_filters_binding_phase ON request_filters(binding_type, execution_phase, priority ASC);
+
+		CREATE TABLE IF NOT EXISTS announcements (
+			id TEXT PRIMARY KEY,
 		title TEXT NOT NULL,
 		content TEXT NOT NULL,
 		audience TEXT NOT NULL CHECK (audience IN ('authenticated', 'new_user', 'public')),
@@ -682,8 +727,9 @@ func createTables() error {
 		upgrade_credit_cny_cent BIGINT NOT NULL DEFAULT 0,
 		upgrade_locked_target_seconds BIGINT NOT NULL DEFAULT 0,
 		upgrade_state_token TEXT NOT NULL DEFAULT '',
-		payment_status TEXT NOT NULL DEFAULT 'pending' CHECK (payment_status IN ('pending', 'paid', 'expired', 'closed', 'failed')),
+		payment_status TEXT NOT NULL DEFAULT 'pending' CHECK (payment_status IN ('pending', 'paid', 'expired', 'refunded', 'closed', 'failed')),
 		fulfillment_status TEXT NOT NULL DEFAULT 'pending' CHECK (fulfillment_status IN ('pending', 'fulfilled', 'failed')),
+		manual_settlement_done INTEGER NOT NULL DEFAULT 0,
 		alipay_trade_no TEXT NOT NULL DEFAULT '',
 		alipay_qr_code TEXT NOT NULL DEFAULT '',
 		alipay_qr_url TEXT NOT NULL DEFAULT '',
@@ -702,6 +748,7 @@ func createTables() error {
 	CREATE INDEX IF NOT EXISTS idx_purchase_orders_fulfillment_created ON purchase_orders(fulfillment_status, created_at DESC);
 	CREATE INDEX IF NOT EXISTS idx_purchase_orders_product_created ON purchase_orders(product_id, created_at DESC);
 	CREATE INDEX IF NOT EXISTS idx_purchase_orders_trade_no ON purchase_orders(alipay_trade_no);
+	CREATE INDEX IF NOT EXISTS idx_purchase_orders_manual_settlement_done ON purchase_orders(manual_settlement_done, created_at DESC);
 
 	CREATE TABLE IF NOT EXISTS redeem_campaigns (
 		id TEXT PRIMARY KEY,
@@ -1591,13 +1638,68 @@ func runMigrations() error {
 				FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
 			)`,
 		},
-		{
-			name: "create_announcement_reads_indexes",
-			sql:  `CREATE INDEX IF NOT EXISTS idx_announcement_reads_user ON announcement_reads(user_id, read_at DESC)`,
-		},
-		{
-			name: "create_status_monitor_tables",
-			sql: `CREATE TABLE IF NOT EXISTS status_monitors (
+			{
+				name: "create_announcement_reads_indexes",
+				sql:  `CREATE INDEX IF NOT EXISTS idx_announcement_reads_user ON announcement_reads(user_id, read_at DESC)`,
+			},
+			{
+				name: "create_error_rules_table",
+				sql: `CREATE TABLE IF NOT EXISTS error_rules (
+					id TEXT PRIMARY KEY,
+					name TEXT NOT NULL,
+					description TEXT NOT NULL DEFAULT '',
+					request_type TEXT NOT NULL CHECK (request_type IN ('responses', 'chat_completions', 'gemini', 'messages')),
+					upstream_status TEXT NOT NULL DEFAULT '*',
+					pattern TEXT NOT NULL,
+					match_type TEXT NOT NULL CHECK (match_type IN ('contains', 'exact', 'regex')),
+					category TEXT NOT NULL DEFAULT '',
+					priority INTEGER NOT NULL DEFAULT 0,
+					is_enabled INTEGER NOT NULL DEFAULT 1,
+					is_default INTEGER NOT NULL DEFAULT 0,
+					override_status_code INTEGER,
+					override_message TEXT NOT NULL DEFAULT '',
+					override_response TEXT NOT NULL DEFAULT '',
+					created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+					updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+				)`,
+			},
+			{
+				name: "create_error_rules_indexes",
+				sql: `CREATE UNIQUE INDEX IF NOT EXISTS idx_error_rules_request_pattern ON error_rules(request_type, pattern);
+					  CREATE INDEX IF NOT EXISTS idx_error_rules_enabled_priority ON error_rules(is_enabled, priority ASC, id ASC);
+					  CREATE INDEX IF NOT EXISTS idx_error_rules_default_pattern ON error_rules(is_default, pattern)`,
+			},
+			{
+				name: "create_request_filters_table",
+				sql: `CREATE TABLE IF NOT EXISTS request_filters (
+					id TEXT PRIMARY KEY,
+					name TEXT NOT NULL,
+					description TEXT NOT NULL DEFAULT '',
+					scope TEXT NOT NULL CHECK (scope IN ('header', 'body')),
+					action TEXT NOT NULL CHECK (action IN ('remove', 'set', 'json_path', 'text_replace')),
+					match_type TEXT,
+					target TEXT NOT NULL DEFAULT '',
+					replacement TEXT NOT NULL DEFAULT '',
+					priority INTEGER NOT NULL DEFAULT 0,
+					is_enabled INTEGER NOT NULL DEFAULT 1,
+					binding_type TEXT NOT NULL DEFAULT 'global' CHECK (binding_type IN ('global', 'channels', 'groups')),
+					channel_ids_json TEXT NOT NULL DEFAULT '[]',
+					group_ids_json TEXT NOT NULL DEFAULT '[]',
+					rule_mode TEXT NOT NULL DEFAULT 'simple' CHECK (rule_mode IN ('simple', 'advanced')),
+					execution_phase TEXT NOT NULL DEFAULT 'guard' CHECK (execution_phase IN ('guard', 'final')),
+					operations_json TEXT NOT NULL DEFAULT '[]',
+					created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+					updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+				)`,
+			},
+			{
+				name: "create_request_filters_indexes",
+				sql: `CREATE INDEX IF NOT EXISTS idx_request_filters_enabled_priority ON request_filters(is_enabled, priority ASC, id ASC);
+					  CREATE INDEX IF NOT EXISTS idx_request_filters_binding_phase ON request_filters(binding_type, execution_phase, priority ASC)`,
+			},
+			{
+				name: "create_status_monitor_tables",
+				sql: `CREATE TABLE IF NOT EXISTS status_monitors (
 				id TEXT PRIMARY KEY,
 				name TEXT NOT NULL,
 				group_name TEXT NOT NULL DEFAULT '',
@@ -1841,6 +1943,10 @@ func runMigrations() error {
 			name: "rebuild_redeem_codes_for_free_codes",
 			sql:  ``,
 		},
+		{
+			name: "rebuild_purchase_orders_for_purchase_admin_extensions",
+			sql:  ``,
+		},
 	}
 
 	for _, m := range migrations {
@@ -1875,6 +1981,9 @@ func ensureCriticalSchema() error {
 	if err := ensureRequestLogsSessionSchema(); err != nil {
 		return err
 	}
+	if err := ensurePurchaseSchema(); err != nil {
+		return err
+	}
 	return nil
 }
 
@@ -1899,6 +2008,105 @@ func ensureRequestLogsSessionSchema() error {
 		}
 	}
 
+	return nil
+}
+
+func ensurePurchaseSchema() error {
+	if err := ensureColumnWithDefault("purchase_orders", "manual_settlement_done", "INTEGER NOT NULL DEFAULT 0"); err != nil {
+		return err
+	}
+	if _, err := db.Exec(`CREATE INDEX IF NOT EXISTS idx_purchase_orders_manual_settlement_done ON purchase_orders(manual_settlement_done, created_at DESC)`); err != nil {
+		return fmt.Errorf("create idx_purchase_orders_manual_settlement_done failed: %w", err)
+	}
+	statements := []string{
+		`CREATE TABLE IF NOT EXISTS purchase_webhook_targets (
+			id TEXT PRIMARY KEY,
+			name TEXT NOT NULL,
+			target_url TEXT NOT NULL,
+			body_template TEXT NOT NULL DEFAULT '',
+			headers_template TEXT NOT NULL DEFAULT '',
+			enabled INTEGER NOT NULL DEFAULT 1,
+			created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+			updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+		)`,
+		`CREATE INDEX IF NOT EXISTS idx_purchase_webhook_targets_enabled ON purchase_webhook_targets(enabled, created_at DESC)`,
+		`CREATE TABLE IF NOT EXISTS purchase_webhook_events (
+			id TEXT PRIMARY KEY,
+			order_id TEXT NOT NULL,
+			order_no TEXT NOT NULL,
+			target_id TEXT NOT NULL,
+			status TEXT NOT NULL DEFAULT 'pending',
+			attempt_count INTEGER NOT NULL DEFAULT 0,
+			last_error TEXT NOT NULL DEFAULT '',
+			response_status_code INTEGER NOT NULL DEFAULT 0,
+			claim_token TEXT NOT NULL DEFAULT '',
+			claimed_at DATETIME,
+			claim_until DATETIME,
+			next_attempt_at DATETIME,
+			last_attempt_at DATETIME,
+			delivered_at DATETIME,
+			created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+			updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+			FOREIGN KEY (order_id) REFERENCES purchase_orders(id) ON DELETE CASCADE,
+			FOREIGN KEY (target_id) REFERENCES purchase_webhook_targets(id) ON DELETE CASCADE
+		)`,
+		`CREATE UNIQUE INDEX IF NOT EXISTS idx_purchase_webhook_events_order_target ON purchase_webhook_events(order_id, target_id)`,
+		`CREATE INDEX IF NOT EXISTS idx_purchase_webhook_events_due ON purchase_webhook_events(status, next_attempt_at, created_at)`,
+		`CREATE TABLE IF NOT EXISTS purchase_order_payment_status_history (
+			id TEXT PRIMARY KEY,
+			order_id TEXT NOT NULL,
+			order_no TEXT NOT NULL,
+			from_status TEXT NOT NULL,
+			to_status TEXT NOT NULL,
+			note TEXT NOT NULL DEFAULT '',
+			created_by TEXT NOT NULL DEFAULT '',
+			created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+			FOREIGN KEY (order_id) REFERENCES purchase_orders(id) ON DELETE CASCADE
+		)`,
+		`CREATE INDEX IF NOT EXISTS idx_purchase_order_payment_status_history_order_created ON purchase_order_payment_status_history(order_id, created_at DESC)`,
+		`CREATE TABLE IF NOT EXISTS purchase_manual_settlement_batches (
+			id TEXT PRIMARY KEY,
+			batch_no TEXT NOT NULL UNIQUE,
+			mode TEXT NOT NULL,
+			created_by TEXT NOT NULL DEFAULT '',
+			note TEXT NOT NULL DEFAULT '',
+			order_count INTEGER NOT NULL DEFAULT 0,
+			total_amount_cny_cent BIGINT NOT NULL DEFAULT 0,
+			created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+		)`,
+		`CREATE TABLE IF NOT EXISTS purchase_manual_settlement_batch_items (
+			id TEXT PRIMARY KEY,
+			batch_id TEXT NOT NULL,
+			order_id TEXT NOT NULL,
+			order_no TEXT NOT NULL,
+			amount_cny_cent BIGINT NOT NULL DEFAULT 0,
+			payment_status TEXT NOT NULL DEFAULT '',
+			created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+			FOREIGN KEY (batch_id) REFERENCES purchase_manual_settlement_batches(id) ON DELETE CASCADE,
+			FOREIGN KEY (order_id) REFERENCES purchase_orders(id) ON DELETE CASCADE
+		)`,
+		`CREATE UNIQUE INDEX IF NOT EXISTS idx_purchase_manual_settlement_item_order_unique ON purchase_manual_settlement_batch_items(order_id)`,
+		`CREATE INDEX IF NOT EXISTS idx_purchase_manual_settlement_item_batch ON purchase_manual_settlement_batch_items(batch_id, created_at DESC)`,
+	}
+	for _, statement := range statements {
+		if _, err := db.Exec(statement); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func ensureColumnWithDefault(tableName, columnName, definition string) error {
+	exists, err := columnExists(tableName, columnName)
+	if err != nil {
+		return fmt.Errorf("check %s.%s failed: %w", tableName, columnName, err)
+	}
+	if exists {
+		return nil
+	}
+	if _, err := db.Exec(fmt.Sprintf("ALTER TABLE %s ADD COLUMN %s %s", tableName, columnName, definition)); err != nil && !shouldIgnoreMigrationError("ensure_column_"+tableName+"_"+columnName, err) {
+		return fmt.Errorf("add %s.%s failed: %w", tableName, columnName, err)
+	}
 	return nil
 }
 
@@ -2051,6 +2259,65 @@ func adaptMigrationSQL(name string, sqlText string) string {
 				PRAGMA foreign_keys = ON
 			`
 		}
+	case "rebuild_purchase_orders_for_purchase_admin_extensions":
+		adapted = `
+			ALTER TABLE purchase_orders RENAME TO purchase_orders_old2;
+			CREATE TABLE purchase_orders (
+				id TEXT PRIMARY KEY,
+				order_no TEXT UNIQUE NOT NULL,
+				user_id TEXT NOT NULL,
+				product_id TEXT NOT NULL,
+				subscription_plan_id TEXT NOT NULL,
+				duration_days INTEGER NOT NULL CHECK (duration_days > 0),
+				amount_cny_cent BIGINT NOT NULL CHECK (amount_cny_cent >= 0),
+				order_kind TEXT NOT NULL DEFAULT 'subscription' CHECK (order_kind IN ('subscription', 'balance_topup')),
+				delivery_mode TEXT NOT NULL DEFAULT 'account' CHECK (delivery_mode IN ('account', 'redeem_code')),
+				balance_topup_micros BIGINT NOT NULL DEFAULT 0,
+				payment_channel TEXT NOT NULL CHECK (payment_channel IN ('alipay')),
+				generated_redeem_code_id TEXT NOT NULL DEFAULT '',
+				upgrade_source_plan_id TEXT NOT NULL DEFAULT '',
+				upgrade_source_expires_at DATETIME,
+				upgrade_credit_cny_cent BIGINT NOT NULL DEFAULT 0,
+				upgrade_locked_target_seconds BIGINT NOT NULL DEFAULT 0,
+				upgrade_state_token TEXT NOT NULL DEFAULT '',
+				payment_status TEXT NOT NULL DEFAULT 'pending' CHECK (payment_status IN ('pending', 'paid', 'expired', 'refunded', 'closed', 'failed')),
+				fulfillment_status TEXT NOT NULL DEFAULT 'pending' CHECK (fulfillment_status IN ('pending', 'fulfilled', 'failed')),
+				manual_settlement_done INTEGER NOT NULL DEFAULT 0,
+				alipay_trade_no TEXT NOT NULL DEFAULT '',
+				alipay_qr_code TEXT NOT NULL DEFAULT '',
+				alipay_qr_url TEXT NOT NULL DEFAULT '',
+				expires_at DATETIME,
+				paid_at DATETIME,
+				fulfilled_at DATETIME,
+				failure_reason TEXT NOT NULL DEFAULT '',
+				created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+				updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+				FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+				FOREIGN KEY (product_id) REFERENCES purchase_products(id) ON DELETE RESTRICT,
+				FOREIGN KEY (subscription_plan_id) REFERENCES subscription_plans(id) ON DELETE RESTRICT
+			);
+			INSERT INTO purchase_orders (
+				id, order_no, user_id, product_id, subscription_plan_id, duration_days, amount_cny_cent,
+				order_kind, delivery_mode, balance_topup_micros, payment_channel, generated_redeem_code_id,
+				upgrade_source_plan_id, upgrade_source_expires_at, upgrade_credit_cny_cent, upgrade_locked_target_seconds, upgrade_state_token,
+				payment_status, fulfillment_status, manual_settlement_done, alipay_trade_no, alipay_qr_code, alipay_qr_url,
+				expires_at, paid_at, fulfilled_at, failure_reason, created_at, updated_at
+			)
+			SELECT
+				id, order_no, user_id, product_id, subscription_plan_id, duration_days, amount_cny_cent,
+				order_kind, COALESCE(delivery_mode, 'account'), balance_topup_micros, payment_channel, COALESCE(generated_redeem_code_id, ''),
+				COALESCE(upgrade_source_plan_id, ''), upgrade_source_expires_at, COALESCE(upgrade_credit_cny_cent, 0), COALESCE(upgrade_locked_target_seconds, 0), COALESCE(upgrade_state_token, ''),
+				payment_status, fulfillment_status, 0, alipay_trade_no, alipay_qr_code, alipay_qr_url,
+				expires_at, paid_at, fulfilled_at, failure_reason, created_at, updated_at
+			FROM purchase_orders_old2;
+			DROP TABLE purchase_orders_old2;
+			CREATE INDEX IF NOT EXISTS idx_purchase_orders_user_created ON purchase_orders(user_id, created_at DESC);
+			CREATE INDEX IF NOT EXISTS idx_purchase_orders_payment_created ON purchase_orders(payment_status, created_at DESC);
+			CREATE INDEX IF NOT EXISTS idx_purchase_orders_fulfillment_created ON purchase_orders(fulfillment_status, created_at DESC);
+			CREATE INDEX IF NOT EXISTS idx_purchase_orders_product_created ON purchase_orders(product_id, created_at DESC);
+			CREATE INDEX IF NOT EXISTS idx_purchase_orders_trade_no ON purchase_orders(alipay_trade_no);
+			CREATE INDEX IF NOT EXISTS idx_purchase_orders_manual_settlement_done ON purchase_orders(manual_settlement_done, created_at DESC)
+		`
 	case "postgres_widen_users_balance_micros", "postgres_widen_request_logs_micros_columns", "postgres_widen_request_logs_token_columns", "postgres_widen_subscription_plan_limits_limit_micros", "postgres_widen_billing_events_amount_micros":
 		if dbType != DBTypePostgres {
 			adapted = ""
