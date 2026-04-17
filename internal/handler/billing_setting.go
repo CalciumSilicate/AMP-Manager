@@ -83,3 +83,26 @@ func (h *BillingSettingHandler) GetMySubscription(c *gin.Context) {
 	}
 	c.JSON(http.StatusOK, gin.H{"subscription": sub})
 }
+
+func (h *BillingSettingHandler) ResetDailyBilling(c *gin.Context) {
+	userID := middleware.GetUserID(c)
+	if userID == "" {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "未授权"})
+		return
+	}
+
+	state, err := h.billingService.ResetDailyBilling(userID)
+	if err != nil {
+		if errors.Is(err, service.ErrBillingDailyResetInvalidState) {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "重置今日计费失败"})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"message": "今日计费已重置",
+		"state":   state,
+	})
+}

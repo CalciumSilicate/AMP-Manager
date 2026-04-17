@@ -360,6 +360,42 @@ func (h *SystemHandler) UpdateRequestPayloadLimit(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"message": "配置已更新", "config": resp})
 }
 
+func (h *SystemHandler) GetBillingDailyResetConfig(c *gin.Context) {
+	resp, err := service.NewSystemConfigService().GetBillingDailyResetConfig()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "获取配置失败"})
+		return
+	}
+	c.JSON(http.StatusOK, resp)
+}
+
+func (h *SystemHandler) UpdateBillingDailyResetConfig(c *gin.Context) {
+	var req model.BillingDailyResetConfigRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "参数错误"})
+		return
+	}
+	if req.MinRemainingDays < 2 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "minRemainingDays 必须 >= 2"})
+		return
+	}
+	if req.UsageThresholdPercent < 0 || req.UsageThresholdPercent > 100 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "usageThresholdPercent 必须在 0 到 100 之间"})
+		return
+	}
+	if req.DailyLimit < 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "dailyLimit 必须 >= 0"})
+		return
+	}
+
+	resp, err := service.NewSystemConfigService().SetBillingDailyResetConfig(req)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "保存配置失败"})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"message": "配置已更新", "config": resp})
+}
+
 func (h *SystemHandler) GetBillingRuntimeConfig(c *gin.Context) {
 	resp, err := service.NewSystemConfigService().GetBillingRuntimeConfig()
 	if err != nil {

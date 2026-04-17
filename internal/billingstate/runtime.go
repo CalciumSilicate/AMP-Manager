@@ -36,6 +36,8 @@ const (
 	defaultReconcileBatch     = 100
 	defaultProjectorClaimIdle = 30 * time.Second
 	defaultCloseTimeout       = 5 * time.Second
+	siteTimeZoneConfigKey     = "site_time_zone"
+	defaultSiteTimeZone       = "Asia/Shanghai"
 )
 
 type Config struct {
@@ -1230,8 +1232,12 @@ func (r *Runtime) hydrateHotState(ctx context.Context, userID string) (*hotAccou
 		if plan != nil {
 			state.ActivePlanID = plan.ID
 		}
+		location, err := loadBillingSiteLocation()
+		if err != nil {
+			return nil, err
+		}
 		for _, limit := range limits {
-			windowStart, windowEnd, err := getWindowBounds(limit.LimitType, limit.WindowMode, now, sub.StartsAt)
+			windowStart, windowEnd, err := getWindowBounds(limit.LimitType, limit.WindowMode, limit.FixedResetTime, now, sub.StartsAt, location)
 			if err != nil {
 				return nil, err
 			}
@@ -1417,7 +1423,7 @@ func (r *Runtime) ensureWindowState(sub *model.UserSubscription, limit *model.Su
 		return existing, nil
 	}
 
-	used, err := repository.NewBillingEventRepository().GetUsageInWindow(sub.ID, windowStart, windowEnd)
+	used, err := repository.NewBillingEventRepository().GetUsageInWindowForLimit(sub.ID, limit.LimitType, limit.WindowMode, windowStart, windowEnd)
 	if err != nil {
 		return nil, err
 	}
@@ -2070,36 +2076,95 @@ func nullIfEmpty(value string) any {
 	return value
 }
 
-func getWindowBounds(limitType model.LimitType, windowMode model.WindowMode, now time.Time, subscriptionStartsAt time.Time) (start, end time.Time, err error) {
+func loadBillingSiteLocation() (*time.Location, error) {
+	value, err := repository.NewSystemConfigRepository().Get(siteTimeZoneConfigKey)
+	if err != nil {
+		return nil, err
+	}
+	timeZone := strings.TrimSpace(value)
+	if timeZone == "" {
+		timeZone = defaultSiteTimeZone
+	}
+	location, err := time.LoadLocation(timeZone)
+	if err != nil {
+		return time.LoadLocation(defaultSiteTimeZone)
+	}
+	return location, nil
+}
+
+func getStartOfWeek(now time.Time) time.Time {
+	weekday := int(now.Weekday())
+	if weekday == 0 {
+		weekday = 7
+	}
+	return time.Date(now.Year(), now.Month(), now.Day()-(weekday-1), 0, 0, 0, 0, now.Location())
+}
+
+func getDailyFixedWindowBounds(now time.Time, fixedResetTime *string) (time.Time, time.Time, error) {
+	minutes := 0
+	if fixedResetTime != nil {
+		parsed, err := model.ParseFixedResetTime(*fixedResetTime)
+		if err != nil {
+			return time.Time{}, time.Time{}, err
+		}
+		minutes = parsed
+	}
+
+	resetHour := minutes / 60
+	resetMinute := minutes % 60
+	todayReset := time.Date(now.Year(), now.Month(), now.Day(), resetHour, resetMinute, 0, 0, now.Location())
+	start := todayReset
+	if now.Before(todayReset) {
+		yesterday := now.AddDate(0, 0, -1)
+		start = time.Date(yesterday.Year(), yesterday.Month(), yesterday.Day(), resetHour, resetMinute, 0, 0, now.Location())
+	}
+
+	nextDay := start.AddDate(0, 0, 1)
+	end := time.Date(nextDay.Year(), nextDay.Month(), nextDay.Day(), resetHour, resetMinute, 0, 0, now.Location())
+	return start, end, nil
+}
+
+func getWindowBounds(
+	limitType model.LimitType,
+	windowMode model.WindowMode,
+	fixedResetTime *string,
+	now time.Time,
+	subscriptionStartsAt time.Time,
+	location *time.Location,
+) (start, end time.Time, err error) {
+	if location == nil {
+		location = time.UTC
+	}
+
+	localNow := now.In(location)
+
 	switch limitType {
 	case model.LimitTypeDaily:
 		if windowMode == model.WindowModeFixed {
-			start = time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, time.UTC)
-			end = start.Add(24 * time.Hour)
-		} else {
-			start = now.Add(-24 * time.Hour)
-			end = now
+			start, end, err = getDailyFixedWindowBounds(localNow, fixedResetTime)
+			if err != nil {
+				return time.Time{}, time.Time{}, err
+			}
+			return start.UTC(), end.UTC(), nil
 		}
+		start = now.Add(-24 * time.Hour)
+		end = now
 	case model.LimitTypeWeekly:
 		if windowMode == model.WindowModeFixed {
-			weekday := int(now.Weekday())
-			if weekday == 0 {
-				weekday = 7
-			}
-			start = time.Date(now.Year(), now.Month(), now.Day()-(weekday-1), 0, 0, 0, 0, time.UTC)
+			start = getStartOfWeek(localNow)
 			end = start.AddDate(0, 0, 7)
-		} else {
-			start = now.AddDate(0, 0, -7)
-			end = now
+			return start.UTC(), end.UTC(), nil
 		}
+		start = now.AddDate(0, 0, -7)
+		end = now
 	case model.LimitTypeMonthly:
 		if windowMode == model.WindowModeFixed {
-			start = time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, time.UTC)
+			start = time.Date(localNow.Year(), localNow.Month(), 1, 0, 0, 0, 0, location)
 			end = start.AddDate(0, 1, 0)
-		} else {
-			start = now.AddDate(0, -1, 0)
-			end = now
+			return start.UTC(), end.UTC(), nil
 		}
+		start = now.AddDate(0, -1, 0)
+		end = now
 	case model.LimitTypeRolling5h:
 		const windowSec int64 = 18000
 		if windowMode == model.WindowModeFixed {

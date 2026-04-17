@@ -13,6 +13,7 @@ import (
 type BillingEventRepositoryInterface interface {
 	Create(event *model.BillingEvent) error
 	GetUsageInWindow(userSubscriptionID string, start, end time.Time) (int64, error)
+	GetUsageInWindowForLimit(userSubscriptionID string, limitType model.LimitType, windowMode model.WindowMode, start, end time.Time) (int64, error)
 	ListByUserID(userID string, limit, offset int) ([]*model.BillingEvent, error)
 	ListByRequestLogID(requestLogID string) ([]*model.BillingEvent, error)
 }
@@ -38,6 +39,24 @@ func (r *BillingEventRepository) Create(event *model.BillingEvent) error {
 }
 
 func (r *BillingEventRepository) GetUsageInWindow(userSubscriptionID string, start, end time.Time) (int64, error) {
+	return r.getUsageInWindow(userSubscriptionID, start, end)
+}
+
+func (r *BillingEventRepository) GetUsageInWindowForLimit(userSubscriptionID string, limitType model.LimitType, windowMode model.WindowMode, start, end time.Time) (int64, error) {
+	effectiveStart := start
+	if limitType == model.LimitTypeDaily && windowMode == model.WindowModeFixed {
+		resetRecord, err := NewBillingDailyResetRepository().GetLatestForWindow(userSubscriptionID, start, end)
+		if err != nil {
+			return 0, err
+		}
+		if resetRecord != nil && resetRecord.CreatedAt.After(effectiveStart) {
+			effectiveStart = resetRecord.CreatedAt.UTC()
+		}
+	}
+	return r.getUsageInWindow(userSubscriptionID, effectiveStart, end)
+}
+
+func (r *BillingEventRepository) getUsageInWindow(userSubscriptionID string, start, end time.Time) (int64, error) {
 	db := database.GetDB()
 	var chargeSum, refundSum sql.NullInt64
 

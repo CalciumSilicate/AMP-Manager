@@ -90,6 +90,29 @@ type BillingEvent struct {
 	CreatedAt          time.Time     `json:"createdAt"`
 }
 
+type BillingDailyResetRecord struct {
+	ID                    string    `json:"id"`
+	UserID                string    `json:"userId"`
+	UserSubscriptionID    string    `json:"userSubscriptionId"`
+	WindowStart           time.Time `json:"windowStart"`
+	WindowEnd             time.Time `json:"windowEnd"`
+	UsedMicrosBeforeReset int64     `json:"usedMicrosBeforeReset"`
+	ExpiresAtBefore       time.Time `json:"expiresAtBefore"`
+	ExpiresAtAfter        time.Time `json:"expiresAtAfter"`
+	CreatedAt             time.Time `json:"createdAt"`
+}
+
+type BillingDailyResetState struct {
+	Supported             bool    `json:"supported"`
+	Allowed               bool    `json:"allowed"`
+	Message               string  `json:"message"`
+	UsedToday             int     `json:"usedToday"`
+	DailyLimit            int     `json:"dailyLimit"`
+	CurrentUsagePercent   float64 `json:"currentUsagePercent"`
+	UsageThresholdPercent int     `json:"usageThresholdPercent"`
+	MinRemainingDays      int     `json:"minRemainingDays"`
+}
+
 // --- Request / Response DTOs ---
 
 type SubscriptionPlanRequest struct {
@@ -149,6 +172,7 @@ type BillingStateResponse struct {
 	BalanceUsd      string                    `json:"balanceUsd"`
 	Subscription    *UserSubscriptionResponse `json:"subscription"`
 	Windows         []WindowRemaining         `json:"windows"`
+	DailyReset      BillingDailyResetState    `json:"dailyReset"`
 	PrimarySource   BillingSource             `json:"primarySource"`
 	SecondarySource BillingSource             `json:"secondarySource"`
 }

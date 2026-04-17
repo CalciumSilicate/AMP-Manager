@@ -395,6 +395,39 @@ export async function getSiteConfig(): Promise<SiteConfig> {
   return res.json()
 }
 
+export interface BillingDailyResetConfig {
+  minRemainingDays: number
+  usageThresholdPercent: number
+  dailyLimit: number
+}
+
+export async function getBillingDailyResetConfig(): Promise<BillingDailyResetConfig> {
+  const res = await authFetch(`${API_BASE}/admin/system/billing-daily-reset-config`)
+
+  if (!res.ok) {
+    const data = await res.json()
+    throw new Error(data.error || '获取今日计费重置配置失败')
+  }
+
+  return res.json()
+}
+
+export async function updateBillingDailyResetConfig(
+  config: BillingDailyResetConfig
+): Promise<{ message: string; config: BillingDailyResetConfig }> {
+  const res = await authFetch(`${API_BASE}/admin/system/billing-daily-reset-config`, {
+    method: 'PUT',
+    body: JSON.stringify(config),
+  })
+
+  if (!res.ok) {
+    const data = await res.json()
+    throw new Error(data.error || '更新今日计费重置配置失败')
+  }
+
+  return res.json()
+}
+
 export async function updateSiteConfig(
   siteName: string,
   timeZone: string,

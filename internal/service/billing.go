@@ -152,7 +152,7 @@ func (s *BillingService) calcSubscriptionRemaining(sub *model.UserSubscription, 
 		if err != nil {
 			continue
 		}
-		used, err := s.eventRepo.GetUsageInWindow(sub.ID, start, end)
+		used, err := s.eventRepo.GetUsageInWindowForLimit(sub.ID, limit.LimitType, limit.WindowMode, start, end)
 		if err != nil {
 			continue
 		}
@@ -367,11 +367,17 @@ func (s *BillingService) GetBillingState(userID string) (*model.BillingStateResp
 		return nil, err
 	}
 
+	dailyReset, err := s.buildBillingDailyResetState(userID, subResp, windows)
+	if err != nil {
+		return nil, err
+	}
+
 	return &model.BillingStateResponse{
 		BalanceMicros:   balance,
 		BalanceUsd:      fmt.Sprintf("%.6f", float64(balance)/1e6),
 		Subscription:    subResp,
 		Windows:         windows,
+		DailyReset:      dailyReset,
 		PrimarySource:   setting.PrimarySource,
 		SecondarySource: setting.SecondarySource,
 	}, nil
@@ -462,20 +468,10 @@ func (s *BillingService) calcSubscriptionRemainingTx(tx *sql.Tx, sub *model.User
 			return 0, err
 		}
 
-		var chargeSum, refundSum sql.NullInt64
-		err = tx.QueryRow(
-			`SELECT 
-				COALESCE(SUM(CASE WHEN event_type = 'charge' THEN amount_micros ELSE 0 END), 0),
-				COALESCE(SUM(CASE WHEN event_type = 'refund' THEN amount_micros ELSE 0 END), 0)
-			 FROM billing_events 
-			 WHERE user_subscription_id = ? AND source = 'subscription' AND created_at >= ? AND created_at < ?`,
-			sub.ID, start, end,
-		).Scan(&chargeSum, &refundSum)
+		used, err := queryBillingUsageInWindowTx(tx, sub.ID, limit.LimitType, limit.WindowMode, start, end)
 		if err != nil {
 			return 0, err
 		}
-
-		used := chargeSum.Int64 - refundSum.Int64
 		left := limit.LimitMicros - used
 		if left < 0 {
 			left = 0

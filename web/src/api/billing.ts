@@ -140,11 +140,23 @@ export interface BillingStateSubscription {
   updatedAt: string
 }
 
+export interface BillingDailyResetState {
+  supported: boolean
+  allowed: boolean
+  message: string
+  usedToday: number
+  dailyLimit: number
+  currentUsagePercent: number
+  usageThresholdPercent: number
+  minRemainingDays: number
+}
+
 export interface BillingStateResponse {
   balanceMicros: number
   balanceUsd: string
   subscription: BillingStateSubscription | null
   windows: WindowRemaining[] | null
+  dailyReset: BillingDailyResetState
   primarySource: 'subscription' | 'balance'
   secondarySource: 'subscription' | 'balance'
 }
@@ -172,4 +184,10 @@ export async function updateBillingPriority(primarySource: 'subscription' | 'bal
 
 export async function getMySubscription(): Promise<{ subscription: BillingStateSubscription | null }> {
   return fetchJson<{ subscription: BillingStateSubscription | null }>(`${API_BASE}/me/subscription`)
+}
+
+export async function resetBillingDaily(): Promise<{ message: string; state: BillingStateResponse }> {
+  return fetchJson<{ message: string; state: BillingStateResponse }>(`${API_BASE}/me/billing/daily-reset`, {
+    method: 'POST',
+  })
 }

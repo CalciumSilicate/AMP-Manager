@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo } from 'react'
 import { getDashboard, DashboardData, DashboardCacheHitRate } from '@/api/dashboard'
-import { getBillingState, updateBillingPriority, BillingStateResponse } from '@/api/billing'
+import { getBillingState, updateBillingPriority, resetBillingDaily, BillingStateResponse } from '@/api/billing'
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -24,6 +24,7 @@ import {
   Wallet, TrendingUp, Zap, ArrowUpRight, ArrowDownRight,
   RefreshCw, Activity, DollarSign, Hash, AlertTriangle,
   DatabaseZap, CreditCard, Shield, ArrowRightLeft, Check, Loader2,
+  RotateCcw,
 } from 'lucide-react'
 
 const trendChartConfig = {
@@ -69,6 +70,7 @@ export default function Overview() {
   const [billingLoading, setBillingLoading] = useState(true)
   const [priorityPopoverOpen, setPriorityPopoverOpen] = useState(false)
   const [prioritySaving, setPrioritySaving] = useState(false)
+  const [billingResetting, setBillingResetting] = useState(false)
 
   const handlePriorityChange = async (value: 'subscription' | 'balance') => {
     if (value === billingState?.primarySource) {
@@ -85,6 +87,24 @@ export default function Overview() {
       // silently fail
     } finally {
       setPrioritySaving(false)
+    }
+  }
+
+  const handleResetBillingDaily = async () => {
+    if (!billingState?.dailyReset) return
+    if (!billingState.dailyReset.allowed) return
+    if (!window.confirm('确定要重置今日计费吗？本次操作会清空当前固定日额度已用量，并缩短 1 天订阅时长。')) {
+      return
+    }
+
+    setBillingResetting(true)
+    try {
+      const result = await resetBillingDaily()
+      setBillingState(result.state)
+    } catch (err) {
+      window.alert(err instanceof Error ? err.message : '重置今日计费失败')
+    } finally {
+      setBillingResetting(false)
     }
   }
 
@@ -323,8 +343,8 @@ export default function Overview() {
           animate={{ opacity: 1, y: 0, scale: 1 }}
           transition={{ type: 'spring', bounce: 0.25, duration: 0.7, delay: 0.15 }}
         >
-          <Card className="h-full">
-            <CardHeader className="pb-3">
+          <Card>
+            <CardHeader className="pb-2">
               <div className="flex items-center justify-between gap-3">
                 <div className="min-w-0">
                   <CardTitle className="text-base flex items-center gap-2">
@@ -344,6 +364,16 @@ export default function Overview() {
                     >
                       <CreditCard className="mr-2 h-4 w-4" />
                       购买订阅
+                    </Button>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="h-9 rounded-md px-3"
+                      onClick={() => void handleResetBillingDaily()}
+                      disabled={!billingState.dailyReset.allowed || billingResetting}
+                    >
+                      <RotateCcw className={`mr-2 h-4 w-4 ${billingResetting ? 'animate-spin' : ''}`} />
+                      重置今日计费
                     </Button>
                     <Popover open={priorityPopoverOpen} onOpenChange={setPriorityPopoverOpen}>
                       <PopoverTrigger asChild>
@@ -410,10 +440,10 @@ export default function Overview() {
                 )}
               </div>
             </CardHeader>
-            <CardContent className="space-y-3">
+            <CardContent className="space-y-2.5">
               {billingLoading ? (
-                <div className="space-y-3">
-                  <div className="grid gap-4 border-b pb-3 sm:grid-cols-[minmax(0,1fr)_200px]">
+                <div className="space-y-2.5">
+                  <div className="grid gap-4 border-b pb-2.5 sm:grid-cols-[minmax(0,1fr)_200px]">
                     <div className="space-y-2">
                       <div className="h-3 w-16 rounded loading-shimmer" />
                       <div className="h-6 w-40 rounded loading-shimmer" />
@@ -437,8 +467,8 @@ export default function Overview() {
                   ))}
                 </div>
               ) : billingState ? (
-                <div className="space-y-3">
-                  <div className="grid gap-4 border-b pb-3 sm:grid-cols-[minmax(0,1fr)_200px]">
+                <div className="space-y-2.5">
+                  <div className="grid gap-4 border-b pb-2.5 sm:grid-cols-[minmax(0,1fr)_200px]">
                     <div className="space-y-2">
                       <div className="space-y-1.5">
                         <div className="flex flex-wrap items-center gap-2">
@@ -479,6 +509,13 @@ export default function Overview() {
                         </p>
                       </div>
                     </div>
+                  </div>
+
+                  <div className="flex flex-wrap items-center justify-between gap-2 rounded-md border bg-muted/30 px-3 py-2">
+                    <p className="text-xs text-muted-foreground">{billingState.dailyReset.message}</p>
+                    <p className="text-xs font-medium text-muted-foreground">
+                      今日已重置 {billingState.dailyReset.usedToday}/{billingState.dailyReset.dailyLimit}
+                    </p>
                   </div>
 
                   {billingState.subscription && billingState.windows && billingState.windows.length > 0 ? (

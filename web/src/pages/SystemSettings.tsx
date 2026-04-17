@@ -38,6 +38,9 @@ import {
   updateBillingRuntimeConfig,
   BillingRuntimeConfig,
   BillingRuntimeStats,
+  getBillingDailyResetConfig,
+  updateBillingDailyResetConfig,
+  BillingDailyResetConfig,
   type AmpProxySettingsPolicy,
 } from '../api/system'
 import { Button } from '@/components/ui/button'
@@ -127,6 +130,8 @@ export default function SystemSettings({
   const [siteConfigSaving, setSiteConfigSaving] = useState(false)
   const [balanceTopupPriceInput, setBalanceTopupPriceInput] = useState('0')
   const [balanceTopupSaving, setBalanceTopupSaving] = useState(false)
+  const [billingDailyResetConfig, setBillingDailyResetConfig] = useState<BillingDailyResetConfig | null>(null)
+  const [billingDailyResetSaving, setBillingDailyResetSaving] = useState(false)
   const [billingRuntimeConfig, setBillingRuntimeConfig] = useState<BillingRuntimeConfig | null>(null)
   const [billingRuntimeLoading, setBillingRuntimeLoading] = useState(false)
   const [billingRuntimeStats, setBillingRuntimeStats] = useState<BillingRuntimeStats | null>(null)
@@ -257,6 +262,15 @@ export default function SystemSettings({
     }
   }, [])
 
+  const fetchBillingDailyResetConfig = useCallback(async () => {
+    try {
+      const data = await getBillingDailyResetConfig()
+      setBillingDailyResetConfig(data)
+    } catch (err) {
+      console.error('获取今日计费重置配置失败:', err)
+    }
+  }, [])
+
   const fetchBillingRuntimeStats = useCallback(async (silent = false) => {
     if (!silent) {
       setBillingRuntimeStatsLoading(true)
@@ -287,8 +301,10 @@ export default function SystemSettings({
     fetchBillingRuntimeConfig()
     fetchBillingRuntimeStats(true)
     fetchBalanceTopupSettings()
+    fetchBillingDailyResetConfig()
   }, [
     fetchBalanceTopupSettings,
+    fetchBillingDailyResetConfig,
     fetchBillingRuntimeConfig,
     fetchBillingRuntimeStats,
     fetchCacheTTLConfig,
@@ -367,6 +383,33 @@ export default function SystemSettings({
       showMessage('error', err instanceof Error ? err.message : '保存失败')
     } finally {
       setBalanceTopupSaving(false)
+    }
+  }
+
+  const handleBillingDailyResetConfigChange = (
+    key: keyof BillingDailyResetConfig,
+    value: number
+  ) => {
+    if (!billingDailyResetConfig) return
+    setBillingDailyResetConfig({ ...billingDailyResetConfig, [key]: value })
+  }
+
+  const handleSaveBillingDailyResetConfig = async () => {
+    if (!billingDailyResetConfig) return
+
+    setBillingDailyResetSaving(true)
+    try {
+      const result = await updateBillingDailyResetConfig({
+        minRemainingDays: Math.max(2, Math.round(billingDailyResetConfig.minRemainingDays || 2)),
+        usageThresholdPercent: Math.min(100, Math.max(0, Math.round(billingDailyResetConfig.usageThresholdPercent || 0))),
+        dailyLimit: Math.max(0, Math.round(billingDailyResetConfig.dailyLimit || 0)),
+      })
+      setBillingDailyResetConfig(result.config)
+      showMessage('success', '今日计费重置配置已保存')
+    } catch (err) {
+      showMessage('error', err instanceof Error ? err.message : '保存失败')
+    } finally {
+      setBillingDailyResetSaving(false)
     }
   }
 
@@ -817,6 +860,65 @@ export default function SystemSettings({
                       {balanceTopupSaving ? '保存中...' : '保存单价'}
                     </Button>
                   </div>
+                </CardContent>
+              </Card>
+
+              <Card>
+                <CardHeader>
+                  <CardTitle>计费重置</CardTitle>
+                  <CardDescription>控制用户侧“重置今日计费”按钮的准入规则</CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  {billingDailyResetConfig ? (
+                    <>
+                      <div className="grid gap-4 md:grid-cols-3">
+                        <div className="space-y-2">
+                          <Label htmlFor="billingDailyResetMinRemainingDays">重置前最少时长 (天)</Label>
+                          <Input
+                            id="billingDailyResetMinRemainingDays"
+                            type="number"
+                            min={2}
+                            step={1}
+                            value={billingDailyResetConfig.minRemainingDays}
+                            onChange={(e) => handleBillingDailyResetConfigChange('minRemainingDays', parseInt(e.target.value) || 2)}
+                          />
+                          <p className="text-xs text-muted-foreground">剩余时长需严格大于该值，最低 2 天。</p>
+                        </div>
+                        <div className="space-y-2">
+                          <Label htmlFor="billingDailyResetUsageThresholdPercent">重置消耗阈值 (%)</Label>
+                          <Input
+                            id="billingDailyResetUsageThresholdPercent"
+                            type="number"
+                            min={0}
+                            max={100}
+                            step={1}
+                            value={billingDailyResetConfig.usageThresholdPercent}
+                            onChange={(e) => handleBillingDailyResetConfigChange('usageThresholdPercent', parseInt(e.target.value) || 0)}
+                          />
+                          <p className="text-xs text-muted-foreground">今日用量需高于该百分比才允许重置。</p>
+                        </div>
+                        <div className="space-y-2">
+                          <Label htmlFor="billingDailyResetDailyLimit">每日重置次数限制</Label>
+                          <Input
+                            id="billingDailyResetDailyLimit"
+                            type="number"
+                            min={0}
+                            step={1}
+                            value={billingDailyResetConfig.dailyLimit}
+                            onChange={(e) => handleBillingDailyResetConfigChange('dailyLimit', parseInt(e.target.value) || 0)}
+                          />
+                          <p className="text-xs text-muted-foreground">填 0 表示完全禁用今日计费重置。</p>
+                        </div>
+                      </div>
+                      <div className="flex justify-end">
+                        <Button onClick={handleSaveBillingDailyResetConfig} disabled={billingDailyResetSaving}>
+                          {billingDailyResetSaving ? '保存中...' : '保存规则'}
+                        </Button>
+                      </div>
+                    </>
+                  ) : (
+                    <div className="text-center text-muted-foreground py-4">加载中...</div>
+                  )}
                 </CardContent>
               </Card>
             </>

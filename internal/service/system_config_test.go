@@ -123,6 +123,54 @@ func TestSystemConfigServiceRequestPayloadLimitDefaultsAndPersistence(t *testing
 	}
 }
 
+func TestSystemConfigServiceBillingDailyResetDefaultsAndPersistence(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "billing-daily-reset-config-test.sqlite")
+	if err := database.Init(dbPath); err != nil {
+		t.Fatalf("database.Init returned error: %v", err)
+	}
+	t.Cleanup(func() {
+		if err := database.CloseAndRelease(); err != nil {
+			t.Fatalf("database.CloseAndRelease returned error: %v", err)
+		}
+	})
+
+	svc := NewSystemConfigService()
+
+	defaultCfg, err := svc.GetBillingDailyResetConfig()
+	if err != nil {
+		t.Fatalf("GetBillingDailyResetConfig returned error: %v", err)
+	}
+	if defaultCfg.MinRemainingDays != defaultBillingDailyResetMinDays {
+		t.Fatalf("default minRemainingDays mismatch: got %d want %d", defaultCfg.MinRemainingDays, defaultBillingDailyResetMinDays)
+	}
+	if defaultCfg.UsageThresholdPercent != defaultBillingDailyResetThresholdPct {
+		t.Fatalf("default usageThresholdPercent mismatch: got %d want %d", defaultCfg.UsageThresholdPercent, defaultBillingDailyResetThresholdPct)
+	}
+	if defaultCfg.DailyLimit != defaultBillingDailyResetDailyLimit {
+		t.Fatalf("default dailyLimit mismatch: got %d want %d", defaultCfg.DailyLimit, defaultBillingDailyResetDailyLimit)
+	}
+
+	updatedCfg, err := svc.SetBillingDailyResetConfig(model.BillingDailyResetConfigRequest{
+		MinRemainingDays:      5,
+		UsageThresholdPercent: 95,
+		DailyLimit:            1,
+	})
+	if err != nil {
+		t.Fatalf("SetBillingDailyResetConfig returned error: %v", err)
+	}
+	if updatedCfg.MinRemainingDays != 5 || updatedCfg.UsageThresholdPercent != 95 || updatedCfg.DailyLimit != 1 {
+		t.Fatalf("unexpected updated billing daily reset config: %+v", updatedCfg)
+	}
+
+	reloadedCfg, err := svc.GetBillingDailyResetConfig()
+	if err != nil {
+		t.Fatalf("GetBillingDailyResetConfig after update returned error: %v", err)
+	}
+	if reloadedCfg != updatedCfg {
+		t.Fatalf("reloaded billing daily reset config mismatch: got %+v want %+v", reloadedCfg, updatedCfg)
+	}
+}
+
 func TestSystemConfigServiceErrorRulesDefaultsAndMerge(t *testing.T) {
 	dbPath := filepath.Join(t.TempDir(), "error-rules-test.sqlite")
 	if err := database.Init(dbPath); err != nil {

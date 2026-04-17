@@ -806,6 +806,22 @@ func createTables() error {
 	);
 	CREATE INDEX IF NOT EXISTS idx_billing_projection_events_request ON billing_projection_events(request_id, created_at DESC);
 
+	CREATE TABLE IF NOT EXISTS billing_daily_reset_records (
+		id TEXT PRIMARY KEY,
+		user_id TEXT NOT NULL,
+		user_subscription_id TEXT NOT NULL,
+		window_start DATETIME NOT NULL,
+		window_end DATETIME NOT NULL,
+		used_micros_before_reset BIGINT NOT NULL DEFAULT 0,
+		expires_at_before DATETIME NOT NULL,
+		expires_at_after DATETIME NOT NULL,
+		created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+		FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+		FOREIGN KEY (user_subscription_id) REFERENCES user_subscriptions(id) ON DELETE CASCADE
+	);
+	CREATE INDEX IF NOT EXISTS idx_billing_daily_reset_user_created ON billing_daily_reset_records(user_id, created_at DESC);
+	CREATE INDEX IF NOT EXISTS idx_billing_daily_reset_sub_window_created ON billing_daily_reset_records(user_subscription_id, window_start DESC, created_at DESC);
+
 	CREATE TABLE IF NOT EXISTS billing_events (
 		id TEXT PRIMARY KEY,
 		request_log_id TEXT,
@@ -1304,6 +1320,27 @@ func runMigrations() error {
 		{
 			name: "create_billing_projection_events_request_index",
 			sql:  `CREATE INDEX IF NOT EXISTS idx_billing_projection_events_request ON billing_projection_events(request_id, created_at DESC)`,
+		},
+		{
+			name: "create_billing_daily_reset_records_table",
+			sql: `CREATE TABLE IF NOT EXISTS billing_daily_reset_records (
+				id TEXT PRIMARY KEY,
+				user_id TEXT NOT NULL,
+				user_subscription_id TEXT NOT NULL,
+				window_start DATETIME NOT NULL,
+				window_end DATETIME NOT NULL,
+				used_micros_before_reset BIGINT NOT NULL DEFAULT 0,
+				expires_at_before DATETIME NOT NULL,
+				expires_at_after DATETIME NOT NULL,
+				created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+				FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+				FOREIGN KEY (user_subscription_id) REFERENCES user_subscriptions(id) ON DELETE CASCADE
+			)`,
+		},
+		{
+			name: "create_billing_daily_reset_records_indexes",
+			sql: `CREATE INDEX IF NOT EXISTS idx_billing_daily_reset_user_created ON billing_daily_reset_records(user_id, created_at DESC);
+				  CREATE INDEX IF NOT EXISTS idx_billing_daily_reset_sub_window_created ON billing_daily_reset_records(user_subscription_id, window_start DESC, created_at DESC)`,
 		},
 		{
 			name: "postgres_widen_users_balance_micros",

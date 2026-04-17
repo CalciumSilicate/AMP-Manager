@@ -58,6 +58,7 @@ var migrationTables = []string{
 	"redeem_codes",
 	"redeem_user_counters",
 	"redeem_redemptions",
+	"billing_daily_reset_records",
 	"billing_events",
 }
 

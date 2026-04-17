@@ -174,7 +174,7 @@ func (s *QuotaService) GetSubscriptionRemaining(userID string) (int64, []model.W
 			return 0, nil, err
 		}
 
-		used, err := s.eventRepo.GetUsageInWindow(sub.ID, start, end)
+		used, err := s.eventRepo.GetUsageInWindowForLimit(sub.ID, limit.LimitType, limit.WindowMode, start, end)
 		if err != nil {
 			return 0, nil, err
 		}

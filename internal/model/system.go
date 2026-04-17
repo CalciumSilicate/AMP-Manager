@@ -159,3 +159,15 @@ type BillingRuntimeStatsResponse struct {
 	PendingEntries   int64                       `json:"pendingEntries"`
 	OldestPendingMs  int64                       `json:"oldestPendingIdleMs"`
 }
+
+type BillingDailyResetConfigResponse struct {
+	MinRemainingDays      int `json:"minRemainingDays"`
+	UsageThresholdPercent int `json:"usageThresholdPercent"`
+	DailyLimit            int `json:"dailyLimit"`
+}
+
+type BillingDailyResetConfigRequest struct {
+	MinRemainingDays      int `json:"minRemainingDays"`
+	UsageThresholdPercent int `json:"usageThresholdPercent"`
+	DailyLimit            int `json:"dailyLimit"`
+}

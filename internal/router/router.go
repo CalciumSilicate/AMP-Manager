@@ -109,6 +109,7 @@ func Setup() *gin.Engine {
 			me.GET("/dashboard", requestLogHandler.GetDashboard)
 			me.GET("/billing/state", billingSettingHandler.GetBillingState)
 			me.PUT("/billing/priority", billingSettingHandler.UpdateBillingPriority)
+			me.POST("/billing/daily-reset", billingSettingHandler.ResetDailyBilling)
 			me.GET("/subscription", billingSettingHandler.GetMySubscription)
 			me.GET("/announcements", announcementHandler.ListForMe)
 			me.POST("/announcements/:id/read", announcementHandler.MarkRead)
@@ -207,6 +208,8 @@ func Setup() *gin.Engine {
 				system.PUT("/retry-config", systemHandler.UpdateRetryConfig)
 				system.GET("/request-payload-limit", systemHandler.GetRequestPayloadLimit)
 				system.PUT("/request-payload-limit", systemHandler.UpdateRequestPayloadLimit)
+				system.GET("/billing-daily-reset-config", systemHandler.GetBillingDailyResetConfig)
+				system.PUT("/billing-daily-reset-config", systemHandler.UpdateBillingDailyResetConfig)
 				system.GET("/error-rules", systemHandler.GetErrorRules)
 				system.PUT("/error-rules", systemHandler.UpdateErrorRules)
 
