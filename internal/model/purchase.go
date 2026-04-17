@@ -15,11 +15,12 @@ const (
 type PurchasePaymentStatus string
 
 const (
-	PurchasePaymentStatusPending PurchasePaymentStatus = "pending"
-	PurchasePaymentStatusPaid    PurchasePaymentStatus = "paid"
-	PurchasePaymentStatusExpired PurchasePaymentStatus = "expired"
-	PurchasePaymentStatusClosed  PurchasePaymentStatus = "closed"
-	PurchasePaymentStatusFailed  PurchasePaymentStatus = "failed"
+	PurchasePaymentStatusPending  PurchasePaymentStatus = "pending"
+	PurchasePaymentStatusPaid     PurchasePaymentStatus = "paid"
+	PurchasePaymentStatusExpired  PurchasePaymentStatus = "expired"
+	PurchasePaymentStatusRefunded PurchasePaymentStatus = "refunded"
+	PurchasePaymentStatusClosed   PurchasePaymentStatus = "closed"
+	PurchasePaymentStatusFailed   PurchasePaymentStatus = "failed"
 )
 
 type PurchaseFulfillmentStatus string
@@ -62,6 +63,15 @@ type PurchaseSettings struct {
 	AlipayPrivateKey               string            `json:"-"`
 	BalanceTopupPriceCnyCentPerUSD int64             `json:"-"`
 }
+
+type PurchaseWebhookEventStatus string
+
+const (
+	PurchaseWebhookEventStatusPending    PurchaseWebhookEventStatus = "pending"
+	PurchaseWebhookEventStatusProcessing PurchaseWebhookEventStatus = "processing"
+	PurchaseWebhookEventStatusSucceeded  PurchaseWebhookEventStatus = "succeeded"
+	PurchaseWebhookEventStatusFailed     PurchaseWebhookEventStatus = "failed"
+)
 
 type PurchaseSettingsResponse struct {
 	PurchaseEnabled                bool              `json:"purchaseEnabled"`
@@ -157,6 +167,7 @@ type PurchaseOrder struct {
 	UpgradeLockedTargetSecs int64                     `json:"upgradeLockedTargetSeconds"`
 	UpgradeStateToken       string                    `json:"upgradeStateToken"`
 	AlipayTradeNo           string                    `json:"alipayTradeNo"`
+	ManualSettlementDone    bool                      `json:"manualSettlementDone"`
 	AlipayQRCode            string                    `json:"-"`
 	AlipayQRURL             string                    `json:"-"`
 	ExpiresAt               *time.Time                `json:"expiresAt"`
@@ -196,6 +207,7 @@ type PurchaseOrderResponse struct {
 	GeneratedRedeemCodeStatus string                    `json:"generatedRedeemCodeStatus"`
 	GeneratedRedeemedAt       *time.Time                `json:"generatedRedeemedAt"`
 	AlipayTradeNo             string                    `json:"alipayTradeNo"`
+	ManualSettlementDone      bool                      `json:"manualSettlementDone"`
 	PaymentQRCode             string                    `json:"paymentQrCode"`
 	PaymentQRURL              string                    `json:"paymentQrUrl"`
 	PaymentQRImageDataURL     string                    `json:"paymentQrImageDataUrl"`
@@ -240,4 +252,89 @@ type PurchaseOrderFilters struct {
 	Username          string
 	ProductID         string
 	Limit             int
+}
+
+type PurchaseWebhookTarget struct {
+	ID              string    `json:"id"`
+	Name            string    `json:"name"`
+	TargetURL       string    `json:"targetUrl"`
+	BodyTemplate    string    `json:"bodyTemplate"`
+	HeadersTemplate string    `json:"headersTemplate"`
+	Enabled         bool      `json:"enabled"`
+	CreatedAt       time.Time `json:"createdAt"`
+	UpdatedAt       time.Time `json:"updatedAt"`
+}
+
+type PurchaseWebhookTargetRequest struct {
+	Name            string `json:"name" binding:"required,min=1,max=64"`
+	TargetURL       string `json:"targetUrl" binding:"required,max=2048"`
+	BodyTemplate    string `json:"bodyTemplate" binding:"max=8192"`
+	HeadersTemplate string `json:"headersTemplate" binding:"max=8192"`
+	Enabled         bool   `json:"enabled"`
+}
+
+type PurchaseWebhookTestResponse struct {
+	OK                 bool              `json:"ok"`
+	ResponseStatusCode int               `json:"responseStatusCode"`
+	ResponseHeaders    map[string]string `json:"responseHeaders"`
+	ResponseBody       string            `json:"responseBody"`
+	Variables          map[string]string `json:"variables"`
+}
+
+type PurchaseWebhookEvent struct {
+	ID                 string                     `json:"id"`
+	OrderID            string                     `json:"orderId"`
+	OrderNo            string                     `json:"orderNo"`
+	TargetID           string                     `json:"targetId"`
+	Status             PurchaseWebhookEventStatus `json:"status"`
+	AttemptCount       int                        `json:"attemptCount"`
+	LastError          string                     `json:"lastError"`
+	ResponseStatusCode int                        `json:"responseStatusCode"`
+	ClaimToken         string                     `json:"claimToken"`
+	ClaimedAt          *time.Time                 `json:"claimedAt"`
+	ClaimUntil         *time.Time                 `json:"claimUntil"`
+	NextAttemptAt      *time.Time                 `json:"nextAttemptAt"`
+	LastAttemptAt      *time.Time                 `json:"lastAttemptAt"`
+	DeliveredAt        *time.Time                 `json:"deliveredAt"`
+	CreatedAt          time.Time                  `json:"createdAt"`
+	UpdatedAt          time.Time                  `json:"updatedAt"`
+}
+
+type PurchaseOrderPaymentStatusHistory struct {
+	ID         string                `json:"id"`
+	OrderID    string                `json:"orderId"`
+	OrderNo    string                `json:"orderNo"`
+	FromStatus PurchasePaymentStatus `json:"fromStatus"`
+	ToStatus   PurchasePaymentStatus `json:"toStatus"`
+	Note       string                `json:"note"`
+	CreatedBy  string                `json:"createdBy"`
+	CreatedAt  time.Time             `json:"createdAt"`
+}
+
+type PurchaseOrderPaymentStatusUpdateRequest struct {
+	PaymentStatus PurchasePaymentStatus `json:"paymentStatus" binding:"required,oneof=paid expired refunded"`
+	Note          string                `json:"note" binding:"max=500"`
+}
+
+type PurchaseManualSettlementBatchMode string
+
+const (
+	PurchaseManualSettlementBatchModeSingle PurchaseManualSettlementBatchMode = "single"
+	PurchaseManualSettlementBatchModeBatch  PurchaseManualSettlementBatchMode = "batch"
+)
+
+type PurchaseManualSettlementBatch struct {
+	ID                 string                            `json:"id"`
+	BatchNo            string                            `json:"batchNo"`
+	Mode               PurchaseManualSettlementBatchMode `json:"mode"`
+	CreatedBy          string                            `json:"createdBy"`
+	Note               string                            `json:"note"`
+	OrderCount         int                               `json:"orderCount"`
+	TotalAmountCNYCent int64                             `json:"totalAmountCnyCent"`
+	CreatedAt          time.Time                         `json:"createdAt"`
+}
+
+type PurchaseManualSettlementConfirmRequest struct {
+	OrderNos []string `json:"orderNos" binding:"required,min=1"`
+	Note     string   `json:"note" binding:"max=500"`
 }
