@@ -381,19 +381,138 @@ export interface SiteContactConfigRequest {
 
 export type AmpProxySettingsPolicy = 'disabled' | 'admin_only' | 'all'
 export type ErrorRuleRequestType = 'responses' | 'chat_completions' | 'gemini' | 'messages'
-export type ErrorRuleMatchMode = 'substring' | 'regex'
+export type ErrorRuleMatchType = 'contains' | 'exact' | 'regex'
 
 export interface ErrorRule {
   id: string
   name: string
-  builtIn: boolean
-  enabled: boolean
+  description: string
   requestType: ErrorRuleRequestType
   upstreamStatus: string
   pattern: string
-  matchMode: ErrorRuleMatchMode
-  overrideStatus: number
+  matchType: ErrorRuleMatchType
+  category: string
+  priority: number
+  isEnabled: boolean
+  isDefault: boolean
+  overrideStatusCode?: number | null
   overrideMessage: string
+  overrideResponse?: Record<string, unknown> | null
+  createdAt: string
+  updatedAt: string
+}
+
+export interface ErrorRuleUpsertRequest {
+  name: string
+  description: string
+  requestType: ErrorRuleRequestType
+  upstreamStatus: string
+  pattern: string
+  matchType: ErrorRuleMatchType
+  category: string
+  priority: number
+  isEnabled: boolean
+  overrideStatusCode?: number | null
+  overrideMessage: string
+  overrideResponse?: Record<string, unknown> | null
+}
+
+export interface ErrorRuleTestRequest {
+  requestType: ErrorRuleRequestType
+  upstreamStatus: number
+  body: string
+}
+
+export interface ErrorRuleTestResponse {
+  matched: boolean
+  rule?: ErrorRule
+  statusCode: number
+  responseBody?: Record<string, unknown> | null
+}
+
+export interface ErrorRuleCacheStats {
+  loadedAt?: string | null
+  containsCount: number
+  exactCount: number
+  regexCount: number
+  totalCount: number
+  reloading: boolean
+  lastReloadError?: string
+}
+
+export type RequestFilterScope = 'header' | 'body'
+export type RequestFilterAction = 'remove' | 'set' | 'json_path' | 'text_replace'
+export type RequestFilterMatchType = 'contains' | 'exact' | 'regex'
+export type RequestFilterBindingType = 'global' | 'channels' | 'groups'
+export type RequestFilterRuleMode = 'simple' | 'advanced'
+export type RequestFilterExecutionPhase = 'guard' | 'final'
+
+export interface RequestFilterMatcher {
+  field: string
+  matchType: RequestFilterMatchType
+  value: unknown
+}
+
+export interface RequestFilterOperation {
+  type: 'set' | 'remove' | 'merge' | 'insert'
+  scope: RequestFilterScope
+  path: string
+  value?: unknown
+  writeMode?: 'overwrite' | 'if_missing'
+  matcher?: RequestFilterMatcher
+  position?: 'start' | 'end' | 'before' | 'after'
+  anchor?: RequestFilterMatcher
+  onAnchorMissing?: 'skip' | 'append' | 'prepend'
+  dedupe?: { byFields: string[] }
+}
+
+export interface RequestFilter {
+  id: string
+  name: string
+  description: string
+  scope: RequestFilterScope
+  action: RequestFilterAction
+  matchType?: RequestFilterMatchType | null
+  target: string
+  replacement?: unknown
+  priority: number
+  isEnabled: boolean
+  bindingType: RequestFilterBindingType
+  channelIds: string[]
+  groupIds: string[]
+  ruleMode: RequestFilterRuleMode
+  executionPhase: RequestFilterExecutionPhase
+  operations: RequestFilterOperation[]
+  createdAt: string
+  updatedAt: string
+}
+
+export interface RequestFilterUpsertRequest {
+  name: string
+  description: string
+  scope: RequestFilterScope
+  action: RequestFilterAction
+  matchType?: RequestFilterMatchType | null
+  target: string
+  replacement?: unknown
+  priority: number
+  isEnabled: boolean
+  bindingType: RequestFilterBindingType
+  channelIds: string[]
+  groupIds: string[]
+  ruleMode: RequestFilterRuleMode
+  executionPhase: RequestFilterExecutionPhase
+  operations: RequestFilterOperation[]
+}
+
+export interface RequestFilterBindingOption {
+  id: string
+  name: string
+}
+
+export interface RequestFilterBindingsResponse {
+  channels: RequestFilterBindingOption[]
+  groups: RequestFilterBindingOption[]
 }
 
 export async function getPublicSiteConfig(): Promise<SiteConfig> {
@@ -485,15 +604,156 @@ export async function getErrorRules(): Promise<{ rules: ErrorRule[] }> {
   return res.json()
 }
 
-export async function updateErrorRules(rules: ErrorRule[]): Promise<{ message: string; rules: ErrorRule[] }> {
+export async function createErrorRule(payload: ErrorRuleUpsertRequest): Promise<{ rule: ErrorRule }> {
   const res = await authFetch(`${API_BASE}/admin/system/error-rules`, {
-    method: 'PUT',
-    body: JSON.stringify({ rules }),
+    method: 'POST',
+    body: JSON.stringify(payload),
+  })
+
+  if (!res.ok) {
+    const data = await res.json()
+    throw new Error(data.error || '创建错误规则失败')
+  }
+
+  return res.json()
+}
+
+export async function updateErrorRule(id: string, payload: ErrorRuleUpsertRequest): Promise<{ rule: ErrorRule }> {
+  const res = await authFetch(`${API_BASE}/admin/system/error-rules/${encodeURIComponent(id)}`, {
+    method: 'PATCH',
+    body: JSON.stringify(payload),
   })
 
   if (!res.ok) {
     const data = await res.json()
     throw new Error(data.error || '更新错误规则失败')
+  }
+
+  return res.json()
+}
+
+export async function deleteErrorRule(id: string): Promise<{ message: string }> {
+  const res = await authFetch(`${API_BASE}/admin/system/error-rules/${encodeURIComponent(id)}`, {
+    method: 'DELETE',
+  })
+
+  if (!res.ok) {
+    const data = await res.json()
+    throw new Error(data.error || '删除错误规则失败')
+  }
+
+  return res.json()
+}
+
+export async function testErrorRule(payload: ErrorRuleTestRequest): Promise<ErrorRuleTestResponse> {
+  const res = await authFetch(`${API_BASE}/admin/system/error-rules/test`, {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  })
+
+  if (!res.ok) {
+    const data = await res.json()
+    throw new Error(data.error || '测试错误规则失败')
+  }
+
+  return res.json()
+}
+
+export async function refreshErrorRules(): Promise<{ message: string; cacheStats: ErrorRuleCacheStats }> {
+  const res = await authFetch(`${API_BASE}/admin/system/error-rules/refresh`, {
+    method: 'POST',
+  })
+
+  if (!res.ok) {
+    const data = await res.json()
+    throw new Error(data.error || '刷新错误规则缓存失败')
+  }
+
+  return res.json()
+}
+
+export async function getErrorRuleCacheStats(): Promise<ErrorRuleCacheStats> {
+  const res = await authFetch(`${API_BASE}/admin/system/error-rules/cache-stats`)
+
+  if (!res.ok) {
+    const data = await res.json()
+    throw new Error(data.error || '获取错误规则缓存状态失败')
+  }
+
+  return res.json()
+}
+
+export async function getRequestFilters(): Promise<{ filters: RequestFilter[] }> {
+  const res = await authFetch(`${API_BASE}/admin/system/request-filters`)
+
+  if (!res.ok) {
+    const data = await res.json()
+    throw new Error(data.error || '获取请求过滤失败')
+  }
+
+  return res.json()
+}
+
+export async function createRequestFilter(payload: RequestFilterUpsertRequest): Promise<{ filter: RequestFilter }> {
+  const res = await authFetch(`${API_BASE}/admin/system/request-filters`, {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  })
+
+  if (!res.ok) {
+    const data = await res.json()
+    throw new Error(data.error || '创建请求过滤失败')
+  }
+
+  return res.json()
+}
+
+export async function updateRequestFilter(id: string, payload: RequestFilterUpsertRequest): Promise<{ filter: RequestFilter }> {
+  const res = await authFetch(`${API_BASE}/admin/system/request-filters/${encodeURIComponent(id)}`, {
+    method: 'PATCH',
+    body: JSON.stringify(payload),
+  })
+
+  if (!res.ok) {
+    const data = await res.json()
+    throw new Error(data.error || '更新请求过滤失败')
+  }
+
+  return res.json()
+}
+
+export async function deleteRequestFilter(id: string): Promise<{ message: string }> {
+  const res = await authFetch(`${API_BASE}/admin/system/request-filters/${encodeURIComponent(id)}`, {
+    method: 'DELETE',
+  })
+
+  if (!res.ok) {
+    const data = await res.json()
+    throw new Error(data.error || '删除请求过滤失败')
+  }
+
+  return res.json()
+}
+
+export async function refreshRequestFilters(): Promise<{ message: string }> {
+  const res = await authFetch(`${API_BASE}/admin/system/request-filters/refresh`, {
+    method: 'POST',
+  })
+
+  if (!res.ok) {
+    const data = await res.json()
+    throw new Error(data.error || '刷新请求过滤缓存失败')
+  }
+
+  return res.json()
+}
+
+export async function getRequestFilterBindings(): Promise<RequestFilterBindingsResponse> {
+  const res = await authFetch(`${API_BASE}/admin/system/request-filters/bindings`)
+
+  if (!res.ok) {
+    const data = await res.json()
+    throw new Error(data.error || '获取请求过滤绑定数据失败')
   }
 
   return res.json()

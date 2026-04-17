@@ -221,62 +221,67 @@ func TestSystemConfigServiceErrorRulesDefaultsAndMerge(t *testing.T) {
 		}
 	})
 
-	svc := NewSystemConfigService()
+	svc := NewErrorRuleService()
 
-	defaultRules, err := svc.GetErrorRules()
+	defaultRules, err := svc.List()
 	if err != nil {
-		t.Fatalf("GetErrorRules returned error: %v", err)
+		t.Fatalf("List returned error: %v", err)
 	}
 	if len(defaultRules) == 0 {
 		t.Fatal("expected default error rules")
 	}
 
-	updatedRules, err := svc.SetErrorRules([]model.ErrorRule{
-		{
-			ID:              "builtin-openai-an-error-occurred-responses",
-			Name:            "OpenAI 风格 An Error Occurred（Responses）",
-			BuiltIn:         true,
-			Enabled:         false,
-			RequestType:     model.ErrorRuleRequestTypeResponses,
-			UpstreamStatus:  "200",
-			Pattern:         "An Error Occurred",
-			MatchMode:       model.ErrorRuleMatchModeSubstring,
-			OverrideStatus:  502,
-			OverrideMessage: "已禁用测试",
-		},
-		{
-			ID:              "custom-upstream-503",
-			Name:            "自定义 503",
-			BuiltIn:         false,
-			Enabled:         true,
-			RequestType:     model.ErrorRuleRequestTypeGemini,
-			UpstreamStatus:  "500-599",
-			Pattern:         "backend overloaded",
-			MatchMode:       model.ErrorRuleMatchModeSubstring,
-			OverrideStatus:  503,
-			OverrideMessage: "Gemini 上游过载",
-		},
+	updatedDefault, err := svc.Update(defaultRules[0].ID, model.ErrorRuleUpdateRequest{
+		Name:            defaultRules[0].Name,
+		Description:     defaultRules[0].Description,
+		UpstreamStatus:  defaultRules[0].UpstreamStatus,
+		Pattern:         defaultRules[0].Pattern,
+		MatchType:       defaultRules[0].MatchType,
+		Category:        defaultRules[0].Category,
+		Priority:        defaultRules[0].Priority,
+		IsEnabled:       false,
+		OverrideMessage: "已禁用测试",
 	})
 	if err != nil {
-		t.Fatalf("SetErrorRules returned error: %v", err)
+		t.Fatalf("Update returned error: %v", err)
+	}
+	customStatusCode := 503
+	createdCustom, err := svc.Create(model.ErrorRuleCreateRequest{
+		Name:               "自定义 503",
+		RequestType:        model.ErrorRuleRequestTypeGemini,
+		UpstreamStatus:     "500-599",
+		Pattern:            "backend overloaded",
+		MatchType:          model.ErrorRuleMatchTypeContains,
+		Category:           "model_error",
+		Priority:           10,
+		IsEnabled:          true,
+		OverrideStatusCode: &customStatusCode,
+		OverrideMessage:    "Gemini 上游过载",
+	})
+	if err != nil {
+		t.Fatalf("Create returned error: %v", err)
 	}
 
-	if len(updatedRules) != len(defaultRules)+1 {
-		t.Fatalf("unexpected merged rules count: got %d want %d", len(updatedRules), len(defaultRules)+1)
+	updatedRules, err := svc.List()
+	if err != nil {
+		t.Fatalf("List after updates returned error: %v", err)
+	}
+	if len(updatedRules) < len(defaultRules)+1 {
+		t.Fatalf("unexpected merged rules count: got %d want at least %d", len(updatedRules), len(defaultRules)+1)
 	}
 
 	foundDisabledBuiltIn := false
 	foundCustom := false
 	for _, rule := range updatedRules {
-		if rule.ID == "builtin-openai-an-error-occurred-responses" {
-			foundDisabledBuiltIn = !rule.Enabled && rule.OverrideMessage == "已禁用测试"
+		if rule.ID == updatedDefault.ID {
+			foundDisabledBuiltIn = !rule.IsEnabled && !rule.IsDefault && rule.OverrideMessage == "已禁用测试"
 		}
-		if rule.ID == "custom-upstream-503" {
-			foundCustom = !rule.BuiltIn && rule.OverrideStatus == 503
+		if rule.ID == createdCustom.ID {
+			foundCustom = !rule.IsDefault && rule.OverrideStatusCode != nil && *rule.OverrideStatusCode == 503
 		}
 	}
 	if !foundDisabledBuiltIn {
-		t.Fatal("expected built-in rule override to persist")
+		t.Fatal("expected default rule update to persist as custom rule")
 	}
 	if !foundCustom {
 		t.Fatal("expected custom rule to be merged")

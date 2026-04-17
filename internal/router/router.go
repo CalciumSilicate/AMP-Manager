@@ -249,8 +249,20 @@ func Setup() *gin.Engine {
 				system.PUT("/request-payload-limit", systemHandler.UpdateRequestPayloadLimit)
 				system.GET("/billing-daily-reset-config", systemHandler.GetBillingDailyResetConfig)
 				system.PUT("/billing-daily-reset-config", systemHandler.UpdateBillingDailyResetConfig)
-				system.GET("/error-rules", systemHandler.GetErrorRules)
-				system.PUT("/error-rules", systemHandler.UpdateErrorRules)
+				system.GET("/error-rules", systemHandler.ListErrorRulesV2)
+				system.POST("/error-rules", systemHandler.CreateErrorRule)
+				system.POST("/error-rules/test", systemHandler.TestErrorRule)
+				system.POST("/error-rules/refresh", systemHandler.RefreshErrorRuleRuntime)
+				system.GET("/error-rules/cache-stats", systemHandler.GetErrorRuleCacheStats)
+				system.PATCH("/error-rules/:id", systemHandler.UpdateErrorRule)
+				system.DELETE("/error-rules/:id", systemHandler.DeleteErrorRule)
+
+				system.GET("/request-filters", systemHandler.ListRequestFilters)
+				system.POST("/request-filters", systemHandler.CreateRequestFilter)
+				system.POST("/request-filters/refresh", systemHandler.RefreshRequestFilters)
+				system.GET("/request-filters/bindings", systemHandler.GetRequestFilterBindings)
+				system.PATCH("/request-filters/:id", systemHandler.UpdateRequestFilter)
+				system.DELETE("/request-filters/:id", systemHandler.DeleteRequestFilter)
 
 				// 请求详情监控配置
 				system.GET("/request-detail-enabled", systemHandler.GetRequestDetailEnabled)

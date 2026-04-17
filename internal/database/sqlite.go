@@ -538,9 +538,9 @@ func createTables() error {
 	CREATE INDEX IF NOT EXISTS idx_status_monitor_results_monitor_checked ON status_monitor_results(monitor_id, checked_at DESC);
 	CREATE INDEX IF NOT EXISTS idx_status_monitor_results_checked ON status_monitor_results(checked_at DESC);
 
-	CREATE TABLE IF NOT EXISTS request_log_details (
-		request_id TEXT PRIMARY KEY,
-		request_headers TEXT,
+		CREATE TABLE IF NOT EXISTS request_log_details (
+			request_id TEXT PRIMARY KEY,
+			request_headers TEXT,
 		request_body TEXT,
 		translated_request_body TEXT,
 		translated_request_headers TEXT,
@@ -548,11 +548,56 @@ func createTables() error {
 		response_body TEXT,
 		translated_response_body TEXT,
 		created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
-	);
-	CREATE INDEX IF NOT EXISTS idx_request_log_details_created ON request_log_details(created_at DESC);
+		);
+		CREATE INDEX IF NOT EXISTS idx_request_log_details_created ON request_log_details(created_at DESC);
 
-	CREATE TABLE IF NOT EXISTS announcements (
-		id TEXT PRIMARY KEY,
+		CREATE TABLE IF NOT EXISTS error_rules (
+			id TEXT PRIMARY KEY,
+			name TEXT NOT NULL,
+			description TEXT NOT NULL DEFAULT '',
+			request_type TEXT NOT NULL CHECK (request_type IN ('responses', 'chat_completions', 'gemini', 'messages')),
+			upstream_status TEXT NOT NULL DEFAULT '*',
+			pattern TEXT NOT NULL,
+			match_type TEXT NOT NULL CHECK (match_type IN ('contains', 'exact', 'regex')),
+			category TEXT NOT NULL DEFAULT '',
+			priority INTEGER NOT NULL DEFAULT 0,
+			is_enabled INTEGER NOT NULL DEFAULT 1,
+			is_default INTEGER NOT NULL DEFAULT 0,
+			override_status_code INTEGER,
+			override_message TEXT NOT NULL DEFAULT '',
+			override_response TEXT NOT NULL DEFAULT '',
+			created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+			updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+		);
+		CREATE UNIQUE INDEX IF NOT EXISTS idx_error_rules_request_pattern ON error_rules(request_type, pattern);
+		CREATE INDEX IF NOT EXISTS idx_error_rules_enabled_priority ON error_rules(is_enabled, priority ASC, id ASC);
+		CREATE INDEX IF NOT EXISTS idx_error_rules_default_pattern ON error_rules(is_default, pattern);
+
+		CREATE TABLE IF NOT EXISTS request_filters (
+			id TEXT PRIMARY KEY,
+			name TEXT NOT NULL,
+			description TEXT NOT NULL DEFAULT '',
+			scope TEXT NOT NULL CHECK (scope IN ('header', 'body')),
+			action TEXT NOT NULL CHECK (action IN ('remove', 'set', 'json_path', 'text_replace')),
+			match_type TEXT,
+			target TEXT NOT NULL DEFAULT '',
+			replacement TEXT NOT NULL DEFAULT '',
+			priority INTEGER NOT NULL DEFAULT 0,
+			is_enabled INTEGER NOT NULL DEFAULT 1,
+			binding_type TEXT NOT NULL DEFAULT 'global' CHECK (binding_type IN ('global', 'channels', 'groups')),
+			channel_ids_json TEXT NOT NULL DEFAULT '[]',
+			group_ids_json TEXT NOT NULL DEFAULT '[]',
+			rule_mode TEXT NOT NULL DEFAULT 'simple' CHECK (rule_mode IN ('simple', 'advanced')),
+			execution_phase TEXT NOT NULL DEFAULT 'guard' CHECK (execution_phase IN ('guard', 'final')),
+			operations_json TEXT NOT NULL DEFAULT '[]',
+			created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+			updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+		);
+		CREATE INDEX IF NOT EXISTS idx_request_filters_enabled_priority ON request_filters(is_enabled, priority ASC, id ASC);
+		CREATE INDEX IF NOT EXISTS idx_request_filters_binding_phase ON request_filters(binding_type, execution_phase, priority ASC);
+
+		CREATE TABLE IF NOT EXISTS announcements (
+			id TEXT PRIMARY KEY,
 		title TEXT NOT NULL,
 		content TEXT NOT NULL,
 		audience TEXT NOT NULL CHECK (audience IN ('authenticated', 'new_user', 'public')),
@@ -1593,13 +1638,68 @@ func runMigrations() error {
 				FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
 			)`,
 		},
-		{
-			name: "create_announcement_reads_indexes",
-			sql:  `CREATE INDEX IF NOT EXISTS idx_announcement_reads_user ON announcement_reads(user_id, read_at DESC)`,
-		},
-		{
-			name: "create_status_monitor_tables",
-			sql: `CREATE TABLE IF NOT EXISTS status_monitors (
+			{
+				name: "create_announcement_reads_indexes",
+				sql:  `CREATE INDEX IF NOT EXISTS idx_announcement_reads_user ON announcement_reads(user_id, read_at DESC)`,
+			},
+			{
+				name: "create_error_rules_table",
+				sql: `CREATE TABLE IF NOT EXISTS error_rules (
+					id TEXT PRIMARY KEY,
+					name TEXT NOT NULL,
+					description TEXT NOT NULL DEFAULT '',
+					request_type TEXT NOT NULL CHECK (request_type IN ('responses', 'chat_completions', 'gemini', 'messages')),
+					upstream_status TEXT NOT NULL DEFAULT '*',
+					pattern TEXT NOT NULL,
+					match_type TEXT NOT NULL CHECK (match_type IN ('contains', 'exact', 'regex')),
+					category TEXT NOT NULL DEFAULT '',
+					priority INTEGER NOT NULL DEFAULT 0,
+					is_enabled INTEGER NOT NULL DEFAULT 1,
+					is_default INTEGER NOT NULL DEFAULT 0,
+					override_status_code INTEGER,
+					override_message TEXT NOT NULL DEFAULT '',
+					override_response TEXT NOT NULL DEFAULT '',
+					created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+					updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+				)`,
+			},
+			{
+				name: "create_error_rules_indexes",
+				sql: `CREATE UNIQUE INDEX IF NOT EXISTS idx_error_rules_request_pattern ON error_rules(request_type, pattern);
+					  CREATE INDEX IF NOT EXISTS idx_error_rules_enabled_priority ON error_rules(is_enabled, priority ASC, id ASC);
+					  CREATE INDEX IF NOT EXISTS idx_error_rules_default_pattern ON error_rules(is_default, pattern)`,
+			},
+			{
+				name: "create_request_filters_table",
+				sql: `CREATE TABLE IF NOT EXISTS request_filters (
+					id TEXT PRIMARY KEY,
+					name TEXT NOT NULL,
+					description TEXT NOT NULL DEFAULT '',
+					scope TEXT NOT NULL CHECK (scope IN ('header', 'body')),
+					action TEXT NOT NULL CHECK (action IN ('remove', 'set', 'json_path', 'text_replace')),
+					match_type TEXT,
+					target TEXT NOT NULL DEFAULT '',
+					replacement TEXT NOT NULL DEFAULT '',
+					priority INTEGER NOT NULL DEFAULT 0,
+					is_enabled INTEGER NOT NULL DEFAULT 1,
+					binding_type TEXT NOT NULL DEFAULT 'global' CHECK (binding_type IN ('global', 'channels', 'groups')),
+					channel_ids_json TEXT NOT NULL DEFAULT '[]',
+					group_ids_json TEXT NOT NULL DEFAULT '[]',
+					rule_mode TEXT NOT NULL DEFAULT 'simple' CHECK (rule_mode IN ('simple', 'advanced')),
+					execution_phase TEXT NOT NULL DEFAULT 'guard' CHECK (execution_phase IN ('guard', 'final')),
+					operations_json TEXT NOT NULL DEFAULT '[]',
+					created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+					updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+				)`,
+			},
+			{
+				name: "create_request_filters_indexes",
+				sql: `CREATE INDEX IF NOT EXISTS idx_request_filters_enabled_priority ON request_filters(is_enabled, priority ASC, id ASC);
+					  CREATE INDEX IF NOT EXISTS idx_request_filters_binding_phase ON request_filters(binding_type, execution_phase, priority ASC)`,
+			},
+			{
+				name: "create_status_monitor_tables",
+				sql: `CREATE TABLE IF NOT EXISTS status_monitors (
 				id TEXT PRIMARY KEY,
 				name TEXT NOT NULL,
 				group_name TEXT NOT NULL DEFAULT '',

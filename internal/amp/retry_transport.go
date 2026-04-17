@@ -206,28 +206,32 @@ func (rt *RetryTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 			return nil, err
 		}
 
-		// 检查是否需要根据状态码重试
-		if rt.shouldRetryStatusCode(resp.StatusCode, cfg) && attempt < cfg.MaxAttempts {
-			retryAfter := rt.parseRetryAfter(resp, cfg)
-			if retryAfter == nil {
-				// 尝试从响应体解析 retry delay
-				retryAfter = rt.parseRetryDelayFromBody(resp, 64<<10) // 64KB limit
+			// 检查是否需要根据状态码重试
+			if rt.shouldRetryStatusCode(resp.StatusCode, cfg) && attempt < cfg.MaxAttempts {
+				if matched, restoredResp := rt.skipRetryForMatchedErrorRule(req, resp); matched {
+					resp = restoredResp
+				} else {
+					retryAfter := rt.parseRetryAfter(resp, cfg)
+					if retryAfter == nil {
+						// 尝试从响应体解析 retry delay
+						retryAfter = rt.parseRetryDelayFromBody(resp, 64<<10) // 64KB limit
+					}
+					rt.logRetryAttempt(req, attempt, cfg.MaxAttempts, nil, resp)
+					_ = resp.Body.Close()
+					rt.backoff(req.Context(), attempt, cfg, retryAfter)
+					continue
+				}
 			}
-			rt.logRetryAttempt(req, attempt, cfg.MaxAttempts, nil, resp)
-			_ = resp.Body.Close()
-			rt.backoff(req.Context(), attempt, cfg, retryAfter)
-			continue
-		}
 
-		// 检查是否因为空响应体需要重试（针对非流式 JSON 响应）
-		if rt.shouldRetryEmptyBody(req, resp, cfg) && attempt < cfg.MaxAttempts {
-			emptyBodyErr := fmt.Errorf("empty response body with status %d", resp.StatusCode)
-			lastErr = emptyBodyErr
-			rt.logRetryAttempt(req, attempt, cfg.MaxAttempts, emptyBodyErr, resp)
-			_ = resp.Body.Close()
-			rt.backoff(req.Context(), attempt, cfg, nil)
-			continue
-		}
+			// 检查是否因为空响应体需要重试（针对非流式 JSON 响应）
+			if rt.shouldRetryEmptyBody(req, resp, cfg) && attempt < cfg.MaxAttempts {
+				emptyBodyErr := fmt.Errorf("empty response body with status %d", resp.StatusCode)
+				lastErr = emptyBodyErr
+				rt.logRetryAttempt(req, attempt, cfg.MaxAttempts, emptyBodyErr, resp)
+				_ = resp.Body.Close()
+				rt.backoff(req.Context(), attempt, cfg, nil)
+				continue
+			}
 
 		// 对流式响应进行首字节门控
 		if rt.shouldGateResponse(resp) {
@@ -331,6 +335,24 @@ func (rt *RetryTransport) cloneRequest(req *http.Request, bodyBytes []byte) *htt
 		clone.ContentLength = int64(len(bodyBytes))
 	}
 	return clone
+}
+
+func (rt *RetryTransport) skipRetryForMatchedErrorRule(req *http.Request, resp *http.Response) (bool, *http.Response) {
+	if resp == nil || resp.Body == nil || req == nil {
+		return false, resp
+	}
+	bodyBytes, err := io.ReadAll(io.LimitReader(resp.Body, 64<<10))
+	if err != nil {
+		resp.Body = io.NopCloser(bytes.NewReader(bodyBytes))
+		return false, resp
+	}
+	_ = resp.Body.Close()
+	resp.Body = io.NopCloser(bytes.NewReader(bodyBytes))
+	if matched := MatchErrorRule(detectIncomingFormat(req.URL.Path), resp.StatusCode, bodyBytes); matched != nil {
+		log.Debugf("retry: skip retry because error rule matched %s", matched.Rule.Name)
+		return true, resp
+	}
+	return false, resp
 }
 
 // shouldRetryError 判断网络错误是否应该重试
