@@ -1,7 +1,7 @@
-import type { ReactNode } from 'react'
+import { useEffect, useRef, type ReactNode } from 'react'
 
-import { Alert, AlertDescription } from '@/components/ui/alert'
 import { AnimatePresence, motion } from '@/lib/motion'
+import { useGlobalToast } from '@/components/ui/use-global-toast'
 
 export interface TabbedSettingsPageTab<T extends string> {
   key: T
@@ -31,6 +31,17 @@ export function TabbedSettingsPage<T extends string>({
   message,
   extraContent,
 }: TabbedSettingsPageProps<T>) {
+  const { showToast } = useGlobalToast()
+  const lastMessageKeyRef = useRef('')
+
+  useEffect(() => {
+    if (!message) return
+    const nextKey = `${message.type}:${message.text}`
+    if (lastMessageKeyRef.current === nextKey) return
+    lastMessageKeyRef.current = nextKey
+    showToast(message.type, message.text)
+  }, [message, showToast])
+
   return (
     <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-6">
       <motion.div
@@ -38,53 +49,40 @@ export function TabbedSettingsPage<T extends string>({
         animate={{ opacity: 1, y: 0 }}
         transition={{ type: 'spring', bounce: 0.2, duration: 0.6 }}
       >
-        <h2 className="text-2xl font-bold tracking-tight">{title}</h2>
-        <p className="text-muted-foreground">{description}</p>
+        <h2 className="text-xl font-bold tracking-tight md:text-2xl">{title}</h2>
+        <p className="text-sm text-muted-foreground md:text-base">{description}</p>
       </motion.div>
 
       <motion.div
         initial={{ opacity: 0, y: 10 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ type: 'spring', bounce: 0.2, duration: 0.5, delay: 0.05 }}
-        className="flex items-center gap-1 border-b pb-0"
+        className="overflow-x-auto border-b pb-0 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
       >
-        {tabs.map((tab) => (
-          <button
-            key={tab.key}
-            type="button"
-            onClick={() => onTabChange(tab.key)}
-            className={`relative rounded-t-md px-4 py-2 text-sm font-medium transition-colors ${
-              activeTab === tab.key
-                ? 'text-foreground'
-                : 'text-muted-foreground hover:text-foreground/80'
-            }`}
-          >
-            {tab.label}
-            {activeTab === tab.key && (
-              <motion.div
-                layoutId={indicatorId}
-                className="absolute inset-x-0 -bottom-px h-0.5 bg-primary"
-                transition={{ type: 'spring', bounce: 0.2, duration: 0.4 }}
-              />
-            )}
-          </button>
-        ))}
+        <div className="flex min-w-max items-center gap-1">
+          {tabs.map((tab) => (
+            <button
+              key={tab.key}
+              type="button"
+              onClick={() => onTabChange(tab.key)}
+              className={`relative rounded-t-md px-3 py-2 text-sm font-medium transition-colors md:px-4 ${
+                activeTab === tab.key
+                  ? 'text-foreground'
+                  : 'text-muted-foreground hover:text-foreground/80'
+              }`}
+            >
+              {tab.label}
+              {activeTab === tab.key && (
+                <motion.div
+                  layoutId={indicatorId}
+                  className="absolute inset-x-0 -bottom-px h-0.5 bg-primary"
+                  transition={{ type: 'spring', bounce: 0.2, duration: 0.4 }}
+                />
+              )}
+            </button>
+          ))}
+        </div>
       </motion.div>
-
-      <AnimatePresence>
-        {message && (
-          <motion.div
-            initial={{ opacity: 0, y: -20, scale: 0.95 }}
-            animate={{ opacity: 1, y: 0, scale: 1 }}
-            exit={{ opacity: 0, y: -20, scale: 0.95 }}
-            transition={{ type: 'spring', bounce: 0.3, duration: 0.5 }}
-          >
-            <Alert variant={message.type === 'error' ? 'destructive' : 'default'}>
-              <AlertDescription>{message.text}</AlertDescription>
-            </Alert>
-          </motion.div>
-        )}
-      </AnimatePresence>
 
       {extraContent}
 

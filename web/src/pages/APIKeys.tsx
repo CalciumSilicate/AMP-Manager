@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { type ReactNode, useEffect, useState } from 'react'
 
 import { AnimatePresence, motion, tableRowVariants, tableStaggerContainer } from '@/lib/motion'
 import {
@@ -27,6 +27,7 @@ import {
 } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { SearchableMultiSelect, type MultiSelectOption } from '@/components/SearchableMultiSelect'
 import { Table, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { APIKeyUsageDialog } from '@/components/api-keys/APIKeyUsageDialog'
 import { formatDateTime } from '@/lib/formatters'
@@ -38,13 +39,48 @@ function buildRandomSkKey() {
   return `sk-${suffix}`
 }
 
-export default function APIKeys() {
+interface Props {
+  siteName: string
+}
+
+const providerOptions: MultiSelectOption[] = [
+  { value: 'openai_responses', label: 'OpenAI Responses' },
+  { value: 'openai_chat', label: 'OpenAI Compatible' },
+  { value: 'gemini', label: 'Gemini' },
+  { value: 'anthropic', label: 'Anthropic Messages' },
+]
+
+function formatAllowedProviders(providers?: string[]) {
+  if (!providers || providers.length === 0) return '不限'
+  const labels = providerOptions
+    .filter((option) => providers.includes(option.value))
+    .map((option) => option.label)
+  return labels.length > 0 ? labels.join(' / ') : providers.join(' / ')
+}
+
+function MobileInfoRow({
+  label,
+  value,
+}: {
+  label: string
+  value: ReactNode
+}) {
+  return (
+    <div className="flex items-start justify-between gap-3">
+      <span className="text-muted-foreground">{label}</span>
+      <div className="min-w-0 text-right text-foreground">{value}</div>
+    </div>
+  )
+}
+
+export default function APIKeys({ siteName }: Props) {
   const [keys, setKeys] = useState<APIKey[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [showCreate, setShowCreate] = useState(false)
   const [createName, setCreateName] = useState('')
   const [customKey, setCustomKey] = useState('')
+  const [createAllowedProviders, setCreateAllowedProviders] = useState<string[]>([])
   const [createExpiresAt, setCreateExpiresAt] = useState('')
   const [creating, setCreating] = useState(false)
   const [newKey, setNewKey] = useState<CreateAPIKeyResponse | null>(null)
@@ -52,6 +88,7 @@ export default function APIKeys() {
   const [usageKey, setUsageKey] = useState<APIKeyRevealResponse | null>(null)
   const [editingKey, setEditingKey] = useState<APIKey | null>(null)
   const [editName, setEditName] = useState('')
+  const [editAllowedProviders, setEditAllowedProviders] = useState<string[]>([])
   const [editExpiresAt, setEditExpiresAt] = useState('')
   const [savingEdit, setSavingEdit] = useState(false)
   const [copied, setCopied] = useState<string | null>(null)
@@ -92,11 +129,13 @@ export default function APIKeys() {
       const result = await createAPIKeyWithOptions({
         name: createName.trim(),
         ...(customKey ? { customKey } : {}),
+        ...(createAllowedProviders.length > 0 ? { allowedProviders: createAllowedProviders } : {}),
         ...(createExpiresAt ? { expiresAt: createExpiresAt } : {}),
       })
       setNewKey(result)
       setCreateName('')
       setCustomKey('')
+      setCreateAllowedProviders([])
       setCreateExpiresAt('')
       setShowCreate(false)
       await loadData()
@@ -168,6 +207,7 @@ export default function APIKeys() {
   const handleOpenEdit = (key: APIKey) => {
     setEditingKey(key)
     setEditName(key.name)
+    setEditAllowedProviders(key.allowedProviders || [])
     setEditExpiresAt(key.expiresAt || '')
   }
 
@@ -180,10 +220,12 @@ export default function APIKeys() {
     try {
       await updateAPIKey(editingKey.id, {
         name: editName.trim(),
+        allowedProviders: editAllowedProviders,
         ...(editExpiresAt ? { expiresAt: editExpiresAt } : { clearExpiry: true }),
       })
       setEditingKey(null)
       setEditName('')
+      setEditAllowedProviders([])
       setEditExpiresAt('')
       await loadData()
     } catch (err) {
@@ -313,12 +355,75 @@ export default function APIKeys() {
                   </div>
                 </div>
                 <div className="overflow-hidden rounded-b-lg">
-                  <Table>
+                  <div className="space-y-3 p-4 md:hidden">
+                    {keys.map((key) => (
+                      <div key={key.id} className="rounded-xl border border-border/70 px-4 py-4">
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="min-w-0">
+                            <p className="font-medium">{key.name}</p>
+                            <p className="mt-1 font-mono text-xs text-muted-foreground">{key.prefix}...</p>
+                          </div>
+                          <Badge variant={getStatusVariant(key.status)}>
+                            {getStatusLabel(key.status)}
+                          </Badge>
+                        </div>
+
+                        <div className="mt-3 grid gap-2 text-sm">
+                          <MobileInfoRow label="Provider" value={formatAllowedProviders(key.allowedProviders)} />
+                          <MobileInfoRow label="到期时间" value={formatDate(key.expiresAt)} />
+                          <MobileInfoRow label="最后使用" value={formatUsedAt(key.lastUsedAt)} />
+                          <MobileInfoRow label="创建时间" value={formatDateTime(key.createdAt)} />
+                        </div>
+
+                        <div className="mt-3 flex flex-wrap gap-2">
+                          <Button variant="outline" size="sm" onClick={() => handleOpenEdit(key)}>
+                            编辑
+                          </Button>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => void handleToggleDisabled(key)}
+                            disabled={togglingId === key.id}
+                          >
+                            {togglingId === key.id ? '处理中...' : key.status === 'disabled' ? '恢复' : '禁用'}
+                          </Button>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => void handleOpenUsage(key.id)}
+                            disabled={key.status !== 'active' || usingId === key.id}
+                          >
+                            {usingId === key.id ? '加载中...' : '使用'}
+                          </Button>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => void handleReveal(key.id)}
+                            disabled={revealingId === key.id}
+                          >
+                            {revealingId === key.id ? '加载中...' : '查看'}
+                          </Button>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="text-destructive hover:text-destructive"
+                            onClick={() => void handleDelete(key.id, key.name)}
+                            disabled={deletingId === key.id}
+                          >
+                            {deletingId === key.id ? '删除中...' : '删除'}
+                          </Button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+
+                  <Table className="hidden md:table">
                     <TableHeader>
                       <TableRow>
                         <TableHead>名称</TableHead>
                         <TableHead>Prefix</TableHead>
                         <TableHead>状态</TableHead>
+                        <TableHead>Provider</TableHead>
                         <TableHead>到期时间</TableHead>
                         <TableHead>最后使用</TableHead>
                         <TableHead>创建时间</TableHead>
@@ -334,6 +439,9 @@ export default function APIKeys() {
                             <Badge variant={getStatusVariant(key.status)}>
                               {getStatusLabel(key.status)}
                             </Badge>
+                          </TableCell>
+                          <TableCell className="max-w-48 text-sm text-muted-foreground">
+                            {formatAllowedProviders(key.allowedProviders)}
                           </TableCell>
                           <TableCell>{formatDate(key.expiresAt)}</TableCell>
                           <TableCell>{formatUsedAt(key.lastUsedAt)}</TableCell>
@@ -389,7 +497,7 @@ export default function APIKeys() {
         </motion.div>
 
         <Dialog open={showCreate} onOpenChange={setShowCreate}>
-          <DialogContent>
+          <DialogContent className="max-h-[calc(100vh-2rem)] overflow-y-auto">
             <DialogHeader>
               <DialogTitle>创建新 API Key</DialogTitle>
               <DialogDescription>为新设备或应用创建一个 API Key。</DialogDescription>
@@ -421,6 +529,17 @@ export default function APIKeys() {
                 <p className="text-xs text-muted-foreground">支持字母数字，可选 `sk-` 前缀；最少 16 位，推荐使用 32 位以上。</p>
               </div>
               <div className="space-y-2">
+                <Label>Provider 限制</Label>
+                <SearchableMultiSelect
+                  values={createAllowedProviders}
+                  onValuesChange={setCreateAllowedProviders}
+                  options={providerOptions}
+                  searchPlaceholder="搜索 Provider..."
+                  allLabel="不限"
+                  className="w-full"
+                />
+              </div>
+              <div className="space-y-2">
                 <Label>到期时间</Label>
                 <DateTimePicker value={createExpiresAt} onChange={setCreateExpiresAt} placeholder="留空表示永不过期" className="w-full justify-between text-right" />
               </div>
@@ -432,6 +551,7 @@ export default function APIKeys() {
                   setShowCreate(false)
                   setCreateName('')
                   setCustomKey('')
+                  setCreateAllowedProviders([])
                   setCreateExpiresAt('')
                 }}
               >
@@ -448,7 +568,7 @@ export default function APIKeys() {
         </Dialog>
 
         <Dialog open={!!editingKey} onOpenChange={(open) => !open && setEditingKey(null)}>
-          <DialogContent>
+          <DialogContent className="max-h-[calc(100vh-2rem)] overflow-y-auto">
             <DialogHeader>
               <DialogTitle>编辑 API Key</DialogTitle>
               <DialogDescription>仅可修改名称和到期时间。</DialogDescription>
@@ -457,6 +577,17 @@ export default function APIKeys() {
               <div className="space-y-2">
                 <Label htmlFor="editKeyName">名称</Label>
                 <Input id="editKeyName" value={editName} onChange={(event) => setEditName(event.target.value)} />
+              </div>
+              <div className="space-y-2">
+                <Label>Provider 限制</Label>
+                <SearchableMultiSelect
+                  values={editAllowedProviders}
+                  onValuesChange={setEditAllowedProviders}
+                  options={providerOptions}
+                  searchPlaceholder="搜索 Provider..."
+                  allLabel="不限"
+                  className="w-full"
+                />
               </div>
               <div className="space-y-2">
                 <Label>到期时间</Label>
@@ -475,7 +606,7 @@ export default function APIKeys() {
         </Dialog>
 
         <Dialog open={!!revealKey} onOpenChange={(open) => !open && setRevealKey(null)}>
-          <DialogContent>
+          <DialogContent className="max-h-[calc(100vh-2rem)] overflow-y-auto sm:max-w-xl">
             <DialogHeader>
               <DialogTitle>查看 API Key</DialogTitle>
               <DialogDescription>API Key 明文会显示在此处，请妥善保管。</DialogDescription>
@@ -510,6 +641,10 @@ export default function APIKeys() {
                     <p className="font-medium">{revealKey.name}</p>
                   </div>
                   <div className="rounded-lg border px-4 py-3">
+                    <p className="text-muted-foreground">Provider</p>
+                    <p className="font-medium">{formatAllowedProviders(revealKey.allowedProviders)}</p>
+                  </div>
+                  <div className="rounded-lg border px-4 py-3">
                     <p className="text-muted-foreground">到期时间</p>
                     <p className="font-medium">{formatDate(revealKey.expiresAt)}</p>
                   </div>
@@ -532,6 +667,7 @@ export default function APIKeys() {
           open={!!usageKey}
           onOpenChange={(open) => !open && setUsageKey(null)}
           revealKey={usageKey}
+          siteName={siteName}
           apiBaseUrl={apiBaseUrl}
           copied={copied}
           onCopy={copyToClipboard}

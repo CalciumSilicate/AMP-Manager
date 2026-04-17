@@ -62,6 +62,7 @@ export interface APIKey {
   name: string
   prefix: string
   apiKey?: string
+  allowedProviders?: string[]
   lastUsedAt: string | null
   revokedAt?: string | null
   expiresAt?: string | null
@@ -75,6 +76,7 @@ export interface CreateAPIKeyResponse {
   name: string
   prefix: string
   apiKey: string
+  allowedProviders?: string[]
   expiresAt?: string | null
   createdAt: string
   message: string
@@ -85,6 +87,7 @@ export interface APIKeyRevealResponse {
   name: string
   prefix: string
   apiKey: string
+  allowedProviders?: string[]
   expiresAt?: string | null
   createdAt: string
 }
@@ -128,7 +131,7 @@ export async function createAPIKey(name: string): Promise<CreateAPIKeyResponse> 
   return createAPIKeyWithOptions({ name })
 }
 
-export async function createAPIKeyWithOptions(data: { name: string; customKey?: string; expiresAt?: string | null }): Promise<CreateAPIKeyResponse> {
+export async function createAPIKeyWithOptions(data: { name: string; customKey?: string; allowedProviders?: string[]; expiresAt?: string | null }): Promise<CreateAPIKeyResponse> {
   const response = await authFetch(`${API_BASE}/api-keys`, {
     method: 'POST',
     body: JSON.stringify(data),
@@ -136,7 +139,7 @@ export async function createAPIKeyWithOptions(data: { name: string; customKey?: 
   return handleResponse<CreateAPIKeyResponse>(response)
 }
 
-export async function updateAPIKey(id: string, data: { name: string; expiresAt?: string | null; clearExpiry?: boolean }): Promise<APIKey> {
+export async function updateAPIKey(id: string, data: { name: string; allowedProviders?: string[]; expiresAt?: string | null; clearExpiry?: boolean }): Promise<APIKey> {
   const response = await authFetch(`${API_BASE}/api-keys/${id}`, {
     method: 'PATCH',
     body: JSON.stringify(data),
@@ -258,6 +261,8 @@ export interface RequestLogListParams {
   sessionId?: string
   model?: string
   channel?: string
+  requestFormat?: string
+  upstreamFormat?: string
   statusCodes?: number[]
   isStreaming?: boolean
   from?: string
@@ -273,6 +278,8 @@ export async function getRequestLogs(params: RequestLogListParams = {}, signal?:
   if (params.sessionId) searchParams.set('sessionId', params.sessionId)
   if (params.model) searchParams.set('model', params.model)
   if (params.channel) searchParams.set('channel', params.channel)
+  if (params.requestFormat) searchParams.set('requestFormat', params.requestFormat)
+  if (params.upstreamFormat) searchParams.set('upstreamFormat', params.upstreamFormat)
   params.statusCodes?.forEach((status) => searchParams.append('status', status.toString()))
   if (params.isStreaming !== undefined) searchParams.set('isStreaming', params.isStreaming.toString())
   if (params.from) searchParams.set('from', params.from)
@@ -329,6 +336,8 @@ export async function getAdminRequestLogs(params: AdminRequestLogListParams = {}
   if (params.sessionId) searchParams.set('sessionId', params.sessionId)
   if (params.model) searchParams.set('model', params.model)
   if (params.channel) searchParams.set('channel', params.channel)
+  if (params.requestFormat) searchParams.set('requestFormat', params.requestFormat)
+  if (params.upstreamFormat) searchParams.set('upstreamFormat', params.upstreamFormat)
   params.statusCodes?.forEach((status) => searchParams.append('status', status.toString()))
   if (params.isStreaming !== undefined) searchParams.set('isStreaming', params.isStreaming.toString())
   if (params.from) searchParams.set('from', params.from)
@@ -388,7 +397,7 @@ export async function getAdminUserAPIKeys(userId: string): Promise<APIKey[]> {
 export async function updateAdminUserAPIKey(
   userId: string,
   keyId: string,
-  data: { name: string; apiKey?: string; expiresAt?: string | null; clearExpiry?: boolean },
+  data: { name: string; apiKey?: string; allowedProviders?: string[]; expiresAt?: string | null; clearExpiry?: boolean },
 ): Promise<APIKey> {
   const response = await authFetch(`${ADMIN_API_BASE}/users/${userId}/api-keys/${keyId}`, {
     method: 'PATCH',

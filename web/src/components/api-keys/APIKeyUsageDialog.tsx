@@ -33,6 +33,7 @@ interface APIKeyUsageDialogProps {
   open: boolean
   onOpenChange: (open: boolean) => void
   revealKey: APIKeyRevealResponse | null
+  siteName: string
   apiBaseUrl: string
   copied: string | null
   onCopy: (text: string, key: string) => Promise<void>
@@ -52,7 +53,7 @@ const ccSwitchApps: { app: CCSwitchApp; label: string }[] = [
   { app: 'openclaw', label: 'OpenClaw' },
 ]
 
-export function APIKeyUsageDialog({ open, onOpenChange, revealKey, apiBaseUrl, copied, onCopy }: APIKeyUsageDialogProps) {
+export function APIKeyUsageDialog({ open, onOpenChange, revealKey, siteName, apiBaseUrl, copied, onCopy }: APIKeyUsageDialogProps) {
   const [activeTab, setActiveTab] = useState<UsageTab>('cc-switch')
   const [availableModels, setAvailableModels] = useState<AvailableModel[]>([])
   const [selectedModelId, setSelectedModelId] = useState('')
@@ -107,10 +108,11 @@ export function APIKeyUsageDialog({ open, onOpenChange, revealKey, apiBaseUrl, c
       apiBaseUrl,
       apiKey: revealKey.apiKey,
       keyName: revealKey.name,
+      siteName,
       models: availableModels,
       selectedModelId,
     })
-  }, [apiBaseUrl, availableModels, revealKey, selectedModelId])
+  }, [apiBaseUrl, availableModels, revealKey, selectedModelId, siteName])
 
   const renderContent = () => {
     if (!usageContent) return null
@@ -118,39 +120,29 @@ export function APIKeyUsageDialog({ open, onOpenChange, revealKey, apiBaseUrl, c
     switch (activeTab) {
       case 'cc-switch':
         return (
-          <div className="space-y-4">
-            <div className="space-y-3">
-              {ccSwitchApps.map(({ app, label }) => (
-                <div key={app} className="flex flex-wrap items-center justify-between gap-3 rounded-lg border px-4 py-3">
-                  <div className="text-sm font-medium">{label}</div>
-                  <div className="flex flex-wrap gap-2">
-                    <Button
-                      size="sm"
-                      onClick={() => {
-                        window.location.assign(usageContent.ccSwitchLinks[app])
-                      }}
-                    >
-                      一键导入
-                    </Button>
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      onClick={() => void onCopy(usageContent.ccSwitchLinks[app], `cc-switch-link-${app}`)}
-                    >
-                      {copied === `cc-switch-link-${app}` ? '已复制' : '复制链接'}
-                    </Button>
-                  </div>
+          <div className="space-y-3">
+            {ccSwitchApps.map(({ app, label }) => (
+              <div key={app} className="flex flex-wrap items-center justify-between gap-3 rounded-lg border px-4 py-3">
+                <div className="text-sm font-medium">{label}</div>
+                <div className="flex flex-wrap gap-2">
+                  <Button
+                    size="sm"
+                    onClick={() => {
+                      window.location.assign(usageContent.ccSwitchLinks[app])
+                    }}
+                  >
+                    一键导入
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => void onCopy(usageContent.ccSwitchLinks[app], `cc-switch-link-${app}`)}
+                  >
+                    {copied === `cc-switch-link-${app}` ? '已复制' : '复制链接'}
+                  </Button>
                 </div>
-              ))}
-            </div>
-
-            <CodeBlock
-              label="testConfig patch"
-              value={usageContent.ccSwitchFallbackPatch}
-              copyKey="cc-switch-test-config"
-              copied={copied}
-              onCopy={onCopy}
-            />
+              </div>
+            ))}
           </div>
         )
       case 'codex-cli':

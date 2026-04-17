@@ -9,6 +9,29 @@ export default defineConfig({
       '@': path.resolve(__dirname, './src'),
     },
   },
+  build: {
+    rollupOptions: {
+      output: {
+        manualChunks(id) {
+          if (!id.includes('node_modules')) return
+
+          if (id.includes('/react/') || id.includes('/react-dom/')) {
+            return 'react-vendor'
+          }
+          if (id.includes('/@radix-ui/')) {
+            return 'radix-vendor'
+          }
+          if (id.includes('/recharts/')) {
+            return 'charts-vendor'
+          }
+          if (id.includes('/motion/')) {
+            return 'motion-vendor'
+          }
+          return 'vendor'
+        },
+      },
+    },
+  },
   server: {
     port: 5274,
     proxy: {

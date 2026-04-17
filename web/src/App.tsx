@@ -1,12 +1,15 @@
-import { useState, useEffect } from 'react'
+import { lazy, Suspense, useState, useEffect } from 'react'
 import { motion, AnimatePresence } from '@/lib/motion'
 import { FontLoadCoordinator } from '@/components/font-load-coordinator'
+import { InlineLoader } from '@/components/PageLoader'
+import { GlobalToastProvider } from '@/components/ui/global-toast'
 import { listPublicAnnouncements, type Announcement } from '@/api/announcements'
 import { getPublicSiteConfig, type AmpProxySettingsPolicy, type SiteContactConfig } from '@/api/system'
 import { DEFAULT_SITE_TIME_ZONE, setActiveSiteTimeZone } from '@/lib/site-config'
-import Login from './pages/Login'
-import Register from './pages/Register'
-import Dashboard from './pages/Dashboard'
+
+const Login = lazy(() => import('./pages/Login'))
+const Register = lazy(() => import('./pages/Register'))
+const Dashboard = lazy(() => import('./pages/Dashboard'))
 
 interface UserState {
   username: string
@@ -128,29 +131,31 @@ function App() {
 
   if (user) {
     return (
-      <>
+      <GlobalToastProvider>
         <FontLoadCoordinator />
-        <Dashboard
-          username={user.username}
-          isAdmin={user.isAdmin}
-          siteName={siteName}
-          siteTimeZone={siteTimeZone}
-          ampProxySettingsPolicy={ampProxySettingsPolicy}
-          ampSettingsPolicy={ampSettingsPolicy}
-          siteContact={siteContact}
-          onSiteNameChange={setSiteName}
-          onSiteTimeZoneChange={setSiteTimeZone}
-          onAmpProxySettingsPolicyChange={setAmpProxySettingsPolicy}
-          onAmpSettingsPolicyChange={setAmpSettingsPolicy}
-          onSiteContactChange={setSiteContact}
-          onLogout={handleLogout}
-        />
-      </>
+        <Suspense fallback={<InlineLoader />}>
+          <Dashboard
+            username={user.username}
+            isAdmin={user.isAdmin}
+            siteName={siteName}
+            siteTimeZone={siteTimeZone}
+            ampProxySettingsPolicy={ampProxySettingsPolicy}
+            ampSettingsPolicy={ampSettingsPolicy}
+            siteContact={siteContact}
+            onSiteNameChange={setSiteName}
+            onSiteTimeZoneChange={setSiteTimeZone}
+            onAmpProxySettingsPolicyChange={setAmpProxySettingsPolicy}
+            onAmpSettingsPolicyChange={setAmpSettingsPolicy}
+            onSiteContactChange={setSiteContact}
+            onLogout={handleLogout}
+          />
+        </Suspense>
+      </GlobalToastProvider>
     )
   }
 
   return (
-    <>
+    <GlobalToastProvider>
       <FontLoadCoordinator />
       <div className="flex min-h-screen items-center justify-center auth-bg">
         <AnimatePresence mode="wait">
@@ -161,27 +166,29 @@ function App() {
             exit={{ opacity: 0, scale: 0.85, y: -40 }}
             transition={{ type: 'spring', bounce: 0.25, duration: 0.6 }}
           >
-            {page === 'login' ? (
-              <Login
-                siteName={siteName}
-                siteContact={siteContact}
-                announcements={publicAnnouncements}
-                onSwitch={() => setPage('register')}
-                onSuccess={handleSuccess}
-              />
-            ) : (
-              <Register
-                siteName={siteName}
-                siteContact={siteContact}
-                announcements={publicAnnouncements}
-                onSwitch={() => setPage('login')}
-                onSuccess={handleSuccess}
-              />
-            )}
+            <Suspense fallback={<InlineLoader />}>
+              {page === 'login' ? (
+                <Login
+                  siteName={siteName}
+                  siteContact={siteContact}
+                  announcements={publicAnnouncements}
+                  onSwitch={() => setPage('register')}
+                  onSuccess={handleSuccess}
+                />
+              ) : (
+                <Register
+                  siteName={siteName}
+                  siteContact={siteContact}
+                  announcements={publicAnnouncements}
+                  onSwitch={() => setPage('login')}
+                  onSuccess={handleSuccess}
+                />
+              )}
+            </Suspense>
           </motion.div>
         </AnimatePresence>
       </div>
-    </>
+    </GlobalToastProvider>
   )
 }
 

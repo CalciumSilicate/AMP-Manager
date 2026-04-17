@@ -1,27 +1,8 @@
-import { useEffect, useMemo, useState } from 'react'
+import { lazy, Suspense, useEffect, useMemo, useState } from 'react'
 import { listMyAnnouncements, markAnnouncementRead, type Announcement } from '@/api/announcements'
 import { AnnouncementCenter, AnnouncementUnreadDialog, ContactCenter } from '@/components/announcements/AnnouncementCenter'
+import { PageLoader } from '@/components/PageLoader'
 import { motion, AnimatePresence } from '@/lib/motion'
-import Overview from './Overview'
-import AdminOverview from './AdminOverview'
-import AmpSettings from './AmpSettings'
-import APIKeys from './APIKeys'
-import RequestLogs from './RequestLogs'
-import UsageStats from './UsageStats'
-import Channels from './Channels'
-import Models from './Models'
-import ModelMetadata from './ModelMetadata'
-import Prices from './Prices'
-import SystemSettings from './SystemSettings'
-import Groups from './Groups'
-import SubscriptionPlans from './SubscriptionPlans'
-import UserManagement from './UserManagement'
-import AccountSettings from './AccountSettings'
-import PurchaseCenter from './PurchaseCenter'
-import PaidSubscriptions from './PaidSubscriptions'
-import RedeemManagement from './RedeemManagement'
-import StatusMonitor from './StatusMonitor'
-import SessionManagement from './SessionManagement'
 import type { AmpProxySettingsPolicy, SiteContactConfig } from '@/api/system'
 import { Button } from '@/components/ui/button'
 // Card components available if needed by child pages
@@ -56,6 +37,7 @@ import {
   LogOut,
   ChevronLeft,
   ChevronRight,
+  PanelLeft,
   Zap,
   FolderOpen,
   LayoutDashboard,
@@ -64,6 +46,27 @@ import {
   TicketPercent,
   Link2,
 } from 'lucide-react'
+
+const Overview = lazy(() => import('./Overview'))
+const AdminOverview = lazy(() => import('./AdminOverview'))
+const AmpSettings = lazy(() => import('./AmpSettings'))
+const APIKeys = lazy(() => import('./APIKeys'))
+const RequestLogs = lazy(() => import('./RequestLogs'))
+const UsageStats = lazy(() => import('./UsageStats'))
+const Channels = lazy(() => import('./Channels'))
+const Models = lazy(() => import('./Models'))
+const ModelMetadata = lazy(() => import('./ModelMetadata'))
+const Prices = lazy(() => import('./Prices'))
+const SystemSettings = lazy(() => import('./SystemSettings'))
+const Groups = lazy(() => import('./Groups'))
+const SubscriptionPlans = lazy(() => import('./SubscriptionPlans'))
+const UserManagement = lazy(() => import('./UserManagement'))
+const AccountSettings = lazy(() => import('./AccountSettings'))
+const PurchaseCenter = lazy(() => import('./PurchaseCenter'))
+const PaidSubscriptions = lazy(() => import('./PaidSubscriptions'))
+const RedeemManagement = lazy(() => import('./RedeemManagement'))
+const StatusMonitor = lazy(() => import('./StatusMonitor'))
+const SessionManagement = lazy(() => import('./SessionManagement'))
 
 interface Props {
   username: string
@@ -106,6 +109,24 @@ const navIcons: Record<Page, React.ElementType> = {
   'session-management': Link2,
 }
 
+const DASHBOARD_PAGES = new Set<Page>(Object.keys(navIcons) as Page[])
+const DASHBOARD_PAGE_STORAGE_KEY = 'dashboard:last-page'
+
+function isDashboardPage(value: string | null): value is Page {
+  return value !== null && DASHBOARD_PAGES.has(value as Page)
+}
+
+function getDashboardPageStorageKey(username: string, isAdmin: boolean) {
+  return `${DASHBOARD_PAGE_STORAGE_KEY}:${isAdmin ? 'admin' : 'user'}:${username}`
+}
+
+function readStoredDashboardPage(username: string, isAdmin: boolean): Page | null {
+  if (typeof window === 'undefined') return null
+
+  const value = window.localStorage.getItem(getDashboardPageStorageKey(username, isAdmin))
+  return isDashboardPage(value) ? value : null
+}
+
 export default function Dashboard({
   username: initialUsername,
   isAdmin,
@@ -121,9 +142,11 @@ export default function Dashboard({
   onSiteContactChange,
   onLogout,
 }: Props) {
-  const [currentPage, setCurrentPage] = useState<Page>('overview')
+  const [currentPage, setCurrentPage] = useState<Page>(() => readStoredDashboardPage(initialUsername, isAdmin) ?? 'overview')
   const [username, setUsername] = useState(initialUsername)
   const [collapsed, setCollapsed] = useState(false)
+  const [mobileNavOpen, setMobileNavOpen] = useState(false)
+  const [isMobileViewport, setIsMobileViewport] = useState(false)
   const [announcements, setAnnouncements] = useState<Announcement[]>([])
   const [announcementBusyId, setAnnouncementBusyId] = useState<string | null>(null)
   const [announcementBusyAll, setAnnouncementBusyAll] = useState(false)
@@ -159,11 +182,39 @@ export default function Dashboard({
   const visibleNavItems = navItems.filter(item => !item.adminOnly || isAdmin)
   const userNavItems = visibleNavItems.filter(item => !item.adminOnly)
   const adminNavItems = visibleNavItems.filter(item => item.adminOnly)
-  const currentPageLabel = visibleNavItems.find((item) => item.key === currentPage)?.label || '概览'
+  const currentPageLabel = visibleNavItems.find((item) => item.key === currentPage)?.label || visibleNavItems[0]?.label || '概览'
+
+  useEffect(() => {
+    if (visibleNavItems.some((item) => item.key === currentPage)) return
+    setCurrentPage(visibleNavItems[0]?.key || 'overview')
+  }, [currentPage, visibleNavItems])
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    if (!visibleNavItems.some((item) => item.key === currentPage)) return
+
+    window.localStorage.setItem(getDashboardPageStorageKey(initialUsername, isAdmin), currentPage)
+  }, [currentPage, initialUsername, isAdmin, visibleNavItems])
 
   useEffect(() => {
     document.title = `${currentPageLabel} - ${siteName}`
   }, [currentPageLabel, siteName])
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+
+    const media = window.matchMedia('(max-width: 767px)')
+    const syncViewport = () => {
+      setIsMobileViewport(media.matches)
+      if (!media.matches) {
+        setMobileNavOpen(false)
+      }
+    }
+
+    syncViewport()
+    media.addEventListener('change', syncViewport)
+    return () => media.removeEventListener('change', syncViewport)
+  }, [])
 
   useEffect(() => {
     const handleNavigate = (event: Event) => {
@@ -250,44 +301,45 @@ export default function Dashboard({
     }
   }
 
-  const renderNavItem = (item: { key: Page; label: string; adminOnly?: boolean }) => {
+  const renderNavItem = (
+    item: { key: Page; label: string; adminOnly?: boolean },
+    opts?: { collapsed?: boolean; onSelect?: (page: Page) => void },
+  ) => {
     const Icon = navIcons[item.key]
     const isActive = currentPage === item.key
+    const collapsedState = opts?.collapsed ?? collapsed
 
     const button = (
-      <div key={item.key}>
-        <button
-          onClick={() => setCurrentPage(item.key)}
-          className={`
-            grid w-full items-center justify-items-start rounded-lg px-3 py-2.5 text-left text-sm font-medium transition-all duration-200
-            ${isActive
-              ? 'bg-primary text-primary-foreground shadow-md shadow-primary/20'
-              : 'text-muted-foreground hover:bg-muted hover:text-foreground'
-            }
-            ${collapsed ? 'grid-cols-[20px_0px_0px] px-2.5' : 'grid-cols-[20px_minmax(0,1fr)_auto]'}
-          `}
-        >
-          <Icon className={`shrink-0 ${collapsed ? 'h-5 w-5' : 'h-4 w-4'}`} />
-          <div
-            className={`
-              min-w-0 overflow-hidden whitespace-nowrap transition-[margin,opacity] duration-200
-              ${collapsed ? 'ml-0 opacity-0' : 'ml-3 opacity-100'}
-            `}
-          >
-            {item.label}
-          </div>
-          <div className={`justify-self-end overflow-hidden transition-opacity duration-200 ${collapsed ? 'opacity-0' : 'opacity-100'}`}>
+      <button
+        key={item.key}
+        onClick={() => {
+          setCurrentPage(item.key)
+          opts?.onSelect?.(item.key)
+        }}
+        className={`
+          flex w-full items-center rounded-lg py-2.5 text-left text-sm font-medium transition-all duration-200
+          ${isActive
+            ? 'bg-primary text-primary-foreground shadow-md shadow-primary/20'
+            : 'text-muted-foreground hover:bg-muted hover:text-foreground'
+          }
+          ${collapsedState ? 'justify-center px-2.5' : 'gap-3 px-3'}
+        `}
+      >
+        <Icon className="h-4 w-4 shrink-0" />
+        {!collapsedState ? (
+          <>
+            <span className="min-w-0 flex-1 truncate">{item.label}</span>
             {item.adminOnly ? (
-              <Badge variant={isActive ? 'secondary' : 'outline'} className="text-[10px] px-1.5 py-0">
+              <Badge variant={isActive ? 'secondary' : 'outline'} className="px-1.5 py-0 text-[10px]">
                 管理
               </Badge>
             ) : null}
-          </div>
-        </button>
-      </div>
+          </>
+        ) : null}
+      </button>
     )
 
-    if (collapsed) {
+    if (collapsedState) {
       return (
         <Tooltip key={item.key}>
           <TooltipTrigger asChild>
@@ -303,12 +355,36 @@ export default function Dashboard({
     return button
   }
 
+  const renderSidebarNav = (opts?: { collapsed?: boolean; onSelect?: (page: Page) => void }) => {
+    const collapsedState = opts?.collapsed ?? collapsed
+    return (
+      <nav className="flex flex-col gap-1">
+        {userNavItems.map((item) => renderNavItem(item, opts))}
+
+        {adminNavItems.length > 0 && (
+          <>
+            {!collapsedState ? (
+              <div className="my-3 flex items-center gap-2 px-3">
+                <Separator className="flex-1" />
+                <span className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">管理</span>
+                <Separator className="flex-1" />
+              </div>
+            ) : (
+              <Separator className="my-3" />
+            )}
+            {adminNavItems.map((item) => renderNavItem(item, opts))}
+          </>
+        )}
+      </nav>
+    )
+  }
+
   return (
     <TooltipProvider delayDuration={0}>
       <div className="flex h-screen overflow-hidden bg-muted/30">
         {/* Sidebar */}
         <motion.aside
-          className="relative flex h-full shrink-0 flex-col border-r bg-background/80 backdrop-blur-sm"
+          className="relative hidden h-full shrink-0 flex-col border-r bg-background/80 backdrop-blur-sm md:flex"
           animate={{ width: collapsed ? 68 : 256 }}
           transition={{ type: 'spring', bounce: 0.15, duration: 0.4 }}
         >
@@ -337,24 +413,7 @@ export default function Dashboard({
 
           {/* Nav */}
           <div className="flex-1 overflow-y-auto px-3 py-4">
-            <nav className="flex flex-col gap-1">
-              {userNavItems.map(renderNavItem)}
-
-              {adminNavItems.length > 0 && (
-                <>
-                  {!collapsed ? (
-                    <div className="my-3 flex items-center gap-2 px-3">
-                      <Separator className="flex-1" />
-                      <span className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">管理</span>
-                      <Separator className="flex-1" />
-                    </div>
-                  ) : (
-                    <Separator className="my-3" />
-                  )}
-                  {adminNavItems.map(renderNavItem)}
-                </>
-              )}
-            </nav>
+            {renderSidebarNav()}
           </div>
 
           {/* Collapse toggle */}
@@ -370,11 +429,48 @@ export default function Dashboard({
           </div>
         </motion.aside>
 
+        <AnimatePresence>
+          {isMobileViewport && mobileNavOpen ? (
+            <>
+              <motion.button
+                type="button"
+                className="fixed inset-0 z-40 bg-black/30 md:hidden"
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+                onClick={() => setMobileNavOpen(false)}
+                aria-label="关闭导航"
+              />
+              <motion.aside
+                className="fixed inset-y-0 left-0 z-50 flex w-[288px] max-w-[86vw] flex-col border-r bg-background/95 backdrop-blur-sm md:hidden"
+                initial={{ x: -320 }}
+                animate={{ x: 0 }}
+                exit={{ x: -320 }}
+                transition={{ type: 'spring', bounce: 0.1, duration: 0.35 }}
+              >
+                <div className="flex h-16 items-center border-b px-4">
+                  <div className="flex items-center gap-3">
+                    <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-primary text-primary-foreground shadow-md shadow-primary/25">
+                      <Zap className="h-5 w-5" />
+                    </div>
+                    <div className="min-w-0 overflow-hidden whitespace-nowrap text-lg font-bold tracking-tight">
+                      {siteName}
+                    </div>
+                  </div>
+                </div>
+                <div className="flex-1 overflow-y-auto px-3 py-4">
+                  {renderSidebarNav({ collapsed: false, onSelect: () => setMobileNavOpen(false) })}
+                </div>
+              </motion.aside>
+            </>
+          ) : null}
+        </AnimatePresence>
+
         {/* Main content */}
         <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
           <div className="flex-1 overflow-y-auto">
             {/* Header */}
-            <header className="sticky top-0 z-10 flex h-16 items-center justify-between border-b bg-background/80 px-6 backdrop-blur-sm">
+            <header className="sticky top-0 z-10 flex h-16 items-center justify-between border-b bg-background/80 px-4 backdrop-blur-sm md:px-6">
               <AnimatePresence mode="wait">
                 <motion.div
                   key={currentPage}
@@ -384,6 +480,11 @@ export default function Dashboard({
                   transition={{ type: 'spring', bounce: 0.15, duration: 0.35 }}
                   className="flex items-center gap-3"
                 >
+                  {isMobileViewport ? (
+                    <Button variant="outline" size="icon" className="h-9 w-9 md:hidden" onClick={() => setMobileNavOpen(true)}>
+                      <PanelLeft className="h-4 w-4" />
+                    </Button>
+                  ) : null}
                   {(() => {
                     const Icon = navIcons[currentPage]
                     return <Icon className="h-5 w-5 text-primary" />
@@ -391,7 +492,7 @@ export default function Dashboard({
                   <h2 className="text-lg font-semibold">{currentPageLabel}</h2>
                 </motion.div>
               </AnimatePresence>
-              <div className="flex items-center gap-3">
+              <div className="flex items-center gap-2 md:gap-3">
                 <AnnouncementCenter
                   announcements={announcements}
                   unreadCount={unreadAnnouncements.length}
@@ -433,55 +534,57 @@ export default function Dashboard({
             </header>
 
             {/* Page content */}
-            <main className="p-6">
-              <AnimatePresence mode="wait">
-                <motion.div
-                  key={currentPage}
-                  initial={{ opacity: 0, y: 20, scale: 0.99 }}
-                  animate={{ opacity: 1, y: 0, scale: 1 }}
-                  exit={{ opacity: 0, y: -12, scale: 0.99 }}
-                  transition={{ type: 'spring', bounce: 0.15, duration: 0.4 }}
-                >
-                  {currentPage === 'overview' && <Overview />}
-                  {currentPage === 'status-monitor' && <StatusMonitor />}
-                  {currentPage === 'admin-overview' && isAdmin && <AdminOverview />}
-                  {currentPage === 'amp-settings' && canAccessAmpSettings && (
-                    <AmpSettings
-                      canAccessRouteSettings={canAccessAmpRouteSettings}
-                      canAccessAmpUpstreamSettings={canAccessAmpUpstreamSettings}
-                    />
-                  )}
-                  {currentPage === 'api-keys' && <APIKeys />}
-                  {currentPage === 'request-logs' && <RequestLogs isAdmin={isAdmin} />}
-                  {currentPage === 'usage-stats' && <UsageStats isAdmin={isAdmin} />}
-                  {currentPage === 'models' && <Models isAdmin={isAdmin} />}
-                  {currentPage === 'account-settings' && <AccountSettings username={username} onUsernameChange={setUsername} />}
-                  {currentPage === 'purchase-center' && <PurchaseCenter />}
-                  {currentPage === 'channels' && isAdmin && <Channels />}
-                  {currentPage === 'groups' && isAdmin && <Groups />}
-                  {currentPage === 'subscription-plans' && isAdmin && <SubscriptionPlans />}
-                  {currentPage === 'paid-subscriptions' && isAdmin && <PaidSubscriptions />}
-                  {currentPage === 'redeem-management' && isAdmin && <RedeemManagement />}
-                  {currentPage === 'session-management' && isAdmin && <SessionManagement />}
-                  {currentPage === 'model-metadata' && isAdmin && <ModelMetadata />}
-                  {currentPage === 'prices' && isAdmin && <Prices />}
-                  {currentPage === 'user-management' && isAdmin && <UserManagement />}
-                  {currentPage === 'system-settings' && isAdmin && (
-                    <SystemSettings
-                      siteName={siteName}
-                      siteTimeZone={siteTimeZone}
-                      ampProxySettingsPolicy={ampProxySettingsPolicy}
-                      ampSettingsPolicy={ampSettingsPolicy}
-                      siteContact={siteContact}
-                      onSiteNameChange={onSiteNameChange}
-                      onSiteTimeZoneChange={onSiteTimeZoneChange}
-                      onAmpProxySettingsPolicyChange={onAmpProxySettingsPolicyChange}
-                      onAmpSettingsPolicyChange={onAmpSettingsPolicyChange}
-                      onSiteContactChange={onSiteContactChange}
-                    />
-                  )}
-                </motion.div>
-              </AnimatePresence>
+            <main className="p-4 md:p-6">
+              <Suspense fallback={<PageLoader />}>
+                <AnimatePresence mode="wait">
+                  <motion.div
+                    key={currentPage}
+                    initial={{ opacity: 0, y: 20, scale: 0.99 }}
+                    animate={{ opacity: 1, y: 0, scale: 1 }}
+                    exit={{ opacity: 0, y: -12, scale: 0.99 }}
+                    transition={{ type: 'spring', bounce: 0.15, duration: 0.4 }}
+                  >
+                    {currentPage === 'overview' && <Overview />}
+                    {currentPage === 'status-monitor' && <StatusMonitor />}
+                    {currentPage === 'admin-overview' && isAdmin && <AdminOverview />}
+                    {currentPage === 'amp-settings' && canAccessAmpSettings && (
+                      <AmpSettings
+                        canAccessRouteSettings={canAccessAmpRouteSettings}
+                        canAccessAmpUpstreamSettings={canAccessAmpUpstreamSettings}
+                      />
+                    )}
+                    {currentPage === 'api-keys' && <APIKeys siteName={siteName} />}
+                    {currentPage === 'request-logs' && <RequestLogs isAdmin={isAdmin} />}
+                    {currentPage === 'usage-stats' && <UsageStats isAdmin={isAdmin} />}
+                    {currentPage === 'models' && <Models isAdmin={isAdmin} />}
+                    {currentPage === 'account-settings' && <AccountSettings username={username} onUsernameChange={setUsername} />}
+                    {currentPage === 'purchase-center' && <PurchaseCenter />}
+                    {currentPage === 'channels' && isAdmin && <Channels />}
+                    {currentPage === 'groups' && isAdmin && <Groups />}
+                    {currentPage === 'subscription-plans' && isAdmin && <SubscriptionPlans />}
+                    {currentPage === 'paid-subscriptions' && isAdmin && <PaidSubscriptions />}
+                    {currentPage === 'redeem-management' && isAdmin && <RedeemManagement />}
+                    {currentPage === 'session-management' && isAdmin && <SessionManagement />}
+                    {currentPage === 'model-metadata' && isAdmin && <ModelMetadata />}
+                    {currentPage === 'prices' && isAdmin && <Prices />}
+                    {currentPage === 'user-management' && isAdmin && <UserManagement />}
+                    {currentPage === 'system-settings' && isAdmin && (
+                      <SystemSettings
+                        siteName={siteName}
+                        siteTimeZone={siteTimeZone}
+                        ampProxySettingsPolicy={ampProxySettingsPolicy}
+                        ampSettingsPolicy={ampSettingsPolicy}
+                        siteContact={siteContact}
+                        onSiteNameChange={onSiteNameChange}
+                        onSiteTimeZoneChange={onSiteTimeZoneChange}
+                        onAmpProxySettingsPolicyChange={onAmpProxySettingsPolicyChange}
+                        onAmpSettingsPolicyChange={onAmpSettingsPolicyChange}
+                        onSiteContactChange={onSiteContactChange}
+                      />
+                    )}
+                  </motion.div>
+                </AnimatePresence>
+              </Suspense>
             </main>
           </div>
         </div>

@@ -299,13 +299,13 @@ export default function AdminOverview() {
         initial={{ opacity: 0, y: -20 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ type: 'spring', bounce: 0.2, duration: 0.6 }}
-        className="flex items-center justify-between"
+        className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"
       >
         <div>
-          <h2 className="text-2xl font-bold tracking-tight">管理员概览</h2>
-          <p className="text-muted-foreground">系统全局用量和费用汇总</p>
+          <h2 className="text-xl font-bold tracking-tight md:text-2xl">管理员概览</h2>
+          <p className="text-sm text-muted-foreground md:text-base">系统全局用量和费用汇总</p>
         </div>
-        <Button variant="outline" size="sm" onClick={loadDashboard} disabled={loading}>
+        <Button variant="outline" size="sm" onClick={loadDashboard} disabled={loading} className="self-start sm:self-auto">
           <RefreshCw className={`h-4 w-4 mr-2 ${loading ? 'animate-spin' : ''}`} />
           刷新
         </Button>
@@ -316,7 +316,7 @@ export default function AdminOverview() {
         variants={staggerContainer}
         initial="hidden"
         animate="visible"
-        className="grid gap-4 md:grid-cols-2 lg:grid-cols-5"
+        className="grid gap-4 sm:grid-cols-2 xl:grid-cols-5"
       >
         <motion.div variants={staggerItem} whileHover={{ scale: 1.03, y: -4 }} whileTap={{ scale: 0.98 }} className="h-full">
           <Card className="h-full bg-gradient-to-br from-blue-500/10 to-cyan-500/10 border-blue-500/20">
@@ -423,7 +423,7 @@ export default function AdminOverview() {
         variants={staggerContainer}
         initial="hidden"
         animate="visible"
-        className="grid gap-4 md:grid-cols-4"
+        className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4"
       >
         {[
           { label: '输入 Tokens (去缓存, 全局30天)', value: data.month.inputTokensSum, icon: ArrowUpRight, color: 'text-orange-500' },
@@ -446,7 +446,7 @@ export default function AdminOverview() {
       </motion.div>
 
       {/* Trend + Throughput */}
-      <div className="grid gap-6 lg:grid-cols-2">
+      <div className="grid gap-6 xl:grid-cols-2">
         <motion.div
           initial={{ opacity: 0, y: 30, scale: 0.97 }}
           animate={{ opacity: 1, y: 0, scale: 1 }}
@@ -454,7 +454,7 @@ export default function AdminOverview() {
         >
           <Card>
             <CardHeader>
-              <div className="flex items-start justify-between gap-3">
+              <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
                 <div>
                   <CardTitle className="text-base flex items-center gap-2">
                     <TrendingUp className="h-4 w-4 text-emerald-500" />
@@ -462,7 +462,7 @@ export default function AdminOverview() {
                   </CardTitle>
                   <CardDescription>{trendViewMeta[trendView].description}</CardDescription>
                 </div>
-                <div className="flex items-center gap-1">
+                <div className="flex flex-wrap items-center gap-1">
                   <Button size="sm" variant={trendView === 'cost' ? 'default' : 'outline'} onClick={() => setTrendView('cost')}>
                     成本
                   </Button>
@@ -535,7 +535,7 @@ export default function AdminOverview() {
         >
           <Card>
             <CardHeader>
-              <div className="flex items-start justify-between gap-3">
+              <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
                 <div>
                   <CardTitle className="text-base flex items-center gap-2">
                     <Activity className="h-4 w-4 text-blue-500" />
@@ -543,12 +543,12 @@ export default function AdminOverview() {
                   </CardTitle>
                   <CardDescription>{throughputViewMeta[throughputView].description}</CardDescription>
                 </div>
-                <div className="flex items-center gap-1">
+                <div className="flex flex-wrap items-center gap-1">
                   <Button size="sm" variant="outline" onClick={cycleThroughputWindow}>
                     {throughputWindow}
                   </Button>
                   <Select value={throughputView} onValueChange={(value) => setThroughputView(value as typeof throughputView)}>
-                    <SelectTrigger className="h-9 w-[140px]">
+                    <SelectTrigger className="h-9 w-[132px] sm:w-[140px]">
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
@@ -638,7 +638,7 @@ export default function AdminOverview() {
       </div>
 
       {/* Model Donut Pie + Horizontal Bar */}
-      <div className="grid gap-6 lg:grid-cols-2">
+      <div className="grid gap-6 xl:grid-cols-2">
         <motion.div
           initial={{ opacity: 0, y: 30, scale: 0.95 }}
           animate={{ opacity: 1, y: 0, scale: 1 }}
@@ -653,8 +653,8 @@ export default function AdminOverview() {
               {modelPieData.length === 0 ? (
                 <p className="text-center text-muted-foreground py-12">暂无数据</p>
               ) : (
-                <div className="flex items-center gap-6">
-                  <ChartContainer config={modelPieConfig} className="w-[180px] h-[180px] shrink-0">
+                <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:gap-6">
+                  <ChartContainer config={modelPieConfig} className="h-[180px] w-[180px] shrink-0 self-center">
                     <PieChart>
                       <ChartTooltip
                         cursor={false}
@@ -705,7 +705,7 @@ export default function AdminOverview() {
                       </Pie>
                     </PieChart>
                   </ChartContainer>
-                  <div className="flex-1 space-y-2 min-w-0">
+                  <div className="min-w-0 flex-1 space-y-2">
                     {modelPieData.map((m, i) => {
                       const pct = totalModelRequests > 0 ? ((m.value / totalModelRequests) * 100).toFixed(1) : '0'
                       return (

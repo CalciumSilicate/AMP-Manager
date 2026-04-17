@@ -206,13 +206,13 @@ export default function Overview() {
         initial={{ opacity: 0, y: -20 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ type: 'spring', bounce: 0.2, duration: 0.6 }}
-        className="flex items-center justify-between"
+        className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"
       >
         <div>
-          <h2 className="text-2xl font-bold tracking-tight">概览</h2>
-          <p className="text-muted-foreground">账户用量和费用一览</p>
+          <h2 className="text-xl font-bold tracking-tight md:text-2xl">概览</h2>
+          <p className="text-sm text-muted-foreground md:text-base">账户用量和费用一览</p>
         </div>
-        <Button variant="outline" size="sm" onClick={loadDashboard} disabled={loading}>
+        <Button variant="outline" size="sm" onClick={loadDashboard} disabled={loading} className="self-start sm:self-auto">
           <RefreshCw className={`h-4 w-4 mr-2 ${loading ? 'animate-spin' : ''}`} />
           刷新
         </Button>
@@ -223,7 +223,7 @@ export default function Overview() {
         variants={staggerContainer}
         initial="hidden"
         animate="visible"
-        className="grid gap-4 md:grid-cols-2 lg:grid-cols-4"
+        className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4"
       >
         <motion.div variants={staggerItem} whileHover={{ scale: 1.03, y: -4 }} whileTap={{ scale: 0.98 }} className="h-full">
           <Card className="h-full bg-gradient-to-br from-blue-500/10 to-cyan-500/10 border-blue-500/20">
@@ -309,7 +309,7 @@ export default function Overview() {
         variants={staggerContainer}
         initial="hidden"
         animate="visible"
-        className="grid gap-4 md:grid-cols-4"
+        className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4"
       >
         {[
           { label: '输入 Tokens (去缓存, 30天)', value: data.month.inputTokensSum, icon: ArrowUpRight, color: 'text-orange-500' },
@@ -338,7 +338,7 @@ export default function Overview() {
       </motion.div>
 
       {/* Billing Status + Daily Cost Trend */}
-      <div className="grid gap-6 lg:grid-cols-2">
+      <div className="grid gap-6 xl:grid-cols-2">
         <motion.div
           initial={{ opacity: 0, y: 30, scale: 0.95 }}
           animate={{ opacity: 1, y: 0, scale: 1 }}
@@ -347,7 +347,7 @@ export default function Overview() {
         >
           <Card className="flex h-full flex-col">
             <CardHeader className="pb-2">
-              <div className="flex items-center justify-between gap-3">
+              <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
                 <div className="min-w-0">
                   <CardTitle className="text-base flex items-center gap-2">
                     <CreditCard className="h-4 w-4" />
@@ -357,7 +357,7 @@ export default function Overview() {
                 {billingLoading ? (
                   <div className="h-9 w-40 rounded-md loading-shimmer" />
                 ) : billingState ? (
-                  <div className="flex flex-wrap items-center justify-end gap-2">
+                  <div className="flex flex-wrap items-center gap-2 lg:justify-end">
                     <Button
                       variant="outline"
                       size="sm"
@@ -529,7 +529,7 @@ export default function Overview() {
                       {billingState.windows.map((w, i) => {
                         const usedPct = w.limitMicros > 0 ? (w.usedMicros / w.limitMicros) * 100 : 0
                         return (
-                          <div key={i} className="flex items-center justify-between gap-4 py-0.5">
+                          <div key={i} className="flex flex-col gap-3 py-1 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
                             <div className="min-w-0 space-y-1">
                               <div className="flex items-center gap-2">
                                 <p className="text-sm font-medium">
@@ -637,7 +637,7 @@ export default function Overview() {
       </div>
 
       {/* Top Models + Daily Requests */}
-      <div className="grid gap-6 lg:grid-cols-2">
+      <div className="grid gap-6 xl:grid-cols-2">
         <motion.div
           initial={{ opacity: 0, y: 30, scale: 0.95 }}
           animate={{ opacity: 1, y: 0, scale: 1 }}
@@ -773,7 +773,7 @@ export default function Overview() {
             <CardDescription>按模型提供商分类的缓存使用情况</CardDescription>
           </CardHeader>
           <CardContent>
-            <div className="grid gap-4 md:grid-cols-3">
+            <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
               {(['Claude', 'OpenAI', 'Gemini'] as const).map((providerName, providerIdx) => {
                 const rate = (data.cacheHitRates || []).find((r: DashboardCacheHitRate) => r.provider === providerName)
                 const hitRate = rate ? parseFloat(rate.hitRate) : 0

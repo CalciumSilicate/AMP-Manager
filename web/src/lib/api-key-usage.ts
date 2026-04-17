@@ -3,12 +3,22 @@ import { listAvailableModels, type AvailableModel } from '@/api/models'
 export type CCSwitchApp = 'codex' | 'opencode' | 'openclaw'
 
 const CODEX_PROVIDER_NAME = 'OpenAI'
+const MODEL_CONTEXT_WINDOW_OVERRIDES: Array<{ pattern: RegExp; contextLength: number }> = [
+  { pattern: /^gpt-5\.4-mini(?:-|$)/, contextLength: 400_000 },
+  { pattern: /^gpt-5\.4-nano(?:-|$)/, contextLength: 400_000 },
+  { pattern: /^gpt-5\.4(?:-|$)/, contextLength: 1_000_000 },
+  { pattern: /^gpt-5-mini(?:-|$)/, contextLength: 400_000 },
+  { pattern: /^gpt-5-nano(?:-|$)/, contextLength: 400_000 },
+  { pattern: /^gpt-5(?:-|$)/, contextLength: 400_000 },
+  { pattern: /^gpt-4\.1-mini(?:-|$)/, contextLength: 1_047_576 },
+  { pattern: /^gpt-4\.1-nano(?:-|$)/, contextLength: 1_047_576 },
+  { pattern: /^gpt-4\.1(?:-|$)/, contextLength: 1_047_576 },
+]
 
 export interface APIKeyUsageContent {
   defaultModel: string
   models: AvailableModel[]
   ccSwitchLinks: Record<CCSwitchApp, string>
-  ccSwitchFallbackPatch: string
   codex: {
     configToml: string
     authJson: string
@@ -61,6 +71,7 @@ export function buildAPIKeyUsageContent({
   apiBaseUrl,
   apiKey,
   keyName,
+  siteName,
   models,
   selectedModelId,
 }: {
@@ -68,6 +79,7 @@ export function buildAPIKeyUsageContent({
   apiBaseUrl: string
   apiKey: string
   keyName: string
+  siteName: string
   models: AvailableModel[]
   selectedModelId: string
 }): APIKeyUsageContent {
@@ -84,6 +96,7 @@ export function buildAPIKeyUsageContent({
         apiBaseUrl,
         apiKey,
         keyName,
+        siteName,
         defaultModel,
       }),
       opencode: buildCCSwitchDeepLink({
@@ -92,6 +105,7 @@ export function buildAPIKeyUsageContent({
         apiBaseUrl,
         apiKey,
         keyName,
+        siteName,
         defaultModel,
       }),
       openclaw: buildCCSwitchDeepLink({
@@ -100,10 +114,10 @@ export function buildAPIKeyUsageContent({
         apiBaseUrl,
         apiKey,
         keyName,
+        siteName,
         defaultModel,
       }),
     },
-    ccSwitchFallbackPatch: buildCCSwitchFallbackPatch(defaultModel),
     codex: {
       configToml: buildCodexConfigToml(apiBaseUrl, selectedModel, false),
       authJson: buildCodexAuthJson(apiKey),
@@ -131,6 +145,7 @@ function buildCCSwitchDeepLink({
   apiBaseUrl,
   apiKey,
   keyName,
+  siteName,
   defaultModel,
 }: {
   app: CCSwitchApp
@@ -138,13 +153,15 @@ function buildCCSwitchDeepLink({
   apiBaseUrl: string
   apiKey: string
   keyName: string
+  siteName: string
   defaultModel: string
 }): string {
   const usageScript = buildCCSwitchUsageScript()
+  const providerName = `${siteName.trim() || 'AMP Manager'} (${keyName})`
   const params = new URLSearchParams({
     resource: 'provider',
     app,
-    name: `AMP Manager (${keyName})`,
+    name: providerName,
     homepage: origin,
     endpoint: apiBaseUrl,
     apiKey,
@@ -183,22 +200,8 @@ function buildCCSwitchUsageScript(): string {
 })`
 }
 
-function buildCCSwitchFallbackPatch(defaultModel: string): string {
-  return JSON.stringify(
-    {
-      meta: {
-        testConfig: {
-          enabled: true,
-          testModel: defaultModel,
-        },
-      },
-    },
-    null,
-    2,
-  )
-}
-
 function buildCodexConfigToml(apiBaseUrl: string, selectedModel: AvailableModel, websocket: boolean): string {
+  const contextWindow = resolveContextWindow(selectedModel.modelId, selectedModel.contextLength)
   const lines = [
     `model_provider = "${CODEX_PROVIDER_NAME}"`,
     `model = "${selectedModel.modelId}"`,
@@ -209,9 +212,9 @@ function buildCodexConfigToml(apiBaseUrl: string, selectedModel: AvailableModel,
     'windows_wsl_setup_acknowledged = true',
   ]
 
-  if (selectedModel.contextLength && selectedModel.contextLength > 0) {
-    lines.push(`model_context_window = ${selectedModel.contextLength}`)
-    lines.push(`model_auto_compact_token_limit = ${Math.floor(selectedModel.contextLength * 0.9)}`)
+  if (contextWindow && contextWindow > 0) {
+    lines.push(`model_context_window = ${contextWindow}`)
+    lines.push(`model_auto_compact_token_limit = ${Math.floor(contextWindow * 0.9)}`)
   }
 
   lines.push('')
@@ -232,6 +235,17 @@ responses_websockets_v2 = true`
     : ''
 
   return `${lines.join('\n')}${featureSection}\n`
+}
+
+function resolveContextWindow(modelId: string, fallback?: number) {
+  const normalizedModelId = modelId.trim().toLowerCase()
+  const override = MODEL_CONTEXT_WINDOW_OVERRIDES.find((item) => item.pattern.test(normalizedModelId))
+
+  if (override) {
+    return override.contextLength
+  }
+
+  return fallback && fallback > 0 ? fallback : undefined
 }
 
 function buildCodexAuthJson(apiKey: string): string {

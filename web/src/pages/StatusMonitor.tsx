@@ -1,7 +1,13 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Activity, Clock3, RefreshCw, TimerReset, type LucideIcon, Waves } from 'lucide-react'
 
-import { getStatusMonitorDashboard, type StatusMonitorDashboardItem, type StatusMonitorPeriod, type StatusMonitorState } from '@/api/statusMonitor'
+import {
+  getStatusMonitorDashboard,
+  type StatusMonitorDashboardItem,
+  type StatusMonitorDashboardResponse,
+  type StatusMonitorPeriod,
+  type StatusMonitorState,
+} from '@/api/statusMonitor'
 import { AdminPageShell, AdminSurface, AdminToolbarRow } from '@/components/admin/AdminPageShell'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
@@ -46,24 +52,56 @@ const TARGET_LABELS = {
   custom_http: '自定义',
 } as const
 
+const STATUS_MONITOR_CACHE_KEY = 'status-monitor:dashboard'
+
+function getStatusMonitorCacheKey(period: StatusMonitorPeriod) {
+  return `${STATUS_MONITOR_CACHE_KEY}:${period}`
+}
+
+function readStatusMonitorDashboardCache(period: StatusMonitorPeriod): StatusMonitorDashboardResponse | null {
+  if (typeof window === 'undefined') return null
+
+  try {
+    const raw = window.localStorage.getItem(getStatusMonitorCacheKey(period))
+    if (!raw) return null
+
+    const parsed = JSON.parse(raw) as StatusMonitorDashboardResponse
+    return parsed?.period === period ? parsed : null
+  } catch {
+    return null
+  }
+}
+
+function writeStatusMonitorDashboardCache(period: StatusMonitorPeriod, data: StatusMonitorDashboardResponse) {
+  if (typeof window === 'undefined') return
+  window.localStorage.setItem(getStatusMonitorCacheKey(period), JSON.stringify(data))
+}
+
 export default function StatusMonitor() {
   const [period, setPeriod] = useState<StatusMonitorPeriod>('7d')
-  const [loading, setLoading] = useState(true)
+  const [loading, setLoading] = useState(() => !readStatusMonitorDashboardCache('7d'))
   const [error, setError] = useState('')
-  const [data, setData] = useState<Awaited<ReturnType<typeof getStatusMonitorDashboard>> | null>(null)
+  const [data, setData] = useState<StatusMonitorDashboardResponse | null>(() => readStatusMonitorDashboardCache('7d'))
 
-  const loadDashboard = useCallback(async (nextPeriod = period) => {
+  const loadDashboard = useCallback(async (nextPeriod: StatusMonitorPeriod) => {
+    const cached = readStatusMonitorDashboardCache(nextPeriod)
+
+    if (cached) {
+      setData(cached)
+    }
+
     try {
       setLoading(true)
       setError('')
       const result = await getStatusMonitorDashboard(nextPeriod)
       setData(result)
+      writeStatusMonitorDashboardCache(nextPeriod, result)
     } catch (loadError) {
       setError(loadError instanceof Error ? loadError.message : '加载状态监控面板失败')
     } finally {
       setLoading(false)
     }
-  }, [period])
+  }, [])
 
   useEffect(() => {
     void loadDashboard(period)
@@ -82,7 +120,7 @@ export default function StatusMonitor() {
       <AdminPageShell
         title="状态监控"
         actions={
-          <Button variant="outline" onClick={() => void loadDashboard()} disabled={loading}>
+          <Button variant="outline" onClick={() => void loadDashboard(period)} disabled={loading}>
             <RefreshCw className={`mr-2 h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
             刷新
           </Button>
