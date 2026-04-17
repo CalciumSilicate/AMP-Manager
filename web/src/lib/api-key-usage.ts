@@ -140,6 +140,7 @@ function buildCCSwitchDeepLink({
   keyName: string
   defaultModel: string
 }): string {
+  const usageScript = buildCCSwitchUsageScript()
   const params = new URLSearchParams({
     resource: 'provider',
     app,
@@ -149,9 +150,37 @@ function buildCCSwitchDeepLink({
     apiKey,
     model: defaultModel,
     enabled: 'true',
+    usageEnabled: 'true',
+    usageBaseUrl: origin,
+    usageApiKey: apiKey,
+    usageAutoInterval: '60',
+    usageScript: encodeBase64Utf8(usageScript),
   })
 
   return `ccswitch://v1/import?${params.toString()}`
+}
+
+function buildCCSwitchUsageScript(): string {
+  return `({
+  request: {
+    url: "{{baseUrl}}/api/usage",
+    method: "GET",
+    headers: {
+      "Authorization": "Bearer {{apiKey}}",
+      "User-Agent": "cc-switch/1.0"
+    }
+  },
+  extractor: function(response) {
+    if (Array.isArray(response)) {
+      return response;
+    }
+
+    return {
+      isValid: false,
+      invalidMessage: response && response.error ? response.error : "查询失败"
+    };
+  }
+})`
 }
 
 function buildCCSwitchFallbackPatch(defaultModel: string): string {
@@ -300,4 +329,13 @@ function buildOpenclawConfig(apiBaseUrl: string, apiKey: string, models: Availab
     null,
     2,
   )
+}
+
+function encodeBase64Utf8(value: string): string {
+  const bytes = new TextEncoder().encode(value)
+  let binary = ''
+  for (const byte of bytes) {
+    binary += String.fromCharCode(byte)
+  }
+  return btoa(binary)
 }
