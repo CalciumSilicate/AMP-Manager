@@ -1,10 +1,12 @@
-const DEFAULT_MODEL = 'gpt-5.4'
-
 export type CCSwitchApp = 'codex' | 'opencode' | 'openclaw'
+
+const CODEX_PROVIDER_NAME = 'OpenAI'
+const GENERIC_CONTEXT_WINDOW = 1_000_000
+const GENERIC_OUTPUT_LIMIT = 128_000
 
 export interface APIKeyUsageContent {
   defaultModel: string
-  usageEndpoint: string
+  models: string[]
   ccSwitchUsageScript: string
   ccSwitchLinks: Record<CCSwitchApp, string>
   codex: {
@@ -27,22 +29,76 @@ export interface APIKeyUsageContent {
   }
 }
 
+export async function getAPIKeyAvailableModels({
+  origin,
+  apiBaseUrl,
+  apiKey,
+  signal,
+}: {
+  origin: string
+  apiBaseUrl: string
+  apiKey: string
+  signal?: AbortSignal
+}): Promise<string[]> {
+  const candidates = [
+    `${origin}/api/provider/openai/v1/models`,
+    `${apiBaseUrl}/models`,
+  ]
+
+  for (const url of candidates) {
+    try {
+      const response = await fetch(url, {
+        method: 'GET',
+        signal,
+        headers: {
+          Authorization: `Bearer ${apiKey}`,
+          'X-Api-Key': apiKey,
+        },
+      })
+
+      if (!response.ok) continue
+
+      const payload = await response.json() as { data?: Array<{ id?: string }> }
+      const models = Array.from(
+        new Set(
+          (payload.data || [])
+            .map((item) => item.id?.trim())
+            .filter((value): value is string => Boolean(value)),
+        ),
+      )
+
+      if (models.length > 0) {
+        return models
+      }
+    } catch (error) {
+      if (error instanceof DOMException && error.name === 'AbortError') {
+        throw error
+      }
+    }
+  }
+
+  throw new Error('获取模型列表失败')
+}
+
 export function buildAPIKeyUsageContent({
   origin,
   apiBaseUrl,
   apiKey,
   keyName,
+  models,
 }: {
   origin: string
   apiBaseUrl: string
   apiKey: string
   keyName: string
+  models: string[]
 }): APIKeyUsageContent {
+  const defaultModel = models[0]
   const ccSwitchUsageScript = buildCCSwitchUsageScript()
 
   return {
-    defaultModel: DEFAULT_MODEL,
-    usageEndpoint: `${origin}/api/usage`,
+    defaultModel,
+    models,
     ccSwitchUsageScript,
     ccSwitchLinks: {
       codex: buildCCSwitchDeepLink({
@@ -51,6 +107,7 @@ export function buildAPIKeyUsageContent({
         apiBaseUrl,
         apiKey,
         keyName,
+        defaultModel,
         usageScript: ccSwitchUsageScript,
       }),
       opencode: buildCCSwitchDeepLink({
@@ -59,6 +116,7 @@ export function buildAPIKeyUsageContent({
         apiBaseUrl,
         apiKey,
         keyName,
+        defaultModel,
         usageScript: ccSwitchUsageScript,
       }),
       openclaw: buildCCSwitchDeepLink({
@@ -67,25 +125,26 @@ export function buildAPIKeyUsageContent({
         apiBaseUrl,
         apiKey,
         keyName,
+        defaultModel,
         usageScript: ccSwitchUsageScript,
       }),
     },
     codex: {
-      configToml: buildCodexConfigToml(apiBaseUrl, false),
+      configToml: buildCodexConfigToml(apiBaseUrl, defaultModel, false),
       authJson: buildCodexAuthJson(apiKey),
       command: 'codex',
     },
     codexWebsocket: {
-      configToml: buildCodexConfigToml(apiBaseUrl, true),
+      configToml: buildCodexConfigToml(apiBaseUrl, defaultModel, true),
       authJson: buildCodexAuthJson(apiKey),
       command: 'codex',
     },
     opencode: {
-      configJson: buildOpencodeConfig(apiBaseUrl, apiKey),
-      command: `opencode -m openai/${DEFAULT_MODEL}`,
+      configJson: buildOpencodeConfig(apiBaseUrl, apiKey, models),
+      command: `opencode -m openai/${defaultModel}`,
     },
     openclaw: {
-      configJson: buildOpenclawConfig(apiBaseUrl, apiKey),
+      configJson: buildOpenclawConfig(apiBaseUrl, apiKey, models),
       command: 'openclaw',
     },
   }
@@ -120,6 +179,7 @@ function buildCCSwitchDeepLink({
   apiBaseUrl,
   apiKey,
   keyName,
+  defaultModel,
   usageScript,
 }: {
   app: CCSwitchApp
@@ -127,6 +187,7 @@ function buildCCSwitchDeepLink({
   apiBaseUrl: string
   apiKey: string
   keyName: string
+  defaultModel: string
   usageScript: string
 }): string {
   const params = new URLSearchParams({
@@ -136,7 +197,7 @@ function buildCCSwitchDeepLink({
     homepage: origin,
     endpoint: apiBaseUrl,
     apiKey,
-    model: DEFAULT_MODEL,
+    model: defaultModel,
     enabled: 'true',
     usageEnabled: 'true',
     usageBaseUrl: origin,
@@ -148,25 +209,30 @@ function buildCCSwitchDeepLink({
   return `ccswitch://v1/import?${params.toString()}`
 }
 
-function buildCodexConfigToml(apiBaseUrl: string, websocket: boolean): string {
+function buildCodexConfigToml(apiBaseUrl: string, defaultModel: string, websocket: boolean): string {
   const featureSection = websocket
     ? `
-[features]
-responses_websockets_v2 = true
-`
-    : ''
-  const websocketFields = websocket
-    ? `
-supports_websockets = true`
-    : ''
 
-  return `model_provider = "OpenAI"
-model = "${DEFAULT_MODEL}"${featureSection}
-[model_providers.OpenAI]
-name = "OpenAI"
+[features]
+responses_websockets_v2 = true`
+    : ''
+  const websocketField = websocket ? '\nsupports_websockets = true' : ''
+
+  return `model_provider = "${CODEX_PROVIDER_NAME}"
+model = "${defaultModel}"
+review_model = "${defaultModel}"
+model_reasoning_effort = "xhigh"
+disable_response_storage = true
+network_access = "enabled"
+windows_wsl_setup_acknowledged = true
+model_context_window = 1000000
+model_auto_compact_token_limit = 900000
+
+[model_providers.${CODEX_PROVIDER_NAME}]
+name = "${CODEX_PROVIDER_NAME}"
 base_url = "${apiBaseUrl}"
 wire_api = "responses"
-requires_openai_auth = true${websocketFields}
+requires_openai_auth = true${websocketField}${featureSection}
 `
 }
 
@@ -180,7 +246,29 @@ function buildCodexAuthJson(apiKey: string): string {
   )
 }
 
-function buildOpencodeConfig(apiBaseUrl: string, apiKey: string): string {
+function buildOpencodeConfig(apiBaseUrl: string, apiKey: string, models: string[]): string {
+  const modelEntries = Object.fromEntries(
+    models.map((modelId) => [
+      modelId,
+      {
+        name: modelId,
+        limit: {
+          context: GENERIC_CONTEXT_WINDOW,
+          output: GENERIC_OUTPUT_LIMIT,
+        },
+        options: {
+          store: false,
+        },
+        variants: {
+          low: {},
+          medium: {},
+          high: {},
+          xhigh: {},
+        },
+      },
+    ]),
+  )
+
   return JSON.stringify(
     {
       provider: {
@@ -189,24 +277,7 @@ function buildOpencodeConfig(apiBaseUrl: string, apiKey: string): string {
             baseURL: apiBaseUrl,
             apiKey,
           },
-          models: {
-            [DEFAULT_MODEL]: {
-              name: 'GPT-5.4',
-              limit: {
-                context: 1_050_000,
-                output: 128_000,
-              },
-              options: {
-                store: false,
-              },
-              variants: {
-                low: {},
-                medium: {},
-                high: {},
-                xhigh: {},
-              },
-            },
-          },
+          models: modelEntries,
         },
       },
       agent: {
@@ -228,7 +299,7 @@ function buildOpencodeConfig(apiBaseUrl: string, apiKey: string): string {
   )
 }
 
-function buildOpenclawConfig(apiBaseUrl: string, apiKey: string): string {
+function buildOpenclawConfig(apiBaseUrl: string, apiKey: string, models: string[]): string {
   return JSON.stringify(
     {
       models: {
@@ -238,19 +309,17 @@ function buildOpenclawConfig(apiBaseUrl: string, apiKey: string): string {
             baseUrl: apiBaseUrl,
             apiKey,
             api: 'openai-responses',
-            models: [
-              {
-                id: DEFAULT_MODEL,
-                name: DEFAULT_MODEL,
-              },
-            ],
+            models: models.map((modelId) => ({
+              id: modelId,
+              name: modelId,
+            })),
           },
         },
       },
       agents: {
         defaults: {
           model: {
-            primary: `amp-manager/${DEFAULT_MODEL}`,
+            primary: `amp-manager/${models[0]}`,
           },
         },
       },
@@ -268,4 +337,3 @@ function encodeBase64Utf8(value: string): string {
   }
   return btoa(binary)
 }
-

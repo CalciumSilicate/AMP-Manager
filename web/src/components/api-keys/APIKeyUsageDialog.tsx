@@ -1,20 +1,17 @@
-import { useMemo, useState, type ReactNode } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 
-import { buildAPIKeyUsageContent, type CCSwitchApp } from '@/lib/api-key-usage'
-import { formatDateTime } from '@/lib/formatters'
+import { AnimatePresence, motion } from '@/lib/motion'
+import { buildAPIKeyUsageContent, getAPIKeyAvailableModels, type CCSwitchApp } from '@/lib/api-key-usage'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import {
   Dialog,
   DialogContent,
-  DialogDescription,
   DialogFooter,
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog'
 import { Label } from '@/components/ui/label'
-import { ScrollArea } from '@/components/ui/scroll-area'
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import type { APIKeyRevealResponse } from '@/api/amp'
 
 type UsageTab = 'cc-switch' | 'codex-cli' | 'codex-websocket' | 'opencode' | 'openclaw'
@@ -36,25 +33,197 @@ const tabs: { value: UsageTab; label: string }[] = [
   { value: 'openclaw', label: 'Openclaw' },
 ]
 
-const ccSwitchApps: { app: CCSwitchApp; title: string; desc: string }[] = [
-  { app: 'codex', title: '导入到 Codex', desc: '导入 Codex Provider，并附带用量查询脚本。' },
-  { app: 'opencode', title: '导入到 OpenCode', desc: '导入 OpenCode Provider，并附带用量查询脚本。' },
-  { app: 'openclaw', title: '导入到 OpenClaw', desc: '导入 OpenClaw Provider，并附带用量查询脚本。' },
+const ccSwitchApps: { app: CCSwitchApp; label: string }[] = [
+  { app: 'codex', label: 'Codex' },
+  { app: 'opencode', label: 'OpenCode' },
+  { app: 'openclaw', label: 'OpenClaw' },
 ]
 
 export function APIKeyUsageDialog({ open, onOpenChange, revealKey, apiBaseUrl, copied, onCopy }: APIKeyUsageDialogProps) {
   const [activeTab, setActiveTab] = useState<UsageTab>('cc-switch')
+  const [availableModels, setAvailableModels] = useState<string[]>([])
+  const [loadingModels, setLoadingModels] = useState(false)
+  const [loadError, setLoadError] = useState('')
+
+  useEffect(() => {
+    if (!open || !revealKey) return
+
+    const controller = new AbortController()
+    setLoadingModels(true)
+    setLoadError('')
+
+    void getAPIKeyAvailableModels({
+      origin: window.location.origin,
+      apiBaseUrl,
+      apiKey: revealKey.apiKey,
+      signal: controller.signal,
+    })
+      .then((models) => {
+        setAvailableModels(models)
+      })
+      .catch((error) => {
+        if (error instanceof DOMException && error.name === 'AbortError') {
+          return
+        }
+        setAvailableModels([])
+        setLoadError(error instanceof Error ? error.message : '获取模型列表失败')
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) {
+          setLoadingModels(false)
+        }
+      })
+
+    return () => controller.abort()
+  }, [apiBaseUrl, open, revealKey])
 
   const usageContent = useMemo(() => {
-    if (!revealKey) return null
+    if (!revealKey || availableModels.length === 0) return null
 
     return buildAPIKeyUsageContent({
       origin: window.location.origin,
       apiBaseUrl,
       apiKey: revealKey.apiKey,
       keyName: revealKey.name,
+      models: availableModels,
     })
-  }, [apiBaseUrl, revealKey])
+  }, [apiBaseUrl, availableModels, revealKey])
+
+  const renderContent = () => {
+    if (!usageContent) return null
+
+    switch (activeTab) {
+      case 'cc-switch':
+        return (
+          <div className="space-y-4">
+            <div className="grid gap-3 md:grid-cols-3">
+              {ccSwitchApps.map(({ app, label }) => (
+                <div key={app} className="rounded-lg border px-4 py-4 space-y-3">
+                  <div className="text-sm font-medium">{label}</div>
+                  <div className="flex flex-wrap gap-2">
+                    <Button
+                      size="sm"
+                      onClick={() => {
+                        window.location.assign(usageContent.ccSwitchLinks[app])
+                      }}
+                    >
+                      一键导入
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => void onCopy(usageContent.ccSwitchLinks[app], `cc-switch-link-${app}`)}
+                    >
+                      {copied === `cc-switch-link-${app}` ? '已复制' : '复制链接'}
+                    </Button>
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            <CodeBlock
+              label="usageScript"
+              value={usageContent.ccSwitchUsageScript}
+              copyKey="cc-switch-usage-script"
+              copied={copied}
+              onCopy={onCopy}
+            />
+          </div>
+        )
+      case 'codex-cli':
+        return (
+          <div className="space-y-4">
+            <CodeBlock
+              label="~/.codex/config.toml"
+              value={usageContent.codex.configToml}
+              copyKey="codex-config"
+              copied={copied}
+              onCopy={onCopy}
+            />
+            <CodeBlock
+              label="~/.codex/auth.json"
+              value={usageContent.codex.authJson}
+              copyKey="codex-auth"
+              copied={copied}
+              onCopy={onCopy}
+            />
+            <CodeBlock
+              label="command"
+              value={usageContent.codex.command}
+              copyKey="codex-command"
+              copied={copied}
+              onCopy={onCopy}
+            />
+          </div>
+        )
+      case 'codex-websocket':
+        return (
+          <div className="space-y-4">
+            <CodeBlock
+              label="~/.codex/config.toml"
+              value={usageContent.codexWebsocket.configToml}
+              copyKey="codex-ws-config"
+              copied={copied}
+              onCopy={onCopy}
+            />
+            <CodeBlock
+              label="~/.codex/auth.json"
+              value={usageContent.codexWebsocket.authJson}
+              copyKey="codex-ws-auth"
+              copied={copied}
+              onCopy={onCopy}
+            />
+            <CodeBlock
+              label="command"
+              value={usageContent.codexWebsocket.command}
+              copyKey="codex-ws-command"
+              copied={copied}
+              onCopy={onCopy}
+            />
+          </div>
+        )
+      case 'opencode':
+        return (
+          <div className="space-y-4">
+            <CodeBlock
+              label="~/.config/opencode/opencode.json"
+              value={usageContent.opencode.configJson}
+              copyKey="opencode-config"
+              copied={copied}
+              onCopy={onCopy}
+            />
+            <CodeBlock
+              label="command"
+              value={usageContent.opencode.command}
+              copyKey="opencode-command"
+              copied={copied}
+              onCopy={onCopy}
+            />
+          </div>
+        )
+      case 'openclaw':
+        return (
+          <div className="space-y-4">
+            <CodeBlock
+              label="~/.openclaw/openclaw.json"
+              value={usageContent.openclaw.configJson}
+              copyKey="openclaw-config"
+              copied={copied}
+              onCopy={onCopy}
+            />
+            <CodeBlock
+              label="command"
+              value={usageContent.openclaw.command}
+              copyKey="openclaw-command"
+              copied={copied}
+              onCopy={onCopy}
+            />
+          </div>
+        )
+      default:
+        return null
+    }
+  }
 
   return (
     <Dialog
@@ -62,36 +231,34 @@ export function APIKeyUsageDialog({ open, onOpenChange, revealKey, apiBaseUrl, c
       onOpenChange={(nextOpen) => {
         if (!nextOpen) {
           setActiveTab('cc-switch')
+          setLoadError('')
+          setAvailableModels([])
         }
         onOpenChange(nextOpen)
       }}
     >
-      <DialogContent className="max-w-5xl max-h-[85vh] overflow-hidden flex flex-col">
+      <DialogContent className="max-w-5xl max-h-[88vh] overflow-hidden flex flex-col">
         <DialogHeader>
-          <DialogTitle>使用 API Key</DialogTitle>
-          <DialogDescription>按客户端复制配置，或直接一键导入到 CC Switch。</DialogDescription>
+          <DialogTitle>{revealKey ? `使用 API Key · ${revealKey.name}` : '使用 API Key'}</DialogTitle>
         </DialogHeader>
 
-        {revealKey && usageContent ? (
-          <>
-            <div className="grid gap-3 py-2 md:grid-cols-3">
-              <InfoCard
-                label="名称"
-                value={revealKey.name}
-                extra={
-                  <Badge variant="secondary">
-                    {revealKey.expiresAt ? `到期 ${formatDateTime(revealKey.expiresAt)}` : '永不过期'}
-                  </Badge>
-                }
-              />
-              <CopyCard
+        <div className="flex-1 min-h-0 overflow-y-auto pr-1 space-y-5">
+          {revealKey ? (
+            <div className="rounded-lg border px-4 py-4 space-y-3">
+              <div className="flex items-center justify-between gap-3">
+                <div className="text-sm font-medium text-foreground">连接信息</div>
+                <Badge variant="secondary">
+                  {loadingModels ? '模型加载中' : usageContent ? `${usageContent.models.length} 个模型` : '模型未就绪'}
+                </Badge>
+              </div>
+              <InlineCopyRow
                 label="API Base URL"
                 value={apiBaseUrl}
                 copyKey="usage-base-url"
                 copied={copied}
                 onCopy={onCopy}
               />
-              <CopyCard
+              <InlineCopyRow
                 label="API Key"
                 value={revealKey.apiKey}
                 copyKey="usage-api-key"
@@ -99,174 +266,51 @@ export function APIKeyUsageDialog({ open, onOpenChange, revealKey, apiBaseUrl, c
                 onCopy={onCopy}
               />
             </div>
+          ) : null}
 
-            <Tabs value={activeTab} onValueChange={(value) => setActiveTab(value as UsageTab)} className="flex-1 min-h-0 flex flex-col">
-              <div className="overflow-x-auto pb-2">
-                <TabsList className="grid min-w-[860px] grid-cols-5">
-                  {tabs.map((tab) => (
-                    <TabsTrigger key={tab.value} value={tab.value}>
-                      {tab.label}
-                    </TabsTrigger>
-                  ))}
-                </TabsList>
-              </div>
+          <div className="flex items-center gap-1 border-b pb-0 overflow-x-auto">
+            {tabs.map((tab) => (
+              <button
+                key={tab.value}
+                type="button"
+                onClick={() => setActiveTab(tab.value)}
+                className={`relative rounded-t-md px-4 py-2 text-sm font-medium transition-colors whitespace-nowrap ${
+                  activeTab === tab.value ? 'text-foreground' : 'text-muted-foreground hover:text-foreground/80'
+                }`}
+              >
+                {tab.label}
+                {activeTab === tab.value ? (
+                  <motion.div
+                    layoutId="api-key-usage-tab-indicator"
+                    className="absolute inset-x-0 -bottom-px h-0.5 bg-primary"
+                    transition={{ type: 'spring', bounce: 0.2, duration: 0.4 }}
+                  />
+                ) : null}
+              </button>
+            ))}
+          </div>
 
-              <ScrollArea className="flex-1 pr-4">
-                <TabsContent value="cc-switch" className="space-y-4 mt-0">
-                  <div className="grid gap-3 md:grid-cols-2">
-                    <InfoCard label="默认模型" value={usageContent.defaultModel} />
-                    <CopyCard
-                      label="用量查询接口"
-                      value={usageContent.usageEndpoint}
-                      copyKey="cc-switch-usage-endpoint"
-                      copied={copied}
-                      onCopy={onCopy}
-                    />
-                  </div>
-
-                  <div className="grid gap-3 md:grid-cols-3">
-                    {ccSwitchApps.map(({ app, title, desc }) => (
-                      <div key={app} className="rounded-lg border px-4 py-4 space-y-3">
-                        <div className="space-y-1">
-                          <p className="text-sm font-medium text-foreground">{title}</p>
-                          <p className="text-xs leading-5 text-muted-foreground">{desc}</p>
-                        </div>
-                        <div className="flex flex-wrap gap-2">
-                          <Button
-                            size="sm"
-                            onClick={() => {
-                              window.location.assign(usageContent.ccSwitchLinks[app])
-                            }}
-                          >
-                            一键导入
-                          </Button>
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            onClick={() => void onCopy(usageContent.ccSwitchLinks[app], `cc-switch-link-${app}`)}
-                          >
-                            {copied === `cc-switch-link-${app}` ? '已复制' : '复制链接'}
-                          </Button>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-
-                  <CodeBlock
-                    label="CC Switch usageScript"
-                    description="用于导入后在 CC Switch 内查询余额与订阅额度。"
-                    value={usageContent.ccSwitchUsageScript}
-                    copyKey="cc-switch-usage-script"
-                    copied={copied}
-                    onCopy={onCopy}
-                  />
-                </TabsContent>
-
-                <TabsContent value="codex-cli" className="space-y-4 mt-0">
-                  <CodeBlock
-                    label="~/.codex/config.toml"
-                    description="持久化 OpenAI 兼容配置，适合常规 Codex CLI 使用。"
-                    value={usageContent.codex.configToml}
-                    copyKey="codex-config"
-                    copied={copied}
-                    onCopy={onCopy}
-                    language="toml"
-                  />
-                  <CodeBlock
-                    label="~/.codex/auth.json"
-                    description="将当前 API Key 写入 Codex 鉴权文件。"
-                    value={usageContent.codex.authJson}
-                    copyKey="codex-auth"
-                    copied={copied}
-                    onCopy={onCopy}
-                    language="json"
-                  />
-                  <CodeBlock
-                    label="启动命令"
-                    description="配置完成后直接启动 Codex。"
-                    value={usageContent.codex.command}
-                    copyKey="codex-command"
-                    copied={copied}
-                    onCopy={onCopy}
-                    language="bash"
-                  />
-                </TabsContent>
-
-                <TabsContent value="codex-websocket" className="space-y-4 mt-0">
-                  <CodeBlock
-                    label="~/.codex/config.toml"
-                    description="显式启用 Responses WebSocket，适合走 /v1/responses 的实时回传。"
-                    value={usageContent.codexWebsocket.configToml}
-                    copyKey="codex-ws-config"
-                    copied={copied}
-                    onCopy={onCopy}
-                    language="toml"
-                  />
-                  <CodeBlock
-                    label="~/.codex/auth.json"
-                    description="WebSocket 模式仍使用同一份 OpenAI 鉴权文件。"
-                    value={usageContent.codexWebsocket.authJson}
-                    copyKey="codex-ws-auth"
-                    copied={copied}
-                    onCopy={onCopy}
-                    language="json"
-                  />
-                  <CodeBlock
-                    label="启动命令"
-                    description="保存配置后直接启动 Codex。"
-                    value={usageContent.codexWebsocket.command}
-                    copyKey="codex-ws-command"
-                    copied={copied}
-                    onCopy={onCopy}
-                    language="bash"
-                  />
-                </TabsContent>
-
-                <TabsContent value="opencode" className="space-y-4 mt-0">
-                  <CodeBlock
-                    label="~/.config/opencode/opencode.json"
-                    description="OpenCode 本地 provider 配置，已包含当前 key 和 gpt-5.4 模型。"
-                    value={usageContent.opencode.configJson}
-                    copyKey="opencode-config"
-                    copied={copied}
-                    onCopy={onCopy}
-                    language="json"
-                  />
-                  <CodeBlock
-                    label="启动命令"
-                    description="按 provider/model 指定默认模型运行。"
-                    value={usageContent.opencode.command}
-                    copyKey="opencode-command"
-                    copied={copied}
-                    onCopy={onCopy}
-                    language="bash"
-                  />
-                </TabsContent>
-
-                <TabsContent value="openclaw" className="space-y-4 mt-0">
-                  <CodeBlock
-                    label="~/.openclaw/openclaw.json"
-                    description="OpenClaw 自定义 provider 配置，直接走 OpenAI Responses 兼容代理。"
-                    value={usageContent.openclaw.configJson}
-                    copyKey="openclaw-config"
-                    copied={copied}
-                    onCopy={onCopy}
-                    language="json"
-                  />
-                  <CodeBlock
-                    label="启动命令"
-                    description="写入配置后直接启动 OpenClaw。"
-                    value={usageContent.openclaw.command}
-                    copyKey="openclaw-command"
-                    copied={copied}
-                    onCopy={onCopy}
-                    language="bash"
-                  />
-                </TabsContent>
-              </ScrollArea>
-            </Tabs>
-          </>
-        ) : null}
+          {loadingModels ? (
+            <div className="rounded-lg border px-4 py-10 text-center text-sm text-muted-foreground">模型加载中...</div>
+          ) : loadError ? (
+            <div className="rounded-lg border border-destructive/40 px-4 py-10 text-center text-sm text-destructive">{loadError}</div>
+          ) : usageContent ? (
+            <AnimatePresence mode="wait">
+              <motion.div
+                key={activeTab}
+                initial={{ opacity: 0, y: 16 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -10 }}
+                transition={{ type: 'spring', bounce: 0.2, duration: 0.35 }}
+                className="space-y-4"
+              >
+                {renderContent()}
+              </motion.div>
+            </AnimatePresence>
+          ) : (
+            <div className="rounded-lg border px-4 py-10 text-center text-sm text-muted-foreground">暂无模型</div>
+          )}
+        </div>
 
         <DialogFooter>
           <Button onClick={() => onOpenChange(false)}>关闭</Button>
@@ -276,19 +320,7 @@ export function APIKeyUsageDialog({ open, onOpenChange, revealKey, apiBaseUrl, c
   )
 }
 
-function InfoCard({ label, value, extra }: { label: string; value: string; extra?: ReactNode }) {
-  return (
-    <div className="rounded-lg border px-4 py-3 space-y-2">
-      <div className="flex items-center justify-between gap-3">
-        <Label>{label}</Label>
-        {extra}
-      </div>
-      <p className="break-all font-mono text-xs text-foreground">{value}</p>
-    </div>
-  )
-}
-
-function CopyCard({
+function InlineCopyRow({
   label,
   value,
   copyKey,
@@ -302,49 +334,40 @@ function CopyCard({
   onCopy: (text: string, key: string) => Promise<void>
 }) {
   return (
-    <div className="rounded-lg border px-4 py-3 space-y-2">
-      <div className="flex items-center justify-between gap-3">
-        <Label>{label}</Label>
-        <Button size="sm" variant="outline" onClick={() => void onCopy(value, copyKey)}>
-          {copied === copyKey ? '已复制' : '复制'}
-        </Button>
-      </div>
-      <p className="break-all font-mono text-xs text-foreground">{value}</p>
+    <div className="grid gap-2 md:grid-cols-[140px_minmax(0,1fr)_auto] md:items-center">
+      <Label className="text-sm">{label}</Label>
+      <code className="rounded-md border bg-muted/30 px-3 py-2 text-xs font-mono break-all">{value}</code>
+      <Button size="sm" variant="outline" onClick={() => void onCopy(value, copyKey)}>
+        {copied === copyKey ? '已复制' : '复制'}
+      </Button>
     </div>
   )
 }
 
 function CodeBlock({
   label,
-  description,
   value,
   copyKey,
   copied,
   onCopy,
-  language,
 }: {
   label: string
-  description: string
   value: string
   copyKey: string
   copied: string | null
   onCopy: (text: string, key: string) => Promise<void>
-  language?: string
 }) {
   return (
     <div className="rounded-lg border px-4 py-4 space-y-3">
-      <div className="flex items-start justify-between gap-3">
-        <div className="space-y-1">
-          <Label>{label}</Label>
-          <p className="text-xs leading-5 text-muted-foreground">{description}</p>
-        </div>
+      <div className="flex items-center justify-between gap-3">
+        <Label>{label}</Label>
         <Button size="sm" variant="outline" onClick={() => void onCopy(value, copyKey)}>
           {copied === copyKey ? '已复制' : '复制'}
         </Button>
       </div>
       <div className="rounded-md border bg-muted/30 px-4 py-3 overflow-x-auto">
         <pre className="font-mono text-xs leading-6 whitespace-pre-wrap break-all">
-          <code className={language ? `language-${language}` : undefined}>{value}</code>
+          <code>{value}</code>
         </pre>
       </div>
     </div>
