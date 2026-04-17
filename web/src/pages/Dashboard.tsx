@@ -1,6 +1,7 @@
 import { lazy, Suspense, useEffect, useMemo, useState } from 'react'
 import { listMyAnnouncements, markAnnouncementRead, type Announcement } from '@/api/announcements'
 import { AnnouncementCenter, AnnouncementUnreadDialog, ContactCenter } from '@/components/announcements/AnnouncementCenter'
+import { ChunkLoadBoundary } from '@/components/ChunkLoadBoundary'
 import { PageLoader } from '@/components/PageLoader'
 import { motion, AnimatePresence } from '@/lib/motion'
 import type { AmpProxySettingsPolicy, SiteContactConfig } from '@/api/system'
@@ -539,56 +540,63 @@ export default function Dashboard({
 
             {/* Page content */}
             <main className="p-4 md:p-6">
-              <Suspense fallback={<PageLoader />}>
-                <AnimatePresence mode="wait">
-                  <motion.div
-                    key={currentPage}
-                    initial={{ opacity: 0, y: 20, scale: 0.99 }}
-                    animate={{ opacity: 1, y: 0, scale: 1 }}
-                    exit={{ opacity: 0, y: -12, scale: 0.99 }}
-                    transition={{ type: 'spring', bounce: 0.15, duration: 0.4 }}
-                  >
-                    {currentPage === 'overview' && <Overview />}
-                    {currentPage === 'status-monitor' && <StatusMonitor />}
-                    {currentPage === 'admin-overview' && isAdmin && <AdminOverview />}
-                    {currentPage === 'amp-settings' && canAccessAmpSettings && (
-                      <AmpSettings
-                        canAccessRouteSettings={canAccessAmpRouteSettings}
-                        canAccessAmpUpstreamSettings={canAccessAmpUpstreamSettings}
-                      />
-                    )}
-                    {currentPage === 'api-keys' && <APIKeys siteName={siteName} />}
-                    {currentPage === 'request-logs' && <RequestLogs isAdmin={isAdmin} />}
-                    {currentPage === 'usage-stats' && <UsageStats isAdmin={isAdmin} />}
-                    {currentPage === 'models' && <Models isAdmin={isAdmin} />}
-                    {currentPage === 'account-settings' && <AccountSettings username={username} onUsernameChange={setUsername} />}
-                    {currentPage === 'purchase-center' && <PurchaseCenter />}
-                    {currentPage === 'channels' && isAdmin && <Channels />}
-                    {currentPage === 'groups' && isAdmin && <Groups />}
-                    {currentPage === 'subscription-plans' && isAdmin && <SubscriptionPlans />}
-                    {currentPage === 'paid-subscriptions' && isAdmin && <PaidSubscriptions />}
-                    {currentPage === 'redeem-management' && isAdmin && <RedeemManagement />}
-                    {currentPage === 'session-management' && isAdmin && <SessionManagement />}
-                    {currentPage === 'model-metadata' && isAdmin && <ModelMetadata />}
-                    {currentPage === 'prices' && isAdmin && <Prices />}
-                    {currentPage === 'user-management' && isAdmin && <UserManagement />}
-                    {currentPage === 'system-settings' && isAdmin && (
-                      <SystemSettings
-                        siteName={siteName}
-                        siteTimeZone={siteTimeZone}
-                        ampProxySettingsPolicy={ampProxySettingsPolicy}
-                        ampSettingsPolicy={ampSettingsPolicy}
-                        siteContact={siteContact}
-                        onSiteNameChange={onSiteNameChange}
-                        onSiteTimeZoneChange={onSiteTimeZoneChange}
-                        onAmpProxySettingsPolicyChange={onAmpProxySettingsPolicyChange}
-                        onAmpSettingsPolicyChange={onAmpSettingsPolicyChange}
-                        onSiteContactChange={onSiteContactChange}
-                      />
-                    )}
-                  </motion.div>
-                </AnimatePresence>
-              </Suspense>
+              <ChunkLoadBoundary
+                key={currentPage}
+                scopeLabel={currentPageLabel}
+                secondaryActionLabel="返回概览"
+                onSecondaryAction={currentPage === 'overview' ? undefined : () => setCurrentPage('overview')}
+              >
+                <Suspense fallback={<PageLoader />}>
+                  <AnimatePresence mode="wait">
+                    <motion.div
+                      key={currentPage}
+                      initial={{ opacity: 0, y: 20, scale: 0.99 }}
+                      animate={{ opacity: 1, y: 0, scale: 1 }}
+                      exit={{ opacity: 0, y: -12, scale: 0.99 }}
+                      transition={{ type: 'spring', bounce: 0.15, duration: 0.4 }}
+                    >
+                      {currentPage === 'overview' && <Overview />}
+                      {currentPage === 'status-monitor' && <StatusMonitor />}
+                      {currentPage === 'admin-overview' && isAdmin && <AdminOverview />}
+                      {currentPage === 'amp-settings' && canAccessAmpSettings && (
+                        <AmpSettings
+                          canAccessRouteSettings={canAccessAmpRouteSettings}
+                          canAccessAmpUpstreamSettings={canAccessAmpUpstreamSettings}
+                        />
+                      )}
+                      {currentPage === 'api-keys' && <APIKeys siteName={siteName} />}
+                      {currentPage === 'request-logs' && <RequestLogs isAdmin={isAdmin} />}
+                      {currentPage === 'usage-stats' && <UsageStats isAdmin={isAdmin} />}
+                      {currentPage === 'models' && <Models isAdmin={isAdmin} />}
+                      {currentPage === 'account-settings' && <AccountSettings username={username} onUsernameChange={setUsername} />}
+                      {currentPage === 'purchase-center' && <PurchaseCenter />}
+                      {currentPage === 'channels' && isAdmin && <Channels />}
+                      {currentPage === 'groups' && isAdmin && <Groups />}
+                      {currentPage === 'subscription-plans' && isAdmin && <SubscriptionPlans />}
+                      {currentPage === 'paid-subscriptions' && isAdmin && <PaidSubscriptions />}
+                      {currentPage === 'redeem-management' && isAdmin && <RedeemManagement />}
+                      {currentPage === 'session-management' && isAdmin && <SessionManagement />}
+                      {currentPage === 'model-metadata' && isAdmin && <ModelMetadata />}
+                      {currentPage === 'prices' && isAdmin && <Prices />}
+                      {currentPage === 'user-management' && isAdmin && <UserManagement />}
+                      {currentPage === 'system-settings' && isAdmin && (
+                        <SystemSettings
+                          siteName={siteName}
+                          siteTimeZone={siteTimeZone}
+                          ampProxySettingsPolicy={ampProxySettingsPolicy}
+                          ampSettingsPolicy={ampSettingsPolicy}
+                          siteContact={siteContact}
+                          onSiteNameChange={onSiteNameChange}
+                          onSiteTimeZoneChange={onSiteTimeZoneChange}
+                          onAmpProxySettingsPolicyChange={onAmpProxySettingsPolicyChange}
+                          onAmpSettingsPolicyChange={onAmpSettingsPolicyChange}
+                          onSiteContactChange={onSiteContactChange}
+                        />
+                      )}
+                    </motion.div>
+                  </AnimatePresence>
+                </Suspense>
+              </ChunkLoadBoundary>
             </main>
           </div>
         </div>

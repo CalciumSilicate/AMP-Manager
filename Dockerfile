@@ -15,7 +15,7 @@ FROM --platform=$BUILDPLATFORM golang:1.26-alpine AS backend
 # xx provides cross-compilation helpers for multi-platform builds
 COPY --from=tonistiigi/xx / /
 ARG TARGETPLATFORM
-ARG GO_BUILD_TAGS=""
+ARG GO_BUILD_TAGS="embed_frontend"
 
 WORKDIR /app
 

@@ -42,4 +42,20 @@ func TestRegisterStaticRoutesServesEmbeddedAssets(t *testing.T) {
 	if assetResp.Code != 200 {
 		t.Fatalf("expected embedded asset status 200, got %d", assetResp.Code)
 	}
+
+	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
+		}
+
+		getResp := performRequest(t, router, "GET", "/assets/"+entry.Name())
+		if getResp.Code != 200 {
+			t.Fatalf("expected embedded asset %s status 200, got %d", entry.Name(), getResp.Code)
+		}
+
+		headResp := performRequest(t, router, "HEAD", "/assets/"+entry.Name())
+		if headResp.Code != 200 {
+			t.Fatalf("expected embedded asset %s HEAD status 200, got %d", entry.Name(), headResp.Code)
+		}
+	}
 }

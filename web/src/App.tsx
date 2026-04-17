@@ -1,6 +1,7 @@
 import { lazy, Suspense, useState, useEffect } from 'react'
 import { motion, AnimatePresence } from '@/lib/motion'
 import { FontLoadCoordinator } from '@/components/font-load-coordinator'
+import { ChunkLoadBoundary } from '@/components/ChunkLoadBoundary'
 import { InlineLoader } from '@/components/PageLoader'
 import { GlobalToastProvider } from '@/components/ui/global-toast'
 import { listPublicAnnouncements, type Announcement } from '@/api/announcements'
@@ -133,23 +134,25 @@ function App() {
     return (
       <GlobalToastProvider>
         <FontLoadCoordinator />
-        <Suspense fallback={<InlineLoader />}>
-          <Dashboard
-            username={user.username}
-            isAdmin={user.isAdmin}
-            siteName={siteName}
-            siteTimeZone={siteTimeZone}
-            ampProxySettingsPolicy={ampProxySettingsPolicy}
-            ampSettingsPolicy={ampSettingsPolicy}
-            siteContact={siteContact}
-            onSiteNameChange={setSiteName}
-            onSiteTimeZoneChange={setSiteTimeZone}
-            onAmpProxySettingsPolicyChange={setAmpProxySettingsPolicy}
-            onAmpSettingsPolicyChange={setAmpSettingsPolicy}
-            onSiteContactChange={setSiteContact}
-            onLogout={handleLogout}
-          />
-        </Suspense>
+        <ChunkLoadBoundary scopeLabel="控制台">
+          <Suspense fallback={<InlineLoader />}>
+            <Dashboard
+              username={user.username}
+              isAdmin={user.isAdmin}
+              siteName={siteName}
+              siteTimeZone={siteTimeZone}
+              ampProxySettingsPolicy={ampProxySettingsPolicy}
+              ampSettingsPolicy={ampSettingsPolicy}
+              siteContact={siteContact}
+              onSiteNameChange={setSiteName}
+              onSiteTimeZoneChange={setSiteTimeZone}
+              onAmpProxySettingsPolicyChange={setAmpProxySettingsPolicy}
+              onAmpSettingsPolicyChange={setAmpSettingsPolicy}
+              onSiteContactChange={setSiteContact}
+              onLogout={handleLogout}
+            />
+          </Suspense>
+        </ChunkLoadBoundary>
       </GlobalToastProvider>
     )
   }
@@ -166,25 +169,27 @@ function App() {
             exit={{ opacity: 0, scale: 0.85, y: -40 }}
             transition={{ type: 'spring', bounce: 0.25, duration: 0.6 }}
           >
-            <Suspense fallback={<InlineLoader />}>
-              {page === 'login' ? (
-                <Login
-                  siteName={siteName}
-                  siteContact={siteContact}
-                  announcements={publicAnnouncements}
-                  onSwitch={() => setPage('register')}
-                  onSuccess={handleSuccess}
-                />
-              ) : (
-                <Register
-                  siteName={siteName}
-                  siteContact={siteContact}
-                  announcements={publicAnnouncements}
-                  onSwitch={() => setPage('login')}
-                  onSuccess={handleSuccess}
-                />
-              )}
-            </Suspense>
+            <ChunkLoadBoundary scopeLabel={page === 'login' ? '登录页' : '注册页'}>
+              <Suspense fallback={<InlineLoader />}>
+                {page === 'login' ? (
+                  <Login
+                    siteName={siteName}
+                    siteContact={siteContact}
+                    announcements={publicAnnouncements}
+                    onSwitch={() => setPage('register')}
+                    onSuccess={handleSuccess}
+                  />
+                ) : (
+                  <Register
+                    siteName={siteName}
+                    siteContact={siteContact}
+                    announcements={publicAnnouncements}
+                    onSwitch={() => setPage('login')}
+                    onSuccess={handleSuccess}
+                  />
+                )}
+              </Suspense>
+            </ChunkLoadBoundary>
           </motion.div>
         </AnimatePresence>
       </div>

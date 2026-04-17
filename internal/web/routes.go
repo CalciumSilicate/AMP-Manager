@@ -1,9 +1,13 @@
 package web
 
 import (
+	"errors"
 	"io/fs"
+	"log"
+	"mime"
 	"net/http"
 	"path"
+	"strconv"
 	"strings"
 
 	"github.com/gin-gonic/gin"
@@ -74,28 +78,64 @@ func registerStaticRoutes(r *gin.Engine, source assetSource) {
 }
 
 func serveStaticDir(source assetSource, dir string) gin.HandlerFunc {
-	sub, ok := subFS(source.dist, dir)
-	if !ok {
-		return func(c *gin.Context) {
-			c.Status(http.StatusNotFound)
-		}
-	}
-
-	fileServer := http.StripPrefix("/"+dir, http.FileServer(http.FS(sub)))
 	return func(c *gin.Context) {
-		fileServer.ServeHTTP(c.Writer, c.Request)
+		if source.dist == nil {
+			c.Status(http.StatusNotFound)
+			return
+		}
+
+		requestedPath := strings.TrimPrefix(c.Param("filepath"), "/")
+		cleanedPath := path.Clean(requestedPath)
+		if requestedPath == "" || cleanedPath == "." || cleanedPath == ".." || strings.HasPrefix(cleanedPath, "../") {
+			c.Status(http.StatusNotFound)
+			return
+		}
+
+		assetPath := path.Join(dir, cleanedPath)
+		data, contentType, err := readStaticFile(source.dist, assetPath)
+		if err != nil {
+			if errors.Is(err, fs.ErrNotExist) {
+				c.Status(http.StatusNotFound)
+				return
+			}
+			log.Printf("static asset read failed from %s: %s: %v", source.label, assetPath, err)
+			c.Status(http.StatusInternalServerError)
+			return
+		}
+
+		c.Header("Cache-Control", "public, max-age=31536000, immutable")
+		c.Header("Content-Length", strconv.Itoa(len(data)))
+		if c.Request.Method == http.MethodHead {
+			if contentType != "" {
+				c.Header("Content-Type", contentType)
+			}
+			c.Status(http.StatusOK)
+			return
+		}
+
+		c.Data(http.StatusOK, contentType, data)
 	}
 }
 
-func subFS(root fs.FS, dir string) (fs.FS, bool) {
-	if root == nil {
-		return nil, false
-	}
-	sub, err := fs.Sub(root, dir)
+func readStaticFile(root fs.FS, assetPath string) ([]byte, string, error) {
+	info, err := fs.Stat(root, assetPath)
 	if err != nil {
-		return nil, false
+		return nil, "", err
 	}
-	return sub, true
+	if info.IsDir() {
+		return nil, "", fs.ErrNotExist
+	}
+
+	data, err := fs.ReadFile(root, assetPath)
+	if err != nil {
+		return nil, "", err
+	}
+
+	contentType := mime.TypeByExtension(path.Ext(info.Name()))
+	if contentType == "" {
+		contentType = http.DetectContentType(data)
+	}
+	return data, contentType, nil
 }
 
 func isAPIRoute(route string) bool {

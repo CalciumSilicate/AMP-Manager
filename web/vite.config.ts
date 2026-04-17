@@ -9,6 +9,13 @@ export default defineConfig({
       '@': path.resolve(__dirname, './src'),
     },
   },
+  build: {
+    rollupOptions: {
+      output: {
+        chunkFileNames: 'assets/chunk-[hash].js',
+      },
+    },
+  },
   server: {
     port: 5274,
     proxy: {
