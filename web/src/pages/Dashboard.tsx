@@ -69,9 +69,11 @@ interface Props {
   siteName: string
   siteTimeZone: string
   ampProxySettingsPolicy: AmpProxySettingsPolicy
+  ampSettingsPolicy: AmpProxySettingsPolicy
   onSiteNameChange: (siteName: string) => void
   onSiteTimeZoneChange: (timeZone: string) => void
   onAmpProxySettingsPolicyChange: (policy: AmpProxySettingsPolicy) => void
+  onAmpSettingsPolicyChange: (policy: AmpProxySettingsPolicy) => void
   onLogout: () => void
 }
 
@@ -105,9 +107,11 @@ export default function Dashboard({
   siteName,
   siteTimeZone,
   ampProxySettingsPolicy,
+  ampSettingsPolicy,
   onSiteNameChange,
   onSiteTimeZoneChange,
   onAmpProxySettingsPolicyChange,
+  onAmpSettingsPolicyChange,
   onLogout,
 }: Props) {
   const [currentPage, setCurrentPage] = useState<Page>('overview')
@@ -118,12 +122,14 @@ export default function Dashboard({
   const [announcementBusyAll, setAnnouncementBusyAll] = useState(false)
   const [showUnreadDialog, setShowUnreadDialog] = useState(false)
 
-  const canAccessAmpSettings = ampProxySettingsPolicy === 'all' || (ampProxySettingsPolicy === 'admin_only' && isAdmin)
+  const canAccessAmpRouteSettings = ampProxySettingsPolicy === 'all' || (ampProxySettingsPolicy === 'admin_only' && isAdmin)
+  const canAccessAmpUpstreamSettings = ampSettingsPolicy === 'all' || (ampSettingsPolicy === 'admin_only' && isAdmin)
+  const canAccessAmpSettings = canAccessAmpRouteSettings || canAccessAmpUpstreamSettings
 
   const navItems: { key: Page; label: string; adminOnly?: boolean }[] = [
     { key: 'overview', label: '概览' },
     { key: 'status-monitor', label: '状态监控' },
-    ...(canAccessAmpSettings ? [{ key: 'amp-settings' as const, label: '路由设置' }] : []),
+    ...(canAccessAmpSettings ? [{ key: 'amp-settings' as const, label: 'Amp设置' }] : []),
     { key: 'api-keys', label: 'API Key 管理' },
     { key: 'request-logs', label: '请求日志' },
     { key: 'usage-stats', label: '使用量统计' },
@@ -430,7 +436,12 @@ export default function Dashboard({
                   {currentPage === 'overview' && <Overview />}
                   {currentPage === 'status-monitor' && <StatusMonitor />}
                   {currentPage === 'admin-overview' && isAdmin && <AdminOverview />}
-                  {currentPage === 'amp-settings' && canAccessAmpSettings && <AmpSettings />}
+                  {currentPage === 'amp-settings' && canAccessAmpSettings && (
+                    <AmpSettings
+                      canAccessRouteSettings={canAccessAmpRouteSettings}
+                      canAccessAmpUpstreamSettings={canAccessAmpUpstreamSettings}
+                    />
+                  )}
                   {currentPage === 'api-keys' && <APIKeys />}
                   {currentPage === 'request-logs' && <RequestLogs isAdmin={isAdmin} />}
                   {currentPage === 'usage-stats' && <UsageStats isAdmin={isAdmin} />}
@@ -450,9 +461,11 @@ export default function Dashboard({
                       siteName={siteName}
                       siteTimeZone={siteTimeZone}
                       ampProxySettingsPolicy={ampProxySettingsPolicy}
+                      ampSettingsPolicy={ampSettingsPolicy}
                       onSiteNameChange={onSiteNameChange}
                       onSiteTimeZoneChange={onSiteTimeZoneChange}
                       onAmpProxySettingsPolicyChange={onAmpProxySettingsPolicyChange}
+                      onAmpSettingsPolicyChange={onAmpSettingsPolicyChange}
                     />
                   )}
                 </motion.div>

@@ -23,6 +23,11 @@ import { Switch } from '@/components/ui/switch'
 
 type AmpSettingsTab = 'route-mapping' | 'amp-upstream'
 
+interface Props {
+  canAccessRouteSettings?: boolean
+  canAccessAmpUpstreamSettings?: boolean
+}
+
 interface AmpSettingsDraft {
   enabled: boolean
   nativeMode: boolean
@@ -93,8 +98,8 @@ function syncRouteMappingDraft(current: AmpSettingsDraft, settings: AmpSettingsT
   }
 }
 
-export default function AmpSettings() {
-  const [activeTab, setActiveTab] = useState<AmpSettingsTab>('route-mapping')
+export default function AmpSettings({ canAccessRouteSettings = true, canAccessAmpUpstreamSettings = true }: Props) {
+  const [activeTab, setActiveTab] = useState<AmpSettingsTab>(canAccessRouteSettings ? 'route-mapping' : 'amp-upstream')
   const [settings, setSettings] = useState<AmpSettingsType | null>(null)
   const [draft, setDraft] = useState<AmpSettingsDraft>(DEFAULT_DRAFT)
   const [loading, setLoading] = useState(true)
@@ -108,6 +113,18 @@ export default function AmpSettings() {
   useEffect(() => {
     void loadSettings()
   }, [])
+
+  const visibleTabs = tabs.filter((tab) => {
+    if (tab.key === 'route-mapping') return canAccessRouteSettings
+    if (tab.key === 'amp-upstream') return canAccessAmpUpstreamSettings
+    return false
+  })
+
+  useEffect(() => {
+    if (visibleTabs.length > 0 && !visibleTabs.some((tab) => tab.key === activeTab)) {
+      setActiveTab(visibleTabs[0].key)
+    }
+  }, [activeTab, visibleTabs])
 
   const showMessage = (type: 'success' | 'error', text: string) => {
     setMessage({ type, text })
@@ -228,18 +245,25 @@ export default function AmpSettings() {
     )
   }
 
+  const pageTitle = canAccessAmpUpstreamSettings ? 'Amp设置' : '路由设置'
+  const pageDescription = canAccessRouteSettings && canAccessAmpUpstreamSettings
+    ? '管理模型路由映射和 Amp 上游配置。'
+    : canAccessRouteSettings
+      ? '管理模型路由映射。'
+      : '管理 Amp 上游配置。'
+
   return (
     <div className="mx-auto max-w-6xl">
       <TabbedSettingsPage
-        title="路由设置"
-        description="管理模型路由映射和 Amp 上游配置。"
-        tabs={tabs}
+        title={pageTitle}
+        description={pageDescription}
+        tabs={visibleTabs}
         activeTab={activeTab}
         onTabChange={setActiveTab}
         indicatorId="route-settings-tab-indicator"
         message={message}
       >
-        {activeTab === 'route-mapping' ? (
+        {activeTab === 'route-mapping' && canAccessRouteSettings ? (
           <Card>
             <CardHeader className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
               <div className="space-y-1">
@@ -272,7 +296,7 @@ export default function AmpSettings() {
               </Button>
             </CardFooter>
           </Card>
-        ) : (
+        ) : activeTab === 'amp-upstream' && canAccessAmpUpstreamSettings ? (
           <div className="space-y-6">
             <Card>
               <CardHeader className="space-y-1">
@@ -399,7 +423,7 @@ export default function AmpSettings() {
               </Alert>
             ) : null}
           </div>
-        )}
+        ) : null}
       </TabbedSettingsPage>
     </div>
   )

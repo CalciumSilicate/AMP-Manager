@@ -34,18 +34,26 @@ func TestSystemConfigServiceSiteConfigDefaultsAndPersistence(t *testing.T) {
 	if defaultCfg.AmpProxySettingsPolicy != defaultAmpProxySettingsPolicy {
 		t.Fatalf("default amp proxy policy mismatch: got %q want %q", defaultCfg.AmpProxySettingsPolicy, defaultAmpProxySettingsPolicy)
 	}
+	if defaultCfg.AmpSettingsPolicy != defaultAmpSettingsPolicy {
+		t.Fatalf("default amp settings policy mismatch: got %q want %q", defaultCfg.AmpSettingsPolicy, defaultAmpSettingsPolicy)
+	}
 
 	adminOnly := model.AmpProxySettingsPolicyAdminOnly
+	disabled := model.AmpProxySettingsPolicyDisabled
 
 	updatedCfg, err := svc.SetSiteConfig(model.SiteConfigRequest{
 		SiteName:               "Ops Console",
 		TimeZone:               "America/Los_Angeles",
 		AmpProxySettingsPolicy: &adminOnly,
+		AmpSettingsPolicy:      &disabled,
 	})
 	if err != nil {
 		t.Fatalf("SetSiteConfig returned error: %v", err)
 	}
-	if updatedCfg.SiteName != "Ops Console" || updatedCfg.TimeZone != "America/Los_Angeles" || updatedCfg.AmpProxySettingsPolicy != model.AmpProxySettingsPolicyAdminOnly {
+	if updatedCfg.SiteName != "Ops Console" ||
+		updatedCfg.TimeZone != "America/Los_Angeles" ||
+		updatedCfg.AmpProxySettingsPolicy != model.AmpProxySettingsPolicyAdminOnly ||
+		updatedCfg.AmpSettingsPolicy != model.AmpProxySettingsPolicyDisabled {
 		t.Fatalf("unexpected updated config: %+v", updatedCfg)
 	}
 

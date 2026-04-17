@@ -84,18 +84,22 @@ interface Props {
   siteName: string
   siteTimeZone: string
   ampProxySettingsPolicy: AmpProxySettingsPolicy
+  ampSettingsPolicy: AmpProxySettingsPolicy
   onSiteNameChange: (siteName: string) => void
   onSiteTimeZoneChange: (timeZone: string) => void
   onAmpProxySettingsPolicyChange: (policy: AmpProxySettingsPolicy) => void
+  onAmpSettingsPolicyChange: (policy: AmpProxySettingsPolicy) => void
 }
 
 export default function SystemSettings({
   siteName,
   siteTimeZone,
   ampProxySettingsPolicy,
+  ampSettingsPolicy,
   onSiteNameChange,
   onSiteTimeZoneChange,
   onAmpProxySettingsPolicyChange,
+  onAmpSettingsPolicyChange,
 }: Props) {
   const [activeTab, setActiveTab] = useState<SettingsTab>('site')
 
@@ -127,6 +131,7 @@ export default function SystemSettings({
   const [siteNameInput, setSiteNameInput] = useState(siteName)
   const [siteTimeZoneInput, setSiteTimeZoneInput] = useState(siteTimeZone)
   const [ampProxySettingsPolicyInput, setAmpProxySettingsPolicyInput] = useState<AmpProxySettingsPolicy>(ampProxySettingsPolicy)
+  const [ampSettingsPolicyInput, setAmpSettingsPolicyInput] = useState<AmpProxySettingsPolicy>(ampSettingsPolicy)
   const [siteConfigSaving, setSiteConfigSaving] = useState(false)
   const [balanceTopupPriceInput, setBalanceTopupPriceInput] = useState('0')
   const [balanceTopupSaving, setBalanceTopupSaving] = useState(false)
@@ -148,6 +153,10 @@ export default function SystemSettings({
   useEffect(() => {
     setAmpProxySettingsPolicyInput(ampProxySettingsPolicy)
   }, [ampProxySettingsPolicy])
+
+  useEffect(() => {
+    setAmpSettingsPolicyInput(ampSettingsPolicy)
+  }, [ampSettingsPolicy])
 
   const showMessage = useCallback((type: 'success' | 'error', text: string) => {
     setMessage({ type, text })
@@ -334,15 +343,17 @@ export default function SystemSettings({
     try {
       const nextPayloadLimitMB = Math.max(1, Math.round(requestPayloadLimitMB))
       const [result] = await Promise.all([
-        updateSiteConfig(siteNameInput, siteTimeZoneInput, ampProxySettingsPolicyInput),
+        updateSiteConfig(siteNameInput, siteTimeZoneInput, ampProxySettingsPolicyInput, ampSettingsPolicyInput),
         updateRequestPayloadLimit({ maxBytes: nextPayloadLimitMB * 1024 * 1024 }),
       ])
       onSiteNameChange(result.config.siteName)
       onSiteTimeZoneChange(result.config.timeZone)
       onAmpProxySettingsPolicyChange(result.config.ampProxySettingsPolicy)
+      onAmpSettingsPolicyChange(result.config.ampSettingsPolicy)
       setSiteNameInput(result.config.siteName)
       setSiteTimeZoneInput(result.config.timeZone)
       setAmpProxySettingsPolicyInput(result.config.ampProxySettingsPolicy)
+      setAmpSettingsPolicyInput(result.config.ampSettingsPolicy)
       setRequestPayloadLimitMB(nextPayloadLimitMB)
       showMessage('success', '网站配置已保存')
     } catch (err) {
@@ -812,6 +823,19 @@ export default function SystemSettings({
                     <Label htmlFor="ampProxySettingsPolicy">路由设置权限</Label>
                     <Select value={ampProxySettingsPolicyInput} onValueChange={(value) => setAmpProxySettingsPolicyInput(value as AmpProxySettingsPolicy)}>
                       <SelectTrigger id="ampProxySettingsPolicy">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="disabled">禁用</SelectItem>
+                        <SelectItem value="admin_only">仅管理员</SelectItem>
+                        <SelectItem value="all">启用</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="max-w-xl space-y-2">
+                    <Label htmlFor="ampSettingsPolicy">Amp设置权限</Label>
+                    <Select value={ampSettingsPolicyInput} onValueChange={(value) => setAmpSettingsPolicyInput(value as AmpProxySettingsPolicy)}>
+                      <SelectTrigger id="ampSettingsPolicy">
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>

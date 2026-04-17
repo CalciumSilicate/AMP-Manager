@@ -104,6 +104,14 @@ func (h *SystemHandler) UpdateSiteConfig(c *gin.Context) {
 		switch strings.TrimSpace(*req.AmpProxySettingsPolicy) {
 		case model.AmpProxySettingsPolicyDisabled, model.AmpProxySettingsPolicyAdminOnly, model.AmpProxySettingsPolicyAll:
 		default:
+			c.JSON(http.StatusBadRequest, gin.H{"error": "路由设置策略无效"})
+			return
+		}
+	}
+	if req.AmpSettingsPolicy != nil {
+		switch strings.TrimSpace(*req.AmpSettingsPolicy) {
+		case model.AmpProxySettingsPolicyDisabled, model.AmpProxySettingsPolicyAdminOnly, model.AmpProxySettingsPolicyAll:
+		default:
 			c.JSON(http.StatusBadRequest, gin.H{"error": "Amp 设置策略无效"})
 			return
 		}

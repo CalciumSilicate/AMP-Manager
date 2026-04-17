@@ -100,6 +100,7 @@ type SiteConfigResponse struct {
 	SiteName               string `json:"siteName"`
 	TimeZone               string `json:"timeZone"`
 	AmpProxySettingsPolicy string `json:"ampProxySettingsPolicy"`
+	AmpSettingsPolicy      string `json:"ampSettingsPolicy"`
 }
 
 // SiteConfigRequest 站点配置请求
@@ -107,6 +108,7 @@ type SiteConfigRequest struct {
 	SiteName               string  `json:"siteName"`
 	TimeZone               string  `json:"timeZone"`
 	AmpProxySettingsPolicy *string `json:"ampProxySettingsPolicy,omitempty"`
+	AmpSettingsPolicy      *string `json:"ampSettingsPolicy,omitempty"`
 }
 
 type BillingRuntimeConfigResponse struct {

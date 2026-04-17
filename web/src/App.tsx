@@ -19,6 +19,7 @@ function App() {
   const [siteName, setSiteName] = useState('AMP Manager')
   const [siteTimeZone, setSiteTimeZone] = useState(DEFAULT_SITE_TIME_ZONE)
   const [ampProxySettingsPolicy, setAmpProxySettingsPolicy] = useState<AmpProxySettingsPolicy>('all')
+  const [ampSettingsPolicy, setAmpSettingsPolicy] = useState<AmpProxySettingsPolicy>('all')
   const [publicAnnouncements, setPublicAnnouncements] = useState<Announcement[]>([])
 
   useEffect(() => {
@@ -43,6 +44,7 @@ function App() {
             setSiteTimeZone(config.timeZone)
           }
           setAmpProxySettingsPolicy(config.ampProxySettingsPolicy || 'all')
+          setAmpSettingsPolicy(config.ampSettingsPolicy || 'all')
         }
       })
       .catch(() => {
@@ -120,9 +122,11 @@ function App() {
           siteName={siteName}
           siteTimeZone={siteTimeZone}
           ampProxySettingsPolicy={ampProxySettingsPolicy}
+          ampSettingsPolicy={ampSettingsPolicy}
           onSiteNameChange={setSiteName}
           onSiteTimeZoneChange={setSiteTimeZone}
           onAmpProxySettingsPolicyChange={setAmpProxySettingsPolicy}
+          onAmpSettingsPolicyChange={setAmpSettingsPolicy}
           onLogout={handleLogout}
         />
       </>

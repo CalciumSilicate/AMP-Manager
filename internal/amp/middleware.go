@@ -254,6 +254,12 @@ func APIKeyAuthMiddleware() gin.HandlerFunc {
 			c.AbortWithStatusJSON(http.StatusInternalServerError, NewStandardError(http.StatusInternalServerError, "internal server error"))
 			return
 		}
+		ampSettingsPolicy, err := systemCfgSvc.GetAmpSettingsPolicy()
+		if err != nil {
+			log.Errorf("amp api key auth: failed to load system config: %v", err)
+			c.AbortWithStatusJSON(http.StatusInternalServerError, NewStandardError(http.StatusInternalServerError, "internal server error"))
+			return
+		}
 
 		user, err := userRepo.GetByID(apiKeyRecord.UserID)
 		if err != nil {
@@ -262,6 +268,8 @@ func APIKeyAuthMiddleware() gin.HandlerFunc {
 			return
 		}
 		userIsAdmin := user != nil && user.IsAdmin
+		canAccessRouteSettings := service.CanAccessAmpSettingsForPolicy(ampProxySettingsPolicy, userIsAdmin)
+		canAccessUpstreamSettings := service.CanAccessAmpSettingsForPolicy(ampSettingsPolicy, userIsAdmin)
 
 		proxyCfg := &ProxyConfig{
 			UserID:               apiKeyRecord.UserID,
@@ -277,7 +285,7 @@ func APIKeyAuthMiddleware() gin.HandlerFunc {
 			Socks5Proxy:          "",
 		}
 
-		if service.CanAccessAmpSettingsForPolicy(ampProxySettingsPolicy, userIsAdmin) {
+		if canAccessRouteSettings || canAccessUpstreamSettings {
 			settings, err := settingsRepo.GetByUserID(apiKeyRecord.UserID)
 			if err != nil {
 				log.Errorf("amp api key auth: failed to load settings: %v", err)
@@ -286,17 +294,21 @@ func APIKeyAuthMiddleware() gin.HandlerFunc {
 			}
 
 			if settings != nil {
-				if settings.UpstreamURL != "" {
+				if canAccessUpstreamSettings && settings.UpstreamURL != "" {
 					proxyCfg.UpstreamURL = settings.UpstreamURL
 				}
-				proxyCfg.UpstreamAPIKey = settings.UpstreamAPIKey
-				proxyCfg.ModelMappingsJSON = settings.ModelMappingsJSON
-				proxyCfg.Enabled = settings.Enabled
-				proxyCfg.WebSearchMode = settings.WebSearchMode
-				proxyCfg.NativeMode = settings.NativeMode
-				proxyCfg.RouteMappingsEnabled = settings.RouteMappingsEnabled
-				proxyCfg.ShowBalanceInAd = settings.ShowBalanceInAd
-				proxyCfg.Socks5Proxy = settings.Socks5Proxy
+				if canAccessUpstreamSettings {
+					proxyCfg.UpstreamAPIKey = settings.UpstreamAPIKey
+					proxyCfg.Enabled = settings.Enabled
+					proxyCfg.WebSearchMode = settings.WebSearchMode
+					proxyCfg.NativeMode = settings.NativeMode
+					proxyCfg.ShowBalanceInAd = settings.ShowBalanceInAd
+					proxyCfg.Socks5Proxy = settings.Socks5Proxy
+				}
+				if canAccessRouteSettings {
+					proxyCfg.ModelMappingsJSON = settings.ModelMappingsJSON
+					proxyCfg.RouteMappingsEnabled = settings.RouteMappingsEnabled
+				}
 			}
 		}
 

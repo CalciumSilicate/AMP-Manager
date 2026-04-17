@@ -28,6 +28,7 @@ const (
 	cacheTTLOverrideKey                  = "cache_ttl_override"
 	siteNameKey                          = "site_name"
 	allowAmpProxySettingsKey             = "allow_amp_proxy_settings"
+	allowAmpSettingsKey                  = "allow_amp_settings"
 	billingDailyResetEnabledKey          = "billing_daily_reset_enabled"
 	billingDailyResetMinDaysKey          = "billing_daily_reset_min_remaining_days"
 	billingDailyResetThresholdPctKey     = "billing_daily_reset_usage_threshold_percent"
@@ -45,6 +46,7 @@ const (
 	siteTimeZoneKey                      = "site_time_zone"
 	defaultSiteTimeZone                  = "Asia/Shanghai"
 	defaultAmpProxySettingsPolicy        = model.AmpProxySettingsPolicyAll
+	defaultAmpSettingsPolicy             = model.AmpProxySettingsPolicyAll
 	defaultBillingDailyResetEnabled      = true
 	defaultBillingDailyResetMinDays      = 2
 	defaultBillingDailyResetThresholdPct = 90
@@ -260,6 +262,10 @@ func (s *SystemConfigService) GetSiteConfig() (model.SiteConfigResponse, error) 
 	if err != nil {
 		return model.SiteConfigResponse{}, err
 	}
+	ampSettingsPolicy, err := s.GetAmpSettingsPolicy()
+	if err != nil {
+		return model.SiteConfigResponse{}, err
+	}
 
 	siteName := strings.TrimSpace(siteNameValue)
 	if siteName == "" {
@@ -274,6 +280,7 @@ func (s *SystemConfigService) GetSiteConfig() (model.SiteConfigResponse, error) 
 		SiteName:               siteName,
 		TimeZone:               timeZone,
 		AmpProxySettingsPolicy: ampProxySettingsPolicy,
+		AmpSettingsPolicy:      ampSettingsPolicy,
 	}, nil
 }
 
@@ -284,8 +291,15 @@ func (s *SystemConfigService) SetSiteConfig(req model.SiteConfigRequest) (model.
 	if err != nil {
 		return model.SiteConfigResponse{}, err
 	}
+	ampSettingsPolicy, err := s.GetAmpSettingsPolicy()
+	if err != nil {
+		return model.SiteConfigResponse{}, err
+	}
 	if req.AmpProxySettingsPolicy != nil {
 		ampProxySettingsPolicy = normalizeAmpProxySettingsPolicy(*req.AmpProxySettingsPolicy)
+	}
+	if req.AmpSettingsPolicy != nil {
+		ampSettingsPolicy = normalizeAmpProxySettingsPolicy(*req.AmpSettingsPolicy)
 	}
 
 	if timeZone == "" {
@@ -322,11 +336,21 @@ func (s *SystemConfigService) SetSiteConfig(req model.SiteConfigRequest) (model.
 			return model.SiteConfigResponse{}, err
 		}
 	}
+	if ampSettingsPolicy == defaultAmpSettingsPolicy {
+		if err := s.repo.Delete(allowAmpSettingsKey); err != nil {
+			return model.SiteConfigResponse{}, err
+		}
+	} else {
+		if err := s.repo.Set(allowAmpSettingsKey, ampSettingsPolicy); err != nil {
+			return model.SiteConfigResponse{}, err
+		}
+	}
 
 	return model.SiteConfigResponse{
 		SiteName:               siteName,
 		TimeZone:               timeZone,
 		AmpProxySettingsPolicy: ampProxySettingsPolicy,
+		AmpSettingsPolicy:      ampSettingsPolicy,
 	}, nil
 }
 
@@ -338,8 +362,24 @@ func (s *SystemConfigService) GetAmpProxySettingsPolicy() (string, error) {
 	return normalizeAmpProxySettingsPolicy(value), nil
 }
 
+func (s *SystemConfigService) GetAmpSettingsPolicy() (string, error) {
+	value, err := s.repo.Get(allowAmpSettingsKey)
+	if err != nil {
+		return defaultAmpSettingsPolicy, err
+	}
+	return normalizeAmpProxySettingsPolicy(value), nil
+}
+
 func (s *SystemConfigService) CanAccessAmpSettings(isAdmin bool) (bool, error) {
 	policy, err := s.GetAmpProxySettingsPolicy()
+	if err != nil {
+		return false, err
+	}
+	return CanAccessAmpSettingsForPolicy(policy, isAdmin), nil
+}
+
+func (s *SystemConfigService) CanAccessAmpUpstreamSettings(isAdmin bool) (bool, error) {
+	policy, err := s.GetAmpSettingsPolicy()
 	if err != nil {
 		return false, err
 	}

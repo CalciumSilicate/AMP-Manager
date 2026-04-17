@@ -24,17 +24,12 @@ func NewAmpHandler() *AmpHandler {
 }
 
 func (h *AmpHandler) GetSettings(c *gin.Context) {
-	isAdmin, err := loadIsAdmin(c)
+	canAccessRouteSettings, canAccessUpstreamSettings, err := loadAmpSettingsPermissions(c)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "获取配置失败"})
 		return
 	}
-	allowed, err := service.NewSystemConfigService().CanAccessAmpSettings(isAdmin)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "获取配置失败"})
-		return
-	}
-	if !allowed {
+	if !canAccessRouteSettings && !canAccessUpstreamSettings {
 		c.JSON(http.StatusForbidden, gin.H{"error": "当前无权访问 Amp 设置"})
 		return
 	}
@@ -47,21 +42,16 @@ func (h *AmpHandler) GetSettings(c *gin.Context) {
 		return
 	}
 
-	c.JSON(http.StatusOK, settings)
+	c.JSON(http.StatusOK, sanitizeAmpSettingsResponse(settings, canAccessRouteSettings, canAccessUpstreamSettings))
 }
 
 func (h *AmpHandler) UpdateSettings(c *gin.Context) {
-	isAdmin, err := loadIsAdmin(c)
+	canAccessRouteSettings, canAccessUpstreamSettings, err := loadAmpSettingsPermissions(c)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "获取配置失败"})
 		return
 	}
-	allowed, err := service.NewSystemConfigService().CanAccessAmpSettings(isAdmin)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "获取配置失败"})
-		return
-	}
-	if !allowed {
+	if !canAccessRouteSettings && !canAccessUpstreamSettings {
 		c.JSON(http.StatusForbidden, gin.H{"error": "当前无权修改 Amp 设置"})
 		return
 	}
@@ -76,6 +66,14 @@ func (h *AmpHandler) UpdateSettings(c *gin.Context) {
 		})
 		return
 	}
+	if containsRouteSettingsUpdate(&req) && !canAccessRouteSettings {
+		c.JSON(http.StatusForbidden, gin.H{"error": "当前无权修改路由设置"})
+		return
+	}
+	if containsUpstreamSettingsUpdate(&req) && !canAccessUpstreamSettings {
+		c.JSON(http.StatusForbidden, gin.H{"error": "当前无权修改 Amp 设置"})
+		return
+	}
 
 	settings, err := h.ampService.UpdateSettings(userID, &req)
 	if err != nil {
@@ -83,21 +81,16 @@ func (h *AmpHandler) UpdateSettings(c *gin.Context) {
 		return
 	}
 
-	c.JSON(http.StatusOK, settings)
+	c.JSON(http.StatusOK, sanitizeAmpSettingsResponse(settings, canAccessRouteSettings, canAccessUpstreamSettings))
 }
 
 func (h *AmpHandler) TestConnection(c *gin.Context) {
-	isAdmin, err := loadIsAdmin(c)
+	_, canAccessUpstreamSettings, err := loadAmpSettingsPermissions(c)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "获取配置失败"})
 		return
 	}
-	allowed, err := service.NewSystemConfigService().CanAccessAmpSettings(isAdmin)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "获取配置失败"})
-		return
-	}
-	if !allowed {
+	if !canAccessUpstreamSettings {
 		c.JSON(http.StatusForbidden, gin.H{"error": "当前无权测试 Amp 设置"})
 		return
 	}
@@ -126,6 +119,58 @@ func loadIsAdmin(c *gin.Context) (bool, error) {
 		return false, errors.New("user not found")
 	}
 	return user.IsAdmin, nil
+}
+
+func loadAmpSettingsPermissions(c *gin.Context) (bool, bool, error) {
+	isAdmin, err := loadIsAdmin(c)
+	if err != nil {
+		return false, false, err
+	}
+	cfgSvc := service.NewSystemConfigService()
+	canAccessRouteSettings, err := cfgSvc.CanAccessAmpSettings(isAdmin)
+	if err != nil {
+		return false, false, err
+	}
+	canAccessUpstreamSettings, err := cfgSvc.CanAccessAmpUpstreamSettings(isAdmin)
+	if err != nil {
+		return false, false, err
+	}
+	return canAccessRouteSettings, canAccessUpstreamSettings, nil
+}
+
+func containsRouteSettingsUpdate(req *model.AmpSettingsRequest) bool {
+	return req != nil && (req.ModelMappings != nil || req.RouteMappingsEnabled != nil)
+}
+
+func containsUpstreamSettingsUpdate(req *model.AmpSettingsRequest) bool {
+	return req != nil && (req.UpstreamURL != nil ||
+		req.UpstreamAPIKey != nil ||
+		req.Enabled != nil ||
+		req.WebSearchMode != nil ||
+		req.NativeMode != nil ||
+		req.ShowBalanceInAd != nil ||
+		req.Socks5Proxy != nil)
+}
+
+func sanitizeAmpSettingsResponse(resp *model.AmpSettingsResponse, canAccessRouteSettings, canAccessUpstreamSettings bool) *model.AmpSettingsResponse {
+	if resp == nil {
+		return nil
+	}
+	sanitized := *resp
+	if !canAccessRouteSettings {
+		sanitized.ModelMappings = []model.ModelMapping{}
+		sanitized.RouteMappingsEnabled = false
+	}
+	if !canAccessUpstreamSettings {
+		sanitized.UpstreamURL = ""
+		sanitized.Enabled = false
+		sanitized.HasAPIKey = false
+		sanitized.WebSearchMode = model.WebSearchModeUpstream
+		sanitized.NativeMode = false
+		sanitized.ShowBalanceInAd = false
+		sanitized.HasSocks5Proxy = false
+	}
+	return &sanitized
 }
 
 func (h *AmpHandler) ListAPIKeys(c *gin.Context) {
