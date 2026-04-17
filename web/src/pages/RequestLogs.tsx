@@ -723,8 +723,8 @@ export default function RequestLogs({ isAdmin }: Props) {
               <p className="text-center text-muted-foreground py-8">暂无请求记录</p>
             ) : (
               <>
-                <div className={`relative overflow-y-auto overflow-x-hidden max-h-[calc(100vh-320px)] min-h-[400px] rounded-md border transition-opacity ${fetching ? 'opacity-50 pointer-events-none' : ''}`}>
-                <Table className="min-w-full w-max">
+                <div className={`relative overflow-auto max-h-[calc(100vh-320px)] min-h-[400px] rounded-md border transition-opacity ${fetching ? 'opacity-50 pointer-events-none' : ''}`}>
+                <Table className="min-w-full w-max" containerClassName="overflow-visible">
                   <TableHeader className="sticky top-0 z-10 bg-background">
                     <TableRow>
                       <TableHead className="whitespace-nowrap">时间</TableHead>
