@@ -606,11 +606,15 @@ func (s *PurchaseService) applySuccessfulPayment(orderNo, tradeNo string, paidAt
 	order.PaymentStatus = model.PurchasePaymentStatusPaid
 	order.PaidAt = paidAt
 
-	if err := s.fulfillOrderTx(tx, order, now); err != nil {
+	syncAction, err := s.fulfillOrderTx(tx, order, now)
+	if err != nil {
 		return nil, err
 	}
 
 	if err := tx.Commit(); err != nil {
+		return nil, err
+	}
+	if err := s.grantSvc.SyncBillingState(context.Background(), syncAction); err != nil {
 		return nil, err
 	}
 
@@ -624,15 +628,26 @@ func (s *PurchaseService) applySuccessfulPayment(orderNo, tradeNo string, paidAt
 	return response, s.normalizeOrderState(response)
 }
 
-func (s *PurchaseService) fulfillOrderTx(tx *sql.Tx, order *model.PurchaseOrder, now time.Time) error {
+func (s *PurchaseService) fulfillOrderTx(tx *sql.Tx, order *model.PurchaseOrder, now time.Time) (BillingStateSyncAction, error) {
 	if order.FulfillmentStatus == model.PurchaseFulfillmentStatusFulfilled {
-		return nil
+		if order.OrderKind == model.PurchaseOrderKindSubscription {
+			return BillingStateSyncAction{
+				UserID:           order.UserID,
+				RefreshUserState: true,
+			}, nil
+		}
+		return BillingStateSyncAction{}, nil
 	}
 
+	syncAction := BillingStateSyncAction{}
 	switch order.OrderKind {
 	case model.PurchaseOrderKindBalanceTopup:
 		if _, err := s.grantSvc.GrantBalanceTx(tx, order.UserID, order.BalanceTopupMicros, now); err != nil {
-			return err
+			return BillingStateSyncAction{}, err
+		}
+		syncAction = BillingStateSyncAction{
+			UserID:             order.UserID,
+			BalanceDeltaMicros: order.BalanceTopupMicros,
 		}
 	default:
 		if _, err := s.grantSvc.GrantSubscriptionTx(tx, order.UserID, order.SubscriptionPlanID, order.DurationDays, now); err != nil {
@@ -644,9 +659,13 @@ func (s *PurchaseService) fulfillOrderTx(tx *sql.Tx, order *model.PurchaseOrder,
 					now,
 					order.OrderNo,
 				)
-				return updateErr
+				return BillingStateSyncAction{}, updateErr
 			}
-			return err
+			return BillingStateSyncAction{}, err
+		}
+		syncAction = BillingStateSyncAction{
+			UserID:           order.UserID,
+			RefreshUserState: true,
 		}
 	}
 
@@ -659,7 +678,10 @@ func (s *PurchaseService) fulfillOrderTx(tx *sql.Tx, order *model.PurchaseOrder,
 		now,
 		order.OrderNo,
 	)
-	return err
+	if err != nil {
+		return BillingStateSyncAction{}, err
+	}
+	return syncAction, nil
 }
 
 func (s *PurchaseService) getOrderByOrderNoTx(tx *sql.Tx, orderNo string) (*model.PurchaseOrder, error) {

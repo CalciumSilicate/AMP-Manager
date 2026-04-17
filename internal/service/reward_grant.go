@@ -1,20 +1,64 @@
 package service
 
 import (
+	"context"
 	"database/sql"
 	"fmt"
+	"strings"
 	"time"
 
+	"ampmanager/internal/billingstate"
 	"ampmanager/internal/model"
 	"ampmanager/internal/repository"
 
 	"github.com/google/uuid"
 )
 
-type RewardGrantService struct{}
+type BillingStateSyncAction struct {
+	UserID             string
+	RefreshUserState   bool
+	BalanceDeltaMicros int64
+}
+
+type RewardGrantService struct {
+	refreshUserState  func(ctx context.Context, userID string) error
+	applyBalanceDelta func(ctx context.Context, userID string, deltaMicros int64) error
+}
 
 func NewRewardGrantService() *RewardGrantService {
-	return &RewardGrantService{}
+	return &RewardGrantService{
+		refreshUserState: func(ctx context.Context, userID string) error {
+			if runtime := billingstate.Get(); runtime != nil {
+				return runtime.RefreshUserState(ctx, userID)
+			}
+			return nil
+		},
+		applyBalanceDelta: func(ctx context.Context, userID string, deltaMicros int64) error {
+			if runtime := billingstate.Get(); runtime != nil {
+				return runtime.ApplyBalanceDelta(ctx, userID, deltaMicros)
+			}
+			return nil
+		},
+	}
+}
+
+func (s *RewardGrantService) SyncBillingState(ctx context.Context, action BillingStateSyncAction) error {
+	userID := strings.TrimSpace(action.UserID)
+	if userID == "" {
+		return nil
+	}
+	if action.RefreshUserState {
+		if s != nil && s.refreshUserState != nil {
+			return s.refreshUserState(ctx, userID)
+		}
+		return nil
+	}
+	if action.BalanceDeltaMicros != 0 {
+		if s != nil && s.applyBalanceDelta != nil {
+			return s.applyBalanceDelta(ctx, userID, action.BalanceDeltaMicros)
+		}
+	}
+	return nil
 }
 
 func (s *RewardGrantService) GrantSubscriptionTx(tx *sql.Tx, userID, planID string, durationDays int, now time.Time) (*model.UserSubscription, error) {

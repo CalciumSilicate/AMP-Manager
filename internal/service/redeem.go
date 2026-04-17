@@ -498,7 +498,23 @@ func (s *RedeemService) Redeem(_ context.Context, userID, username, rawCode stri
 		return nil, err
 	}
 
+	syncAction := BillingStateSyncAction{}
+	if grantedSub != nil {
+		syncAction = BillingStateSyncAction{
+			UserID:           userID,
+			RefreshUserState: true,
+		}
+	} else if lookup.BalanceMicros > 0 {
+		syncAction = BillingStateSyncAction{
+			UserID:             userID,
+			BalanceDeltaMicros: lookup.BalanceMicros,
+		}
+	}
+
 	if err := tx.Commit(); err != nil {
+		return nil, err
+	}
+	if err := s.grantSvc.SyncBillingState(context.Background(), syncAction); err != nil {
 		return nil, err
 	}
 
