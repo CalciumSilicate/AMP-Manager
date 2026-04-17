@@ -270,6 +270,7 @@ func createTables() error {
 		model_mappings_json TEXT NOT NULL DEFAULT '[]',
 		force_model_mappings INTEGER DEFAULT 0,
 		enabled INTEGER DEFAULT 1,
+			route_mappings_enabled INTEGER NOT NULL DEFAULT 1,
 		created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
 		updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
 		FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
@@ -1089,6 +1090,10 @@ func runMigrations() error {
 		{
 			name: "add_socks5_proxy",
 			sql:  `ALTER TABLE user_amp_settings ADD COLUMN socks5_proxy TEXT NOT NULL DEFAULT ''`,
+		},
+		{
+			name: "add_route_mappings_enabled",
+			sql:  `ALTER TABLE user_amp_settings ADD COLUMN route_mappings_enabled INTEGER NOT NULL DEFAULT 1`,
 		},
 		{
 			name: "add_request_detail_retention_default",

@@ -98,6 +98,64 @@ func TestPrepareResponsesWebsocketTurnReturnsServiceUnavailableWhenNoChannelAvai
 	}
 }
 
+func TestPrepareResponsesWebsocketTurnSkipsMappingsWhenDisabled(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	modelsJSON, _ := json.Marshal([]model.ChannelModel{{Name: "gpt-4.1"}})
+	repo := &fakeChannelRepo{
+		channels: map[string]*model.Channel{
+			"channel-1": {
+				ID:         "channel-1",
+				Name:       "Primary",
+				Type:       model.ChannelTypeOpenAI,
+				Endpoint:   model.ChannelEndpointResponses,
+				BaseURL:    "https://example.com",
+				APIKey:     "sk-test",
+				Enabled:    true,
+				Priority:   1,
+				Weight:     1,
+				ModelsJSON: string(modelsJSON),
+			},
+		},
+		groups: map[string][]string{},
+	}
+
+	originalService := responsesWebsocketChannelService
+	responsesWebsocketChannelService = service.NewChannelServiceWithRepo(repo)
+	defer func() { responsesWebsocketChannelService = originalService }()
+
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	req := httptest.NewRequest(http.MethodPost, "/v1/responses", strings.NewReader(`{"model":"gpt-4.1","input":[]}`))
+	req.Header.Set("Content-Type", "application/json")
+
+	proxyCfg := &ProxyConfig{
+		ModelMappingsJSON:    `[{"from":"gpt-4.1","to":"gpt-4o"}]`,
+		RouteMappingsEnabled: false,
+	}
+	c.Request = req.WithContext(WithProxyConfig(req.Context(), proxyCfg))
+
+	prepared, errResp := prepareResponsesWebsocketTurn(c, &responsesWebsocketSession{}, []byte(`{"model":"gpt-4.1","input":[]}`), true)
+	if errResp != nil {
+		t.Fatalf("prepareResponsesWebsocketTurn returned error: %v", errResp)
+	}
+	if prepared == nil {
+		t.Fatal("expected prepared turn")
+	}
+	if prepared.trace == nil {
+		t.Fatal("expected trace to be initialized")
+	}
+	if got := prepared.trace.OriginalModel; got != "gpt-4.1" {
+		t.Fatalf("expected original model gpt-4.1, got %q", got)
+	}
+	if got := prepared.trace.MappedModel; got != "gpt-4.1" {
+		t.Fatalf("expected mapped model to remain gpt-4.1, got %q", got)
+	}
+	if got := gjson.GetBytes(prepared.body, "model").String(); got != "gpt-4.1" {
+		t.Fatalf("expected request body model to remain gpt-4.1, got %q", got)
+	}
+}
+
 func TestResponsesWebsocketProxyHandlerAcceptsLargeCreatePayload(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 

@@ -47,14 +47,15 @@ func (s *AmpService) GetSettings(userID string) (*model.AmpSettingsResponse, err
 
 	if settings == nil {
 		return &model.AmpSettingsResponse{
-			UpstreamURL:     "https://ampcode.com",
-			ModelMappings:   []model.ModelMapping{},
-			Enabled:         false,
-			HasAPIKey:       false,
-			WebSearchMode:   model.WebSearchModeUpstream,
-			NativeMode:      false,
-			ShowBalanceInAd: false,
-			HasSocks5Proxy:  false,
+			UpstreamURL:          "https://ampcode.com",
+			ModelMappings:        []model.ModelMapping{},
+			Enabled:              false,
+			HasAPIKey:            false,
+			WebSearchMode:        model.WebSearchModeUpstream,
+			NativeMode:           false,
+			RouteMappingsEnabled: true,
+			ShowBalanceInAd:      false,
+			HasSocks5Proxy:       false,
 		}, nil
 	}
 
@@ -67,16 +68,17 @@ func (s *AmpService) GetSettings(userID string) (*model.AmpSettingsResponse, err
 	}
 
 	return &model.AmpSettingsResponse{
-		UpstreamURL:     settings.UpstreamURL,
-		ModelMappings:   mappings,
-		Enabled:         settings.Enabled,
-		HasAPIKey:       settings.UpstreamAPIKey != "",
-		WebSearchMode:   settings.WebSearchMode,
-		NativeMode:      settings.NativeMode,
-		ShowBalanceInAd: settings.ShowBalanceInAd,
-		HasSocks5Proxy:  settings.Socks5Proxy != "",
-		CreatedAt:       settings.CreatedAt,
-		UpdatedAt:       settings.UpdatedAt,
+		UpstreamURL:          settings.UpstreamURL,
+		ModelMappings:        mappings,
+		Enabled:              settings.Enabled,
+		HasAPIKey:            settings.UpstreamAPIKey != "",
+		WebSearchMode:        settings.WebSearchMode,
+		NativeMode:           settings.NativeMode,
+		RouteMappingsEnabled: settings.RouteMappingsEnabled,
+		ShowBalanceInAd:      settings.ShowBalanceInAd,
+		HasSocks5Proxy:       settings.Socks5Proxy != "",
+		CreatedAt:            settings.CreatedAt,
+		UpdatedAt:            settings.UpdatedAt,
 	}, nil
 }
 
@@ -87,57 +89,68 @@ func (s *AmpService) UpdateSettings(userID string, req *model.AmpSettingsRequest
 	}
 
 	settings := &model.AmpSettings{
-		UserID:        userID,
-		UpstreamURL:   req.UpstreamURL,
-		Enabled:       req.Enabled,
-		WebSearchMode: req.WebSearchMode,
-		NativeMode:    req.NativeMode,
+		UserID:               userID,
+		WebSearchMode:        model.WebSearchModeUpstream,
+		RouteMappingsEnabled: true,
+	}
+	if existing != nil {
+		settings.UpstreamURL = existing.UpstreamURL
+		settings.UpstreamAPIKey = existing.UpstreamAPIKey
+		settings.ModelMappingsJSON = existing.ModelMappingsJSON
+		settings.Enabled = existing.Enabled
+		settings.WebSearchMode = existing.WebSearchMode
+		settings.NativeMode = existing.NativeMode
+		settings.RouteMappingsEnabled = existing.RouteMappingsEnabled
+		settings.ShowBalanceInAd = existing.ShowBalanceInAd
+		settings.Socks5Proxy = existing.Socks5Proxy
 	}
 
-	// 处理 ShowBalanceInAd（*bool 指针，nil 表示不修改）
+	if req.UpstreamURL != nil {
+		settings.UpstreamURL = *req.UpstreamURL
+	}
+	if req.Enabled != nil {
+		settings.Enabled = *req.Enabled
+	}
+	if req.WebSearchMode != nil {
+		settings.WebSearchMode = *req.WebSearchMode
+	}
+	if settings.WebSearchMode == "" {
+		settings.WebSearchMode = model.WebSearchModeUpstream
+	}
+	if req.NativeMode != nil {
+		settings.NativeMode = *req.NativeMode
+	}
+	if req.RouteMappingsEnabled != nil {
+		settings.RouteMappingsEnabled = *req.RouteMappingsEnabled
+	}
 	if req.ShowBalanceInAd != nil {
 		settings.ShowBalanceInAd = *req.ShowBalanceInAd
-	} else if existing != nil {
-		settings.ShowBalanceInAd = existing.ShowBalanceInAd
+	}
+	if req.Socks5Proxy != nil {
+		settings.Socks5Proxy = *req.Socks5Proxy
 	}
 
-	// 处理 Socks5Proxy
-	if existing != nil && req.Socks5Proxy == "" {
-		settings.Socks5Proxy = existing.Socks5Proxy
-	} else {
-		settings.Socks5Proxy = req.Socks5Proxy
-	}
-
-	// 处理 WebSearchMode 默认值
-	if settings.WebSearchMode == "" {
-		if existing != nil {
-			settings.WebSearchMode = existing.WebSearchMode
+	if req.UpstreamAPIKey != nil {
+		if strings.TrimSpace(*req.UpstreamAPIKey) == "" {
+			settings.UpstreamAPIKey = ""
 		} else {
-			settings.WebSearchMode = model.WebSearchModeUpstream
-		}
-	}
-
-	if existing != nil && req.UpstreamAPIKey == "" {
-		settings.UpstreamAPIKey = existing.UpstreamAPIKey
-	} else if req.UpstreamAPIKey != "" {
-		encKey := config.Get().GetEncryptionKey()
-		if encKey != nil {
-			encrypted, err := crypto.Encrypt([]byte(req.UpstreamAPIKey), encKey)
-			if err != nil {
-				return nil, fmt.Errorf("failed to encrypt upstream API key: %w", err)
+			encKey := config.Get().GetEncryptionKey()
+			if encKey != nil {
+				encrypted, err := crypto.Encrypt([]byte(*req.UpstreamAPIKey), encKey)
+				if err != nil {
+					return nil, fmt.Errorf("failed to encrypt upstream API key: %w", err)
+				}
+				settings.UpstreamAPIKey = encrypted
+			} else {
+				log.Println("[WARN] DATA_ENCRYPTION_KEY not set, storing upstream API key in plaintext")
+				settings.UpstreamAPIKey = *req.UpstreamAPIKey
 			}
-			settings.UpstreamAPIKey = encrypted
-		} else {
-			log.Println("[WARN] DATA_ENCRYPTION_KEY not set, storing upstream API key in plaintext")
-			settings.UpstreamAPIKey = req.UpstreamAPIKey
 		}
 	}
 
 	if req.ModelMappings != nil {
 		mappingsJSON, _ := json.Marshal(req.ModelMappings)
 		settings.ModelMappingsJSON = string(mappingsJSON)
-	} else if existing != nil {
-		settings.ModelMappingsJSON = existing.ModelMappingsJSON
 	}
 
 	if err := s.settingsRepo.Upsert(settings); err != nil {
@@ -153,16 +166,17 @@ func (s *AmpService) UpdateSettings(userID string, req *model.AmpSettingsRequest
 	}
 
 	return &model.AmpSettingsResponse{
-		UpstreamURL:     settings.UpstreamURL,
-		ModelMappings:   mappings,
-		Enabled:         settings.Enabled,
-		HasAPIKey:       settings.UpstreamAPIKey != "",
-		WebSearchMode:   settings.WebSearchMode,
-		NativeMode:      settings.NativeMode,
-		ShowBalanceInAd: settings.ShowBalanceInAd,
-		HasSocks5Proxy:  settings.Socks5Proxy != "",
-		CreatedAt:       settings.CreatedAt,
-		UpdatedAt:       settings.UpdatedAt,
+		UpstreamURL:          settings.UpstreamURL,
+		ModelMappings:        mappings,
+		Enabled:              settings.Enabled,
+		HasAPIKey:            settings.UpstreamAPIKey != "",
+		WebSearchMode:        settings.WebSearchMode,
+		NativeMode:           settings.NativeMode,
+		RouteMappingsEnabled: settings.RouteMappingsEnabled,
+		ShowBalanceInAd:      settings.ShowBalanceInAd,
+		HasSocks5Proxy:       settings.Socks5Proxy != "",
+		CreatedAt:            settings.CreatedAt,
+		UpdatedAt:            settings.UpdatedAt,
 	}, nil
 }
 

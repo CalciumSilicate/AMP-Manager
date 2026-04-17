@@ -23,19 +23,20 @@ import (
 type proxyConfigKey struct{}
 
 type ProxyConfig struct {
-	UserID              string
-	APIKeyID            string
-	UpstreamURL         string
-	UpstreamAPIKey      string
-	ModelMappingsJSON   string
-	Enabled             bool   // 启用 AMP 增强功能（模型映射、渠道路由等）
-	WebSearchMode       string // upstream | builtin_free | local_duckduckgo
-	NativeMode          bool
-	ShowBalanceInAd     bool
-	Socks5Proxy         string
-	RateMultiplier      float64
-	GroupRateMultiplier float64
-	GroupIDs            []string
+	UserID               string
+	APIKeyID             string
+	UpstreamURL          string
+	UpstreamAPIKey       string
+	ModelMappingsJSON    string
+	Enabled              bool   // 启用 AMP 增强功能（模型映射、渠道路由等）
+	WebSearchMode        string // upstream | builtin_free | local_duckduckgo
+	NativeMode           bool
+	RouteMappingsEnabled bool
+	ShowBalanceInAd      bool
+	Socks5Proxy          string
+	RateMultiplier       float64
+	GroupRateMultiplier  float64
+	GroupIDs             []string
 }
 
 func WithProxyConfig(ctx context.Context, cfg *ProxyConfig) context.Context {

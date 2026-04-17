@@ -10,18 +10,19 @@ const (
 )
 
 type AmpSettings struct {
-	ID                string    `json:"id"`
-	UserID            string    `json:"user_id"`
-	UpstreamURL       string    `json:"upstream_url"`
-	UpstreamAPIKey    string    `json:"-"`
-	ModelMappingsJSON string    `json:"-"`
-	Enabled           bool      `json:"enabled"`
-	WebSearchMode     string    `json:"web_search_mode"` // upstream | builtin_free | local_duckduckgo
-	NativeMode        bool      `json:"native_mode"`
-	ShowBalanceInAd   bool      `json:"show_balance_in_ad"`
-	Socks5Proxy       string    `json:"socks5_proxy"`
-	CreatedAt         time.Time `json:"created_at"`
-	UpdatedAt         time.Time `json:"updated_at"`
+	ID                   string    `json:"id"`
+	UserID               string    `json:"user_id"`
+	UpstreamURL          string    `json:"upstream_url"`
+	UpstreamAPIKey       string    `json:"-"`
+	ModelMappingsJSON    string    `json:"-"`
+	Enabled              bool      `json:"enabled"`
+	WebSearchMode        string    `json:"web_search_mode"` // upstream | builtin_free | local_duckduckgo
+	NativeMode           bool      `json:"native_mode"`
+	RouteMappingsEnabled bool      `json:"route_mappings_enabled"`
+	ShowBalanceInAd      bool      `json:"show_balance_in_ad"`
+	Socks5Proxy          string    `json:"socks5_proxy"`
+	CreatedAt            time.Time `json:"created_at"`
+	UpdatedAt            time.Time `json:"updated_at"`
 }
 
 type ModelMapping struct {
@@ -55,27 +56,29 @@ type UserAPIKey struct {
 // Request/Response 结构体
 
 type AmpSettingsRequest struct {
-	UpstreamURL     string         `json:"upstreamUrl"`
-	UpstreamAPIKey  string         `json:"upstreamApiKey,omitempty"`
-	ModelMappings   []ModelMapping `json:"modelMappings,omitempty"`
-	Enabled         bool           `json:"enabled"`
-	WebSearchMode   string         `json:"webSearchMode,omitempty"` // upstream | builtin_free | local_duckduckgo
-	NativeMode      bool           `json:"nativeMode"`
-	ShowBalanceInAd *bool          `json:"showBalanceInAd,omitempty"`
-	Socks5Proxy     string         `json:"socks5Proxy,omitempty"`
+	UpstreamURL          *string        `json:"upstreamUrl,omitempty"`
+	UpstreamAPIKey       *string        `json:"upstreamApiKey,omitempty"`
+	ModelMappings        []ModelMapping `json:"modelMappings,omitempty"`
+	Enabled              *bool          `json:"enabled,omitempty"`
+	WebSearchMode        *string        `json:"webSearchMode,omitempty"` // upstream | builtin_free | local_duckduckgo
+	NativeMode           *bool          `json:"nativeMode,omitempty"`
+	RouteMappingsEnabled *bool          `json:"routeMappingsEnabled,omitempty"`
+	ShowBalanceInAd      *bool          `json:"showBalanceInAd,omitempty"`
+	Socks5Proxy          *string        `json:"socks5Proxy,omitempty"`
 }
 
 type AmpSettingsResponse struct {
-	UpstreamURL     string         `json:"upstreamUrl"`
-	ModelMappings   []ModelMapping `json:"modelMappings"`
-	Enabled         bool           `json:"enabled"`
-	HasAPIKey       bool           `json:"apiKeySet"`
-	WebSearchMode   string         `json:"webSearchMode"` // upstream | builtin_free | local_duckduckgo
-	NativeMode      bool           `json:"nativeMode"`
-	ShowBalanceInAd bool           `json:"showBalanceInAd"`
-	HasSocks5Proxy  bool           `json:"socks5ProxySet"`
-	CreatedAt       time.Time      `json:"createdAt,omitempty"`
-	UpdatedAt       time.Time      `json:"updatedAt,omitempty"`
+	UpstreamURL          string         `json:"upstreamUrl"`
+	ModelMappings        []ModelMapping `json:"modelMappings"`
+	Enabled              bool           `json:"enabled"`
+	HasAPIKey            bool           `json:"apiKeySet"`
+	WebSearchMode        string         `json:"webSearchMode"` // upstream | builtin_free | local_duckduckgo
+	NativeMode           bool           `json:"nativeMode"`
+	RouteMappingsEnabled bool           `json:"routeMappingsEnabled"`
+	ShowBalanceInAd      bool           `json:"showBalanceInAd"`
+	HasSocks5Proxy       bool           `json:"socks5ProxySet"`
+	CreatedAt            time.Time      `json:"createdAt,omitempty"`
+	UpdatedAt            time.Time      `json:"updatedAt,omitempty"`
 }
 
 type TestConnectionResponse struct {

@@ -341,7 +341,7 @@ func prepareResponsesWebsocketTurn(c *gin.Context, session *responsesWebsocketSe
 	}
 
 	var mappings []model.ModelMapping
-	if proxyCfg.ModelMappingsJSON != "" {
+	if proxyCfg.RouteMappingsEnabled && proxyCfg.ModelMappingsJSON != "" {
 		_ = json.Unmarshal([]byte(proxyCfg.ModelMappingsJSON), &mappings)
 	}
 	result := applyMappingWithHeaders(modelName, mappings, c.GetHeader)

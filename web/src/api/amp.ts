@@ -33,6 +33,7 @@ export interface AmpSettings {
   modelMappings: ModelMapping[]
   enabled: boolean
   nativeMode: boolean
+  routeMappingsEnabled: boolean
   webSearchMode?: WebSearchMode
   showBalanceInAd?: boolean
   socks5ProxySet?: boolean
@@ -44,6 +45,7 @@ export interface UpdateAmpSettingsRequest {
   modelMappings?: ModelMapping[]
   enabled?: boolean
   nativeMode?: boolean
+  routeMappingsEnabled?: boolean
   webSearchMode?: WebSearchMode
   showBalanceInAd?: boolean
   socks5Proxy?: string

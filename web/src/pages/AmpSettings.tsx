@@ -26,6 +26,7 @@ type AmpSettingsTab = 'route-mapping' | 'amp-upstream'
 interface AmpSettingsDraft {
   enabled: boolean
   nativeMode: boolean
+  routeMappingsEnabled: boolean
   upstreamUrl: string
   modelMappings: ModelMapping[]
   webSearchMode: WebSearchMode
@@ -48,6 +49,7 @@ const tabs: TabbedSettingsPageTab<AmpSettingsTab>[] = [
 const DEFAULT_DRAFT: AmpSettingsDraft = {
   enabled: true,
   nativeMode: false,
+  routeMappingsEnabled: true,
   upstreamUrl: '',
   modelMappings: [],
   webSearchMode: 'upstream',
@@ -60,6 +62,7 @@ function buildDraft(settings: AmpSettingsType): AmpSettingsDraft {
   return {
     enabled: settings.enabled,
     nativeMode: settings.nativeMode,
+    routeMappingsEnabled: settings.routeMappingsEnabled,
     upstreamUrl: settings.upstreamUrl,
     modelMappings: settings.modelMappings || [],
     webSearchMode: settings.webSearchMode || 'upstream',
@@ -85,6 +88,7 @@ function syncUpstreamDraft(current: AmpSettingsDraft, settings: AmpSettingsType)
 function syncRouteMappingDraft(current: AmpSettingsDraft, settings: AmpSettingsType): AmpSettingsDraft {
   return {
     ...current,
+    routeMappingsEnabled: settings.routeMappingsEnabled,
     modelMappings: settings.modelMappings || [],
   }
 }
@@ -145,10 +149,11 @@ export default function AmpSettings() {
       setMessage(null)
       const data = await updateAmpSettings({
         modelMappings: draft.modelMappings,
+        routeMappingsEnabled: draft.routeMappingsEnabled,
       })
       setSettings(data)
       setDraft((current) => syncRouteMappingDraft(current, data))
-      showMessage('success', '路由映射已保存')
+      showMessage('success', '路由设置已保存')
     } catch (err) {
       showMessage('error', err instanceof Error ? err.message : '保存路由映射失败')
     } finally {
@@ -241,6 +246,18 @@ export default function AmpSettings() {
               <CardDescription>配置模型映射、目标渠道和规则扩展。</CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
+              <div className="flex items-start justify-between gap-4 rounded-md border border-input px-4 py-3">
+                <div className="space-y-1">
+                  <Label htmlFor="routeMappingsEnabled">启用路由映射</Label>
+                  <p className="text-sm text-muted-foreground">关闭后保留配置，但不再改写模型或绑定目标渠道。</p>
+                </div>
+                <Switch
+                  id="routeMappingsEnabled"
+                  checked={draft.routeMappingsEnabled}
+                  onCheckedChange={(routeMappingsEnabled) => setDraft((current) => ({ ...current, routeMappingsEnabled }))}
+                />
+              </div>
+
               {draft.nativeMode ? (
                 <Alert className="border-amber-200 bg-amber-50 text-amber-800">
                   <AlertDescription>原生模式开启时路由映射不生效。</AlertDescription>
@@ -252,8 +269,8 @@ export default function AmpSettings() {
               </div>
             </CardContent>
             <CardFooter className="justify-end">
-              <Button type="button" onClick={() => void handleSaveRouteMappings()} disabled={draft.nativeMode || routeSaving}>
-                {routeSaving ? '保存中...' : '保存路由映射'}
+              <Button type="button" onClick={() => void handleSaveRouteMappings()} disabled={routeSaving}>
+                {routeSaving ? '保存中...' : '保存路由设置'}
               </Button>
             </CardFooter>
           </Card>

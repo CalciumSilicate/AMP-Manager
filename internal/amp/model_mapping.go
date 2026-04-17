@@ -159,7 +159,7 @@ func getCompiledModelMappings(raw string) ([]compiledModelMapping, bool) {
 func ApplyModelMappingMiddleware() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		cfg := GetProxyConfig(c.Request.Context())
-		if cfg == nil || cfg.ModelMappingsJSON == "" {
+		if cfg == nil || !cfg.RouteMappingsEnabled || cfg.ModelMappingsJSON == "" {
 			c.Next()
 			return
 		}

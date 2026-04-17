@@ -264,16 +264,17 @@ func APIKeyAuthMiddleware() gin.HandlerFunc {
 		userIsAdmin := user != nil && user.IsAdmin
 
 		proxyCfg := &ProxyConfig{
-			UserID:            apiKeyRecord.UserID,
-			APIKeyID:          apiKeyRecord.ID,
-			UpstreamURL:       "https://ampcode.com",
-			UpstreamAPIKey:    "",
-			ModelMappingsJSON: "",
-			Enabled:           false,
-			WebSearchMode:     "upstream",
-			NativeMode:        false,
-			ShowBalanceInAd:   false,
-			Socks5Proxy:       "",
+			UserID:               apiKeyRecord.UserID,
+			APIKeyID:             apiKeyRecord.ID,
+			UpstreamURL:          "https://ampcode.com",
+			UpstreamAPIKey:       "",
+			ModelMappingsJSON:    "",
+			Enabled:              false,
+			WebSearchMode:        "upstream",
+			NativeMode:           false,
+			RouteMappingsEnabled: true,
+			ShowBalanceInAd:      false,
+			Socks5Proxy:          "",
 		}
 
 		if service.CanAccessAmpSettingsForPolicy(ampProxySettingsPolicy, userIsAdmin) {
@@ -293,6 +294,7 @@ func APIKeyAuthMiddleware() gin.HandlerFunc {
 				proxyCfg.Enabled = settings.Enabled
 				proxyCfg.WebSearchMode = settings.WebSearchMode
 				proxyCfg.NativeMode = settings.NativeMode
+				proxyCfg.RouteMappingsEnabled = settings.RouteMappingsEnabled
 				proxyCfg.ShowBalanceInAd = settings.ShowBalanceInAd
 				proxyCfg.Socks5Proxy = settings.Socks5Proxy
 			}

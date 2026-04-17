@@ -131,7 +131,7 @@ func TestApplyModelMappingMiddleware_BindsPreferredChannel(t *testing.T) {
 
 	router := gin.New()
 	router.Use(func(c *gin.Context) {
-		cfg := &ProxyConfig{ModelMappingsJSON: string(mappingsJSON)}
+		cfg := &ProxyConfig{ModelMappingsJSON: string(mappingsJSON), RouteMappingsEnabled: true}
 		c.Request = c.Request.WithContext(WithProxyConfig(c.Request.Context(), cfg))
 		c.Next()
 	})
@@ -198,7 +198,7 @@ func TestApplyModelMappingMiddleware_LargeBodyAvoidsEagerJSONParseForSimpleRewri
 
 	router := gin.New()
 	router.Use(func(c *gin.Context) {
-		cfg := &ProxyConfig{ModelMappingsJSON: string(mappingsJSON)}
+		cfg := &ProxyConfig{ModelMappingsJSON: string(mappingsJSON), RouteMappingsEnabled: true}
 		c.Request = c.Request.WithContext(WithProxyConfig(c.Request.Context(), cfg))
 		c.Next()
 	})
@@ -406,5 +406,56 @@ func TestChannelRouterMiddleware_ReturnsServiceUnavailableWhenUserCannotAccessAn
 	}
 	if !strings.Contains(rec.Body.String(), noAvailableChannelMessage) {
 		t.Fatalf("expected response body to contain %q, got %s", noAvailableChannelMessage, rec.Body.String())
+	}
+}
+
+func TestApplyModelMappingMiddleware_SkipsWhenRouteMappingsDisabled(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	mappingsJSON, err := json.Marshal([]model.ModelMapping{{
+		From: "gpt-4.1",
+		To:   "gpt-4o",
+	}})
+	if err != nil {
+		t.Fatalf("marshal mappings: %v", err)
+	}
+
+	mappedModel := ""
+
+	router := gin.New()
+	router.Use(func(c *gin.Context) {
+		cfg := &ProxyConfig{ModelMappingsJSON: string(mappingsJSON), RouteMappingsEnabled: false}
+		c.Request = c.Request.WithContext(WithProxyConfig(c.Request.Context(), cfg))
+		c.Next()
+	})
+	router.Use(ApplyModelMappingMiddleware())
+	router.POST("/", func(c *gin.Context) {
+		body, readErr := io.ReadAll(c.Request.Body)
+		if readErr != nil {
+			t.Fatalf("read body: %v", readErr)
+		}
+		var payload struct {
+			Model string `json:"model"`
+		}
+		if err := json.Unmarshal(body, &payload); err != nil {
+			t.Fatalf("unmarshal body: %v", err)
+		}
+		mappedModel = payload.Model
+		if GetPreferredChannelID(c) != "" {
+			t.Fatal("expected preferred channel to remain unset when route mappings are disabled")
+		}
+		c.Status(204)
+	})
+
+	req := httptest.NewRequest("POST", "/", strings.NewReader(`{"model":"gpt-4.1"}`))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != 204 {
+		t.Fatalf("expected status 204, got %d", rec.Code)
+	}
+	if mappedModel != "gpt-4.1" {
+		t.Fatalf("expected model to remain unchanged, got %q", mappedModel)
 	}
 }
