@@ -2,7 +2,11 @@ package service
 
 import (
 	"context"
+	"crypto/tls"
+	"errors"
 	"fmt"
+	"net"
+	"net/http"
 	"net/url"
 	"strings"
 	"time"
@@ -13,6 +17,11 @@ import (
 )
 
 const purchaseOrderTimeout = 15 * time.Minute
+
+const (
+	alipayRequestTimeout  = 20 * time.Second
+	alipayRetryMaxAttempt = 3
+)
 
 type PaymentCreateResult struct {
 	TradeNo   string
@@ -35,12 +44,14 @@ type PaymentNotification struct {
 }
 
 type AlipayService struct {
-	settingsSvc *PurchaseSettingsService
+	settingsSvc     *PurchaseSettingsService
+	systemConfigSvc *SystemConfigService
 }
 
 func NewAlipayService() *AlipayService {
 	return &AlipayService{
-		settingsSvc: NewPurchaseSettingsService(),
+		settingsSvc:     NewPurchaseSettingsService(),
+		systemConfigSvc: NewSystemConfigService(),
 	}
 }
 
@@ -55,17 +66,19 @@ func (s *AlipayService) CreateOrder(ctx context.Context, order *model.PurchaseOr
 	}
 
 	expiresAt := time.Now().UTC().Add(purchaseOrderTimeout)
-	result, err := client.TradePreCreate(ctx, sdk.TradePreCreate{
-		Trade: sdk.Trade{
-			NotifyURL:      settings.AlipayNotifyURL,
-			Subject:        s.buildSubject(product, username),
-			OutTradeNo:     order.OrderNo,
-			TotalAmount:    centsToYuanString(order.AmountCNYCent),
-			ProductCode:    "FACE_TO_FACE_PAYMENT",
-			Body:           strings.TrimSpace(product.Summary),
-			TimeoutExpress: "15m",
-			TimeExpire:     expiresAt.In(time.Local).Format("2006-01-02 15:04:05"),
-		},
+	result, err := retryAlipayCall(ctx, func(callCtx context.Context) (*sdk.TradePreCreateRsp, error) {
+		return client.TradePreCreate(callCtx, sdk.TradePreCreate{
+			Trade: sdk.Trade{
+				NotifyURL:      settings.AlipayNotifyURL,
+				Subject:        s.buildSubject(product, username),
+				OutTradeNo:     order.OrderNo,
+				TotalAmount:    centsToYuanString(order.AmountCNYCent),
+				ProductCode:    "FACE_TO_FACE_PAYMENT",
+				Body:           strings.TrimSpace(product.Summary),
+				TimeoutExpress: "15m",
+				TimeExpire:     expiresAt.In(time.Local).Format("2006-01-02 15:04:05"),
+			},
+		})
 	})
 	if err != nil {
 		return nil, err
@@ -97,8 +110,10 @@ func (s *AlipayService) QueryOrder(ctx context.Context, orderNo string) (*Paymen
 		return nil, err
 	}
 
-	result, err := client.TradeQuery(ctx, sdk.TradeQuery{
-		OutTradeNo: orderNo,
+	result, err := retryAlipayCall(ctx, func(callCtx context.Context) (*sdk.TradeQueryRsp, error) {
+		return client.TradeQuery(callCtx, sdk.TradeQuery{
+			OutTradeNo: orderNo,
+		})
 	})
 	if err != nil {
 		return nil, err
@@ -175,6 +190,7 @@ func (s *AlipayService) newClient(settings *model.PurchaseSettings) (*sdk.Client
 		settings.AlipayAppID,
 		settings.AlipayPrivateKey,
 		settings.AlipayEnvironment == model.AlipayEnvironmentProduction,
+		sdk.WithHTTPClient(newAlipayHTTPClient()),
 	)
 	if err != nil {
 		return nil, err
@@ -186,8 +202,17 @@ func (s *AlipayService) newClient(settings *model.PurchaseSettings) (*sdk.Client
 }
 
 func (s *AlipayService) buildSubject(product *model.PurchaseProductResponse, username string) string {
+	siteName := defaultSiteName
+	if s.systemConfigSvc != nil {
+		if siteConfig, err := s.systemConfigSvc.GetSiteConfig(); err == nil {
+			if trimmed := strings.TrimSpace(siteConfig.SiteName); trimmed != "" {
+				siteName = trimmed
+			}
+		}
+	}
+
 	if product == nil {
-		return "AMP Manager 订阅"
+		return siteName + " 订阅"
 	}
 
 	name := strings.TrimSpace(product.Name)
@@ -196,9 +221,9 @@ func (s *AlipayService) buildSubject(product *model.PurchaseProductResponse, use
 	}
 	user := strings.TrimSpace(username)
 	if user == "" {
-		return "AMP Manager " + name
+		return siteName + " " + name
 	}
-	return fmt.Sprintf("AMP %s · %s", name, user)
+	return fmt.Sprintf("%s %s · %s", siteName, name, user)
 }
 
 func alipayErrorMessage(err sdk.Error) string {
@@ -231,4 +256,75 @@ func parseAlipayTime(value string) *time.Time {
 
 func centsToYuanString(value int64) string {
 	return fmt.Sprintf("%.2f", float64(value)/100)
+}
+
+func newAlipayHTTPClient() *http.Client {
+	transport := http.DefaultTransport.(*http.Transport).Clone()
+	transport.Proxy = http.ProxyFromEnvironment
+	transport.DialContext = (&net.Dialer{
+		Timeout:   8 * time.Second,
+		KeepAlive: 30 * time.Second,
+	}).DialContext
+	transport.MaxIdleConns = 32
+	transport.MaxIdleConnsPerHost = 8
+	transport.IdleConnTimeout = 60 * time.Second
+	transport.TLSHandshakeTimeout = 8 * time.Second
+	transport.ExpectContinueTimeout = time.Second
+	transport.ForceAttemptHTTP2 = false
+	transport.TLSClientConfig = &tls.Config{
+		MinVersion: tls.VersionTLS12,
+	}
+
+	return &http.Client{
+		Timeout:   alipayRequestTimeout,
+		Transport: transport,
+	}
+}
+
+func retryAlipayCall[T any](ctx context.Context, fn func(context.Context) (T, error)) (T, error) {
+	var zero T
+	var lastErr error
+
+	for attempt := 1; attempt <= alipayRetryMaxAttempt; attempt++ {
+		result, err := fn(ctx)
+		if err == nil {
+			return result, nil
+		}
+		lastErr = err
+
+		if !isRetryableAlipayError(err) || attempt == alipayRetryMaxAttempt {
+			break
+		}
+
+		backoff := time.Duration(attempt*attempt) * 300 * time.Millisecond
+		timer := time.NewTimer(backoff)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return zero, ctx.Err()
+		case <-timer.C:
+		}
+	}
+
+	return zero, lastErr
+}
+
+func isRetryableAlipayError(err error) bool {
+	if err == nil {
+		return false
+	}
+	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+		return false
+	}
+
+	var netErr net.Error
+	if errors.As(err, &netErr) && netErr.Timeout() {
+		return true
+	}
+
+	message := strings.ToLower(err.Error())
+	return strings.Contains(message, "i/o timeout") ||
+		strings.Contains(message, "connection reset by peer") ||
+		strings.Contains(message, "unexpected eof") ||
+		strings.Contains(message, "eof")
 }

@@ -32,6 +32,9 @@ func (s *ErrorRuleService) SyncDefaultErrorRules() error {
 
 	byPattern := make(map[string]model.ErrorRule, len(existing))
 	for _, item := range existing {
+		if !item.IsDefault {
+			continue
+		}
 		byPattern[defaultRuleKey(item.RequestType, item.Pattern)] = item
 	}
 
@@ -49,9 +52,6 @@ func (s *ErrorRuleService) SyncDefaultErrorRules() error {
 			if err := s.repo.Create(&item); err != nil {
 				return err
 			}
-			continue
-		}
-		if !existingRule.IsDefault {
 			continue
 		}
 		defaultRule.ID = existingRule.ID

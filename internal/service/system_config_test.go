@@ -272,6 +272,7 @@ func TestSystemConfigServiceErrorRulesDefaultsAndMerge(t *testing.T) {
 
 	foundDisabledBuiltIn := false
 	foundCustom := false
+	foundRestoredDefault := false
 	for _, rule := range updatedRules {
 		if rule.ID == updatedDefault.ID {
 			foundDisabledBuiltIn = !rule.IsEnabled && !rule.IsDefault && rule.OverrideMessage == "已禁用测试"
@@ -279,11 +280,17 @@ func TestSystemConfigServiceErrorRulesDefaultsAndMerge(t *testing.T) {
 		if rule.ID == createdCustom.ID {
 			foundCustom = !rule.IsDefault && rule.OverrideStatusCode != nil && *rule.OverrideStatusCode == 503
 		}
+		if rule.IsDefault && rule.Pattern == defaultRules[0].Pattern && rule.RequestType == defaultRules[0].RequestType {
+			foundRestoredDefault = true
+		}
 	}
 	if !foundDisabledBuiltIn {
 		t.Fatal("expected default rule update to persist as custom rule")
 	}
 	if !foundCustom {
 		t.Fatal("expected custom rule to be merged")
+	}
+	if !foundRestoredDefault {
+		t.Fatal("expected default rule to be restored")
 	}
 }

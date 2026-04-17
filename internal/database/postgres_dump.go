@@ -67,8 +67,8 @@ func runPostgresCommand(ctx context.Context, databaseURL string, stdin []byte, m
 	if err != nil {
 		return nil, err
 	}
-	if !isLocalPostgresHost(connectionInfo.Host) {
-		return nil, fmt.Errorf("%s not found in PATH and database host is not local, cannot fallback to docker", commandForMode(mode))
+	if !canUseDockerPostgresFallback(connectionInfo.Host) {
+		return nil, fmt.Errorf("%s not found in PATH and database host appears remote, cannot fallback to docker safely", commandForMode(mode))
 	}
 
 	containerName, err := findLocalPostgresContainer(ctx)
@@ -147,9 +147,17 @@ func parsePostgresConnectionInfo(databaseURL string) (postgresConnectionInfo, er
 	}, nil
 }
 
-func isLocalPostgresHost(host string) bool {
+func canUseDockerPostgresFallback(host string) bool {
 	host = strings.TrimSpace(strings.ToLower(host))
-	return host == "" || host == "localhost" || host == "127.0.0.1"
+	if host == "" || host == "localhost" || host == "127.0.0.1" || host == "::1" {
+		return true
+	}
+
+	if !strings.Contains(host, ".") && !strings.Contains(host, ":") {
+		return true
+	}
+
+	return false
 }
 
 func findLocalPostgresContainer(ctx context.Context) (string, error) {
