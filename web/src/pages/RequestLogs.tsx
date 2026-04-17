@@ -296,7 +296,7 @@ const RequestLogRow = memo(function RequestLogRow({
   const userDisplay = log.username || userIdToUsername.get(log.userId) || `${log.userId.slice(0, 8)}...`
   const keyDisplay = log.apiKeyName ? `${log.apiKeyName}${log.apiKeyPrefix ? ` (${log.apiKeyPrefix})` : ''}` : (log.apiKeyPrefix || log.apiKeyId || '-')
   const translationPath = translationPathLabel(log)
-  const channelBadgeTone = requestFormatBadgeClass(log.requestFormat, log.path)
+  const channelBadgeTone = translationPath ? requestFormatBadgeClass(log.requestFormat, log.path) : ''
   const canOpenDetail = isAdmin || log.statusCode >= 400
   const sessionDisplay = log.sessionId || '-'
 
