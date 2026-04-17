@@ -251,6 +251,7 @@ function StatusCard({ item, period }: { item: StatusMonitorDashboardItem; period
                     </TooltipTrigger>
                     <TooltipContent side="top" className="space-y-1 border bg-popover px-3 py-2 text-xs text-popover-foreground shadow-md">
                       <div>{STATUS_LABELS[point.status]}</div>
+                      <div className="text-muted-foreground">TTFB {formatMs(point.ttfbMs)}</div>
                       <div className="text-muted-foreground">{formatProbeTime(point.checkedAt)}</div>
                     </TooltipContent>
                   </Tooltip>

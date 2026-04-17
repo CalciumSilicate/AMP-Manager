@@ -102,6 +102,7 @@ export interface StatusMonitorAvailability {
 
 export interface StatusMonitorHistoryPoint {
   status: StatusMonitorState
+  ttfbMs: number
   checkedAt: string
 }
 

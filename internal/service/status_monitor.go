@@ -1240,6 +1240,7 @@ func buildStatusMonitorHistory(results []*model.StatusMonitorResult, limit int) 
 	for _, result := range results {
 		history = append(history, model.StatusMonitorHistoryPointResponse{
 			Status:    result.Status,
+			TTFBMs:    result.TTFBMs,
 			CheckedAt: result.CheckedAt,
 		})
 	}

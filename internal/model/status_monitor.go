@@ -150,6 +150,7 @@ type StatusMonitorAvailabilityResponse struct {
 
 type StatusMonitorHistoryPointResponse struct {
 	Status    StatusMonitorState `json:"status"`
+	TTFBMs    int64              `json:"ttfbMs"`
 	CheckedAt time.Time          `json:"checkedAt"`
 }
 
