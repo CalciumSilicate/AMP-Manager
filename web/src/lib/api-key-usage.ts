@@ -1,13 +1,15 @@
 export type CCSwitchApp = 'codex' | 'opencode' | 'openclaw'
 
 const CODEX_PROVIDER_NAME = 'OpenAI'
-const GENERIC_CONTEXT_WINDOW = 1_000_000
-const GENERIC_OUTPUT_LIMIT = 128_000
+
+interface ModelLimit {
+  context: number
+  output: number
+}
 
 export interface APIKeyUsageContent {
   defaultModel: string
   models: string[]
-  ccSwitchUsageScript: string
   ccSwitchLinks: Record<CCSwitchApp, string>
   codex: {
     configToml: string
@@ -94,12 +96,10 @@ export function buildAPIKeyUsageContent({
   models: string[]
 }): APIKeyUsageContent {
   const defaultModel = models[0]
-  const ccSwitchUsageScript = buildCCSwitchUsageScript()
 
   return {
     defaultModel,
     models,
-    ccSwitchUsageScript,
     ccSwitchLinks: {
       codex: buildCCSwitchDeepLink({
         app: 'codex',
@@ -108,7 +108,6 @@ export function buildAPIKeyUsageContent({
         apiKey,
         keyName,
         defaultModel,
-        usageScript: ccSwitchUsageScript,
       }),
       opencode: buildCCSwitchDeepLink({
         app: 'opencode',
@@ -117,7 +116,6 @@ export function buildAPIKeyUsageContent({
         apiKey,
         keyName,
         defaultModel,
-        usageScript: ccSwitchUsageScript,
       }),
       openclaw: buildCCSwitchDeepLink({
         app: 'openclaw',
@@ -126,7 +124,6 @@ export function buildAPIKeyUsageContent({
         apiKey,
         keyName,
         defaultModel,
-        usageScript: ccSwitchUsageScript,
       }),
     },
     codex: {
@@ -150,29 +147,6 @@ export function buildAPIKeyUsageContent({
   }
 }
 
-function buildCCSwitchUsageScript(): string {
-  return `({
-  request: {
-    url: "{{baseUrl}}/api/usage",
-    method: "GET",
-    headers: {
-      "Authorization": "Bearer {{apiKey}}",
-      "User-Agent": "cc-switch/1.0"
-    }
-  },
-  extractor: function(response) {
-    if (Array.isArray(response)) {
-      return response;
-    }
-
-    return {
-      isValid: false,
-      invalidMessage: response && response.error ? response.error : "查询失败"
-    };
-  }
-})`
-}
-
 function buildCCSwitchDeepLink({
   app,
   origin,
@@ -180,7 +154,6 @@ function buildCCSwitchDeepLink({
   apiKey,
   keyName,
   defaultModel,
-  usageScript,
 }: {
   app: CCSwitchApp
   origin: string
@@ -188,8 +161,9 @@ function buildCCSwitchDeepLink({
   apiKey: string
   keyName: string
   defaultModel: string
-  usageScript: string
 }): string {
+  const inlineConfig = buildCCSwitchInlineConfig(app, apiBaseUrl, apiKey, defaultModel)
+
   const params = new URLSearchParams({
     resource: 'provider',
     app,
@@ -199,14 +173,65 @@ function buildCCSwitchDeepLink({
     apiKey,
     model: defaultModel,
     enabled: 'true',
-    usageEnabled: 'true',
-    usageBaseUrl: origin,
-    usageApiKey: apiKey,
-    usageAutoInterval: '60',
-    usageScript: encodeBase64Utf8(usageScript),
+    configFormat: 'json',
+    config: encodeBase64Utf8(JSON.stringify(inlineConfig)),
   })
 
   return `ccswitch://v1/import?${params.toString()}`
+}
+
+function buildCCSwitchInlineConfig(app: CCSwitchApp, apiBaseUrl: string, apiKey: string, defaultModel: string): Record<string, unknown> {
+  switch (app) {
+    case 'codex':
+      return {
+        auth: {
+          OPENAI_API_KEY: apiKey,
+        },
+        config: buildCodexConfigToml(apiBaseUrl, defaultModel, true),
+        meta: {
+          testConfig: {
+            enabled: true,
+            testModel: defaultModel,
+          },
+        },
+      }
+    case 'opencode':
+      return {
+        options: {
+          baseURL: apiBaseUrl,
+          apiKey,
+        },
+        models: {
+          [defaultModel]: {
+            name: defaultModel,
+          },
+        },
+        meta: {
+          testConfig: {
+            enabled: true,
+            testModel: defaultModel,
+          },
+        },
+      }
+    case 'openclaw':
+      return {
+        baseUrl: apiBaseUrl,
+        apiKey,
+        api: 'openai-responses',
+        models: [
+          {
+            id: defaultModel,
+            name: defaultModel,
+          },
+        ],
+        meta: {
+          testConfig: {
+            enabled: true,
+            testModel: defaultModel,
+          },
+        },
+      }
+  }
 }
 
 function buildCodexConfigToml(apiBaseUrl: string, defaultModel: string, websocket: boolean): string {
@@ -253,8 +278,8 @@ function buildOpencodeConfig(apiBaseUrl: string, apiKey: string, models: string[
       {
         name: modelId,
         limit: {
-          context: GENERIC_CONTEXT_WINDOW,
-          output: GENERIC_OUTPUT_LIMIT,
+          context: getModelLimits(modelId).context,
+          output: getModelLimits(modelId).output,
         },
         options: {
           store: false,
@@ -327,6 +352,40 @@ function buildOpenclawConfig(apiBaseUrl: string, apiKey: string, models: string[
     null,
     2,
   )
+}
+
+function getModelLimits(modelId: string): ModelLimit {
+  const normalized = modelId.toLowerCase()
+
+  if (normalized.startsWith('gpt-4.1')) {
+    return { context: 1_047_576, output: 32_768 }
+  }
+  if (normalized.startsWith('gpt-5')) {
+    return { context: 400_000, output: 128_000 }
+  }
+  if (normalized.includes('gpt-5-codex') || normalized.includes('codex')) {
+    return { context: 400_000, output: 128_000 }
+  }
+  if (normalized.startsWith('gpt-4') || normalized.startsWith('gpt-4o')) {
+    return { context: 128_000, output: 16_384 }
+  }
+  if (normalized.startsWith('claude-4') || normalized.includes('claude-sonnet') || normalized.includes('claude-opus') || normalized.includes('claude-haiku')) {
+    return { context: 200_000, output: 64_000 }
+  }
+  if (normalized.startsWith('claude-3') || normalized.startsWith('claude')) {
+    return { context: 200_000, output: 8_192 }
+  }
+  if (normalized.startsWith('gemini-2.5') || normalized.startsWith('gemini-3') || normalized.startsWith('gemini')) {
+    return { context: 1_048_576, output: 65_536 }
+  }
+  if (normalized.startsWith('deepseek')) {
+    return { context: 128_000, output: 8_192 }
+  }
+  if (normalized.startsWith('qwen3')) {
+    return { context: 32_768, output: 8_192 }
+  }
+
+  return { context: 128_000, output: 32_768 }
 }
 
 function encodeBase64Utf8(value: string): string {

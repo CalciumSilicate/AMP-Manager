@@ -120,14 +120,6 @@ export function APIKeyUsageDialog({ open, onOpenChange, revealKey, apiBaseUrl, c
                 </div>
               ))}
             </div>
-
-            <CodeBlock
-              label="usageScript"
-              value={usageContent.ccSwitchUsageScript}
-              copyKey="cc-switch-usage-script"
-              copied={copied}
-              onCopy={onCopy}
-            />
           </div>
         )
       case 'codex-cli':
@@ -242,33 +234,33 @@ export function APIKeyUsageDialog({ open, onOpenChange, revealKey, apiBaseUrl, c
           <DialogTitle>{revealKey ? `使用 API Key · ${revealKey.name}` : '使用 API Key'}</DialogTitle>
         </DialogHeader>
 
-        <div className="flex-1 min-h-0 overflow-y-auto pr-1 space-y-5">
-          {revealKey ? (
-            <div className="rounded-lg border px-4 py-4 space-y-3">
-              <div className="flex items-center justify-between gap-3">
-                <div className="text-sm font-medium text-foreground">连接信息</div>
-                <Badge variant="secondary">
-                  {loadingModels ? '模型加载中' : usageContent ? `${usageContent.models.length} 个模型` : '模型未就绪'}
-                </Badge>
-              </div>
-              <InlineCopyRow
-                label="API Base URL"
-                value={apiBaseUrl}
-                copyKey="usage-base-url"
-                copied={copied}
-                onCopy={onCopy}
-              />
-              <InlineCopyRow
-                label="API Key"
-                value={revealKey.apiKey}
-                copyKey="usage-api-key"
-                copied={copied}
-                onCopy={onCopy}
-              />
+        {revealKey ? (
+          <div className="space-y-3 pb-4">
+            <div className="flex items-center justify-between gap-3">
+              <div className="text-sm font-medium text-foreground">{revealKey.name}</div>
+              <Badge variant="secondary">
+                {loadingModels ? '模型加载中' : usageContent ? `${usageContent.models.length} 个模型` : '模型未就绪'}
+              </Badge>
             </div>
-          ) : null}
+            <InlineCopyRow
+              label="API Base URL"
+              value={apiBaseUrl}
+              copyKey="usage-base-url"
+              copied={copied}
+              onCopy={onCopy}
+            />
+            <InlineCopyRow
+              label="API Key"
+              value={revealKey.apiKey}
+              copyKey="usage-api-key"
+              copied={copied}
+              onCopy={onCopy}
+            />
+          </div>
+        ) : null}
 
-          <div className="flex items-center gap-1 border-b pb-0 overflow-x-auto">
+        <div className="overflow-x-auto overflow-y-hidden border-b pb-0 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+          <div className="flex min-w-max items-center gap-1">
             {tabs.map((tab) => (
               <button
                 key={tab.value}
@@ -289,7 +281,9 @@ export function APIKeyUsageDialog({ open, onOpenChange, revealKey, apiBaseUrl, c
               </button>
             ))}
           </div>
+        </div>
 
+        <div className="flex-1 min-h-0 overflow-y-auto pr-1 pt-5">
           {loadingModels ? (
             <div className="rounded-lg border px-4 py-10 text-center text-sm text-muted-foreground">模型加载中...</div>
           ) : loadError ? (
