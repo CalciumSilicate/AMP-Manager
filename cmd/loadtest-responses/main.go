@@ -2,11 +2,11 @@ package main
 
 import (
 	"bytes"
-	"compress/gzip"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -27,6 +27,7 @@ import (
 	"ampmanager/internal/billingstate"
 	"ampmanager/internal/config"
 	"ampmanager/internal/database"
+	"ampmanager/internal/mockresponses"
 	"ampmanager/internal/model"
 	"ampmanager/internal/repository"
 	"ampmanager/internal/translator"
@@ -1508,7 +1509,7 @@ func sampleCachedTokens(r *rand.Rand, inputTokens int) int {
 }
 
 func buildRequestBody(modelName string, inputTokens int, stream bool) []byte {
-	prompt := buildTokenText("prompt", inputTokens)
+	prompt := mockresponses.BuildTokenText("prompt", inputTokens)
 	payload := map[string]any{
 		"model": modelName,
 		"input": []map[string]any{
@@ -1558,95 +1559,17 @@ func mockResponsesHandler(w http.ResponseWriter, r *http.Request) {
 
 	time.Sleep(ttfb)
 
+	profile := mockresponses.NewFixedProfile(modelName, inputTokens, outputTokens, cachedTokens, ttfb, chunkDelay)
+
 	switch scenarioName {
 	case "sse", "aggregate":
-		streamResponses(w, modelName, inputTokens, outputTokens, cachedTokens, chunkDelay)
+		if err := mockresponses.StreamSSE(r.Context(), w, profile); err != nil && !errors.Is(err, context.Canceled) {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+		}
 	default:
-		writeJSONResponse(w, modelName, inputTokens, outputTokens, cachedTokens, strings.EqualFold(r.Header.Get("X-Lt-Upstream-Gzip"), "true"))
-	}
-}
-
-func writeJSONResponse(w http.ResponseWriter, modelName string, inputTokens, outputTokens, cachedTokens int, gzipBody bool) {
-	payload := buildResponseObject(modelName, inputTokens, outputTokens, cachedTokens)
-	encoded, _ := json.Marshal(payload)
-
-	if gzipBody {
-		var buf bytes.Buffer
-		zw := gzip.NewWriter(&buf)
-		_, _ = zw.Write(encoded)
-		_ = zw.Close()
-		w.Header().Set("Content-Encoding", "gzip")
-		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write(buf.Bytes())
-		return
-	}
-
-	w.Header().Set("Content-Type", "application/json")
-	_, _ = w.Write(encoded)
-}
-
-func streamResponses(w http.ResponseWriter, modelName string, inputTokens, outputTokens, cachedTokens int, chunkDelay time.Duration) {
-	flusher, ok := w.(http.Flusher)
-	if !ok {
-		http.Error(w, "stream unsupported", http.StatusInternalServerError)
-		return
-	}
-
-	outputText := buildTokenText("answer", outputTokens)
-	parts := []string{
-		outputText[:len(outputText)/3],
-		outputText[len(outputText)/3 : (2*len(outputText))/3],
-		outputText[(2*len(outputText))/3:],
-	}
-
-	w.Header().Set("Content-Type", "text/event-stream")
-	w.Header().Set("Cache-Control", "no-cache")
-	w.WriteHeader(http.StatusOK)
-
-	for _, part := range parts {
-		frame := fmt.Sprintf("event: response.output_text.delta\ndata: {\"type\":\"response.output_text.delta\",\"delta\":\"%s\"}\n\n", escapeJSONString(part))
-		_, _ = io.WriteString(w, frame)
-		flusher.Flush()
-		time.Sleep(chunkDelay)
-	}
-
-	finalPayload, _ := json.Marshal(map[string]any{
-		"type":     "response.completed",
-		"response": buildResponseObject(modelName, inputTokens, outputTokens, cachedTokens),
-	})
-	_, _ = fmt.Fprintf(w, "event: response.completed\ndata: %s\n\n", string(finalPayload))
-	_, _ = io.WriteString(w, "data: [DONE]\n\n")
-	flusher.Flush()
-}
-
-func buildResponseObject(modelName string, inputTokens, outputTokens, cachedTokens int) map[string]any {
-	outputText := buildTokenText("answer", outputTokens)
-	return map[string]any{
-		"id":         fmt.Sprintf("resp_%d", time.Now().UnixNano()),
-		"object":     "response",
-		"created_at": time.Now().Unix(),
-		"model":      modelName,
-		"status":     "completed",
-		"output": []map[string]any{
-			{
-				"type": "message",
-				"role": "assistant",
-				"content": []map[string]any{
-					{
-						"type": "output_text",
-						"text": outputText,
-					},
-				},
-			},
-		},
-		"usage": map[string]any{
-			"input_tokens":  inputTokens,
-			"output_tokens": outputTokens,
-			"total_tokens":  inputTokens + outputTokens,
-			"input_tokens_details": map[string]any{
-				"cached_tokens": cachedTokens,
-			},
-		},
+		if err := mockresponses.WriteJSONResponse(w, profile, strings.EqualFold(r.Header.Get("X-Lt-Upstream-Gzip"), "true")); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+		}
 	}
 }
 
@@ -1752,31 +1675,9 @@ func parseHeaderInt(raw string, defaultValue int) int {
 	return value
 }
 
-func buildTokenText(prefix string, tokens int) string {
-	if tokens < 1 {
-		tokens = 1
-	}
-	var builder strings.Builder
-	builder.Grow(tokens * (len(prefix) + 6))
-	for i := 0; i < tokens; i++ {
-		if i > 0 {
-			builder.WriteByte(' ')
-		}
-		builder.WriteString(prefix)
-		builder.WriteByte('_')
-		builder.WriteString(fmt.Sprintf("%d", i%97))
-	}
-	return builder.String()
-}
-
 func truncate(value string, max int) string {
 	if len(value) <= max {
 		return value
 	}
 	return value[:max]
-}
-
-func escapeJSONString(value string) string {
-	encoded, _ := json.Marshal(value)
-	return strings.Trim(string(encoded), "\"")
 }
