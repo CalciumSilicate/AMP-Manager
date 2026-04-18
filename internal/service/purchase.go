@@ -21,27 +21,77 @@ import (
 )
 
 var (
-	ErrPurchaseDisabled          = errors.New("订阅购买功能未开启")
-	ErrPaymentUnavailable        = errors.New("支付功能暂不可用")
-	ErrPurchaseProductDisabled   = errors.New("该售卖商品已下架")
-	ErrPurchaseOrderNotFound     = errors.New("订单不存在")
-	ErrPurchaseProductHasOrders  = errors.New("该商品已有订单，无法删除")
-	ErrDifferentPlanActive       = errors.New("当前账号已有其他生效中的订阅，暂不支持切换购买")
-	ErrPermanentSubscription     = errors.New("当前账号已有永久订阅，无法续费")
-	ErrBalanceTopupUnavailable   = errors.New("余额充值未开启")
-	ErrInvalidBalanceTopupAmount = errors.New("充值金额无效")
-	ErrPendingSubscriptionOrder  = errors.New("当前已有待支付的订阅相关订单，请先处理后再下单")
-	ErrDowngradeNotAllowed       = errors.New("当前仅允许购买更高级套餐升级，不允许降级")
-	ErrSameRankPlanSwitch        = errors.New("同级别不同套餐不支持直接切换，请选择兑换码交付或联系管理员")
-	ErrUpgradeConflict           = errors.New("升级报价已失效，请重新下单")
-	ErrUpgradeValuationMissing   = errors.New("套餐升级估值未配置，暂不支持升级")
-	ErrBoostRequiresSubscription = errors.New("当前没有可加额的有效订阅")
+	ErrPurchaseDisabled           = errors.New("订阅购买功能未开启")
+	ErrPaymentUnavailable         = errors.New("支付功能暂不可用")
+	ErrPurchaseProductDisabled    = errors.New("该售卖商品已下架")
+	ErrPurchaseOrderNotFound      = errors.New("订单不存在")
+	ErrPurchaseProductHasOrders   = errors.New("该商品已有订单，无法删除")
+	ErrDifferentPlanActive        = errors.New("当前账号已有其他生效中的订阅，暂不支持切换购买")
+	ErrPermanentSubscription      = errors.New("当前账号已有永久订阅，无法续费")
+	ErrBalanceTopupUnavailable    = errors.New("余额充值未开启")
+	ErrInvalidBalanceTopupAmount  = errors.New("充值金额无效")
+	ErrPendingSubscriptionOrder   = errors.New("当前已有待支付的订阅相关订单，请先处理后再下单")
+	ErrDowngradeNotAllowed        = errors.New("当前仅允许购买更高级套餐升级，不允许降级")
+	ErrSameRankPlanSwitch         = errors.New("同级别不同套餐不支持直接切换，请选择兑换码交付或联系管理员")
+	ErrUpgradeConflict            = errors.New("升级报价已失效，请重新下单")
+	ErrUpgradeValuationMissing    = errors.New("套餐升级估值未配置，暂不支持升级")
+	ErrBoostRequiresSubscription  = errors.New("当前没有可加额的有效订阅")
+	ErrInvalidSubscriptionMode    = errors.New("订阅购买模式无效")
+	ErrTargetSubscriptionRequired = errors.New("续期模式需要指定目标订阅")
+	ErrTargetSubscriptionInvalid  = errors.New("目标订阅无效")
 )
 
 const (
 	balanceTopupPlanID    = "system-balance-topup-plan"
 	balanceTopupProductID = "system-balance-topup-product"
 )
+
+func normalizePurchaseSubscriptionMode(mode model.PurchaseSubscriptionMode) model.PurchaseSubscriptionMode {
+	if mode == "" {
+		return model.PurchaseSubscriptionModeNew
+	}
+	return mode
+}
+
+func (s *PurchaseService) resolvePurchaseMode(userID string, product *model.PurchaseProduct, deliveryMode model.PurchaseDeliveryMode, mode model.PurchaseSubscriptionMode, targetSubscriptionID string) (model.PurchaseSubscriptionMode, string, error) {
+	mode = normalizePurchaseSubscriptionMode(mode)
+	if deliveryMode != model.PurchaseDeliveryModeAccount {
+		return model.PurchaseSubscriptionModeNew, "", nil
+	}
+	if mode == model.PurchaseSubscriptionModeRenew {
+		targetSubscriptionID = strings.TrimSpace(targetSubscriptionID)
+		if targetSubscriptionID == "" {
+			return "", "", ErrTargetSubscriptionRequired
+		}
+		activeSubs, err := s.subRepo.ListActiveByUserID(userID)
+		if err != nil {
+			return "", "", err
+		}
+		for _, sub := range activeSubs {
+			if sub.ID == targetSubscriptionID && sub.PlanID == product.SubscriptionPlanID {
+				return model.PurchaseSubscriptionModeRenew, sub.ID, nil
+			}
+		}
+		return "", "", ErrTargetSubscriptionInvalid
+	}
+	if mode != model.PurchaseSubscriptionModeNew {
+		return "", "", ErrInvalidSubscriptionMode
+	}
+	return model.PurchaseSubscriptionModeNew, "", nil
+}
+
+func (s *PurchaseService) findActiveSubscriptionByIDAndPlan(userID, subscriptionID, planID string) (*model.UserSubscription, error) {
+	activeSubs, err := s.subRepo.ListActiveByUserID(userID)
+	if err != nil {
+		return nil, err
+	}
+	for _, sub := range activeSubs {
+		if sub.ID == subscriptionID && sub.PlanID == planID {
+			return sub, nil
+		}
+	}
+	return nil, nil
+}
 
 type purchasePaymentGateway interface {
 	CreateOrder(ctx context.Context, order *model.PurchaseOrder, product *model.PurchaseProductResponse, username string) (*PaymentCreateResult, error)
@@ -192,7 +242,7 @@ func (s *PurchaseService) QuoteOrder(ctx context.Context, userID string, req *mo
 	case model.PurchaseOrderKindBalanceTopup:
 		return s.quoteBalanceTopupOrder(ctx, userID, req.AmountUsd, req.CouponCode)
 	default:
-		return s.quoteSubscriptionOrder(ctx, userID, req.ProductID, req.DeliveryMode, req.CouponCode)
+		return s.quoteSubscriptionOrderWithOptions(ctx, userID, req.ProductID, req.DeliveryMode, req.SubscriptionMode, req.TargetSubscriptionID, req.CouponCode)
 	}
 }
 
@@ -309,6 +359,10 @@ func (s *PurchaseService) SetProductEnabled(id string, enabled bool) error {
 }
 
 func (s *PurchaseService) CreateOrder(ctx context.Context, userID, username, productID string, deliveryMode model.PurchaseDeliveryMode, couponCode ...string) (*model.PurchaseOrderResponse, error) {
+	return s.CreateOrderWithOptions(ctx, userID, username, productID, deliveryMode, model.PurchaseSubscriptionModeNew, "", couponCode...)
+}
+
+func (s *PurchaseService) CreateOrderWithOptions(ctx context.Context, userID, username, productID string, deliveryMode model.PurchaseDeliveryMode, subscriptionMode model.PurchaseSubscriptionMode, targetSubscriptionID string, couponCode ...string) (*model.PurchaseOrderResponse, error) {
 	requestCouponCode := ""
 	if len(couponCode) > 0 {
 		requestCouponCode = couponCode[0]
@@ -338,20 +392,11 @@ func (s *PurchaseService) CreateOrder(ctx context.Context, userID, username, pro
 		return nil, ErrPendingSubscriptionOrder
 	}
 
-	activeSubscription, err := s.subRepo.GetActiveByUserID(userID)
+	resolvedMode, resolvedTargetSubscriptionID, err := s.resolvePurchaseMode(userID, product, deliveryMode, subscriptionMode, targetSubscriptionID)
 	if err != nil {
 		return nil, err
 	}
-
 	now := time.Now().UTC()
-	if activeSubscription != nil && deliveryMode == model.PurchaseDeliveryModeAccount {
-		if activeSubscription.ExpiresAt == nil {
-			return nil, ErrPermanentSubscription
-		}
-		if activeSubscription.PlanID != product.SubscriptionPlanID {
-			return nil, ErrDifferentPlanActive
-		}
-	}
 
 	order := &model.PurchaseOrder{
 		ID:                    uuid.New().String(),
@@ -364,6 +409,8 @@ func (s *PurchaseService) CreateOrder(ctx context.Context, userID, username, pro
 		AmountCNYCent:         product.PriceCNYCent,
 		OrderKind:             model.PurchaseOrderKindSubscription,
 		DeliveryMode:          deliveryMode,
+		SubscriptionMode:      resolvedMode,
+		TargetSubscriptionID:  resolvedTargetSubscriptionID,
 		PaymentChannel:        model.PaymentChannelAlipay,
 		PaymentStatus:         model.PurchasePaymentStatusPending,
 		FulfillmentStatus:     model.PurchaseFulfillmentStatusPending,
@@ -515,6 +562,10 @@ func (s *PurchaseService) CreateBalanceTopupOrder(ctx context.Context, userID, u
 }
 
 func (s *PurchaseService) quoteSubscriptionOrder(ctx context.Context, userID, productID string, deliveryMode model.PurchaseDeliveryMode, couponCode string) (*model.PurchaseQuoteResponse, error) {
+	return s.quoteSubscriptionOrderWithOptions(ctx, userID, productID, deliveryMode, model.PurchaseSubscriptionModeNew, "", couponCode)
+}
+
+func (s *PurchaseService) quoteSubscriptionOrderWithOptions(ctx context.Context, userID, productID string, deliveryMode model.PurchaseDeliveryMode, subscriptionMode model.PurchaseSubscriptionMode, targetSubscriptionID string, couponCode string) (*model.PurchaseQuoteResponse, error) {
 	if deliveryMode == "" {
 		deliveryMode = model.PurchaseDeliveryModeAccount
 	}
@@ -525,17 +576,9 @@ func (s *PurchaseService) quoteSubscriptionOrder(ctx context.Context, userID, pr
 	if !product.Enabled || plan == nil || !plan.Enabled {
 		return nil, ErrPurchaseProductDisabled
 	}
-	activeSubscription, err := s.subRepo.GetActiveByUserID(userID)
+	resolvedMode, resolvedTargetSubscriptionID, err := s.resolvePurchaseMode(userID, product, deliveryMode, subscriptionMode, targetSubscriptionID)
 	if err != nil {
 		return nil, err
-	}
-	if activeSubscription != nil && deliveryMode == model.PurchaseDeliveryModeAccount {
-		if activeSubscription.ExpiresAt == nil {
-			return nil, ErrPermanentSubscription
-		}
-		if activeSubscription.PlanID != product.SubscriptionPlanID {
-			return nil, ErrDifferentPlanActive
-		}
 	}
 	resp := &model.PurchaseQuoteResponse{
 		Kind:                  model.PurchaseOrderKindSubscription,
@@ -543,6 +586,8 @@ func (s *PurchaseService) quoteSubscriptionOrder(ctx context.Context, userID, pr
 		ProductName:           product.Name,
 		OrderKindLabel:        "订阅购买",
 		DeliveryMode:          deliveryMode,
+		SubscriptionMode:      resolvedMode,
+		TargetSubscriptionID:  resolvedTargetSubscriptionID,
 		OriginalAmountCNYCent: product.PriceCNYCent,
 		FinalAmountCNYCent:    product.PriceCNYCent,
 	}
@@ -932,26 +977,58 @@ func (s *PurchaseService) fulfillOrderTx(tx *sql.Tx, order *model.PurchaseOrder,
 				return BillingStateSyncAction{}, err
 			}
 		default:
-			if _, err := s.grantSvc.GrantSubscriptionTxWithSource(
-				tx,
-				order.UserID,
-				order.SubscriptionPlanID,
-				order.DurationDays,
-				model.SubscriptionEntitlementSourcePurchase,
-				order.OrderNo,
-				now,
-			); err != nil {
-				if errors.Is(err, ErrDifferentPlanActive) || errors.Is(err, ErrPermanentSubscription) {
+			switch normalizePurchaseSubscriptionMode(order.SubscriptionMode) {
+			case model.PurchaseSubscriptionModeRenew:
+				targetSub, err := s.findActiveSubscriptionByIDAndPlan(order.UserID, order.TargetSubscriptionID, order.SubscriptionPlanID)
+				if err != nil {
+					return BillingStateSyncAction{}, err
+				}
+				if targetSub == nil {
 					_, updateErr := tx.Exec(
 						`UPDATE purchase_orders SET fulfillment_status = ?, failure_reason = ?, updated_at = ? WHERE order_no = ?`,
 						model.PurchaseFulfillmentStatusFailed,
-						err.Error(),
+						ErrTargetSubscriptionInvalid.Error(),
 						now,
 						order.OrderNo,
 					)
 					return BillingStateSyncAction{}, updateErr
 				}
-				return BillingStateSyncAction{}, err
+				if targetSub.ExpiresAt == nil {
+					_, updateErr := tx.Exec(
+						`UPDATE purchase_orders SET fulfillment_status = ?, failure_reason = ?, updated_at = ? WHERE order_no = ?`,
+						model.PurchaseFulfillmentStatusFailed,
+						ErrPermanentSubscription.Error(),
+						now,
+						order.OrderNo,
+					)
+					return BillingStateSyncAction{}, updateErr
+				}
+				base := now
+				if targetSub.ExpiresAt.After(now) {
+					base = targetSub.ExpiresAt.UTC()
+				}
+				finalExpiresAt := base.AddDate(0, 0, order.DurationDays)
+				if _, err := tx.Exec(`UPDATE user_subscriptions SET expires_at = ?, updated_at = ? WHERE id = ?`, finalExpiresAt, now, targetSub.ID); err != nil {
+					return BillingStateSyncAction{}, err
+				}
+			default:
+				sub := &model.UserSubscription{
+					ID:        uuid.New().String(),
+					UserID:    order.UserID,
+					PlanID:    order.SubscriptionPlanID,
+					StartsAt:  now,
+					Status:    model.SubscriptionStatusActive,
+					CreatedAt: now,
+					UpdatedAt: now,
+				}
+				expiresAt := now.AddDate(0, 0, order.DurationDays)
+				sub.ExpiresAt = &expiresAt
+				if _, err := tx.Exec(
+					`INSERT INTO user_subscriptions (id, user_id, plan_id, starts_at, expires_at, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+					sub.ID, sub.UserID, sub.PlanID, sub.StartsAt, sub.ExpiresAt, sub.Status, sub.CreatedAt, sub.UpdatedAt,
+				); err != nil {
+					return BillingStateSyncAction{}, err
+				}
 			}
 			syncAction = BillingStateSyncAction{
 				UserID:           order.UserID,
@@ -1048,7 +1125,7 @@ func (s *PurchaseService) generatePurchaseRedeemCodeTx(tx *sql.Tx) (string, erro
 func (s *PurchaseService) getOrderByOrderNoTx(tx *sql.Tx, orderNo string) (*model.PurchaseOrder, error) {
 	order := &model.PurchaseOrder{}
 	err := tx.QueryRow(
-		`SELECT id, order_no, user_id, product_id, subscription_plan_id, duration_days, original_amount_cny_cent, discount_cny_cent, amount_cny_cent, order_kind, delivery_mode, balance_topup_micros, payment_channel, payment_status,
+		`SELECT id, order_no, user_id, product_id, subscription_plan_id, duration_days, original_amount_cny_cent, discount_cny_cent, amount_cny_cent, order_kind, delivery_mode, balance_topup_micros, subscription_mode, target_subscription_id, payment_channel, payment_status,
 		        fulfillment_status,
 		        coupon_campaign_id, coupon_campaign_name, coupon_code_id, coupon_code_value, coupon_discount_type, coupon_percent_off_bps, coupon_fixed_discount_cny_cent, coupon_max_discount_cny_cent,
 		        generated_redeem_code_id, manual_settlement_done, alipay_trade_no, alipay_qr_code, alipay_qr_url, expires_at, paid_at, fulfilled_at, failure_reason,
@@ -1069,6 +1146,8 @@ func (s *PurchaseService) getOrderByOrderNoTx(tx *sql.Tx, orderNo string) (*mode
 		&order.OrderKind,
 		&order.DeliveryMode,
 		&order.BalanceTopupMicros,
+		&order.SubscriptionMode,
+		&order.TargetSubscriptionID,
 		&order.PaymentChannel,
 		&order.PaymentStatus,
 		&order.FulfillmentStatus,

@@ -55,6 +55,13 @@ const (
 	PurchaseDeliveryModeRedeemCode PurchaseDeliveryMode = "redeem_code"
 )
 
+type PurchaseSubscriptionMode string
+
+const (
+	PurchaseSubscriptionModeNew   PurchaseSubscriptionMode = "new"
+	PurchaseSubscriptionModeRenew PurchaseSubscriptionMode = "renew"
+)
+
 type AlipayEnvironment string
 
 const (
@@ -177,6 +184,8 @@ type PurchaseOrder struct {
 	OrderKind                  PurchaseOrderKind         `json:"orderKind"`
 	DeliveryMode               PurchaseDeliveryMode      `json:"deliveryMode"`
 	BalanceTopupMicros         int64                     `json:"balanceTopupMicros"`
+	SubscriptionMode           PurchaseSubscriptionMode  `json:"subscriptionMode"`
+	TargetSubscriptionID       string                    `json:"targetSubscriptionId"`
 	PaymentChannel             PaymentChannel            `json:"paymentChannel"`
 	PaymentStatus              PurchasePaymentStatus     `json:"paymentStatus"`
 	FulfillmentStatus          PurchaseFulfillmentStatus `json:"fulfillmentStatus"`
@@ -220,6 +229,8 @@ type PurchaseOrderResponse struct {
 	OrderKind                  PurchaseOrderKind         `json:"orderKind"`
 	DeliveryMode               PurchaseDeliveryMode      `json:"deliveryMode"`
 	BalanceTopupMicros         int64                     `json:"balanceTopupMicros"`
+	SubscriptionMode           PurchaseSubscriptionMode  `json:"subscriptionMode"`
+	TargetSubscriptionID       string                    `json:"targetSubscriptionId"`
 	PaymentChannel             PaymentChannel            `json:"paymentChannel"`
 	PaymentStatus              PurchasePaymentStatus     `json:"paymentStatus"`
 	FulfillmentStatus          PurchaseFulfillmentStatus `json:"fulfillmentStatus"`
@@ -272,9 +283,11 @@ type PurchaseOrderListResponse struct {
 }
 
 type CreatePurchaseOrderRequest struct {
-	ProductID    string               `json:"productId" binding:"required"`
-	DeliveryMode PurchaseDeliveryMode `json:"deliveryMode" binding:"omitempty,oneof=account redeem_code"`
-	CouponCode   string               `json:"couponCode,omitempty" binding:"omitempty,max=32"`
+	ProductID            string                   `json:"productId" binding:"required"`
+	DeliveryMode         PurchaseDeliveryMode     `json:"deliveryMode" binding:"omitempty,oneof=account redeem_code"`
+	CouponCode           string                   `json:"couponCode,omitempty" binding:"omitempty,max=32"`
+	SubscriptionMode     PurchaseSubscriptionMode `json:"subscriptionMode,omitempty" binding:"omitempty,oneof=new renew"`
+	TargetSubscriptionID string                   `json:"targetSubscriptionId,omitempty"`
 }
 
 type PurchaseActionSnapshot struct {

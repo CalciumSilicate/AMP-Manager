@@ -758,7 +758,6 @@ func createTables() error {
 	CREATE INDEX IF NOT EXISTS idx_user_subs_user_created ON user_subscriptions(user_id, created_at DESC);
 	CREATE INDEX IF NOT EXISTS idx_user_subs_plan_status ON user_subscriptions(plan_id, status);
 	CREATE INDEX IF NOT EXISTS idx_user_subs_status ON user_subscriptions(status);
-	CREATE UNIQUE INDEX IF NOT EXISTS idx_user_subs_active_unique ON user_subscriptions(user_id) WHERE status = 'active';
 
 	CREATE TABLE IF NOT EXISTS subscription_recharge_history (
 		id TEXT PRIMARY KEY,
@@ -2509,6 +2508,15 @@ func ensurePurchaseSchema() error {
 	}
 	if err := ensureColumnWithDefault("purchase_orders", "legacy_ref_id", "TEXT NOT NULL DEFAULT ''"); err != nil {
 		return err
+	}
+	if err := ensureColumnWithDefault("purchase_orders", "subscription_mode", "TEXT NOT NULL DEFAULT 'new'"); err != nil {
+		return err
+	}
+	if err := ensureColumnWithDefault("purchase_orders", "target_subscription_id", "TEXT NOT NULL DEFAULT ''"); err != nil {
+		return err
+	}
+	if _, err := db.Exec(`DROP INDEX IF EXISTS idx_user_subs_active_unique`); err != nil {
+		return fmt.Errorf("drop idx_user_subs_active_unique failed: %w", err)
 	}
 	if err := ensureColumnWithDefault("redeem_codes", "reward_snapshot_json", "TEXT NOT NULL DEFAULT ''"); err != nil {
 		return err

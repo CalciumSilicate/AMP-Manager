@@ -240,7 +240,11 @@ func TestPurchaseServiceCreateOrderExtendsSamePlan(t *testing.T) {
 		fakePaymentGateway{},
 	)
 
-	if _, err := svc.CreateOrder(context.Background(), user.ID, user.Username, product.ID, model.PurchaseDeliveryModeAccount); err != nil {
+	activeSub, err := repository.NewUserSubscriptionRepository().GetActiveByUserID(user.ID)
+	if err != nil || activeSub == nil {
+		t.Fatalf("GetActiveByUserID returned error: %v", err)
+	}
+	if _, err := svc.CreateOrderWithOptions(context.Background(), user.ID, user.Username, product.ID, model.PurchaseDeliveryModeAccount, model.PurchaseSubscriptionModeRenew, activeSub.ID); err != nil {
 		t.Fatalf("CreateOrder returned error: %v", err)
 	}
 
@@ -289,9 +293,12 @@ func TestPurchaseServiceRejectsSameRankDifferentPlan(t *testing.T) {
 		fakePaymentGateway{},
 	)
 
-	_, err := svc.CreateOrder(context.Background(), user.ID, user.Username, product.ID, model.PurchaseDeliveryModeAccount)
-	if !errors.Is(err, ErrDifferentPlanActive) {
-		t.Fatalf("expected ErrDifferentPlanActive, got %v", err)
+	order, err := svc.CreateOrderWithOptions(context.Background(), user.ID, user.Username, product.ID, model.PurchaseDeliveryModeAccount, model.PurchaseSubscriptionModeNew, "")
+	if err != nil {
+		t.Fatalf("expected new-mode create to succeed, got %v", err)
+	}
+	if order == nil {
+		t.Fatal("expected order response")
 	}
 }
 

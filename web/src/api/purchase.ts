@@ -99,6 +99,8 @@ export interface PurchaseOrder {
   orderKind: 'subscription' | 'balance_topup'
   deliveryMode: 'account' | 'redeem_code'
   balanceTopupMicros: number
+  subscriptionMode: PurchaseSubscriptionMode
+  targetSubscriptionId: string
   paymentChannel: 'alipay'
   paymentStatus: PurchasePaymentStatus
   fulfillmentStatus: PurchaseFulfillmentStatus
@@ -142,6 +144,8 @@ export interface PurchaseCatalogResponse {
   balanceTopupPriceCnyPerUsd: number
 }
 
+export type PurchaseSubscriptionMode = 'new' | 'renew'
+
 export interface PurchaseOrderListResponse {
   items: PurchaseOrder[]
   total: number
@@ -166,6 +170,8 @@ export interface PurchaseQuoteResponse {
   productName: string
   orderKindLabel: string
   deliveryMode: 'account' | 'redeem_code'
+  subscriptionMode?: PurchaseSubscriptionMode
+  targetSubscriptionId?: string
   originalAmountCnyCent: number
   discountCnyCent: number
   finalAmountCnyCent: number
@@ -240,10 +246,16 @@ export async function createPurchaseOrder(productId: string): Promise<PurchaseOr
   })
 }
 
-export async function createPurchaseOrderWithMode(productId: string, deliveryMode: 'account' | 'redeem_code', couponCode = ''): Promise<PurchaseOrder> {
+export async function createPurchaseOrderWithMode(
+  productId: string,
+  deliveryMode: 'account' | 'redeem_code',
+  couponCode = '',
+  subscriptionMode: PurchaseSubscriptionMode = 'new',
+  targetSubscriptionId = '',
+): Promise<PurchaseOrder> {
   return fetchJson<PurchaseOrder>(`${API_BASE}/me/purchase/orders`, {
     method: 'POST',
-    body: JSON.stringify({ productId, deliveryMode, couponCode }),
+    body: JSON.stringify({ productId, deliveryMode, couponCode, subscriptionMode, targetSubscriptionId }),
   })
 }
 
@@ -260,6 +272,8 @@ export async function quotePurchaseOrder(payload: {
   amountUsd?: string
   deliveryMode?: 'account' | 'redeem_code'
   couponCode?: string
+  subscriptionMode?: PurchaseSubscriptionMode
+  targetSubscriptionId?: string
 }): Promise<PurchaseQuoteResponse> {
   return fetchJson<PurchaseQuoteResponse>(`${API_BASE}/me/purchase/quote`, {
     method: 'POST',

@@ -58,7 +58,7 @@ func (h *PurchaseHandler) CreateOrder(c *gin.Context) {
 		req.DeliveryMode = model.PurchaseDeliveryModeAccount
 	}
 
-	order, err := h.purchaseService.CreateOrder(c.Request.Context(), userID, username, req.ProductID, req.DeliveryMode, req.CouponCode)
+	order, err := h.purchaseService.CreateOrderWithOptions(c.Request.Context(), userID, username, req.ProductID, req.DeliveryMode, req.SubscriptionMode, req.TargetSubscriptionID, req.CouponCode)
 	if err != nil {
 		switch {
 		case errors.Is(err, service.ErrPurchaseDisabled),
@@ -66,6 +66,9 @@ func (h *PurchaseHandler) CreateOrder(c *gin.Context) {
 			errors.Is(err, service.ErrPurchaseProductDisabled),
 			errors.Is(err, service.ErrDifferentPlanActive),
 			errors.Is(err, service.ErrPermanentSubscription),
+			errors.Is(err, service.ErrInvalidSubscriptionMode),
+			errors.Is(err, service.ErrTargetSubscriptionRequired),
+			errors.Is(err, service.ErrTargetSubscriptionInvalid),
 			errors.Is(err, service.ErrPendingSubscriptionOrder),
 			errors.Is(err, service.ErrCouponDisabled),
 			errors.Is(err, service.ErrCouponCodeNotFound),
@@ -141,6 +144,9 @@ func (h *PurchaseHandler) QuoteOrder(c *gin.Context) {
 			errors.Is(err, service.ErrPurchaseProductDisabled),
 			errors.Is(err, service.ErrDifferentPlanActive),
 			errors.Is(err, service.ErrPermanentSubscription),
+			errors.Is(err, service.ErrInvalidSubscriptionMode),
+			errors.Is(err, service.ErrTargetSubscriptionRequired),
+			errors.Is(err, service.ErrTargetSubscriptionInvalid),
 			errors.Is(err, service.ErrPendingSubscriptionOrder),
 			errors.Is(err, service.ErrBalanceTopupUnavailable),
 			errors.Is(err, service.ErrInvalidBalanceTopupAmount),

@@ -44,11 +44,11 @@ func (r *PurchaseOrderRepository) createWithExec(exec interface {
 }, order *model.PurchaseOrder) error {
 	_, err := exec.Exec(
 		`INSERT INTO purchase_orders
-		 (id, order_no, user_id, product_id, subscription_plan_id, duration_days, original_amount_cny_cent, discount_cny_cent, amount_cny_cent, order_kind, delivery_mode, balance_topup_micros, payment_channel, payment_status, fulfillment_status,
+		 (id, order_no, user_id, product_id, subscription_plan_id, duration_days, original_amount_cny_cent, discount_cny_cent, amount_cny_cent, order_kind, delivery_mode, balance_topup_micros, subscription_mode, target_subscription_id, payment_channel, payment_status, fulfillment_status,
 		  coupon_campaign_id, coupon_campaign_name, coupon_code_id, coupon_code_value, coupon_discount_type, coupon_percent_off_bps, coupon_fixed_discount_cny_cent, coupon_max_discount_cny_cent,
 		  generated_redeem_code_id, legacy_source, legacy_ref_id,
 		  manual_settlement_done, alipay_trade_no, alipay_qr_code, alipay_qr_url, expires_at, paid_at, fulfilled_at, failure_reason, created_at, updated_at)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		order.ID,
 		order.OrderNo,
 		order.UserID,
@@ -61,6 +61,8 @@ func (r *PurchaseOrderRepository) createWithExec(exec interface {
 		order.OrderKind,
 		order.DeliveryMode,
 		order.BalanceTopupMicros,
+		order.SubscriptionMode,
+		order.TargetSubscriptionID,
 		order.PaymentChannel,
 		order.PaymentStatus,
 		order.FulfillmentStatus,
@@ -93,7 +95,7 @@ func (r *PurchaseOrderRepository) GetByOrderNo(orderNo string) (*model.PurchaseO
 	db := database.GetDB()
 	return r.getOrderByQuery(
 		db.QueryRow(
-			`SELECT id, order_no, user_id, product_id, subscription_plan_id, duration_days, original_amount_cny_cent, discount_cny_cent, amount_cny_cent, order_kind, delivery_mode, balance_topup_micros, payment_channel, payment_status,
+			`SELECT id, order_no, user_id, product_id, subscription_plan_id, duration_days, original_amount_cny_cent, discount_cny_cent, amount_cny_cent, order_kind, delivery_mode, balance_topup_micros, subscription_mode, target_subscription_id, payment_channel, payment_status,
 			        fulfillment_status,
 			        coupon_campaign_id, coupon_campaign_name, coupon_code_id, coupon_code_value, coupon_discount_type, coupon_percent_off_bps, coupon_fixed_discount_cny_cent, coupon_max_discount_cny_cent,
 			        generated_redeem_code_id, legacy_source, legacy_ref_id,
@@ -314,6 +316,8 @@ func (r *PurchaseOrderRepository) getOrderByQuery(row *sql.Row) (*model.Purchase
 		&order.OrderKind,
 		&order.DeliveryMode,
 		&order.BalanceTopupMicros,
+		&order.SubscriptionMode,
+		&order.TargetSubscriptionID,
 		&order.PaymentChannel,
 		&order.PaymentStatus,
 		&order.FulfillmentStatus,
@@ -347,7 +351,7 @@ func (r *PurchaseOrderRepository) getOrderByQuery(row *sql.Row) (*model.Purchase
 
 func (r *PurchaseOrderRepository) detailSelectSQL() string {
 	return `SELECT o.id, o.order_no, o.user_id, u.username, o.product_id, p.name, p.summary, o.subscription_plan_id, sp.name,
-	               o.duration_days, o.original_amount_cny_cent, o.discount_cny_cent, o.amount_cny_cent, o.order_kind, o.delivery_mode, o.balance_topup_micros, o.payment_channel, o.payment_status, o.fulfillment_status,
+	               o.duration_days, o.original_amount_cny_cent, o.discount_cny_cent, o.amount_cny_cent, o.order_kind, o.delivery_mode, o.balance_topup_micros, o.subscription_mode, o.target_subscription_id, o.payment_channel, o.payment_status, o.fulfillment_status,
 	               o.coupon_campaign_id, o.coupon_campaign_name, o.coupon_code_id, o.coupon_code_value, o.coupon_discount_type, o.coupon_percent_off_bps, o.coupon_fixed_discount_cny_cent, o.coupon_max_discount_cny_cent,
 	               o.legacy_source, o.legacy_ref_id,
 	               o.generated_redeem_code_id, COALESCE(generated_code.code_value, ''), COALESCE(generated_code.code_mask, ''), COALESCE(generated_code.status, ''), generated_code.last_redeemed_at,
@@ -379,6 +383,8 @@ func (r *PurchaseOrderRepository) getOrderDetailByQuery(row *sql.Row) (*model.Pu
 		&order.OrderKind,
 		&order.DeliveryMode,
 		&order.BalanceTopupMicros,
+		&order.SubscriptionMode,
+		&order.TargetSubscriptionID,
 		&order.PaymentChannel,
 		&order.PaymentStatus,
 		&order.FulfillmentStatus,
@@ -435,6 +441,8 @@ func (r *PurchaseOrderRepository) scanOrderDetails(rows *sql.Rows) ([]*model.Pur
 			&order.OrderKind,
 			&order.DeliveryMode,
 			&order.BalanceTopupMicros,
+			&order.SubscriptionMode,
+			&order.TargetSubscriptionID,
 			&order.PaymentChannel,
 			&order.PaymentStatus,
 			&order.FulfillmentStatus,

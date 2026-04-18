@@ -12,6 +12,7 @@ import {
   type PurchaseOrder,
   type PurchaseProduct,
   type PurchaseQuoteResponse,
+  type PurchaseSubscriptionMode,
 } from '@/api/purchase'
 import { OverflowCopyText } from '@/components/OverflowCopyText'
 import { RedeemQuickEntry } from '@/components/redeem/RedeemPanels'
@@ -118,6 +119,8 @@ export default function PurchaseCenter() {
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
   const [confirmProduct, setConfirmProduct] = useState<PurchaseProduct | null>(null)
   const [deliveryMode, setDeliveryMode] = useState<'account' | 'redeem_code'>('account')
+  const [subscriptionMode, setSubscriptionMode] = useState<PurchaseSubscriptionMode>('new')
+  const [targetSubscriptionId, setTargetSubscriptionId] = useState('')
   const [creating, setCreating] = useState(false)
   const [couponCode, setCouponCode] = useState('')
   const [quote, setQuote] = useState<PurchaseQuoteResponse | null>(null)
@@ -165,6 +168,8 @@ export default function PurchaseCenter() {
           productId: confirmProduct.id,
           deliveryMode,
           couponCode: couponEnabled ? couponCode.trim() : '',
+          subscriptionMode,
+          targetSubscriptionId,
         })
         setQuote(nextQuote)
       } catch (error) {
@@ -175,7 +180,7 @@ export default function PurchaseCenter() {
       }
     }
     void run()
-  }, [confirmProduct, couponCode, couponEnabled, deliveryMode])
+  }, [confirmProduct, couponCode, couponEnabled, deliveryMode, subscriptionMode, targetSubscriptionId])
 
   const showMessage = (type: 'success' | 'error', text: string) => {
     setMessage({ type, text })
@@ -208,9 +213,11 @@ export default function PurchaseCenter() {
     if (!confirmProduct) return
     setCreating(true)
     try {
-      const order = await createPurchaseOrderWithMode(confirmProduct.id, deliveryMode, couponEnabled ? couponCode.trim() : '')
+      const order = await createPurchaseOrderWithMode(confirmProduct.id, deliveryMode, couponEnabled ? couponCode.trim() : '', subscriptionMode, targetSubscriptionId)
       setConfirmProduct(null)
       setDeliveryMode('account')
+      setSubscriptionMode('new')
+      setTargetSubscriptionId('')
       setCouponCode('')
       setQuote(null)
       await loadAll(true)
@@ -277,13 +284,10 @@ export default function PurchaseCenter() {
     return groups
   }, [])
   const purchaseHint = (() => {
-    if (!confirmProduct || !catalog?.currentSubscription) return ''
-    const current = catalog.currentSubscription
-    if (current.planId === confirmProduct.subscriptionPlanId) {
-      return ''
-    }
-    return '当前账号已有其他有效订阅，需先取消后再购买。'
+    if (!confirmProduct) return ''
+    return '同套餐可选新建或续期，异套餐总是新增。'
   })()
+  const samePlanSubscriptions = (catalog?.subscriptions || []).filter((subscription) => subscription.planId === confirmProduct?.subscriptionPlanId)
 
   return (
     <>
@@ -605,6 +609,8 @@ export default function PurchaseCenter() {
                             onClick={() => {
                               setConfirmProduct(product)
                               setDeliveryMode('account')
+                              setSubscriptionMode('new')
+                              setTargetSubscriptionId('')
                               setCouponCode('')
                               setQuote(null)
                             }}
@@ -678,6 +684,54 @@ export default function PurchaseCenter() {
                 </RadioGroup>
                 {purchaseHint ? <p className="mt-3 text-xs text-muted-foreground">{purchaseHint}</p> : null}
               </div>
+              {deliveryMode === 'account' ? (
+                <div className="space-y-3 border-b border-border/70 pb-4">
+                  <div className="text-[11px] uppercase tracking-[0.18em] text-muted-foreground">订阅模式</div>
+                  {samePlanSubscriptions.length > 0 ? (
+                    <RadioGroup
+                      value={subscriptionMode}
+                      onValueChange={(value) => {
+                        setSubscriptionMode(value as PurchaseSubscriptionMode)
+                        if (value !== 'renew') {
+                          setTargetSubscriptionId('')
+                        }
+                      }}
+                      className="divide-y divide-border/70"
+                    >
+                      <label className={`flex items-start gap-3 py-3 ${subscriptionMode === 'new' ? 'text-foreground' : 'text-muted-foreground'}`}>
+                        <RadioGroupItem value="new" className="mt-0.5" />
+                        <div>
+                          <div className="font-medium">新建订阅</div>
+                          <div className="text-xs text-muted-foreground">始终新增一条独立订阅</div>
+                        </div>
+                      </label>
+                      <label className={`flex items-start gap-3 py-3 ${subscriptionMode === 'renew' ? 'text-foreground' : 'text-muted-foreground'}`}>
+                        <RadioGroupItem value="renew" className="mt-0.5" />
+                        <div>
+                          <div className="font-medium">续期已有订阅</div>
+                          <div className="text-xs text-muted-foreground">仅同套餐有效订阅可选</div>
+                        </div>
+                      </label>
+                    </RadioGroup>
+                  ) : (
+                    <div className="rounded-lg border border-dashed px-3 py-4 text-xs text-muted-foreground">当前没有可续期的同套餐有效订阅，将按新建处理。</div>
+                  )}
+                  {subscriptionMode === 'renew' && samePlanSubscriptions.length > 0 ? (
+                    <select
+                      value={targetSubscriptionId}
+                      onChange={(event) => setTargetSubscriptionId(event.target.value)}
+                      className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                    >
+                      <option value="">选择目标订阅</option>
+                      {samePlanSubscriptions.map((subscription) => (
+                        <option key={subscription.id} value={subscription.id}>
+                          {subscription.planName} / {subscription.expiresAt ? `到期 ${formatDateTime(subscription.expiresAt)}` : '永久'}
+                        </option>
+                      ))}
+                    </select>
+                  ) : null}
+                </div>
+              ) : null}
               {couponEnabled ? (
                 <div className="space-y-3 border-b border-border/70 pb-4">
                   <div className="text-[11px] uppercase tracking-[0.18em] text-muted-foreground">优惠码</div>
@@ -719,7 +773,7 @@ export default function PurchaseCenter() {
           ) : null}
           <DialogFooter>
             <Button type="button" variant="outline" onClick={() => setConfirmProduct(null)}>取消</Button>
-            <Button type="button" onClick={handleCreateOrder} disabled={creating || !catalog?.purchaseEnabled || !catalog?.paymentConfigured}>
+            <Button type="button" onClick={handleCreateOrder} disabled={creating || !catalog?.purchaseEnabled || !catalog?.paymentConfigured || (deliveryMode === 'account' && subscriptionMode === 'renew' && !targetSubscriptionId)}>
               {creating ? <RefreshCw className="mr-2 h-4 w-4 animate-spin" /> : <ShoppingCart className="mr-2 h-4 w-4" />}
               提交
             </Button>

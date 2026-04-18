@@ -163,22 +163,26 @@ type PurchaseCouponQuote struct {
 }
 
 type PurchaseQuoteRequest struct {
-	Kind         PurchaseOrderKind    `json:"kind" binding:"required,oneof=subscription balance_topup"`
-	ProductID    string               `json:"productId,omitempty"`
-	AmountUsd    string               `json:"amountUsd,omitempty"`
-	DeliveryMode PurchaseDeliveryMode `json:"deliveryMode" binding:"omitempty,oneof=account redeem_code"`
-	CouponCode   string               `json:"couponCode,omitempty"`
+	Kind                 PurchaseOrderKind        `json:"kind" binding:"required,oneof=subscription balance_topup"`
+	ProductID            string                   `json:"productId,omitempty"`
+	AmountUsd            string                   `json:"amountUsd,omitempty"`
+	DeliveryMode         PurchaseDeliveryMode     `json:"deliveryMode" binding:"omitempty,oneof=account redeem_code"`
+	CouponCode           string                   `json:"couponCode,omitempty"`
+	SubscriptionMode     PurchaseSubscriptionMode `json:"subscriptionMode,omitempty" binding:"omitempty,oneof=new renew"`
+	TargetSubscriptionID string                   `json:"targetSubscriptionId,omitempty"`
 }
 
 type PurchaseQuoteResponse struct {
-	Kind                  PurchaseOrderKind    `json:"kind"`
-	ProductID             string               `json:"productId"`
-	ProductName           string               `json:"productName"`
-	OrderKindLabel        string               `json:"orderKindLabel"`
-	DeliveryMode          PurchaseDeliveryMode `json:"deliveryMode"`
-	OriginalAmountCNYCent int64                `json:"originalAmountCnyCent"`
-	DiscountCNYCent       int64                `json:"discountCnyCent"`
-	FinalAmountCNYCent    int64                `json:"finalAmountCnyCent"`
-	BalanceTopupMicros    int64                `json:"balanceTopupMicros"`
-	Coupon                *PurchaseCouponQuote `json:"coupon"`
+	Kind                  PurchaseOrderKind        `json:"kind"`
+	ProductID             string                   `json:"productId"`
+	ProductName           string                   `json:"productName"`
+	OrderKindLabel        string                   `json:"orderKindLabel"`
+	DeliveryMode          PurchaseDeliveryMode     `json:"deliveryMode"`
+	SubscriptionMode      PurchaseSubscriptionMode `json:"subscriptionMode,omitempty"`
+	TargetSubscriptionID  string                   `json:"targetSubscriptionId,omitempty"`
+	OriginalAmountCNYCent int64                    `json:"originalAmountCnyCent"`
+	DiscountCNYCent       int64                    `json:"discountCnyCent"`
+	FinalAmountCNYCent    int64                    `json:"finalAmountCnyCent"`
+	BalanceTopupMicros    int64                    `json:"balanceTopupMicros"`
+	Coupon                *PurchaseCouponQuote     `json:"coupon"`
 }
