@@ -107,8 +107,6 @@ export default function SubscriptionPlans() {
   const [formName, setFormName] = useState('')
   const [formDescription, setFormDescription] = useState('')
   const [formEnabled, setFormEnabled] = useState(true)
-  const [formUpgradeRank, setFormUpgradeRank] = useState(0)
-  const [formUpgradeValuationCnyPerDay, setFormUpgradeValuationCnyPerDay] = useState('0.00')
   const [formLimits, setFormLimits] = useState<LimitRow[]>([])
   const [saving, setSaving] = useState(false)
   const [deleteConfirmModal, setDeleteConfirmModal] = useState<SubscriptionPlanResponse | null>(null)
@@ -138,8 +136,6 @@ export default function SubscriptionPlans() {
     setFormName('')
     setFormDescription('')
     setFormEnabled(true)
-    setFormUpgradeRank(0)
-    setFormUpgradeValuationCnyPerDay('0.00')
     setFormLimits([])
     setShowForm(true)
   }
@@ -149,8 +145,6 @@ export default function SubscriptionPlans() {
     setFormName(plan.name)
     setFormDescription(plan.description)
     setFormEnabled(plan.enabled)
-    setFormUpgradeRank(plan.upgradeRank || 0)
-    setFormUpgradeValuationCnyPerDay(((plan.upgradeValuationCnyCentPerDay || 0) / 100).toFixed(2))
     setFormLimits(
       (plan.limits || []).map((limit) => ({
         limitType: limit.limitType,
@@ -188,8 +182,6 @@ export default function SubscriptionPlans() {
       name: formName.trim(),
       description: formDescription.trim(),
       enabled: formEnabled,
-      upgradeRank: formUpgradeRank,
-      upgradeValuationCnyCentPerDay: Math.max(0, Math.round(Number.parseFloat(formUpgradeValuationCnyPerDay || '0') * 100)),
       limits,
     }
 
@@ -303,14 +295,6 @@ export default function SubscriptionPlans() {
 
                       <div className="mt-3 grid gap-2 text-sm">
                         <div className="flex items-center justify-between gap-3">
-                          <span className="text-muted-foreground">升级级别</span>
-                          <span>{plan.upgradeRank}</span>
-                        </div>
-                        <div className="flex items-center justify-between gap-3">
-                          <span className="text-muted-foreground">估值/天</span>
-                          <span>¥{((plan.upgradeValuationCnyCentPerDay || 0) / 100).toFixed(2)}</span>
-                        </div>
-                        <div className="flex items-center justify-between gap-3">
                           <span className="text-muted-foreground">创建时间</span>
                           <span>{formatDateTime(plan.createdAt)}</span>
                         </div>
@@ -362,8 +346,6 @@ export default function SubscriptionPlans() {
                       <TableHead>名称</TableHead>
                       <TableHead>描述</TableHead>
                       <TableHead>状态</TableHead>
-                      <TableHead>升级级别</TableHead>
-                      <TableHead>估值/天</TableHead>
                       <TableHead>限制数量</TableHead>
                       <TableHead>限制详情</TableHead>
                       <TableHead>创建时间</TableHead>
@@ -387,8 +369,6 @@ export default function SubscriptionPlans() {
                         <TableCell>
                           <Switch checked={plan.enabled} onCheckedChange={() => handleToggleEnabled(plan)} />
                         </TableCell>
-                        <TableCell>{plan.upgradeRank}</TableCell>
-                        <TableCell>¥{((plan.upgradeValuationCnyCentPerDay || 0) / 100).toFixed(2)}</TableCell>
                         <TableCell>{(plan.limits || []).length}</TableCell>
                         <TableCell className="max-w-[360px]">
                           <OverflowCopyText
@@ -449,30 +429,6 @@ export default function SubscriptionPlans() {
                 </div>
                 <Switch id="planEnabled" checked={formEnabled} onCheckedChange={setFormEnabled} />
               </div>
-              <div className="grid gap-4 md:grid-cols-2">
-                <div className="space-y-2">
-                  <Label htmlFor="planUpgradeRank">升级级别</Label>
-                  <Input
-                    id="planUpgradeRank"
-                    type="number"
-                    min="0"
-                    value={formUpgradeRank}
-                    onChange={(e) => setFormUpgradeRank(Number.parseInt(e.target.value || '0', 10))}
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="planUpgradeValuation">估值/天</Label>
-                  <Input
-                    id="planUpgradeValuation"
-                    type="number"
-                    min="0"
-                    step="0.01"
-                    value={formUpgradeValuationCnyPerDay}
-                    onChange={(e) => setFormUpgradeValuationCnyPerDay(e.target.value)}
-                  />
-                </div>
-              </div>
-
               <div className="space-y-3">
                 <div className="flex items-center justify-between">
                   <Label>额度限制</Label>

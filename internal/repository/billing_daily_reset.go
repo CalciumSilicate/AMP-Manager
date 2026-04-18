@@ -54,7 +54,7 @@ func (r *BillingDailyResetRepository) GetLatestForWindow(userSubscriptionID stri
 		`SELECT id, user_id, user_subscription_id, window_start, window_end,
 		        used_micros_before_reset, expires_at_before, expires_at_after, created_at
 		 FROM billing_daily_reset_records
-		 WHERE user_subscription_id = ? AND window_start = ? AND window_end = ?
+		 WHERE user_subscription_id = ? AND created_at >= ? AND created_at < ?
 		 ORDER BY created_at DESC
 		 LIMIT 1`,
 		userSubscriptionID,

@@ -33,8 +33,6 @@ export interface SubscriptionPlanResponse {
   name: string
   description: string
   enabled: boolean
-  upgradeRank: number
-  upgradeValuationCnyCentPerDay: number
   limits: SubscriptionPlanLimit[]
   createdAt: string
   updatedAt: string
@@ -51,8 +49,6 @@ export interface SubscriptionPlanRequest {
   name: string
   description: string
   enabled: boolean
-  upgradeRank: number
-  upgradeValuationCnyCentPerDay: number
   limits: PlanLimitRequest[]
 }
 
@@ -61,7 +57,6 @@ export interface UserSubscriptionResponse {
   userId: string
   planId: string
   planName: string
-  planUpgradeRank: number
   startsAt: string
   expiresAt: string | null
   status: SubscriptionStatus

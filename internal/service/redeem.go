@@ -534,8 +534,33 @@ func (s *RedeemService) Redeem(_ context.Context, userID, username, rawCode stri
 	if err != nil {
 		return nil, err
 	}
-	if activeSub != nil && lookup.SubscriptionDurationDays > 0 && actionSnapshot == nil {
-		if activeSub.PlanID != lookup.SubscriptionPlanID {
+	rewardPlanID := lookup.SubscriptionPlanID
+	rewardDurationDays := lookup.SubscriptionDurationDays
+	rewardBalanceMicros := lookup.BalanceMicros
+	if actionSnapshot != nil {
+		switch actionSnapshot.ProductKind {
+		case model.PurchaseProductKindSubscription, model.PurchaseProductKindBalanceTopup:
+			if strings.TrimSpace(actionSnapshot.PlanID) != "" {
+				rewardPlanID = strings.TrimSpace(actionSnapshot.PlanID)
+			}
+			if actionSnapshot.DurationDays > 0 {
+				rewardDurationDays = actionSnapshot.DurationDays
+			}
+			if actionSnapshot.BalanceTopupMicros > 0 {
+				rewardBalanceMicros = actionSnapshot.BalanceTopupMicros
+			}
+		default:
+			if err := s.insertRejectedLookupTx(tx, lookup, userID, username, codeInput, ErrRedeemRewardInvalid.Error(), now); err != nil {
+				return nil, err
+			}
+			if err := tx.Commit(); err != nil {
+				return nil, err
+			}
+			return nil, ErrRedeemRewardInvalid
+		}
+	}
+	if activeSub != nil && rewardDurationDays > 0 {
+		if activeSub.PlanID != rewardPlanID {
 			if err := s.insertRejectedLookupTx(tx, lookup, userID, username, codeInput, ErrDifferentPlanActive.Error(), now); err != nil {
 				return nil, err
 			}
@@ -556,58 +581,12 @@ func (s *RedeemService) Redeem(_ context.Context, userID, username, rawCode stri
 	}
 
 	var grantedSub *model.UserSubscription
-	switch {
-	case actionSnapshot != nil && actionSnapshot.ProductKind == model.PurchaseProductKindOverwrite:
-		grantedSub, err = s.grantSvc.OverwriteSubscriptionTx(
-			tx,
-			userID,
-			actionSnapshot.PlanID,
-			actionSnapshot.DurationDays,
-			model.SubscriptionEntitlementSourceRedeem,
-			lookup.CodeID,
-			now,
-		)
-		if err != nil {
-			return nil, err
-		}
-	case actionSnapshot != nil && actionSnapshot.ProductKind == model.PurchaseProductKindBoostQuota:
-		grantedSub, _, err = s.grantSvc.CreateBoostTimelineTx(
-			tx,
-			userID,
-			actionSnapshot.PlanID,
-			actionSnapshot.DurationDays,
-			model.SubscriptionEntitlementSourceRedeem,
-			lookup.CodeID,
-			now,
-		)
-		if err != nil {
-			return nil, err
-		}
-		if actionSnapshot.BalanceTopupMicros > 0 {
-			lookup.BalanceMicros = actionSnapshot.BalanceTopupMicros
-		}
-	case actionSnapshot != nil && (actionSnapshot.ProductKind == model.PurchaseProductKindExtendDuration || actionSnapshot.ProductKind == model.PurchaseProductKindSubscription):
+	if rewardDurationDays > 0 {
 		grantedSub, err = s.grantSvc.GrantSubscriptionTxWithSource(
 			tx,
 			userID,
-			actionSnapshot.PlanID,
-			actionSnapshot.DurationDays,
-			model.SubscriptionEntitlementSourceRedeem,
-			lookup.CodeID,
-			now,
-		)
-		if err != nil {
-			return nil, err
-		}
-		if actionSnapshot.BalanceTopupMicros > 0 {
-			lookup.BalanceMicros = actionSnapshot.BalanceTopupMicros
-		}
-	case lookup.SubscriptionDurationDays > 0:
-		grantedSub, err = s.grantSvc.GrantSubscriptionTxWithSource(
-			tx,
-			userID,
-			lookup.SubscriptionPlanID,
-			lookup.SubscriptionDurationDays,
+			rewardPlanID,
+			rewardDurationDays,
 			model.SubscriptionEntitlementSourceRedeem,
 			lookup.CodeID,
 			now,
@@ -617,7 +596,7 @@ func (s *RedeemService) Redeem(_ context.Context, userID, username, rawCode stri
 		}
 	}
 
-	balanceAfterMicros, err := s.grantSvc.GrantBalanceTx(tx, userID, lookup.BalanceMicros, now)
+	balanceAfterMicros, err := s.grantSvc.GrantBalanceTx(tx, userID, rewardBalanceMicros, now)
 	if err != nil {
 		return nil, err
 	}
@@ -660,9 +639,9 @@ func (s *RedeemService) Redeem(_ context.Context, userID, username, rawCode stri
 		Username:                 username,
 		CodeInput:                codeInput,
 		CodeMask:                 lookup.CodeMask,
-		SubscriptionPlanID:       lookup.SubscriptionPlanID,
-		SubscriptionDurationDays: lookup.SubscriptionDurationDays,
-		BalanceMicros:            lookup.BalanceMicros,
+		SubscriptionPlanID:       rewardPlanID,
+		SubscriptionDurationDays: rewardDurationDays,
+		BalanceMicros:            rewardBalanceMicros,
 		RewardSnapshotJSON:       lookup.RewardSnapshotJSON,
 		Status:                   model.RedeemRedemptionStatusSuccess,
 		GrantedSubscriptionID:    "",
@@ -687,10 +666,10 @@ func (s *RedeemService) Redeem(_ context.Context, userID, username, rawCode stri
 			UserID:           userID,
 			RefreshUserState: true,
 		}
-	} else if lookup.BalanceMicros > 0 {
+	} else if rewardBalanceMicros > 0 {
 		syncAction = BillingStateSyncAction{
 			UserID:             userID,
-			BalanceDeltaMicros: lookup.BalanceMicros,
+			BalanceDeltaMicros: rewardBalanceMicros,
 		}
 	}
 

@@ -167,8 +167,37 @@ func (s *BillingService) ResetDailyBilling(userID string) (*model.BillingStateRe
 			return nil, err
 		}
 	}
-
-	return s.GetBillingState(userID)
+	state, err := s.GetBillingState(userID)
+	if err != nil {
+		return nil, err
+	}
+	if state.Subscription != nil {
+		state.Subscription.ExpiresAt = &expiresAtAfter
+	}
+	for idx := range state.Windows {
+		window := &state.Windows[idx]
+		if window.LimitType == model.LimitTypeDaily &&
+			window.WindowMode == model.WindowModeFixed &&
+			window.WindowStart.Equal(evaluation.window.WindowStart) &&
+			window.WindowEnd.Equal(evaluation.window.WindowEnd) {
+			window.UsedMicros = 0
+			window.LeftMicros = window.LimitMicros
+		}
+	}
+	state.DailyReset.Allowed = false
+	state.DailyReset.CurrentUsagePercent = 0
+	state.DailyReset.Message = fmt.Sprintf("今日用量需高于 %d%% 才可重置", evaluation.config.UsageThresholdPercent)
+	location, err := s.quotaSvc.getSiteLocation()
+	if err == nil {
+		dayStart, dayEnd := getDayBounds(now, location)
+		if usedToday, countErr := repository.NewBillingDailyResetRepository().CountByUserBetween(userID, dayStart, dayEnd); countErr == nil {
+			state.DailyReset.UsedToday = usedToday
+			if usedToday >= evaluation.config.DailyLimit {
+				state.DailyReset.Message = fmt.Sprintf("今日最多可重置 %d 次", evaluation.config.DailyLimit)
+			}
+		}
+	}
+	return state, nil
 }
 
 func (s *BillingService) evaluateBillingDailyReset(
@@ -375,7 +404,7 @@ func queryBillingUsageInWindowTx(
 		err := tx.QueryRow(
 			`SELECT created_at
 			 FROM billing_daily_reset_records
-			 WHERE user_subscription_id = ? AND window_start = ? AND window_end = ?
+			 WHERE user_subscription_id = ? AND created_at >= ? AND created_at < ?
 			 ORDER BY created_at DESC
 			 LIMIT 1`,
 			userSubscriptionID,

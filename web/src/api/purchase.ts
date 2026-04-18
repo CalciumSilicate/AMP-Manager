@@ -57,7 +57,7 @@ export interface PurchaseProduct {
   summary: string
   subscriptionPlanId: string
   subscriptionPlanName: string
-  subscriptionPlanUpgradeRank: number
+  productKind: 'subscription' | 'balance_topup'
   durationDays: number
   priceCnyCent: number
   groupName: string
@@ -102,11 +102,6 @@ export interface PurchaseOrder {
   paymentChannel: 'alipay'
   paymentStatus: PurchasePaymentStatus
   fulfillmentStatus: PurchaseFulfillmentStatus
-  upgradeSourcePlanId: string
-  upgradeSourcePlanName: string
-  upgradeSourceExpiresAt: string | null
-  upgradeCreditCnyCent: number
-  upgradeLockedTargetSeconds: number
   couponCampaignId: string
   couponCampaignName: string
   couponCodeId: string
@@ -171,7 +166,6 @@ export interface PurchaseQuoteResponse {
   orderKindLabel: string
   deliveryMode: 'account' | 'redeem_code'
   originalAmountCnyCent: number
-  upgradeCreditCnyCent: number
   discountCnyCent: number
   finalAmountCnyCent: number
   balanceTopupMicros: number

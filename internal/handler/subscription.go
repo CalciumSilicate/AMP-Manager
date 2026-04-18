@@ -201,6 +201,10 @@ func (h *SubscriptionHandler) AssignSubscription(c *gin.Context) {
 			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 			return
 		}
+		if errors.Is(err, service.ErrDifferentPlanActive) || errors.Is(err, service.ErrPermanentSubscription) {
+			c.JSON(http.StatusConflict, gin.H{"error": err.Error()})
+			return
+		}
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "分配订阅失败"})
 		return
 	}

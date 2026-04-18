@@ -5,6 +5,7 @@ import (
 	"math"
 	"time"
 
+	"ampmanager/internal/database"
 	"ampmanager/internal/model"
 	"ampmanager/internal/repository"
 )
@@ -162,19 +163,16 @@ func (s *QuotaService) GetSubscriptionRemaining(userID string) (int64, []model.W
 	if len(limits) == 0 {
 		return 0, nil, nil
 	}
-	if s.runtimeRepo != nil {
-		if resolved, _, _, resolveErr := s.runtimeRepo.ResolveEffectiveLimitsBySubscription(sub, limits, time.Now().UTC()); resolveErr != nil {
-			return 0, nil, resolveErr
-		} else if len(resolved) > 0 {
-			limits = resolved
-		}
-	}
-
 	now := time.Now().UTC()
 	location, err := s.getSiteLocation()
 	if err != nil {
 		return 0, nil, err
 	}
+	tx, err := database.GetDB().Begin()
+	if err != nil {
+		return 0, nil, err
+	}
+	defer tx.Rollback()
 	windows := make([]model.WindowRemaining, 0, len(limits))
 	minRemaining := int64(math.MaxInt64)
 
@@ -184,7 +182,7 @@ func (s *QuotaService) GetSubscriptionRemaining(userID string) (int64, []model.W
 			return 0, nil, err
 		}
 
-		used, err := s.eventRepo.GetUsageInWindowForLimit(sub.ID, limit.LimitType, limit.WindowMode, start, end)
+		used, err := queryBillingUsageInWindowTx(tx, sub.ID, limit.LimitType, limit.WindowMode, start, end)
 		if err != nil {
 			return 0, nil, err
 		}

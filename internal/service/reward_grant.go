@@ -149,18 +149,6 @@ func (s *RewardGrantService) GrantSubscriptionTxWithSource(
 		); err != nil {
 			return nil, err
 		}
-		if err := s.entitlementRepo.CreateTx(tx, &model.SubscriptionEntitlement{
-			UserID:                 userID,
-			PlanID:                 planID,
-			SourceType:             sourceType,
-			SourceRefID:            strings.TrimSpace(sourceRefID),
-			ValuationCnyCentPerDay: plan.UpgradeValuationCnyCentPerDay,
-			StartsAt:               now,
-			ExpiresAt:              sub.ExpiresAt,
-			Status:                 model.SubscriptionEntitlementStatusActive,
-		}); err != nil {
-			return nil, err
-		}
 		return sub, nil
 	}
 
@@ -182,18 +170,6 @@ func (s *RewardGrantService) GrantSubscriptionTxWithSource(
 		now,
 		activeSub.ID,
 	); err != nil {
-		return nil, err
-	}
-	if err := s.entitlementRepo.CreateTx(tx, &model.SubscriptionEntitlement{
-		UserID:                 userID,
-		PlanID:                 planID,
-		SourceType:             sourceType,
-		SourceRefID:            strings.TrimSpace(sourceRefID),
-		ValuationCnyCentPerDay: plan.UpgradeValuationCnyCentPerDay,
-		StartsAt:               base,
-		ExpiresAt:              &expiresAt,
-		Status:                 model.SubscriptionEntitlementStatusActive,
-	}); err != nil {
 		return nil, err
 	}
 	activeSub.ExpiresAt = &expiresAt
@@ -301,9 +277,6 @@ func (s *RewardGrantService) OverwriteSubscriptionTx(
 		}
 		activeSub = sub
 	} else {
-		if err := s.entitlementRepo.CancelActiveByUserTx(tx, userID, now); err != nil {
-			return nil, err
-		}
 		if _, err := tx.Exec(
 			`UPDATE user_subscriptions
 			    SET plan_id = ?, starts_at = ?, expires_at = ?, updated_at = ?
@@ -324,19 +297,6 @@ func (s *RewardGrantService) OverwriteSubscriptionTx(
 		activeSub.StartsAt = now
 		activeSub.ExpiresAt = &expiresAt
 		activeSub.UpdatedAt = now
-	}
-
-	if err := s.entitlementRepo.CreateTx(tx, &model.SubscriptionEntitlement{
-		UserID:                 userID,
-		PlanID:                 planID,
-		SourceType:             sourceType,
-		SourceRefID:            strings.TrimSpace(sourceRefID),
-		ValuationCnyCentPerDay: plan.UpgradeValuationCnyCentPerDay,
-		StartsAt:               now,
-		ExpiresAt:              &expiresAt,
-		Status:                 model.SubscriptionEntitlementStatusActive,
-	}); err != nil {
-		return nil, err
 	}
 	return activeSub, nil
 }

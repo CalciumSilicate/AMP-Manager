@@ -21,18 +21,14 @@ var (
 )
 
 type UserSubscriptionService struct {
-	subRepo     repository.UserSubscriptionRepositoryInterface
-	planRepo    repository.SubscriptionPlanRepositoryInterface
-	entRepo     repository.SubscriptionEntitlementRepositoryInterface
-	runtimeRepo *repository.SubscriptionRuntimeRepository
+	subRepo  repository.UserSubscriptionRepositoryInterface
+	planRepo repository.SubscriptionPlanRepositoryInterface
 }
 
 func NewUserSubscriptionService() *UserSubscriptionService {
 	return &UserSubscriptionService{
-		subRepo:     repository.NewUserSubscriptionRepository(),
-		planRepo:    repository.NewSubscriptionPlanRepository(),
-		entRepo:     repository.NewSubscriptionEntitlementRepository(),
-		runtimeRepo: repository.NewSubscriptionRuntimeRepository(),
+		subRepo:  repository.NewUserSubscriptionRepository(),
+		planRepo: repository.NewSubscriptionPlanRepository(),
 	}
 }
 
@@ -41,10 +37,8 @@ func NewUserSubscriptionServiceWithRepo(
 	planRepo repository.SubscriptionPlanRepositoryInterface,
 ) *UserSubscriptionService {
 	return &UserSubscriptionService{
-		subRepo:     subRepo,
-		planRepo:    planRepo,
-		entRepo:     repository.NewSubscriptionEntitlementRepository(),
-		runtimeRepo: repository.NewSubscriptionRuntimeRepository(),
+		subRepo:  subRepo,
+		planRepo: planRepo,
 	}
 }
 
@@ -67,25 +61,40 @@ func (s *UserSubscriptionService) Assign(userID string, req *model.AssignSubscri
 	}
 	defer tx.Rollback()
 
-	var existingID string
+	var (
+		existingID     string
+		existingPlanID string
+		existingExpiry *time.Time
+	)
 	now := time.Now().UTC()
 	err = tx.QueryRow(
-		`SELECT id FROM user_subscriptions WHERE user_id = ? AND status = 'active' AND (expires_at IS NULL OR expires_at > ?)`,
+		`SELECT id, plan_id, expires_at FROM user_subscriptions WHERE user_id = ? AND status = 'active' AND (expires_at IS NULL OR expires_at > ?)`,
 		userID, now,
-	).Scan(&existingID)
+	).Scan(&existingID, &existingPlanID, &existingExpiry)
 	if err != nil && err != sql.ErrNoRows {
 		return nil, err
 	}
 	if existingID != "" {
+		if existingExpiry == nil {
+			return nil, ErrPermanentSubscription
+		}
+		if existingPlanID != req.PlanID {
+			return nil, ErrDifferentPlanActive
+		}
 		if _, err := tx.Exec(
-			`UPDATE user_subscriptions SET status = ?, updated_at = ? WHERE id = ?`,
-			model.SubscriptionStatusCancelled, now, existingID,
+			`UPDATE user_subscriptions SET expires_at = ?, updated_at = ? WHERE id = ?`,
+			req.ExpiresAt, now, existingID,
 		); err != nil {
 			return nil, err
 		}
-		if err := s.entRepo.CancelActiveByUserTx(tx, userID, now); err != nil {
+		if err := tx.Commit(); err != nil {
+			return nil, fmt.Errorf("assign subscription: commit: %w", err)
+		}
+		sub, err := s.subRepo.GetActiveByUserID(userID)
+		if err != nil {
 			return nil, err
 		}
+		return buildUserSubscriptionResponse(sub, plan.Name, limits), nil
 	}
 
 	sub := &model.UserSubscription{
@@ -105,18 +114,6 @@ func (s *UserSubscriptionService) Assign(userID string, req *model.AssignSubscri
 	); err != nil {
 		return nil, err
 	}
-	if err := s.entRepo.CreateTx(tx, &model.SubscriptionEntitlement{
-		UserID:                 userID,
-		PlanID:                 req.PlanID,
-		SourceType:             model.SubscriptionEntitlementSourceAdminAssign,
-		SourceRefID:            sub.ID,
-		ValuationCnyCentPerDay: plan.UpgradeValuationCnyCentPerDay,
-		StartsAt:               sub.StartsAt,
-		ExpiresAt:              sub.ExpiresAt,
-		Status:                 model.SubscriptionEntitlementStatusActive,
-	}); err != nil {
-		return nil, err
-	}
 
 	if err := tx.Commit(); err != nil {
 		return nil, fmt.Errorf("assign subscription: commit: %w", err)
@@ -128,19 +125,7 @@ func (s *UserSubscriptionService) Assign(userID string, req *model.AssignSubscri
 		}
 	}
 
-	return &model.UserSubscriptionResponse{
-		ID:              sub.ID,
-		UserID:          sub.UserID,
-		PlanID:          sub.PlanID,
-		PlanName:        plan.Name,
-		PlanUpgradeRank: plan.UpgradeRank,
-		StartsAt:        sub.StartsAt,
-		ExpiresAt:       sub.ExpiresAt,
-		Status:          sub.Status,
-		Limits:          limits,
-		CreatedAt:       sub.CreatedAt,
-		UpdatedAt:       sub.UpdatedAt,
-	}, nil
+	return buildUserSubscriptionResponse(sub, plan.Name, limits), nil
 }
 
 func (s *UserSubscriptionService) GetActive(userID string) (*model.UserSubscriptionResponse, error) {
@@ -162,32 +147,7 @@ func (s *UserSubscriptionService) GetActive(userID string) (*model.UserSubscript
 		planName = plan.Name
 	}
 
-	resp := &model.UserSubscriptionResponse{
-		ID:       sub.ID,
-		UserID:   sub.UserID,
-		PlanID:   sub.PlanID,
-		PlanName: planName,
-		PlanUpgradeRank: func() int {
-			if plan != nil {
-				return plan.UpgradeRank
-			}
-			return 0
-		}(),
-		StartsAt:  sub.StartsAt,
-		ExpiresAt: sub.ExpiresAt,
-		Status:    sub.Status,
-		Limits:    limits,
-		CreatedAt: sub.CreatedAt,
-		UpdatedAt: sub.UpdatedAt,
-	}
-	if s.runtimeRepo != nil {
-		if effective, timeline, _, err := s.runtimeRepo.ResolveEffectiveLimitsBySubscription(sub, limits, time.Now().UTC()); err == nil {
-			resp.EffectiveLimits = effective
-			resp.Timeline = timeline
-			resp.FinalExpiresAt = sub.ExpiresAt
-		}
-	}
-	return resp, nil
+	return buildUserSubscriptionResponse(sub, planName, limits), nil
 }
 
 func (s *UserSubscriptionService) Cancel(userID string) error {
@@ -212,9 +172,6 @@ func (s *UserSubscriptionService) Cancel(userID string) error {
 	); err != nil {
 		return err
 	}
-	if err := s.entRepo.CancelActiveByUserTx(tx, userID, time.Now().UTC()); err != nil {
-		return err
-	}
 	if err := tx.Commit(); err != nil {
 		return err
 	}
@@ -232,10 +189,6 @@ func (s *UserSubscriptionService) UpdateExpiry(userID string, expiresAt time.Tim
 	if sub == nil {
 		return ErrNoActiveSubscription
 	}
-	plan, _, err := s.planRepo.GetByID(sub.PlanID)
-	if err != nil {
-		return err
-	}
 	db := database.GetDB()
 	tx, err := db.Begin()
 	if err != nil {
@@ -248,26 +201,6 @@ func (s *UserSubscriptionService) UpdateExpiry(userID string, expiresAt time.Tim
 		time.Now().UTC(),
 		sub.ID,
 	); err != nil {
-		return err
-	}
-	if err := s.entRepo.CancelActiveByUserTx(tx, userID, time.Now().UTC()); err != nil {
-		return err
-	}
-	if err := s.entRepo.CreateTx(tx, &model.SubscriptionEntitlement{
-		UserID:      userID,
-		PlanID:      sub.PlanID,
-		SourceType:  model.SubscriptionEntitlementSourceAdminAdjust,
-		SourceRefID: sub.ID,
-		ValuationCnyCentPerDay: func() int64 {
-			if plan != nil {
-				return plan.UpgradeValuationCnyCentPerDay
-			}
-			return 0
-		}(),
-		StartsAt:  sub.StartsAt,
-		ExpiresAt: &expiresAt,
-		Status:    model.SubscriptionEntitlementStatusActive,
-	}); err != nil {
 		return err
 	}
 	if err := tx.Commit(); err != nil {
@@ -295,24 +228,26 @@ func (s *UserSubscriptionService) ListByUserID(userID string) ([]*model.UserSubs
 		if plan != nil {
 			planName = plan.Name
 		}
-		result[i] = &model.UserSubscriptionResponse{
-			ID:       sub.ID,
-			UserID:   sub.UserID,
-			PlanID:   sub.PlanID,
-			PlanName: planName,
-			PlanUpgradeRank: func() int {
-				if plan != nil {
-					return plan.UpgradeRank
-				}
-				return 0
-			}(),
-			StartsAt:  sub.StartsAt,
-			ExpiresAt: sub.ExpiresAt,
-			Status:    sub.Status,
-			Limits:    limits,
-			CreatedAt: sub.CreatedAt,
-			UpdatedAt: sub.UpdatedAt,
-		}
+		result[i] = buildUserSubscriptionResponse(sub, planName, limits)
 	}
 	return result, nil
+}
+
+func buildUserSubscriptionResponse(sub *model.UserSubscription, planName string, limits []model.SubscriptionPlanLimit) *model.UserSubscriptionResponse {
+	if sub == nil {
+		return nil
+	}
+
+	return &model.UserSubscriptionResponse{
+		ID:        sub.ID,
+		UserID:    sub.UserID,
+		PlanID:    sub.PlanID,
+		PlanName:  planName,
+		StartsAt:  sub.StartsAt,
+		ExpiresAt: sub.ExpiresAt,
+		Status:    sub.Status,
+		Limits:    limits,
+		CreatedAt: sub.CreatedAt,
+		UpdatedAt: sub.UpdatedAt,
+	}
 }

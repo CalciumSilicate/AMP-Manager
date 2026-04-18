@@ -177,7 +177,6 @@ type PurchaseQuoteResponse struct {
 	OrderKindLabel        string               `json:"orderKindLabel"`
 	DeliveryMode          PurchaseDeliveryMode `json:"deliveryMode"`
 	OriginalAmountCNYCent int64                `json:"originalAmountCnyCent"`
-	UpgradeCreditCNYCent  int64                `json:"upgradeCreditCnyCent"`
 	DiscountCNYCent       int64                `json:"discountCnyCent"`
 	FinalAmountCNYCent    int64                `json:"finalAmountCnyCent"`
 	BalanceTopupMicros    int64                `json:"balanceTopupMicros"`

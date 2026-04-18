@@ -109,11 +109,9 @@ func (s *SubscriptionPlanService) Create(req *model.SubscriptionPlanRequest) (*m
 	}
 
 	plan := &model.SubscriptionPlan{
-		Name:                          req.Name,
-		Description:                   req.Description,
-		Enabled:                       req.Enabled,
-		UpgradeRank:                   req.UpgradeRank,
-		UpgradeValuationCnyCentPerDay: req.UpgradeValuationCnyCentPerDay,
+		Name:        req.Name,
+		Description: req.Description,
+		Enabled:     req.Enabled,
 	}
 
 	limits, err := s.buildPlanLimits(req.Limits)
@@ -126,15 +124,13 @@ func (s *SubscriptionPlanService) Create(req *model.SubscriptionPlanRequest) (*m
 	}
 
 	return &model.SubscriptionPlanResponse{
-		ID:                            plan.ID,
-		Name:                          plan.Name,
-		Description:                   plan.Description,
-		Enabled:                       plan.Enabled,
-		UpgradeRank:                   plan.UpgradeRank,
-		UpgradeValuationCnyCentPerDay: plan.UpgradeValuationCnyCentPerDay,
-		Limits:                        limits,
-		CreatedAt:                     plan.CreatedAt,
-		UpdatedAt:                     plan.UpdatedAt,
+		ID:          plan.ID,
+		Name:        plan.Name,
+		Description: plan.Description,
+		Enabled:     plan.Enabled,
+		Limits:      limits,
+		CreatedAt:   plan.CreatedAt,
+		UpdatedAt:   plan.UpdatedAt,
 	}, nil
 }
 
@@ -148,15 +144,13 @@ func (s *SubscriptionPlanService) GetByID(id string) (*model.SubscriptionPlanRes
 	}
 
 	return &model.SubscriptionPlanResponse{
-		ID:                            plan.ID,
-		Name:                          plan.Name,
-		Description:                   plan.Description,
-		Enabled:                       plan.Enabled,
-		UpgradeRank:                   plan.UpgradeRank,
-		UpgradeValuationCnyCentPerDay: plan.UpgradeValuationCnyCentPerDay,
-		Limits:                        limits,
-		CreatedAt:                     plan.CreatedAt,
-		UpdatedAt:                     plan.UpdatedAt,
+		ID:          plan.ID,
+		Name:        plan.Name,
+		Description: plan.Description,
+		Enabled:     plan.Enabled,
+		Limits:      limits,
+		CreatedAt:   plan.CreatedAt,
+		UpdatedAt:   plan.UpdatedAt,
 	}, nil
 }
 
@@ -169,15 +163,13 @@ func (s *SubscriptionPlanService) List() ([]*model.SubscriptionPlanResponse, err
 	result := make([]*model.SubscriptionPlanResponse, len(plans))
 	for i, p := range plans {
 		result[i] = &model.SubscriptionPlanResponse{
-			ID:                            p.ID,
-			Name:                          p.Name,
-			Description:                   p.Description,
-			Enabled:                       p.Enabled,
-			UpgradeRank:                   p.UpgradeRank,
-			UpgradeValuationCnyCentPerDay: p.UpgradeValuationCnyCentPerDay,
-			Limits:                        limitsMap[p.ID],
-			CreatedAt:                     p.CreatedAt,
-			UpdatedAt:                     p.UpdatedAt,
+			ID:          p.ID,
+			Name:        p.Name,
+			Description: p.Description,
+			Enabled:     p.Enabled,
+			Limits:      limitsMap[p.ID],
+			CreatedAt:   p.CreatedAt,
+			UpdatedAt:   p.UpdatedAt,
 		}
 	}
 	return result, nil
@@ -197,11 +189,9 @@ func (s *SubscriptionPlanService) Update(id string, req *model.SubscriptionPlanR
 	}
 
 	plan := &model.SubscriptionPlan{
-		Name:                          req.Name,
-		Description:                   req.Description,
-		Enabled:                       req.Enabled,
-		UpgradeRank:                   req.UpgradeRank,
-		UpgradeValuationCnyCentPerDay: req.UpgradeValuationCnyCentPerDay,
+		Name:        req.Name,
+		Description: req.Description,
+		Enabled:     req.Enabled,
 	}
 
 	limits, err := s.buildPlanLimits(req.Limits)

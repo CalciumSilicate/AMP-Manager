@@ -225,7 +225,7 @@ export default function PurchaseCenter() {
       }
     } catch (error) {
       const text = error instanceof Error ? error.message : '创建订单失败'
-      showMessage('error', deliveryMode === 'account' && /升级|切换|降级|订阅/.test(text) ? `${text}，可改为拿兑换码。` : text)
+      showMessage('error', text)
     } finally {
       setCreating(false)
     }
@@ -282,10 +282,7 @@ export default function PurchaseCenter() {
     if (current.planId === confirmProduct.subscriptionPlanId) {
       return ''
     }
-    if (confirmProduct.subscriptionPlanUpgradeRank > current.planUpgradeRank) {
-      return '直充会按升级处理；拿兑换码不会改当前账号。'
-    }
-    return '当前账号不能直充这档商品，可切换为拿兑换码。'
+    return '当前账号已有其他有效订阅，需先取消后再购买。'
   })()
 
   return (
