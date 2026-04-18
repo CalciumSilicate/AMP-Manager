@@ -69,6 +69,10 @@ type UserAPIKey struct {
 	CircuitBreakerConsecutiveErrors int        `json:"circuit_breaker_consecutive_errors"`
 	CircuitBreakerOpenedAt          *time.Time `json:"circuit_breaker_opened_at,omitempty"`
 	CircuitBreakerHalfOpenStartedAt *time.Time `json:"circuit_breaker_half_open_started_at,omitempty"`
+	SplitChannelTargetsBySource     bool       `json:"split_channel_targets_by_source"`
+	ChannelTargetsJSON              string     `json:"-"`
+	SubscriptionChannelTargetsJSON  string     `json:"-"`
+	UsageChannelTargetsJSON         string     `json:"-"`
 	CreatedAt                       time.Time  `json:"created_at"`
 }
 
@@ -107,22 +111,30 @@ type TestConnectionResponse struct {
 }
 
 type CreateAPIKeyRequest struct {
-	Name                          string     `json:"name" binding:"required,min=1,max=64"`
-	CustomKey                     string     `json:"customKey,omitempty"`
-	ExpiresAt                     *time.Time `json:"expiresAt,omitempty"`
-	CircuitBreakerThreshold       *int       `json:"circuitBreakerThreshold,omitempty" binding:"omitempty,min=1,max=1000"`
-	CircuitBreakerOpenMinutes     *int       `json:"circuitBreakerOpenMinutes,omitempty" binding:"omitempty,min=1,max=1440"`
-	CircuitBreakerHalfOpenMinutes *int       `json:"circuitBreakerHalfOpenMinutes,omitempty" binding:"omitempty,min=1,max=240"`
+	Name                          string                `json:"name" binding:"required,min=1,max=64"`
+	CustomKey                     string                `json:"customKey,omitempty"`
+	ExpiresAt                     *time.Time            `json:"expiresAt,omitempty"`
+	CircuitBreakerThreshold       *int                  `json:"circuitBreakerThreshold,omitempty" binding:"omitempty,min=1,max=1000"`
+	CircuitBreakerOpenMinutes     *int                  `json:"circuitBreakerOpenMinutes,omitempty" binding:"omitempty,min=1,max=1440"`
+	CircuitBreakerHalfOpenMinutes *int                  `json:"circuitBreakerHalfOpenMinutes,omitempty" binding:"omitempty,min=1,max=240"`
+	SplitChannelTargetsBySource   bool                  `json:"splitChannelTargetsBySource,omitempty"`
+	ChannelTargets                []APIKeyChannelTarget `json:"channelTargets,omitempty"`
+	SubscriptionChannelTargets    []APIKeyChannelTarget `json:"subscriptionChannelTargets,omitempty"`
+	UsageChannelTargets           []APIKeyChannelTarget `json:"usageChannelTargets,omitempty"`
 }
 
 type UpdateAPIKeyRequest struct {
-	Name                          string     `json:"name" binding:"required,min=1,max=64"`
-	APIKey                        string     `json:"apiKey,omitempty"`
-	ExpiresAt                     *time.Time `json:"expiresAt,omitempty"`
-	ClearExpiry                   bool       `json:"clearExpiry,omitempty"`
-	CircuitBreakerThreshold       *int       `json:"circuitBreakerThreshold,omitempty" binding:"omitempty,min=1,max=1000"`
-	CircuitBreakerOpenMinutes     *int       `json:"circuitBreakerOpenMinutes,omitempty" binding:"omitempty,min=1,max=1440"`
-	CircuitBreakerHalfOpenMinutes *int       `json:"circuitBreakerHalfOpenMinutes,omitempty" binding:"omitempty,min=1,max=240"`
+	Name                          string                `json:"name" binding:"required,min=1,max=64"`
+	APIKey                        string                `json:"apiKey,omitempty"`
+	ExpiresAt                     *time.Time            `json:"expiresAt,omitempty"`
+	ClearExpiry                   bool                  `json:"clearExpiry,omitempty"`
+	CircuitBreakerThreshold       *int                  `json:"circuitBreakerThreshold,omitempty" binding:"omitempty,min=1,max=1000"`
+	CircuitBreakerOpenMinutes     *int                  `json:"circuitBreakerOpenMinutes,omitempty" binding:"omitempty,min=1,max=1440"`
+	CircuitBreakerHalfOpenMinutes *int                  `json:"circuitBreakerHalfOpenMinutes,omitempty" binding:"omitempty,min=1,max=240"`
+	SplitChannelTargetsBySource   *bool                 `json:"splitChannelTargetsBySource,omitempty"`
+	ChannelTargets                []APIKeyChannelTarget `json:"channelTargets,omitempty"`
+	SubscriptionChannelTargets    []APIKeyChannelTarget `json:"subscriptionChannelTargets,omitempty"`
+	UsageChannelTargets           []APIKeyChannelTarget `json:"usageChannelTargets,omitempty"`
 }
 
 type UpdateAPIKeyStatusRequest struct {
@@ -130,30 +142,38 @@ type UpdateAPIKeyStatusRequest struct {
 }
 
 type CreateAPIKeyResponse struct {
-	ID                            string     `json:"id"`
-	Name                          string     `json:"name"`
-	Prefix                        string     `json:"prefix"`
-	APIKey                        string     `json:"apiKey"`
-	ExpiresAt                     *time.Time `json:"expiresAt,omitempty"`
-	CircuitBreakerThreshold       int        `json:"circuitBreakerThreshold"`
-	CircuitBreakerOpenMinutes     int        `json:"circuitBreakerOpenMinutes"`
-	CircuitBreakerHalfOpenMinutes int        `json:"circuitBreakerHalfOpenMinutes"`
-	CircuitBreakerState           string     `json:"circuitBreakerState"`
-	CreatedAt                     time.Time  `json:"createdAt"`
-	Message                       string     `json:"message"`
+	ID                            string                `json:"id"`
+	Name                          string                `json:"name"`
+	Prefix                        string                `json:"prefix"`
+	APIKey                        string                `json:"apiKey"`
+	ExpiresAt                     *time.Time            `json:"expiresAt,omitempty"`
+	CircuitBreakerThreshold       int                   `json:"circuitBreakerThreshold"`
+	CircuitBreakerOpenMinutes     int                   `json:"circuitBreakerOpenMinutes"`
+	CircuitBreakerHalfOpenMinutes int                   `json:"circuitBreakerHalfOpenMinutes"`
+	CircuitBreakerState           string                `json:"circuitBreakerState"`
+	SplitChannelTargetsBySource   bool                  `json:"splitChannelTargetsBySource"`
+	ChannelTargets                []APIKeyChannelTarget `json:"channelTargets"`
+	SubscriptionChannelTargets    []APIKeyChannelTarget `json:"subscriptionChannelTargets"`
+	UsageChannelTargets           []APIKeyChannelTarget `json:"usageChannelTargets"`
+	CreatedAt                     time.Time             `json:"createdAt"`
+	Message                       string                `json:"message"`
 }
 
 type APIKeyRevealResponse struct {
-	ID                            string     `json:"id"`
-	Name                          string     `json:"name"`
-	Prefix                        string     `json:"prefix"`
-	APIKey                        string     `json:"apiKey"`
-	ExpiresAt                     *time.Time `json:"expiresAt,omitempty"`
-	CircuitBreakerThreshold       int        `json:"circuitBreakerThreshold"`
-	CircuitBreakerOpenMinutes     int        `json:"circuitBreakerOpenMinutes"`
-	CircuitBreakerHalfOpenMinutes int        `json:"circuitBreakerHalfOpenMinutes"`
-	CircuitBreakerState           string     `json:"circuitBreakerState"`
-	CreatedAt                     time.Time  `json:"createdAt"`
+	ID                            string                `json:"id"`
+	Name                          string                `json:"name"`
+	Prefix                        string                `json:"prefix"`
+	APIKey                        string                `json:"apiKey"`
+	ExpiresAt                     *time.Time            `json:"expiresAt,omitempty"`
+	CircuitBreakerThreshold       int                   `json:"circuitBreakerThreshold"`
+	CircuitBreakerOpenMinutes     int                   `json:"circuitBreakerOpenMinutes"`
+	CircuitBreakerHalfOpenMinutes int                   `json:"circuitBreakerHalfOpenMinutes"`
+	CircuitBreakerState           string                `json:"circuitBreakerState"`
+	SplitChannelTargetsBySource   bool                  `json:"splitChannelTargetsBySource"`
+	ChannelTargets                []APIKeyChannelTarget `json:"channelTargets"`
+	SubscriptionChannelTargets    []APIKeyChannelTarget `json:"subscriptionChannelTargets"`
+	UsageChannelTargets           []APIKeyChannelTarget `json:"usageChannelTargets"`
+	CreatedAt                     time.Time             `json:"createdAt"`
 }
 
 type CCSwitchUsageItem struct {
@@ -168,22 +188,26 @@ type CCSwitchUsageItem struct {
 }
 
 type APIKeyListItem struct {
-	ID                              string     `json:"id"`
-	Name                            string     `json:"name"`
-	Prefix                          string     `json:"prefix"`
-	APIKey                          string     `json:"apiKey,omitempty"`
-	CreatedAt                       time.Time  `json:"createdAt"`
-	RevokedAt                       *time.Time `json:"revokedAt,omitempty"`
-	LastUsed                        *time.Time `json:"lastUsedAt,omitempty"`
-	ExpiresAt                       *time.Time `json:"expiresAt,omitempty"`
-	Status                          string     `json:"status"`
-	IsActive                        bool       `json:"isActive"`
-	CircuitBreakerThreshold         int        `json:"circuitBreakerThreshold"`
-	CircuitBreakerOpenMinutes       int        `json:"circuitBreakerOpenMinutes"`
-	CircuitBreakerHalfOpenMinutes   int        `json:"circuitBreakerHalfOpenMinutes"`
-	CircuitBreakerState             string     `json:"circuitBreakerState"`
-	CircuitBreakerOpenedAt          *time.Time `json:"circuitBreakerOpenedAt,omitempty"`
-	CircuitBreakerHalfOpenStartedAt *time.Time `json:"circuitBreakerHalfOpenStartedAt,omitempty"`
+	ID                              string                `json:"id"`
+	Name                            string                `json:"name"`
+	Prefix                          string                `json:"prefix"`
+	APIKey                          string                `json:"apiKey,omitempty"`
+	CreatedAt                       time.Time             `json:"createdAt"`
+	RevokedAt                       *time.Time            `json:"revokedAt,omitempty"`
+	LastUsed                        *time.Time            `json:"lastUsedAt,omitempty"`
+	ExpiresAt                       *time.Time            `json:"expiresAt,omitempty"`
+	Status                          string                `json:"status"`
+	IsActive                        bool                  `json:"isActive"`
+	CircuitBreakerThreshold         int                   `json:"circuitBreakerThreshold"`
+	CircuitBreakerOpenMinutes       int                   `json:"circuitBreakerOpenMinutes"`
+	CircuitBreakerHalfOpenMinutes   int                   `json:"circuitBreakerHalfOpenMinutes"`
+	CircuitBreakerState             string                `json:"circuitBreakerState"`
+	CircuitBreakerOpenedAt          *time.Time            `json:"circuitBreakerOpenedAt,omitempty"`
+	CircuitBreakerHalfOpenStartedAt *time.Time            `json:"circuitBreakerHalfOpenStartedAt,omitempty"`
+	SplitChannelTargetsBySource     bool                  `json:"splitChannelTargetsBySource"`
+	ChannelTargets                  []APIKeyChannelTarget `json:"channelTargets"`
+	SubscriptionChannelTargets      []APIKeyChannelTarget `json:"subscriptionChannelTargets"`
+	UsageChannelTargets             []APIKeyChannelTarget `json:"usageChannelTargets"`
 }
 
 type BootstrapResponse struct {

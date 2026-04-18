@@ -277,6 +277,10 @@ func (s *AmpService) CreateAPIKey(userID string, req *model.CreateAPIKeyRequest)
 		CircuitBreakerOpenMinutes:     normalizeAPIKeyCircuitBreakerOpenMinutes(req.CircuitBreakerOpenMinutes),
 		CircuitBreakerHalfOpenMinutes: normalizeAPIKeyCircuitBreakerHalfOpenMinutes(req.CircuitBreakerHalfOpenMinutes),
 		CircuitBreakerState:           model.APIKeyCircuitBreakerStateClosed,
+		SplitChannelTargetsBySource:   req.SplitChannelTargetsBySource,
+		ChannelTargetsJSON:            model.MustMarshalAPIKeyChannelTargets(req.ChannelTargets),
+		SubscriptionChannelTargetsJSON: model.MustMarshalAPIKeyChannelTargets(req.SubscriptionChannelTargets),
+		UsageChannelTargetsJSON:       model.MustMarshalAPIKeyChannelTargets(req.UsageChannelTargets),
 	}
 
 	if err := s.apiKeyRepo.Create(apiKey); err != nil {
@@ -293,6 +297,10 @@ func (s *AmpService) CreateAPIKey(userID string, req *model.CreateAPIKeyRequest)
 		CircuitBreakerOpenMinutes:     apiKey.CircuitBreakerOpenMinutes,
 		CircuitBreakerHalfOpenMinutes: apiKey.CircuitBreakerHalfOpenMinutes,
 		CircuitBreakerState:           apiKey.CircuitBreakerState,
+		SplitChannelTargetsBySource:   apiKey.SplitChannelTargetsBySource,
+		ChannelTargets:                model.ParseAPIKeyChannelTargets(apiKey.ChannelTargetsJSON),
+		SubscriptionChannelTargets:    model.ParseAPIKeyChannelTargets(apiKey.SubscriptionChannelTargetsJSON),
+		UsageChannelTargets:           model.ParseAPIKeyChannelTargets(apiKey.UsageChannelTargetsJSON),
 		CreatedAt:                     apiKey.CreatedAt,
 		Message:                       "API Key 创建成功，请妥善保存，可在列表中再次查看",
 	}, nil
@@ -311,6 +319,13 @@ func (s *AmpService) UpdateAPIKey(userID, keyID string, req *model.UpdateAPIKeyR
 	circuitBreakerThreshold := resolveAPIKeyCircuitBreakerThreshold(req.CircuitBreakerThreshold, key.CircuitBreakerThreshold)
 	circuitBreakerOpenMinutes := resolveAPIKeyCircuitBreakerOpenMinutes(req.CircuitBreakerOpenMinutes, key.CircuitBreakerOpenMinutes)
 	circuitBreakerHalfOpenMinutes := resolveAPIKeyCircuitBreakerHalfOpenMinutes(req.CircuitBreakerHalfOpenMinutes, key.CircuitBreakerHalfOpenMinutes)
+	splitChannelTargetsBySource := key.SplitChannelTargetsBySource
+	if req.SplitChannelTargetsBySource != nil {
+		splitChannelTargetsBySource = *req.SplitChannelTargetsBySource
+	}
+	channelTargetsJSON := model.MustMarshalAPIKeyChannelTargets(req.ChannelTargets)
+	subscriptionChannelTargetsJSON := model.MustMarshalAPIKeyChannelTargets(req.SubscriptionChannelTargets)
+	usageChannelTargetsJSON := model.MustMarshalAPIKeyChannelTargets(req.UsageChannelTargets)
 
 	if strings.TrimSpace(req.APIKey) != "" && req.APIKey != key.APIKey {
 		keyHash, prefix, err := s.prepareAPIKeyValue(req.APIKey)
@@ -334,6 +349,13 @@ func (s *AmpService) UpdateAPIKey(userID, keyID string, req *model.UpdateAPIKeyR
 	key.CircuitBreakerThreshold = circuitBreakerThreshold
 	key.CircuitBreakerOpenMinutes = circuitBreakerOpenMinutes
 	key.CircuitBreakerHalfOpenMinutes = circuitBreakerHalfOpenMinutes
+	key.SplitChannelTargetsBySource = splitChannelTargetsBySource
+	key.ChannelTargetsJSON = channelTargetsJSON
+	key.SubscriptionChannelTargetsJSON = subscriptionChannelTargetsJSON
+	key.UsageChannelTargetsJSON = usageChannelTargetsJSON
+	if err := s.apiKeyRepo.UpdateTargetFields(key.ID, splitChannelTargetsBySource, channelTargetsJSON, subscriptionChannelTargetsJSON, usageChannelTargetsJSON); err != nil {
+		return nil, err
+	}
 	return buildAPIKeyListItem(key), nil
 }
 
@@ -420,6 +442,10 @@ func (s *AmpService) GetAPIKey(userID, keyID string) (*model.APIKeyRevealRespons
 		CircuitBreakerOpenMinutes:     key.CircuitBreakerOpenMinutes,
 		CircuitBreakerHalfOpenMinutes: key.CircuitBreakerHalfOpenMinutes,
 		CircuitBreakerState:           key.CircuitBreakerState,
+		SplitChannelTargetsBySource:   key.SplitChannelTargetsBySource,
+		ChannelTargets:                model.ParseAPIKeyChannelTargets(key.ChannelTargetsJSON),
+		SubscriptionChannelTargets:    model.ParseAPIKeyChannelTargets(key.SubscriptionChannelTargetsJSON),
+		UsageChannelTargets:           model.ParseAPIKeyChannelTargets(key.UsageChannelTargetsJSON),
 		CreatedAt:                     key.CreatedAt,
 	}, nil
 }
@@ -724,6 +750,10 @@ func buildAPIKeyListItem(key *model.UserAPIKey) *model.APIKeyListItem {
 		CircuitBreakerState:             key.CircuitBreakerState,
 		CircuitBreakerOpenedAt:          key.CircuitBreakerOpenedAt,
 		CircuitBreakerHalfOpenStartedAt: key.CircuitBreakerHalfOpenStartedAt,
+		SplitChannelTargetsBySource:     key.SplitChannelTargetsBySource,
+		ChannelTargets:                  model.ParseAPIKeyChannelTargets(key.ChannelTargetsJSON),
+		SubscriptionChannelTargets:      model.ParseAPIKeyChannelTargets(key.SubscriptionChannelTargetsJSON),
+		UsageChannelTargets:             model.ParseAPIKeyChannelTargets(key.UsageChannelTargetsJSON),
 	}
 }
 

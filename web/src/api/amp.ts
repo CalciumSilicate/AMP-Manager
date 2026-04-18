@@ -73,7 +73,16 @@ export interface APIKey {
   circuitBreakerState: 'closed' | 'open' | 'half_open'
   circuitBreakerOpenedAt?: string | null
   circuitBreakerHalfOpenStartedAt?: string | null
+  splitChannelTargetsBySource: boolean
+  channelTargets: APIKeyChannelTarget[]
+  subscriptionChannelTargets: APIKeyChannelTarget[]
+  usageChannelTargets: APIKeyChannelTarget[]
   createdAt: string
+}
+
+export interface APIKeyChannelTarget {
+  channelId: string
+  priority: number
 }
 
 export interface CreateAPIKeyResponse {
@@ -86,6 +95,10 @@ export interface CreateAPIKeyResponse {
   circuitBreakerOpenMinutes: number
   circuitBreakerHalfOpenMinutes: number
   circuitBreakerState: 'closed' | 'open' | 'half_open'
+  splitChannelTargetsBySource: boolean
+  channelTargets: APIKeyChannelTarget[]
+  subscriptionChannelTargets: APIKeyChannelTarget[]
+  usageChannelTargets: APIKeyChannelTarget[]
   createdAt: string
   message: string
 }
@@ -100,6 +113,10 @@ export interface APIKeyRevealResponse {
   circuitBreakerOpenMinutes: number
   circuitBreakerHalfOpenMinutes: number
   circuitBreakerState: 'closed' | 'open' | 'half_open'
+  splitChannelTargetsBySource: boolean
+  channelTargets: APIKeyChannelTarget[]
+  subscriptionChannelTargets: APIKeyChannelTarget[]
+  usageChannelTargets: APIKeyChannelTarget[]
   createdAt: string
 }
 
@@ -149,6 +166,10 @@ export async function createAPIKeyWithOptions(data: {
   circuitBreakerThreshold?: number
   circuitBreakerOpenMinutes?: number
   circuitBreakerHalfOpenMinutes?: number
+  splitChannelTargetsBySource?: boolean
+  channelTargets?: APIKeyChannelTarget[]
+  subscriptionChannelTargets?: APIKeyChannelTarget[]
+  usageChannelTargets?: APIKeyChannelTarget[]
 }): Promise<CreateAPIKeyResponse> {
   const response = await authFetch(`${API_BASE}/api-keys`, {
     method: 'POST',
@@ -164,6 +185,10 @@ export async function updateAPIKey(id: string, data: {
   circuitBreakerThreshold?: number
   circuitBreakerOpenMinutes?: number
   circuitBreakerHalfOpenMinutes?: number
+  splitChannelTargetsBySource?: boolean
+  channelTargets?: APIKeyChannelTarget[]
+  subscriptionChannelTargets?: APIKeyChannelTarget[]
+  usageChannelTargets?: APIKeyChannelTarget[]
 }): Promise<APIKey> {
   const response = await authFetch(`${API_BASE}/api-keys/${id}`, {
     method: 'PATCH',
@@ -430,6 +455,10 @@ export async function updateAdminUserAPIKey(
     circuitBreakerThreshold?: number
     circuitBreakerOpenMinutes?: number
     circuitBreakerHalfOpenMinutes?: number
+    splitChannelTargetsBySource?: boolean
+    channelTargets?: APIKeyChannelTarget[]
+    subscriptionChannelTargets?: APIKeyChannelTarget[]
+    usageChannelTargets?: APIKeyChannelTarget[]
   },
 ): Promise<APIKey> {
   const response = await authFetch(`${ADMIN_API_BASE}/users/${userId}/api-keys/${keyId}`, {

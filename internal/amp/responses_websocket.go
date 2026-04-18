@@ -426,8 +426,9 @@ func prepareResponsesWebsocketTurn(c *gin.Context, session *responsesWebsocketSe
 
 func selectResponsesWebsocketChannel(session *responsesWebsocketSession, proxyCfg *ProxyConfig, result MappingResult, continueWithPinned bool, stickyChannelID string, stickyProvider string) (*model.Channel, *responsesWebsocketError) {
 	incomingFormat := translator.FormatOpenAIResponses
+	scope := apiKeyChannelTargetScopeFromProxy(proxyCfg)
 	if continueWithPinned && session.pinnedChannelID != "" {
-		channel, err := responsesWebsocketChannelService.SelectSpecificChannelForModelWithGroupsAndFormat(session.pinnedChannelID, result.MappedModel, proxyCfg.GroupIDs, incomingFormat, false)
+		channel, err := responsesWebsocketChannelService.SelectSpecificChannelForModelWithGroupsAndFormatAndTargets(session.pinnedChannelID, result.MappedModel, proxyCfg.GroupIDs, incomingFormat, false, scope)
 		if err != nil {
 			return nil, &responsesWebsocketError{StatusCode: http.StatusBadGateway, Message: "failed to resolve pinned channel"}
 		}
@@ -438,7 +439,7 @@ func selectResponsesWebsocketChannel(session *responsesWebsocketSession, proxyCf
 	}
 
 	if stickyChannelID != "" {
-		channel, err := responsesWebsocketChannelService.SelectSpecificChannelForModelWithGroupsAndFormat(stickyChannelID, result.MappedModel, proxyCfg.GroupIDs, incomingFormat, false)
+		channel, err := responsesWebsocketChannelService.SelectSpecificChannelForModelWithGroupsAndFormatAndTargets(stickyChannelID, result.MappedModel, proxyCfg.GroupIDs, incomingFormat, false, scope)
 		if err != nil {
 			return nil, &responsesWebsocketError{StatusCode: http.StatusBadGateway, Message: "failed to resolve sticky channel"}
 		}
@@ -452,7 +453,7 @@ func selectResponsesWebsocketChannel(session *responsesWebsocketSession, proxyCf
 	}
 
 	if result.PreferredChannelID != "" {
-		channel, err := responsesWebsocketChannelService.SelectSpecificChannelForModelWithGroupsAndFormat(result.PreferredChannelID, result.MappedModel, proxyCfg.GroupIDs, incomingFormat, false)
+		channel, err := responsesWebsocketChannelService.SelectSpecificChannelForModelWithGroupsAndFormatAndTargets(result.PreferredChannelID, result.MappedModel, proxyCfg.GroupIDs, incomingFormat, false, scope)
 		if err != nil {
 			return nil, &responsesWebsocketError{StatusCode: http.StatusBadGateway, Message: "failed to resolve preferred channel"}
 		}
@@ -467,7 +468,7 @@ func selectResponsesWebsocketChannel(session *responsesWebsocketSession, proxyCf
 		err     error
 	)
 	if len(proxyCfg.GroupIDs) > 0 {
-		channel, err = responsesWebsocketChannelService.SelectChannelForModelWithGroupsAndFormatAndProvider(result.MappedModel, proxyCfg.GroupIDs, incomingFormat, false, stickyProvider)
+		channel, err = responsesWebsocketChannelService.SelectChannelForModelWithGroupsAndFormatAndProviderAndTargets(result.MappedModel, proxyCfg.GroupIDs, incomingFormat, false, stickyProvider, scope)
 	} else {
 		channel, err = responsesWebsocketChannelService.SelectChannelForModelAndFormatAndProvider(result.MappedModel, incomingFormat, false, stickyProvider)
 	}

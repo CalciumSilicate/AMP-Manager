@@ -203,10 +203,11 @@ func BalanceAdMiddleware() gin.HandlerFunc {
 var isFreeTierRequestRegex = regexp.MustCompile(`"isFreeTierRequest"\s*:\s*false`)
 
 var (
-	apiKeyRepo   = repository.NewAPIKeyRepository()
-	settingsRepo = repository.NewAmpSettingsRepository()
-	systemCfgSvc = service.NewSystemConfigService()
-	userRepo     = repository.NewUserRepository()
+	apiKeyRepo         = repository.NewAPIKeyRepository()
+	settingsRepo       = repository.NewAmpSettingsRepository()
+	billingSettingRepo = repository.NewBillingSettingRepository()
+	systemCfgSvc       = service.NewSystemConfigService()
+	userRepo           = repository.NewUserRepository()
 )
 
 var groupRepo = repository.NewGroupRepository()
@@ -296,6 +297,7 @@ func APIKeyAuthMiddleware() gin.HandlerFunc {
 			RouteMappingsEnabled: true,
 			ShowBalanceInAd:      false,
 			Socks5Proxy:          "",
+			PrimaryBillingSource: model.BillingSourceSubscription,
 		}
 
 		if canAccessRouteSettings || canAccessUpstreamSettings {
@@ -333,6 +335,20 @@ func APIKeyAuthMiddleware() gin.HandlerFunc {
 		proxyCfg.RateMultiplier = rateMultiplier
 		proxyCfg.GroupRateMultiplier = rateMultiplier
 		proxyCfg.GroupIDs = groupIDs
+		proxyCfg.SplitChannelTargetsBySource = apiKeyRecord.SplitChannelTargetsBySource
+		proxyCfg.ChannelTargets = model.ParseAPIKeyChannelTargets(apiKeyRecord.ChannelTargetsJSON)
+		proxyCfg.SubscriptionChannelTargets = model.ParseAPIKeyChannelTargets(apiKeyRecord.SubscriptionChannelTargetsJSON)
+		proxyCfg.UsageChannelTargets = model.ParseAPIKeyChannelTargets(apiKeyRecord.UsageChannelTargetsJSON)
+
+		billingSetting, err := billingSettingRepo.GetByUserID(apiKeyRecord.UserID)
+		if err != nil {
+			log.Errorf("amp api key auth: failed to load billing setting for user %s: %v", apiKeyRecord.UserID, err)
+			c.AbortWithStatusJSON(http.StatusInternalServerError, NewStandardError(http.StatusInternalServerError, "internal server error"))
+			return
+		}
+		if billingSetting != nil {
+			proxyCfg.PrimaryBillingSource = billingSetting.PrimarySource
+		}
 
 		if user != nil && user.ConcurrencyLimit > 0 {
 			if !userConcurrencyLimiter.TryAcquire(apiKeyRecord.UserID, user.ConcurrencyLimit) {

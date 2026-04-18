@@ -105,8 +105,9 @@ func (r *APIKeyRepository) Create(apiKey *model.UserAPIKey) error {
 			id, user_id, name, prefix, key_hash, api_key, expires_at,
 			circuit_breaker_threshold, circuit_breaker_open_minutes, circuit_breaker_half_open_minutes,
 			circuit_breaker_state, circuit_breaker_consecutive_errors, circuit_breaker_opened_at, circuit_breaker_half_open_started_at,
+			split_channel_targets_by_source, channel_targets_json, subscription_channel_targets_json, usage_channel_targets_json,
 			created_at
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		apiKey.ID,
 		apiKey.UserID,
 		apiKey.Name,
@@ -121,6 +122,10 @@ func (r *APIKeyRepository) Create(apiKey *model.UserAPIKey) error {
 		apiKey.CircuitBreakerConsecutiveErrors,
 		apiKey.CircuitBreakerOpenedAt,
 		apiKey.CircuitBreakerHalfOpenStartedAt,
+		apiKey.SplitChannelTargetsBySource,
+		apiKey.ChannelTargetsJSON,
+		apiKey.SubscriptionChannelTargetsJSON,
+		apiKey.UsageChannelTargetsJSON,
 		apiKey.CreatedAt,
 	)
 	return err
@@ -131,7 +136,8 @@ func (r *APIKeyRepository) ListByUserID(userID string) ([]*model.UserAPIKey, err
 	rows, err := db.Query(
 		`SELECT id, user_id, name, prefix, key_hash, api_key, created_at, revoked_at, last_used_at, expires_at,
 		        circuit_breaker_threshold, circuit_breaker_open_minutes, circuit_breaker_half_open_minutes,
-		        circuit_breaker_state, circuit_breaker_consecutive_errors, circuit_breaker_opened_at, circuit_breaker_half_open_started_at
+		        circuit_breaker_state, circuit_breaker_consecutive_errors, circuit_breaker_opened_at, circuit_breaker_half_open_started_at,
+		        split_channel_targets_by_source, channel_targets_json, subscription_channel_targets_json, usage_channel_targets_json
 		 FROM user_api_keys WHERE user_id = ? ORDER BY created_at DESC`,
 		userID,
 	)
@@ -162,6 +168,10 @@ func (r *APIKeyRepository) ListByUserID(userID string) ([]*model.UserAPIKey, err
 			&key.CircuitBreakerConsecutiveErrors,
 			&circuitOpenedAt,
 			&circuitHalfOpenStartedAt,
+			&key.SplitChannelTargetsBySource,
+			&key.ChannelTargetsJSON,
+			&key.SubscriptionChannelTargetsJSON,
+			&key.UsageChannelTargetsJSON,
 		)
 		if err != nil {
 			return nil, err
@@ -179,7 +189,8 @@ func (r *APIKeyRepository) GetByID(id string) (*model.UserAPIKey, error) {
 	err := db.QueryRow(
 		`SELECT id, user_id, name, prefix, key_hash, api_key, created_at, revoked_at, last_used_at, expires_at,
 		        circuit_breaker_threshold, circuit_breaker_open_minutes, circuit_breaker_half_open_minutes,
-		        circuit_breaker_state, circuit_breaker_consecutive_errors, circuit_breaker_opened_at, circuit_breaker_half_open_started_at
+		        circuit_breaker_state, circuit_breaker_consecutive_errors, circuit_breaker_opened_at, circuit_breaker_half_open_started_at,
+		        split_channel_targets_by_source, channel_targets_json, subscription_channel_targets_json, usage_channel_targets_json
 		 FROM user_api_keys WHERE id = ?`,
 		id,
 	).Scan(
@@ -200,6 +211,10 @@ func (r *APIKeyRepository) GetByID(id string) (*model.UserAPIKey, error) {
 		&key.CircuitBreakerConsecutiveErrors,
 		&circuitOpenedAt,
 		&circuitHalfOpenStartedAt,
+		&key.SplitChannelTargetsBySource,
+		&key.ChannelTargetsJSON,
+		&key.SubscriptionChannelTargetsJSON,
+		&key.UsageChannelTargetsJSON,
 	)
 	if err == sql.ErrNoRows {
 		return nil, nil
@@ -225,6 +240,20 @@ func (r *APIKeyRepository) UpdateEditableFields(id, name string, expiresAt *time
 		     circuit_breaker_threshold = ?, circuit_breaker_open_minutes = ?, circuit_breaker_half_open_minutes = ?
 		 WHERE id = ?`,
 		name, expiresAt, circuitBreakerThreshold, circuitBreakerOpenMinutes, circuitBreakerHalfOpenMinutes, id,
+	)
+	return err
+}
+
+func (r *APIKeyRepository) UpdateTargetFields(id string, splitTargetsBySource bool, channelTargetsJSON, subscriptionChannelTargetsJSON, usageChannelTargetsJSON string) error {
+	db := database.GetDB()
+	_, err := db.Exec(
+		`UPDATE user_api_keys
+		 SET split_channel_targets_by_source = ?,
+		     channel_targets_json = ?,
+		     subscription_channel_targets_json = ?,
+		     usage_channel_targets_json = ?
+		 WHERE id = ?`,
+		splitTargetsBySource, channelTargetsJSON, subscriptionChannelTargetsJSON, usageChannelTargetsJSON, id,
 	)
 	return err
 }
@@ -259,7 +288,8 @@ func (r *APIKeyRepository) GetByKeyHash(keyHash string) (*model.UserAPIKey, erro
 	err := db.QueryRow(
 		`SELECT id, user_id, name, prefix, key_hash, api_key, created_at, revoked_at, last_used_at, expires_at,
 		        circuit_breaker_threshold, circuit_breaker_open_minutes, circuit_breaker_half_open_minutes,
-		        circuit_breaker_state, circuit_breaker_consecutive_errors, circuit_breaker_opened_at, circuit_breaker_half_open_started_at
+		        circuit_breaker_state, circuit_breaker_consecutive_errors, circuit_breaker_opened_at, circuit_breaker_half_open_started_at,
+		        split_channel_targets_by_source, channel_targets_json, subscription_channel_targets_json, usage_channel_targets_json
 		 FROM user_api_keys WHERE key_hash = ?`,
 		keyHash,
 	).Scan(
@@ -280,6 +310,10 @@ func (r *APIKeyRepository) GetByKeyHash(keyHash string) (*model.UserAPIKey, erro
 		&key.CircuitBreakerConsecutiveErrors,
 		&circuitOpenedAt,
 		&circuitHalfOpenStartedAt,
+		&key.SplitChannelTargetsBySource,
+		&key.ChannelTargetsJSON,
+		&key.SubscriptionChannelTargetsJSON,
+		&key.UsageChannelTargetsJSON,
 	)
 	if err == sql.ErrNoRows {
 		return nil, nil

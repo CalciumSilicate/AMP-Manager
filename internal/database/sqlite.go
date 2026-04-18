@@ -339,6 +339,10 @@ func createTables() error {
 		circuit_breaker_consecutive_errors INTEGER NOT NULL DEFAULT 0,
 		circuit_breaker_opened_at DATETIME,
 		circuit_breaker_half_open_started_at DATETIME,
+		split_channel_targets_by_source INTEGER NOT NULL DEFAULT 0,
+		channel_targets_json TEXT NOT NULL DEFAULT '[]',
+		subscription_channel_targets_json TEXT NOT NULL DEFAULT '[]',
+		usage_channel_targets_json TEXT NOT NULL DEFAULT '[]',
 		created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
 		FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
 	);
@@ -2328,6 +2332,18 @@ func ensureAPIKeyCircuitBreakerSchema() error {
 		return err
 	}
 	if err := ensureColumnWithDefault("user_api_keys", "circuit_breaker_half_open_started_at", "DATETIME"); err != nil {
+		return err
+	}
+	if err := ensureColumnWithDefault("user_api_keys", "split_channel_targets_by_source", "INTEGER NOT NULL DEFAULT 0"); err != nil {
+		return err
+	}
+	if err := ensureColumnWithDefault("user_api_keys", "channel_targets_json", "TEXT NOT NULL DEFAULT '[]'"); err != nil {
+		return err
+	}
+	if err := ensureColumnWithDefault("user_api_keys", "subscription_channel_targets_json", "TEXT NOT NULL DEFAULT '[]'"); err != nil {
+		return err
+	}
+	if err := ensureColumnWithDefault("user_api_keys", "usage_channel_targets_json", "TEXT NOT NULL DEFAULT '[]'"); err != nil {
 		return err
 	}
 	return nil

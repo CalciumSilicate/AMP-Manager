@@ -9,12 +9,13 @@ import (
 )
 
 type countingChannelRepo struct {
-	channels         map[string]*model.Channel
-	listEnabledCalls int
-	channelGroupIDs  map[string][]string
-	groupBatchCalls  int
-	getByIDCalls     int
-	getGroupIDCalls  int
+	channels             map[string]*model.Channel
+	listEnabledCalls     int
+	channelGroupIDs      map[string][]string
+	channelGroupBindings map[string]*model.ChannelGroupBinding
+	groupBatchCalls      int
+	getByIDCalls         int
+	getGroupIDCalls      int
 }
 
 func (r *countingChannelRepo) Create(channel *model.Channel) error {
@@ -95,6 +96,14 @@ func (r *countingChannelRepo) SetGroupBinding(id string, binding *model.ChannelG
 }
 
 func (r *countingChannelRepo) GetGroupBinding(channelID string) (*model.ChannelGroupBinding, error) {
+	if binding, ok := r.channelGroupBindings[channelID]; ok && binding != nil {
+		return &model.ChannelGroupBinding{
+			SplitBySource:        binding.SplitBySource,
+			SharedGroupIDs:       append([]string(nil), binding.SharedGroupIDs...),
+			SubscriptionGroupIDs: append([]string(nil), binding.SubscriptionGroupIDs...),
+			UsageGroupIDs:        append([]string(nil), binding.UsageGroupIDs...),
+		}, nil
+	}
 	groupIDs, err := r.GetGroupIDs(channelID)
 	if err != nil {
 		return nil, err
@@ -110,6 +119,15 @@ func (r *countingChannelRepo) GetGroupBindingsByChannelIDs(channelIDs []string) 
 	r.groupBatchCalls++
 	result := make(map[string]*model.ChannelGroupBinding, len(channelIDs))
 	for _, channelID := range channelIDs {
+		if binding, ok := r.channelGroupBindings[channelID]; ok && binding != nil {
+			result[channelID] = &model.ChannelGroupBinding{
+				SplitBySource:        binding.SplitBySource,
+				SharedGroupIDs:       append([]string(nil), binding.SharedGroupIDs...),
+				SubscriptionGroupIDs: append([]string(nil), binding.SubscriptionGroupIDs...),
+				UsageGroupIDs:        append([]string(nil), binding.UsageGroupIDs...),
+			}
+			continue
+		}
 		groupIDs := append([]string(nil), r.channelGroupIDs[channelID]...)
 		result[channelID] = &model.ChannelGroupBinding{
 			SharedGroupIDs:       groupIDs,
@@ -340,6 +358,100 @@ func TestSelectChannelForModelSkipsOpenCircuitBreakerChannel(t *testing.T) {
 	}
 	if channel == nil || channel.ID != "healthy" {
 		t.Fatalf("expected healthy channel, got %+v", channel)
+	}
+}
+
+func TestSelectChannelForModelWithTargetsRestrictsCandidateSet(t *testing.T) {
+	invalidateEnabledChannelsCache()
+	repo := &countingChannelRepo{
+		channels: map[string]*model.Channel{
+			"allowed": {
+				ID:         "allowed",
+				Enabled:    true,
+				Priority:   1,
+				Weight:     1,
+				Type:       model.ChannelTypeOpenAI,
+				ModelsJSON: `[{"name":"gpt-4o"}]`,
+			},
+			"other": {
+				ID:         "other",
+				Enabled:    true,
+				Priority:   1,
+				Weight:     1,
+				Type:       model.ChannelTypeOpenAI,
+				ModelsJSON: `[{"name":"gpt-4o"}]`,
+			},
+		},
+		channelGroupIDs: map[string][]string{
+			"allowed": {"basic"},
+			"other":   {"basic"},
+		},
+	}
+
+	svc := NewChannelServiceWithRepo(repo)
+	channel, err := svc.SelectChannelForModelWithGroupsAndFormatAndProviderAndTargets("gpt-4o", []string{"basic"}, "", true, "", &APIKeyChannelTargetScope{
+		DefaultSource: model.BillingSourceSubscription,
+		ChannelTargets: []model.APIKeyChannelTarget{
+			{ChannelID: "allowed", Priority: 10},
+		},
+	})
+	if err != nil {
+		t.Fatalf("SelectChannelForModelWithGroupsAndFormatAndProviderAndTargets returned error: %v", err)
+	}
+	if channel == nil || channel.ID != "allowed" {
+		t.Fatalf("expected allowed channel, got %+v", channel)
+	}
+}
+
+func TestSelectChannelForModelWithTargetsUsesSplitSourceTargets(t *testing.T) {
+	invalidateEnabledChannelsCache()
+	repo := &countingChannelRepo{
+		channels: map[string]*model.Channel{
+			"subscription": {
+				ID:         "subscription",
+				Enabled:    true,
+				Priority:   1,
+				Weight:     1,
+				Type:       model.ChannelTypeOpenAI,
+				ModelsJSON: `[{"name":"gpt-4o"}]`,
+			},
+			"balance": {
+				ID:         "balance",
+				Enabled:    true,
+				Priority:   1,
+				Weight:     1,
+				Type:       model.ChannelTypeOpenAI,
+				ModelsJSON: `[{"name":"gpt-4o"}]`,
+			},
+		},
+	}
+	repo.channelGroupBindings = map[string]*model.ChannelGroupBinding{
+		"subscription": {
+			SplitBySource:        true,
+			SharedGroupIDs:       []string{"sub"},
+			SubscriptionGroupIDs: []string{"sub"},
+			UsageGroupIDs:        nil,
+		},
+		"balance": {
+			SplitBySource:        true,
+			SharedGroupIDs:       []string{"bal"},
+			SubscriptionGroupIDs: nil,
+			UsageGroupIDs:        []string{"bal"},
+		},
+	}
+
+	svc := NewChannelServiceWithRepo(repo)
+	channel, err := svc.SelectChannelForModelWithGroupsAndFormatAndProviderAndTargets("gpt-4o", []string{"bal"}, "", true, "", &APIKeyChannelTargetScope{
+		DefaultSource:              model.BillingSourceSubscription,
+		SplitBySource:              true,
+		SubscriptionChannelTargets: []model.APIKeyChannelTarget{{ChannelID: "subscription", Priority: 10}},
+		UsageChannelTargets:        []model.APIKeyChannelTarget{{ChannelID: "balance", Priority: 5}},
+	})
+	if err != nil {
+		t.Fatalf("SelectChannelForModelWithGroupsAndFormatAndProviderAndTargets returned error: %v", err)
+	}
+	if channel == nil || channel.ID != "balance" {
+		t.Fatalf("expected balance channel, got %+v", channel)
 	}
 }
 

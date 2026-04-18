@@ -115,6 +115,19 @@ func cloneBillingSource(source *model.BillingSource) *model.BillingSource {
 	return &cloned
 }
 
+func apiKeyChannelTargetScopeFromProxy(proxyCfg *ProxyConfig) *service.APIKeyChannelTargetScope {
+	if proxyCfg == nil {
+		return nil
+	}
+	return &service.APIKeyChannelTargetScope{
+		DefaultSource:              proxyCfg.PrimaryBillingSource,
+		SplitBySource:              proxyCfg.SplitChannelTargetsBySource,
+		ChannelTargets:             append([]model.APIKeyChannelTarget(nil), proxyCfg.ChannelTargets...),
+		SubscriptionChannelTargets: append([]model.APIKeyChannelTarget(nil), proxyCfg.SubscriptionChannelTargets...),
+		UsageChannelTargets:        append([]model.APIKeyChannelTarget(nil), proxyCfg.UsageChannelTargets...),
+	}
+}
+
 func attachSelectedChannel(c *gin.Context, channel *model.Channel, modelName string) {
 	if channel == nil {
 		return
@@ -264,7 +277,7 @@ func ChannelRouterMiddleware() gin.HandlerFunc {
 			groupIDs = proxyCfg.GroupIDs
 		}
 		if stickyChannelID != "" {
-			channel, err = channelService.SelectSpecificChannelForModelWithGroupsAndFormat(stickyChannelID, modelName, groupIDs, incomingFormat, true)
+			channel, err = channelService.SelectSpecificChannelForModelWithGroupsAndFormatAndTargets(stickyChannelID, modelName, groupIDs, incomingFormat, true, apiKeyChannelTargetScopeFromProxy(proxyCfg))
 			if err != nil {
 				log.Errorf("channel router: failed to resolve sticky channel %s: %v", stickyChannelID, err)
 				c.Next()
@@ -281,7 +294,7 @@ func ChannelRouterMiddleware() gin.HandlerFunc {
 
 		preferredChannelID := GetPreferredChannelID(c)
 		if preferredChannelID != "" {
-			channel, err = channelService.SelectSpecificChannelForModelWithGroupsAndFormat(preferredChannelID, modelName, groupIDs, incomingFormat, true)
+			channel, err = channelService.SelectSpecificChannelForModelWithGroupsAndFormatAndTargets(preferredChannelID, modelName, groupIDs, incomingFormat, true, apiKeyChannelTargetScopeFromProxy(proxyCfg))
 			if err != nil {
 				log.Errorf("channel router: failed to select preferred channel %s: %v", preferredChannelID, err)
 				c.Next()
@@ -301,7 +314,7 @@ func ChannelRouterMiddleware() gin.HandlerFunc {
 		}
 
 		if proxyCfg != nil {
-			channel, err = channelService.SelectChannelForModelWithGroupsAndFormatAndProvider(modelName, proxyCfg.GroupIDs, incomingFormat, true, stickyProvider)
+			channel, err = channelService.SelectChannelForModelWithGroupsAndFormatAndProviderAndTargets(modelName, proxyCfg.GroupIDs, incomingFormat, true, stickyProvider, apiKeyChannelTargetScopeFromProxy(proxyCfg))
 		} else {
 			channel, err = channelService.SelectChannelForModelAndFormatAndProvider(modelName, incomingFormat, true, stickyProvider)
 		}

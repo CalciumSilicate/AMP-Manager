@@ -26,6 +26,7 @@ import {
   setAdminUserAPIKeyDisabled,
   updateAdminUserAPIKey,
 } from '../api/amp'
+import { APIKeyChannelTargetsEditor } from '@/components/api-keys/APIKeyChannelTargetsEditor'
 import { Group, listGroups } from '../api/groups'
 import {
   assignSubscription,
@@ -215,6 +216,10 @@ export default function UserManagement() {
   const [editingUserAPIKeyCircuitBreakerThreshold, setEditingUserAPIKeyCircuitBreakerThreshold] = useState('50')
   const [editingUserAPIKeyCircuitBreakerOpenMinutes, setEditingUserAPIKeyCircuitBreakerOpenMinutes] = useState('10')
   const [editingUserAPIKeyCircuitBreakerHalfOpenMinutes, setEditingUserAPIKeyCircuitBreakerHalfOpenMinutes] = useState('2')
+  const [editingUserAPIKeySplitChannelTargetsBySource, setEditingUserAPIKeySplitChannelTargetsBySource] = useState(false)
+  const [editingUserAPIKeyChannelTargets, setEditingUserAPIKeyChannelTargets] = useState<{ channelId: string; priority: number }[]>([])
+  const [editingUserAPIKeySubscriptionChannelTargets, setEditingUserAPIKeySubscriptionChannelTargets] = useState<{ channelId: string; priority: number }[]>([])
+  const [editingUserAPIKeyUsageChannelTargets, setEditingUserAPIKeyUsageChannelTargets] = useState<{ channelId: string; priority: number }[]>([])
   const [savingUserAPIKey, setSavingUserAPIKey] = useState(false)
   const [deletingUserAPIKeyId, setDeletingUserAPIKeyId] = useState<string | null>(null)
   const [togglingUserAPIKeyId, setTogglingUserAPIKeyId] = useState<string | null>(null)
@@ -595,6 +600,10 @@ export default function UserManagement() {
     setEditingUserAPIKeyCircuitBreakerThreshold(String(key.circuitBreakerThreshold))
     setEditingUserAPIKeyCircuitBreakerOpenMinutes(String(key.circuitBreakerOpenMinutes))
     setEditingUserAPIKeyCircuitBreakerHalfOpenMinutes(String(key.circuitBreakerHalfOpenMinutes))
+    setEditingUserAPIKeySplitChannelTargetsBySource(key.splitChannelTargetsBySource)
+    setEditingUserAPIKeyChannelTargets(key.channelTargets || [])
+    setEditingUserAPIKeySubscriptionChannelTargets(key.subscriptionChannelTargets || [])
+    setEditingUserAPIKeyUsageChannelTargets(key.usageChannelTargets || [])
   }
 
   const handleSaveUserAPIKey = async () => {
@@ -609,6 +618,10 @@ export default function UserManagement() {
         circuitBreakerThreshold: parsePositiveIntegerOrFallback(editingUserAPIKeyCircuitBreakerThreshold, editingUserAPIKey.circuitBreakerThreshold),
         circuitBreakerOpenMinutes: parsePositiveIntegerOrFallback(editingUserAPIKeyCircuitBreakerOpenMinutes, editingUserAPIKey.circuitBreakerOpenMinutes),
         circuitBreakerHalfOpenMinutes: parsePositiveIntegerOrFallback(editingUserAPIKeyCircuitBreakerHalfOpenMinutes, editingUserAPIKey.circuitBreakerHalfOpenMinutes),
+        splitChannelTargetsBySource: editingUserAPIKeySplitChannelTargetsBySource,
+        channelTargets: editingUserAPIKeyChannelTargets,
+        subscriptionChannelTargets: editingUserAPIKeySubscriptionChannelTargets,
+        usageChannelTargets: editingUserAPIKeyUsageChannelTargets,
       })
       await loadUserAPIKeys(apiKeysModal.userId)
       setEditingUserAPIKey(null)
@@ -1851,6 +1864,16 @@ export default function UserManagement() {
                   <Input type="number" min="1" max="240" value={editingUserAPIKeyCircuitBreakerHalfOpenMinutes} onChange={(event) => setEditingUserAPIKeyCircuitBreakerHalfOpenMinutes(event.target.value)} />
                 </div>
               </div>
+              <APIKeyChannelTargetsEditor
+                splitBySource={editingUserAPIKeySplitChannelTargetsBySource}
+                onSplitBySourceChange={setEditingUserAPIKeySplitChannelTargetsBySource}
+                channelTargets={editingUserAPIKeyChannelTargets}
+                onChannelTargetsChange={setEditingUserAPIKeyChannelTargets}
+                subscriptionChannelTargets={editingUserAPIKeySubscriptionChannelTargets}
+                onSubscriptionChannelTargetsChange={setEditingUserAPIKeySubscriptionChannelTargets}
+                usageChannelTargets={editingUserAPIKeyUsageChannelTargets}
+                onUsageChannelTargetsChange={setEditingUserAPIKeyUsageChannelTargets}
+              />
             </div>
             <DialogFooter>
               <Button variant="outline" onClick={() => setEditingUserAPIKey(null)}>

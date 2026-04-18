@@ -895,6 +895,10 @@ func (s *ChannelService) SelectSpecificChannelForModelWithGroups(channelID, mode
 }
 
 func (s *ChannelService) SelectSpecificChannelForModelWithGroupsAndFormat(channelID, modelName string, groupIDs []string, incomingFormat internaltranslator.Format, allowTranslation bool) (*model.Channel, error) {
+	return s.SelectSpecificChannelForModelWithGroupsAndFormatAndTargets(channelID, modelName, groupIDs, incomingFormat, allowTranslation, nil)
+}
+
+func (s *ChannelService) SelectSpecificChannelForModelWithGroupsAndFormatAndTargets(channelID, modelName string, groupIDs []string, incomingFormat internaltranslator.Format, allowTranslation bool, scope *APIKeyChannelTargetScope) (*model.Channel, error) {
 	if channelID == "" {
 		return nil, nil
 	}
@@ -929,6 +933,13 @@ func (s *ChannelService) SelectSpecificChannelForModelWithGroupsAndFormat(channe
 	if !decision.Allowed {
 		return nil, nil
 	}
+	routeSource := effectiveRouteSource(model.BillingSourceSubscription, decision.ForcedBillingSource)
+	if scope != nil {
+		routeSource = effectiveRouteSource(scope.DefaultSource, decision.ForcedBillingSource)
+		if _, allowed := channelMatchesAPIKeyTargets(channel.ID, scope, routeSource); !allowed {
+			return nil, nil
+		}
+	}
 	channel.ForcedBillingSource = decision.ForcedBillingSource
 
 	return channel, nil
@@ -946,6 +957,10 @@ func (s *ChannelService) SelectChannelForModelWithGroupsAndFormat(modelName stri
 }
 
 func (s *ChannelService) SelectChannelForModelWithGroupsAndFormatAndProvider(modelName string, groupIDs []string, incomingFormat internaltranslator.Format, allowTranslation bool, provider string) (*model.Channel, error) {
+	return s.SelectChannelForModelWithGroupsAndFormatAndProviderAndTargets(modelName, groupIDs, incomingFormat, allowTranslation, provider, nil)
+}
+
+func (s *ChannelService) SelectChannelForModelWithGroupsAndFormatAndProviderAndTargets(modelName string, groupIDs []string, incomingFormat internaltranslator.Format, allowTranslation bool, provider string, scope *APIKeyChannelTargetScope) (*model.Channel, error) {
 	channels, channelGroupMap, err := s.listEnabledChannelsWithGroups()
 	if err != nil {
 		return nil, err
@@ -953,7 +968,7 @@ func (s *ChannelService) SelectChannelForModelWithGroupsAndFormatAndProvider(mod
 
 	userGroupIDSet := toStringSet(groupIDs)
 	now := time.Now().UTC()
-	var candidates []*model.Channel
+	var candidates []prioritizedChannelCandidate
 	for _, ch := range channels {
 		if err := s.refreshChannelCircuitBreakerStateAt(ch, now); err != nil {
 			return nil, err
@@ -969,12 +984,22 @@ func (s *ChannelService) SelectChannelForModelWithGroupsAndFormatAndProvider(mod
 		}
 		decision := evaluateChannelGroupAccess(channelGroupMap[ch.ID], userGroupIDSet)
 		if decision.Allowed {
+			routeSource := effectiveRouteSource(model.BillingSourceSubscription, decision.ForcedBillingSource)
+			apiKeyPriority := 0
+			if scope != nil {
+				routeSource = effectiveRouteSource(scope.DefaultSource, decision.ForcedBillingSource)
+				priority, allowed := channelMatchesAPIKeyTargets(ch.ID, scope, routeSource)
+				if !allowed {
+					continue
+				}
+				apiKeyPriority = priority
+			}
 			ch.ForcedBillingSource = decision.ForcedBillingSource
-			candidates = append(candidates, ch)
+			candidates = append(candidates, prioritizedChannelCandidate{channel: ch, apiKeyPriority: apiKeyPriority})
 		}
 	}
 
-	return s.selectCandidate(modelName, candidates), nil
+	return s.selectPrioritizedCandidate(modelName, candidates), nil
 }
 
 func stickyProviderForChannel(channel *model.Channel) string {
@@ -1140,6 +1165,14 @@ type channelGroupAccessDecision struct {
 	ForcedBillingSource *model.BillingSource
 }
 
+type APIKeyChannelTargetScope struct {
+	DefaultSource              model.BillingSource
+	SplitBySource              bool
+	ChannelTargets             []model.APIKeyChannelTarget
+	SubscriptionChannelTargets []model.APIKeyChannelTarget
+	UsageChannelTargets        []model.APIKeyChannelTarget
+}
+
 func evaluateChannelGroupAccess(binding *model.ChannelGroupBinding, userGroupIDSet map[string]struct{}) channelGroupAccessDecision {
 	if binding == nil {
 		return channelGroupAccessDecision{}
@@ -1162,6 +1195,68 @@ func evaluateChannelGroupAccess(binding *model.ChannelGroupBinding, userGroupIDS
 		return channelGroupAccessDecision{Allowed: true, ForcedBillingSource: &source}
 	}
 	return channelGroupAccessDecision{}
+}
+
+func effectiveRouteSource(defaultSource model.BillingSource, forcedSource *model.BillingSource) model.BillingSource {
+	if forcedSource != nil {
+		return *forcedSource
+	}
+	if defaultSource == "" {
+		return model.BillingSourceSubscription
+	}
+	return defaultSource
+}
+
+func selectTargetsForSource(scope *APIKeyChannelTargetScope, source model.BillingSource) []model.APIKeyChannelTarget {
+	if scope == nil {
+		return nil
+	}
+	if !scope.SplitBySource {
+		return scope.ChannelTargets
+	}
+	switch source {
+	case model.BillingSourceBalance:
+		return scope.UsageChannelTargets
+	default:
+		return scope.SubscriptionChannelTargets
+	}
+}
+
+func channelMatchesAPIKeyTargets(channelID string, scope *APIKeyChannelTargetScope, source model.BillingSource) (int, bool) {
+	targets := selectTargetsForSource(scope, source)
+	if len(targets) == 0 {
+		return 0, true
+	}
+	for _, target := range targets {
+		if target.ChannelID == channelID {
+			return target.Priority, true
+		}
+	}
+	return 0, false
+}
+
+type prioritizedChannelCandidate struct {
+	channel        *model.Channel
+	apiKeyPriority int
+}
+
+func (s *ChannelService) selectPrioritizedCandidate(modelName string, candidates []prioritizedChannelCandidate) *model.Channel {
+	if len(candidates) == 0 {
+		return nil
+	}
+	minAPIKeyPriority := candidates[0].apiKeyPriority
+	for _, candidate := range candidates {
+		if candidate.apiKeyPriority < minAPIKeyPriority {
+			minAPIKeyPriority = candidate.apiKeyPriority
+		}
+	}
+	filtered := make([]*model.Channel, 0, len(candidates))
+	for _, candidate := range candidates {
+		if candidate.apiKeyPriority == minAPIKeyPriority {
+			filtered = append(filtered, candidate.channel)
+		}
+	}
+	return s.selectCandidate(modelName, filtered)
 }
 
 func channelNativeFormat(channel *model.Channel) internaltranslator.Format {

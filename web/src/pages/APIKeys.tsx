@@ -31,6 +31,7 @@ import { Label } from '@/components/ui/label'
 import { Table, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { APIKeyUsageDialog } from '@/components/api-keys/APIKeyUsageDialog'
+import { APIKeyChannelTargetsEditor } from '@/components/api-keys/APIKeyChannelTargetsEditor'
 import { formatDateTime } from '@/lib/formatters'
 import { Info } from 'lucide-react'
 
@@ -94,6 +95,10 @@ export default function APIKeys({ siteName }: Props) {
   const [createCircuitBreakerThreshold, setCreateCircuitBreakerThreshold] = useState('50')
   const [createCircuitBreakerOpenMinutes, setCreateCircuitBreakerOpenMinutes] = useState('10')
   const [createCircuitBreakerHalfOpenMinutes, setCreateCircuitBreakerHalfOpenMinutes] = useState('2')
+  const [createSplitChannelTargetsBySource, setCreateSplitChannelTargetsBySource] = useState(false)
+  const [createChannelTargets, setCreateChannelTargets] = useState<{ channelId: string; priority: number }[]>([])
+  const [createSubscriptionChannelTargets, setCreateSubscriptionChannelTargets] = useState<{ channelId: string; priority: number }[]>([])
+  const [createUsageChannelTargets, setCreateUsageChannelTargets] = useState<{ channelId: string; priority: number }[]>([])
   const [creating, setCreating] = useState(false)
   const [newKey, setNewKey] = useState<CreateAPIKeyResponse | null>(null)
   const [revealKey, setRevealKey] = useState<APIKeyRevealResponse | null>(null)
@@ -104,6 +109,10 @@ export default function APIKeys({ siteName }: Props) {
   const [editCircuitBreakerThreshold, setEditCircuitBreakerThreshold] = useState('50')
   const [editCircuitBreakerOpenMinutes, setEditCircuitBreakerOpenMinutes] = useState('10')
   const [editCircuitBreakerHalfOpenMinutes, setEditCircuitBreakerHalfOpenMinutes] = useState('2')
+  const [editSplitChannelTargetsBySource, setEditSplitChannelTargetsBySource] = useState(false)
+  const [editChannelTargets, setEditChannelTargets] = useState<{ channelId: string; priority: number }[]>([])
+  const [editSubscriptionChannelTargets, setEditSubscriptionChannelTargets] = useState<{ channelId: string; priority: number }[]>([])
+  const [editUsageChannelTargets, setEditUsageChannelTargets] = useState<{ channelId: string; priority: number }[]>([])
   const [savingEdit, setSavingEdit] = useState(false)
   const [copied, setCopied] = useState<string | null>(null)
   const [revealingId, setRevealingId] = useState<string | null>(null)
@@ -147,6 +156,10 @@ export default function APIKeys({ siteName }: Props) {
         circuitBreakerThreshold: parsePositiveIntegerOrFallback(createCircuitBreakerThreshold, 50),
         circuitBreakerOpenMinutes: parsePositiveIntegerOrFallback(createCircuitBreakerOpenMinutes, 10),
         circuitBreakerHalfOpenMinutes: parsePositiveIntegerOrFallback(createCircuitBreakerHalfOpenMinutes, 2),
+        splitChannelTargetsBySource: createSplitChannelTargetsBySource,
+        channelTargets: createChannelTargets,
+        subscriptionChannelTargets: createSubscriptionChannelTargets,
+        usageChannelTargets: createUsageChannelTargets,
       })
       setNewKey(result)
       setCreateName('')
@@ -155,6 +168,10 @@ export default function APIKeys({ siteName }: Props) {
       setCreateCircuitBreakerThreshold('50')
       setCreateCircuitBreakerOpenMinutes('10')
       setCreateCircuitBreakerHalfOpenMinutes('2')
+      setCreateSplitChannelTargetsBySource(false)
+      setCreateChannelTargets([])
+      setCreateSubscriptionChannelTargets([])
+      setCreateUsageChannelTargets([])
       setShowCreate(false)
       await loadData()
     } catch (err) {
@@ -229,6 +246,10 @@ export default function APIKeys({ siteName }: Props) {
     setEditCircuitBreakerThreshold(String(key.circuitBreakerThreshold))
     setEditCircuitBreakerOpenMinutes(String(key.circuitBreakerOpenMinutes))
     setEditCircuitBreakerHalfOpenMinutes(String(key.circuitBreakerHalfOpenMinutes))
+    setEditSplitChannelTargetsBySource(key.splitChannelTargetsBySource)
+    setEditChannelTargets(key.channelTargets || [])
+    setEditSubscriptionChannelTargets(key.subscriptionChannelTargets || [])
+    setEditUsageChannelTargets(key.usageChannelTargets || [])
   }
 
   const handleSaveEdit = async () => {
@@ -244,6 +265,10 @@ export default function APIKeys({ siteName }: Props) {
         circuitBreakerThreshold: parsePositiveIntegerOrFallback(editCircuitBreakerThreshold, editingKey.circuitBreakerThreshold),
         circuitBreakerOpenMinutes: parsePositiveIntegerOrFallback(editCircuitBreakerOpenMinutes, editingKey.circuitBreakerOpenMinutes),
         circuitBreakerHalfOpenMinutes: parsePositiveIntegerOrFallback(editCircuitBreakerHalfOpenMinutes, editingKey.circuitBreakerHalfOpenMinutes),
+        splitChannelTargetsBySource: editSplitChannelTargetsBySource,
+        channelTargets: editChannelTargets,
+        subscriptionChannelTargets: editSubscriptionChannelTargets,
+        usageChannelTargets: editUsageChannelTargets,
       })
       setEditingKey(null)
       setEditName('')
@@ -251,6 +276,10 @@ export default function APIKeys({ siteName }: Props) {
       setEditCircuitBreakerThreshold('50')
       setEditCircuitBreakerOpenMinutes('10')
       setEditCircuitBreakerHalfOpenMinutes('2')
+      setEditSplitChannelTargetsBySource(false)
+      setEditChannelTargets([])
+      setEditSubscriptionChannelTargets([])
+      setEditUsageChannelTargets([])
       await loadData()
     } catch (err) {
       setError(err instanceof Error ? err.message : '保存失败')
@@ -620,6 +649,16 @@ export default function APIKeys({ siteName }: Props) {
                   <Input type="number" min="1" max="240" value={createCircuitBreakerHalfOpenMinutes} onChange={(event) => setCreateCircuitBreakerHalfOpenMinutes(event.target.value)} />
                 </div>
               </div>
+              <APIKeyChannelTargetsEditor
+                splitBySource={createSplitChannelTargetsBySource}
+                onSplitBySourceChange={setCreateSplitChannelTargetsBySource}
+                channelTargets={createChannelTargets}
+                onChannelTargetsChange={setCreateChannelTargets}
+                subscriptionChannelTargets={createSubscriptionChannelTargets}
+                onSubscriptionChannelTargetsChange={setCreateSubscriptionChannelTargets}
+                usageChannelTargets={createUsageChannelTargets}
+                onUsageChannelTargetsChange={setCreateUsageChannelTargets}
+              />
             </div>
             <DialogFooter>
               <Button
@@ -632,6 +671,10 @@ export default function APIKeys({ siteName }: Props) {
                   setCreateCircuitBreakerThreshold('50')
                   setCreateCircuitBreakerOpenMinutes('10')
                   setCreateCircuitBreakerHalfOpenMinutes('2')
+                  setCreateSplitChannelTargetsBySource(false)
+                  setCreateChannelTargets([])
+                  setCreateSubscriptionChannelTargets([])
+                  setCreateUsageChannelTargets([])
                 }}
               >
                 取消
@@ -690,6 +733,16 @@ export default function APIKeys({ siteName }: Props) {
                   <Input type="number" min="1" max="240" value={editCircuitBreakerHalfOpenMinutes} onChange={(event) => setEditCircuitBreakerHalfOpenMinutes(event.target.value)} />
                 </div>
               </div>
+              <APIKeyChannelTargetsEditor
+                splitBySource={editSplitChannelTargetsBySource}
+                onSplitBySourceChange={setEditSplitChannelTargetsBySource}
+                channelTargets={editChannelTargets}
+                onChannelTargetsChange={setEditChannelTargets}
+                subscriptionChannelTargets={editSubscriptionChannelTargets}
+                onSubscriptionChannelTargetsChange={setEditSubscriptionChannelTargets}
+                usageChannelTargets={editUsageChannelTargets}
+                onUsageChannelTargetsChange={setEditUsageChannelTargets}
+              />
             </div>
             <DialogFooter>
               <Button variant="outline" onClick={() => setEditingKey(null)}>

@@ -203,7 +203,7 @@ func ApplyModelMappingMiddleware() gin.HandlerFunc {
 
 		// Validate explicit channel bindings first so the mapping stays deterministic.
 		if result.PreferredChannelID != "" {
-			channel, err := mappingChannelService.SelectSpecificChannelForModelWithGroupsAndFormat(result.PreferredChannelID, result.MappedModel, cfg.GroupIDs, incomingFormat, true)
+			channel, err := mappingChannelService.SelectSpecificChannelForModelWithGroupsAndFormatAndTargets(result.PreferredChannelID, result.MappedModel, cfg.GroupIDs, incomingFormat, true, apiKeyChannelTargetScopeFromProxy(cfg))
 			if err != nil || channel == nil {
 				log.Warnf("model mapping: preferred channel '%s' cannot serve model '%s', skipping mapping", result.PreferredChannelID, result.MappedModel)
 				c.Next()
