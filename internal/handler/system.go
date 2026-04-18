@@ -1286,9 +1286,6 @@ func (h *SystemHandler) UpdateTimeoutConfig(c *gin.Context) {
 // GetCacheTTLConfig 获取缓存 TTL 配置
 func (h *SystemHandler) GetCacheTTLConfig(c *gin.Context) {
 	value, _ := h.configRepo.Get(cacheTTLConfigKey)
-	if value == "" {
-		value = "1h"
-	}
 	c.JSON(http.StatusOK, gin.H{"cacheTTL": value})
 }
 
