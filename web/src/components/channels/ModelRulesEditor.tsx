@@ -4,7 +4,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Checkbox } from '@/components/ui/checkbox'
 import { ChannelModel } from '@/api/channels'
-import { getChannelModels, ChannelModel2 } from '@/api/models'
+import { fetchChannelModels, getChannelModels, ChannelModel2 } from '@/api/models'
 
 interface Props {
   models: ChannelModel[] | undefined
@@ -27,12 +27,30 @@ export default function ModelRulesEditor({ models, channelId, modelWhitelist, on
     if (!channelId) return
     setLoadingModels(true)
     setFetchError('')
+    let cachedModels: ChannelModel2[] = []
     try {
+      cachedModels = await getChannelModels(channelId).catch(() => [])
+      if (cachedModels.length > 0) {
+        setFetchedModels(cachedModels)
+        setShowSelector(true)
+      } else {
+        setShowSelector(false)
+      }
+      await fetchChannelModels(channelId)
       const data = await getChannelModels(channelId)
-      setFetchedModels(data)
-      setShowSelector(true)
+      const nextModels = data.length > 0 ? data : cachedModels
+      setFetchedModels(nextModels)
+      setShowSelector(nextModels.length > 0)
     } catch (err) {
-      setFetchError(err instanceof Error ? err.message : '加载失败')
+      if (cachedModels.length > 0) {
+        setFetchedModels(cachedModels)
+        setShowSelector(true)
+      } else {
+        setFetchedModels([])
+        setShowSelector(false)
+      }
+      const message = err instanceof Error ? err.message : '请稍后重试'
+      setFetchError(`获取模型失败，请检查渠道配置后重试：${message}`)
     } finally {
       setLoadingModels(false)
     }
@@ -80,7 +98,7 @@ export default function ModelRulesEditor({ models, channelId, modelWhitelist, on
               onClick={handleLoadModels}
               disabled={loadingModels}
             >
-              {loadingModels ? '加载中...' : '从已获取的模型中选择'}
+              {loadingModels ? '获取中...' : '获取模型'}
             </Button>
           )}
           <Button type="button" variant="link" size="sm" onClick={onAdd}>
@@ -128,7 +146,7 @@ export default function ModelRulesEditor({ models, channelId, modelWhitelist, on
       {showSelector && fetchedModels.length === 0 && !loadingModels && (
         <div className="rounded-md border border-dashed p-3">
           <p className="text-sm text-muted-foreground text-center">
-            暂无已获取的模型，请先在渠道列表中点击"获取模型"
+            本次未获取到可选模型，请确认渠道配置和鉴权信息后重试
           </p>
         </div>
       )}

@@ -69,6 +69,39 @@ func (r *fakeChannelRepo) GetGroupIDsByChannelIDs(channelIDs []string) (map[stri
 	return result, nil
 }
 
+func (r *fakeChannelRepo) SetGroupBinding(id string, binding *model.ChannelGroupBinding) error {
+	shared := []string{}
+	if binding != nil {
+		shared = binding.SharedGroupIDs
+	}
+	return r.SetGroups(id, shared)
+}
+
+func (r *fakeChannelRepo) GetGroupBinding(channelID string) (*model.ChannelGroupBinding, error) {
+	groupIDs, err := r.GetGroupIDs(channelID)
+	if err != nil {
+		return nil, err
+	}
+	return &model.ChannelGroupBinding{
+		SharedGroupIDs:       append([]string(nil), groupIDs...),
+		SubscriptionGroupIDs: append([]string(nil), groupIDs...),
+		UsageGroupIDs:        append([]string(nil), groupIDs...),
+	}, nil
+}
+
+func (r *fakeChannelRepo) GetGroupBindingsByChannelIDs(channelIDs []string) (map[string]*model.ChannelGroupBinding, error) {
+	result := make(map[string]*model.ChannelGroupBinding, len(channelIDs))
+	for _, channelID := range channelIDs {
+		groupIDs := append([]string(nil), r.groups[channelID]...)
+		result[channelID] = &model.ChannelGroupBinding{
+			SharedGroupIDs:       groupIDs,
+			SubscriptionGroupIDs: append([]string(nil), groupIDs...),
+			UsageGroupIDs:        append([]string(nil), groupIDs...),
+		}
+	}
+	return result, nil
+}
+
 func (r *fakeChannelRepo) listChannels(enabledOnly bool) []*model.Channel {
 	ids := make([]string, 0, len(r.channels))
 	for id := range r.channels {
@@ -110,7 +143,9 @@ func TestApplyModelMappingMiddleware_BindsPreferredChannel(t *testing.T) {
 		channels: map[string]*model.Channel{
 			"preferred": testChannel("preferred", "Preferred"),
 		},
-		groups: map[string][]string{},
+		groups: map[string][]string{
+			"preferred": {"basic"},
+		},
 	}
 
 	originalService := mappingChannelService
@@ -131,7 +166,7 @@ func TestApplyModelMappingMiddleware_BindsPreferredChannel(t *testing.T) {
 
 	router := gin.New()
 	router.Use(func(c *gin.Context) {
-		cfg := &ProxyConfig{ModelMappingsJSON: string(mappingsJSON), RouteMappingsEnabled: true}
+		cfg := &ProxyConfig{ModelMappingsJSON: string(mappingsJSON), RouteMappingsEnabled: true, GroupIDs: []string{"basic"}}
 		c.Request = c.Request.WithContext(WithProxyConfig(c.Request.Context(), cfg))
 		c.Next()
 	})
@@ -246,7 +281,10 @@ func TestChannelRouterMiddleware_UsesPreferredChannel(t *testing.T) {
 			"auto":      testChannel("auto", "Auto"),
 			"preferred": testChannel("preferred", "Preferred"),
 		},
-		groups: map[string][]string{},
+		groups: map[string][]string{
+			"auto":      {"basic"},
+			"preferred": {"basic"},
+		},
 	}
 
 	originalService := channelService
@@ -257,7 +295,7 @@ func TestChannelRouterMiddleware_UsesPreferredChannel(t *testing.T) {
 
 	router := gin.New()
 	router.Use(func(c *gin.Context) {
-		c.Request = c.Request.WithContext(WithProxyConfig(c.Request.Context(), &ProxyConfig{}))
+		c.Request = c.Request.WithContext(WithProxyConfig(c.Request.Context(), &ProxyConfig{GroupIDs: []string{"basic"}}))
 		c.Set(PreferredChannelContextKey, "preferred")
 		c.Next()
 	})
@@ -293,7 +331,11 @@ func TestChannelRouterMiddleware_UsesStickyChannelBeforePreferredAndRoundRobin(t
 			"preferred": testChannel("preferred", "Preferred"),
 			"sticky":    testChannel("sticky", "Sticky"),
 		},
-		groups: map[string][]string{},
+		groups: map[string][]string{
+			"auto":      {"basic"},
+			"preferred": {"basic"},
+			"sticky":    {"basic"},
+		},
 	}
 
 	originalService := channelService
@@ -304,7 +346,7 @@ func TestChannelRouterMiddleware_UsesStickyChannelBeforePreferredAndRoundRobin(t
 
 	router := gin.New()
 	router.Use(func(c *gin.Context) {
-		ctx := WithProxyConfig(c.Request.Context(), &ProxyConfig{})
+		ctx := WithProxyConfig(c.Request.Context(), &ProxyConfig{GroupIDs: []string{"basic"}})
 		ctx = WithRequestSession(ctx, &RequestSession{
 			SessionID:       "sess-1",
 			StickyChannelID: "sticky",
@@ -345,6 +387,7 @@ func TestChannelRouterMiddleware_FallsBackWhenPreferredChannelIsInaccessible(t *
 			"preferred": testChannel("preferred", "Preferred"),
 		},
 		groups: map[string][]string{
+			"public":    {"basic"},
 			"preferred": {"vip"},
 		},
 	}
@@ -357,7 +400,7 @@ func TestChannelRouterMiddleware_FallsBackWhenPreferredChannelIsInaccessible(t *
 
 	router := gin.New()
 	router.Use(func(c *gin.Context) {
-		cfg := &ProxyConfig{GroupIDs: nil}
+		cfg := &ProxyConfig{GroupIDs: []string{"basic"}}
 		c.Request = c.Request.WithContext(WithProxyConfig(c.Request.Context(), cfg))
 		c.Set(PreferredChannelContextKey, "preferred")
 		c.Next()

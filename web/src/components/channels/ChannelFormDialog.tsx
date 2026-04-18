@@ -176,6 +176,41 @@ export function ChannelFormDialog({
     })
   }
 
+  const renderGroupSelector = (
+    label: string,
+    selectedIds: string[],
+    onChange: (nextIds: string[]) => void,
+  ) => (
+    <div className="space-y-2">
+      <Label>{label}</Label>
+      <div className="flex flex-wrap gap-2 rounded-md border p-3 min-h-[40px]">
+        {groups.length === 0 ? (
+          <span className="text-sm text-muted-foreground">暂无分组</span>
+        ) : (
+          groups.map(g => {
+            const selected = selectedIds.includes(g.id)
+            return (
+              <label key={`${label}-${g.id}`} className="flex items-center gap-1.5 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={selected}
+                  onChange={(e) => {
+                    const nextIds = e.target.checked
+                      ? [...selectedIds, g.id]
+                      : selectedIds.filter(id => id !== g.id)
+                    onChange(nextIds)
+                  }}
+                  className="rounded border-input"
+                />
+                <span className="text-sm">{g.name}</span>
+              </label>
+            )
+          })
+        )}
+      </div>
+    </div>
+  )
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
@@ -268,34 +303,72 @@ export function ChannelFormDialog({
           />
 
           {/* 分组 */}
-          <div className="space-y-2 col-span-2">
-            <Label>分组</Label>
-            <div className="flex flex-wrap gap-2 rounded-md border p-3 min-h-[40px]">
-              {groups.length === 0 ? (
-                <span className="text-sm text-muted-foreground">暂无分组</span>
-              ) : (
-                groups.map(g => {
-                  const selected = (formData.groupIds || []).includes(g.id)
-                  return (
-                    <label key={g.id} className="flex items-center gap-1.5 cursor-pointer">
-                      <input
-                        type="checkbox"
-                        checked={selected}
-                        onChange={(e) => {
-                          const current = formData.groupIds || []
-                          const newIds = e.target.checked
-                            ? [...current, g.id]
-                            : current.filter(id => id !== g.id)
-                          setFormData(prev => ({ ...prev, groupIds: newIds }))
-                        }}
-                        className="rounded border-input"
-                      />
-                      <span className="text-sm">{g.name}</span>
-                    </label>
-                  )
-                })
-              )}
+          <div className="space-y-4 col-span-2">
+            <div className="flex items-center justify-between gap-4 rounded-md border border-border/70 px-3 py-3">
+              <div className="space-y-0.5">
+                <Label>区分订阅 / 用量分组</Label>
+                <p className="text-xs text-muted-foreground">关闭时两套分组会保持一致，仅显示一套共享编辑器。</p>
+              </div>
+              <Switch
+                checked={formData.splitGroupsBySource || false}
+                onCheckedChange={(checked) => {
+                  setFormData(prev => {
+                    const shared = prev.groupIds || []
+                    const subscription = (prev.subscriptionGroupIds && prev.subscriptionGroupIds.length > 0)
+                      ? prev.subscriptionGroupIds
+                      : shared
+                    const usage = (prev.usageGroupIds && prev.usageGroupIds.length > 0)
+                      ? prev.usageGroupIds
+                      : shared
+                    const merged = Array.from(new Set([...subscription, ...usage]))
+                    if (checked) {
+                      return {
+                        ...prev,
+                        splitGroupsBySource: true,
+                        subscriptionGroupIds: [...subscription],
+                        usageGroupIds: [...usage],
+                        groupIds: merged,
+                      }
+                    }
+                    return {
+                      ...prev,
+                      splitGroupsBySource: false,
+                      groupIds: merged,
+                      subscriptionGroupIds: [...merged],
+                      usageGroupIds: [...merged],
+                    }
+                  })
+                }}
+              />
             </div>
+
+            {formData.splitGroupsBySource ? (
+              <div className="grid gap-4 md:grid-cols-2">
+                {renderGroupSelector('订阅分组', formData.subscriptionGroupIds || [], (nextIds) => {
+                  setFormData(prev => ({
+                    ...prev,
+                    subscriptionGroupIds: nextIds,
+                    groupIds: Array.from(new Set([...(nextIds || []), ...(prev.usageGroupIds || [])])),
+                  }))
+                })}
+                {renderGroupSelector('用量分组', formData.usageGroupIds || [], (nextIds) => {
+                  setFormData(prev => ({
+                    ...prev,
+                    usageGroupIds: nextIds,
+                    groupIds: Array.from(new Set([...(prev.subscriptionGroupIds || []), ...(nextIds || [])])),
+                  }))
+                })}
+              </div>
+            ) : (
+              renderGroupSelector('共享分组', formData.groupIds || [], (nextIds) => {
+                setFormData(prev => ({
+                  ...prev,
+                  groupIds: nextIds,
+                  subscriptionGroupIds: [...nextIds],
+                  usageGroupIds: [...nextIds],
+                }))
+              })
+            )}
           </div>
 
           <div className="col-span-2 grid gap-4 md:grid-cols-3">

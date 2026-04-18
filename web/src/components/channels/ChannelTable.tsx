@@ -18,12 +18,9 @@ import { Channel, ChannelType, TestChannelResult } from '@/api/channels'
 export interface ChannelTableProps {
   channels: Channel[]
   testResults: Record<string, TestChannelResult>
-  fetchingModels: Record<string, boolean>
-  modelCounts: Record<string, number>
   onToggleEnabled: (id: string, enabled: boolean) => void
   onQuickUpdate: (channel: Channel, field: 'priority' | 'weight' | 'rateMultiplier', value: number) => Promise<void>
   onTest: (channel: Channel) => void
-  onFetchModels: (id: string) => void
   onEdit: (channel: Channel) => void
   onDelete: (id: string, name: string) => void
 }
@@ -150,12 +147,9 @@ function MobileInfoRow({
 export function ChannelTable({
   channels,
   testResults: _testResults,
-  fetchingModels,
-  modelCounts,
   onToggleEnabled,
   onQuickUpdate,
   onTest,
-  onFetchModels,
   onEdit,
   onDelete,
 }: ChannelTableProps) {
@@ -166,6 +160,8 @@ export function ChannelTable({
       <div className="space-y-3 p-4 md:hidden">
         {channels.map((channel) => {
           const groupNames = channel.groupNames ?? []
+          const subscriptionGroupNames = channel.subscriptionGroupNames ?? []
+          const usageGroupNames = channel.usageGroupNames ?? []
           const models = channel.models ?? []
 
           return (
@@ -189,14 +185,22 @@ export function ChannelTable({
 
               <div className="mt-3 flex flex-wrap gap-2">
                 <Badge variant="outline">{getEndpointLabel(channel.endpoint)}</Badge>
-                {groupNames.length > 0 ? (
+                {!channel.splitGroupsBySource && groupNames.length > 0 ? (
                   <Badge variant="secondary" className="max-w-full truncate">
                     {groupNames.join(' / ')}
                   </Badge>
                 ) : null}
-                <Badge variant="outline">
-                  模型 {modelCounts[channel.id] ?? models.length}
-                </Badge>
+                {channel.splitGroupsBySource && subscriptionGroupNames.length > 0 ? (
+                  <Badge variant="secondary" className="max-w-full truncate">
+                    订阅 {subscriptionGroupNames.join(' / ')}
+                  </Badge>
+                ) : null}
+                {channel.splitGroupsBySource && usageGroupNames.length > 0 ? (
+                  <Badge variant="secondary" className="max-w-full truncate">
+                    用量 {usageGroupNames.join(' / ')}
+                  </Badge>
+                ) : null}
+                <Badge variant="outline">模型 {models.length}</Badge>
               </div>
 
               <div className="mt-3 grid gap-2 text-sm">
@@ -232,14 +236,6 @@ export function ChannelTable({
                 <Button variant="outline" size="sm" onClick={() => onTest(channel)}>
                   测试
                 </Button>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => onFetchModels(channel.id)}
-                  disabled={fetchingModels[channel.id]}
-                >
-                  {fetchingModels[channel.id] ? '获取中...' : '获取模型'}
-                </Button>
                 <Button variant="outline" size="sm" onClick={() => onEdit(channel)}>
                   编辑
                 </Button>
@@ -272,17 +268,29 @@ export function ChannelTable({
         </TableHeader>
         <motion.tbody variants={tableStaggerContainer} initial="hidden" animate="visible" key={channels.length}>
           {channels.map((channel) => {
-            const models = channel.models ?? []
-
+            const groupNames = channel.groupNames ?? []
+            const subscriptionGroupNames = channel.subscriptionGroupNames ?? []
+            const usageGroupNames = channel.usageGroupNames ?? []
             return (
               <motion.tr key={channel.id} variants={tableRowVariants} className="border-b transition-colors hover:bg-muted/50 data-[state=selected]:bg-muted">
                 <TableCell>
-                  <div className="flex items-center gap-2">
-                    <span className="font-medium">{channel.name}</span>
-                    {channel.type === 'openai' && channel.endpoint === 'responses' && channel.codexWebsocketEnabled && (
-                      <Badge variant="outline" className="text-[10px] uppercase tracking-[0.12em] text-muted-foreground">
-                        WS
-                      </Badge>
+                  <div className="space-y-1.5">
+                    <div className="flex items-center gap-2">
+                      <span className="font-medium">{channel.name}</span>
+                      {channel.type === 'openai' && channel.endpoint === 'responses' && channel.codexWebsocketEnabled && (
+                        <Badge variant="outline" className="text-[10px] uppercase tracking-[0.12em] text-muted-foreground">
+                          WS
+                        </Badge>
+                      )}
+                    </div>
+                    {!channel.splitGroupsBySource && groupNames.length > 0 ? (
+                      <p className="text-xs text-muted-foreground">{groupNames.join(' / ')}</p>
+                    ) : null}
+                    {channel.splitGroupsBySource && (
+                      <div className="space-y-1 text-xs text-muted-foreground">
+                        <p>订阅: {subscriptionGroupNames.length > 0 ? subscriptionGroupNames.join(' / ') : '-'}</p>
+                        <p>用量: {usageGroupNames.length > 0 ? usageGroupNames.join(' / ') : '-'}</p>
+                      </div>
                     )}
                   </div>
                 </TableCell>
@@ -321,23 +329,6 @@ export function ChannelTable({
                 <TableCell className="text-right space-x-2">
                   <Button variant="ghost" size="sm" onClick={() => onTest(channel)}>
                     测试
-                  </Button>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => onFetchModels(channel.id)}
-                    disabled={fetchingModels[channel.id]}
-                  >
-                    {fetchingModels[channel.id] ? '获取中...' : '获取模型'}
-                    {modelCounts[channel.id] !== undefined ? (
-                      <span className="ml-1 text-xs text-muted-foreground">
-                        ({modelCounts[channel.id]})
-                      </span>
-                    ) : models.length > 0 ? (
-                      <span className="ml-1 text-xs text-muted-foreground">
-                        ({models.length})
-                      </span>
-                    ) : null}
                   </Button>
                   <Button variant="ghost" size="sm" onClick={() => onEdit(channel)}>
                     编辑

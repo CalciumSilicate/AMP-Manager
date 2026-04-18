@@ -39,11 +39,16 @@ export interface Channel {
   baseUrl: string
   apiKeySet: boolean
   enabled: boolean
+  splitGroupsBySource: boolean
   weight: number
   priority: number
   rateMultiplier: number
   groupIds: string[]
   groupNames: string[]
+  subscriptionGroupIds: string[]
+  subscriptionGroupNames: string[]
+  usageGroupIds: string[]
+  usageGroupNames: string[]
   models: ChannelModel[]
   modelWhitelist: boolean
   simulateCli: boolean
@@ -65,10 +70,13 @@ export interface ChannelRequest {
   baseUrl: string
   apiKey?: string
   enabled: boolean
+  splitGroupsBySource?: boolean
   weight: number
   priority: number
   rateMultiplier: number
   groupIds?: string[]
+  subscriptionGroupIds?: string[]
+  usageGroupIds?: string[]
   models?: ChannelModel[]
   modelWhitelist?: boolean
   simulateCli?: boolean
@@ -117,8 +125,13 @@ function normalizeChannel(channel: Channel): Channel {
 
   return {
     ...channel,
+    splitGroupsBySource: Boolean(channel.splitGroupsBySource),
     groupIds: Array.isArray(channel.groupIds) ? [...channel.groupIds] : [],
     groupNames: Array.isArray(channel.groupNames) ? [...channel.groupNames] : [],
+    subscriptionGroupIds: Array.isArray(channel.subscriptionGroupIds) ? [...channel.subscriptionGroupIds] : [],
+    subscriptionGroupNames: Array.isArray(channel.subscriptionGroupNames) ? [...channel.subscriptionGroupNames] : [],
+    usageGroupIds: Array.isArray(channel.usageGroupIds) ? [...channel.usageGroupIds] : [],
+    usageGroupNames: Array.isArray(channel.usageGroupNames) ? [...channel.usageGroupNames] : [],
     models: normalizeChannelModels(channel.models),
     headers,
     translator: { ...DEFAULT_TRANSLATOR, ...(channel.translator || {}) },

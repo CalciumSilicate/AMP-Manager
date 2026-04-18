@@ -21,7 +21,7 @@ func TestSettleRequestCostResultLegacyReturnsOveruseAfterBestEffortCharge(t *tes
 	mustExecBillingService(t, db, `INSERT INTO request_logs (id, created_at, user_id, api_key_id, method, path, status_code, latency_ms, cost_micros, cost_usd, billing_status) VALUES (?, ?, ?, 'key-1', 'POST', '/v1/responses', 200, 123, 130, '0.000130', 'none')`, "req-1", now, "user-1")
 
 	svc := NewBillingService()
-	result, err := svc.settleRequestCostLegacy("req-1", "user-1", 130)
+	result, err := svc.settleRequestCostLegacy("req-1", "user-1", 130, nil)
 	if err != nil {
 		t.Fatalf("settleRequestCostLegacy returned error: %v", err)
 	}

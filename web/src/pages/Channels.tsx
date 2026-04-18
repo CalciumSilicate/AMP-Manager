@@ -15,7 +15,6 @@ import {
   updateChannel,
 } from '../api/channels'
 import { Group, listGroups } from '../api/groups'
-import { fetchChannelModels } from '../api/models'
 import { AdminPageShell, AdminSurface } from '@/components/admin/AdminPageShell'
 import { ChannelFormDialog } from '@/components/channels/ChannelFormDialog'
 import { ChannelTable } from '@/components/channels/ChannelTable'
@@ -52,8 +51,6 @@ export default function Channels() {
   const [error, setError] = useState('')
   const [showForm, setShowForm] = useState(false)
   const [editingChannel, setEditingChannel] = useState<Channel | null>(null)
-  const [fetchingModels, setFetchingModels] = useState<Record<string, boolean>>({})
-  const [modelCounts, setModelCounts] = useState<Record<string, number>>({})
   const [groups, setGroups] = useState<Group[]>([])
   const [saving, setSaving] = useState(false)
 
@@ -70,10 +67,13 @@ export default function Channels() {
     baseUrl: 'https://api.openai.com',
     apiKey: '',
     enabled: true,
+    splitGroupsBySource: false,
     weight: 1,
     priority: 100,
     rateMultiplier: 1,
     groupIds: [],
+    subscriptionGroupIds: [],
+    usageGroupIds: [],
     models: [],
     modelWhitelist: false,
     simulateCli: false,
@@ -122,10 +122,13 @@ export default function Channels() {
     name: channel.name,
     baseUrl: channel.baseUrl,
     enabled: channel.enabled,
+    splitGroupsBySource: channel.splitGroupsBySource || false,
     weight: channel.weight,
     priority: channel.priority,
     rateMultiplier: channel.rateMultiplier,
     groupIds: channel.groupIds || [],
+    subscriptionGroupIds: channel.subscriptionGroupIds || [],
+    usageGroupIds: channel.usageGroupIds || [],
     models: channel.models,
     modelWhitelist: channel.modelWhitelist || false,
     simulateCli: channel.simulateCli || false,
@@ -153,10 +156,13 @@ export default function Channels() {
       baseUrl: 'https://api.openai.com',
       apiKey: '',
       enabled: true,
+      splitGroupsBySource: false,
       weight: 1,
       priority: 100,
       rateMultiplier: 1,
       groupIds: [],
+      subscriptionGroupIds: [],
+      usageGroupIds: [],
       models: [],
       modelWhitelist: false,
       simulateCli: false,
@@ -185,10 +191,13 @@ export default function Channels() {
       baseUrl: channel.baseUrl,
       apiKey: '',
       enabled: channel.enabled,
+      splitGroupsBySource: channel.splitGroupsBySource || false,
       weight: channel.weight,
       priority: channel.priority,
       rateMultiplier: channel.rateMultiplier,
       groupIds: channel.groupIds || [],
+      subscriptionGroupIds: channel.subscriptionGroupIds || [],
+      usageGroupIds: channel.usageGroupIds || [],
       models: channel.models,
       modelWhitelist: channel.modelWhitelist || false,
       simulateCli: channel.simulateCli || false,
@@ -305,18 +314,6 @@ export default function Channels() {
     }
   }
 
-  const handleFetchModels = async (id: string) => {
-    try {
-      setFetchingModels((prev) => ({ ...prev, [id]: true }))
-      const result = await fetchChannelModels(id)
-      setModelCounts((prev) => ({ ...prev, [id]: result.count }))
-    } catch (err) {
-      setError(err instanceof Error ? err.message : '获取模型失败')
-    } finally {
-      setFetchingModels((prev) => ({ ...prev, [id]: false }))
-    }
-  }
-
   const availableModels = useMemo(() => testDialogChannel?.models || [], [testDialogChannel])
 
   if (loading) {
@@ -358,12 +355,9 @@ export default function Channels() {
                 <ChannelTable
                   channels={channels}
                   testResults={{}}
-                  fetchingModels={fetchingModels}
-                  modelCounts={modelCounts}
                   onToggleEnabled={handleToggleEnabled}
                   onQuickUpdate={handleQuickUpdate}
                   onTest={openTestDialog}
-                  onFetchModels={handleFetchModels}
                   onEdit={handleEdit}
                   onDelete={handleDelete}
                 />

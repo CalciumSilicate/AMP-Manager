@@ -31,6 +31,8 @@ var migrationTables = []string{
 	"channels",
 	"user_groups",
 	"channel_groups",
+	"channel_subscription_groups",
+	"channel_usage_groups",
 	"channel_models",
 	"model_metadata",
 	"model_prices",

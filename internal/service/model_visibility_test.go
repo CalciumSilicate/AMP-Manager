@@ -29,19 +29,26 @@ func TestListAvailableModelsForUserFiltersByChannelGroups(t *testing.T) {
 
 	groupA := createTestGroup(t, groupRepo, "group-a")
 	groupB := createTestGroup(t, groupRepo, "group-b")
+	commonGroup := createTestGroup(t, groupRepo, "group-common")
 
 	adminUser := createTestUser(t, userRepo, "admin", true)
 	noGroupUser := createTestUser(t, userRepo, "user-no-group", false)
 	groupAUser := createTestUser(t, userRepo, "user-group-a", false)
 
-	if err := userRepo.SetGroups(groupAUser.ID, []string{groupA.ID}); err != nil {
-		t.Fatalf("set user groups: %v", err)
+	if err := userRepo.SetGroups(adminUser.ID, []string{groupA.ID, groupB.ID, commonGroup.ID}); err != nil {
+		t.Fatalf("set admin groups: %v", err)
+	}
+	if err := userRepo.SetGroups(groupAUser.ID, []string{groupA.ID, commonGroup.ID}); err != nil {
+		t.Fatalf("set group-a user groups: %v", err)
 	}
 
 	publicChannel := createTestChannel(t, channelRepo, "public-channel")
 	groupAChannel := createTestChannel(t, channelRepo, "group-a-channel")
 	groupBChannel := createTestChannel(t, channelRepo, "group-b-channel")
 
+	if err := channelRepo.SetGroups(publicChannel.ID, []string{commonGroup.ID}); err != nil {
+		t.Fatalf("set public channel groups: %v", err)
+	}
 	if err := channelRepo.SetGroups(groupAChannel.ID, []string{groupA.ID}); err != nil {
 		t.Fatalf("set channel groups: %v", err)
 	}
@@ -71,7 +78,7 @@ func TestListAvailableModelsForUserFiltersByChannelGroups(t *testing.T) {
 	if err != nil {
 		t.Fatalf("list no-group models: %v", err)
 	}
-	assertModelIDs(t, noGroupModels, []string{"public-model"})
+	assertModelIDs(t, noGroupModels, []string{})
 
 	groupAModels, err := service.ListAvailableModelsForUser(groupAUser.ID, groupAUser.IsAdmin)
 	if err != nil {
@@ -93,12 +100,20 @@ func TestListAvailableModelsForUserIncludesModelMetadata(t *testing.T) {
 	})
 
 	userRepo := repository.NewUserRepository()
+	groupRepo := repository.NewGroupRepository()
 	channelRepo := repository.NewChannelRepository()
 	channelModelRepo := repository.NewChannelModelRepository()
 	modelMetadataRepo := repository.NewModelMetadataRepository()
 
 	user := createTestUser(t, userRepo, "metadata-user", false)
 	channel := createTestChannel(t, channelRepo, "metadata-channel")
+	group := createTestGroup(t, groupRepo, "metadata-group")
+	if err := userRepo.SetGroups(user.ID, []string{group.ID}); err != nil {
+		t.Fatalf("set metadata user groups: %v", err)
+	}
+	if err := channelRepo.SetGroups(channel.ID, []string{group.ID}); err != nil {
+		t.Fatalf("set metadata channel groups: %v", err)
+	}
 
 	if err := channelModelRepo.ReplaceModels(channel.ID, []model.ChannelModel2{
 		{ModelID: "gpt-5.2", DisplayName: "GPT 5.2"},

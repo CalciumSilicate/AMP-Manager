@@ -44,6 +44,9 @@ func (s *ModelService) FetchAndSaveModels(channelID string) (int, error) {
 	if err != nil {
 		return 0, err
 	}
+	if len(models) == 0 {
+		return 0, fmt.Errorf("未获取到任何模型")
+	}
 
 	channelModels := make([]model.ChannelModel2, len(models))
 	for i, m := range models {
@@ -213,7 +216,7 @@ func (s *ModelService) ListAllAvailableModels() ([]*model.AvailableModel, error)
 
 func (s *ModelService) ListAvailableModelsForUser(userID string, isAdmin bool) ([]*model.AvailableModel, error) {
 	all, err := s.ListAllAvailableModels()
-	if err != nil || isAdmin {
+	if err != nil {
 		return all, err
 	}
 
@@ -232,7 +235,7 @@ func (s *ModelService) ListAvailableModelsForUser(userID string, isAdmin bool) (
 		channelIDs = append(channelIDs, availableModel.ChannelID)
 	}
 
-	channelGroupMap, err := s.channelRepo.GetGroupIDsByChannelIDs(channelIDs)
+	channelGroupMap, err := s.channelRepo.GetGroupBindingsByChannelIDs(channelIDs)
 	if err != nil {
 		return nil, err
 	}
@@ -240,7 +243,7 @@ func (s *ModelService) ListAvailableModelsForUser(userID string, isAdmin bool) (
 	userGroupSet := toStringSet(userGroupIDs)
 	result := make([]*model.AvailableModel, 0, len(all))
 	for _, availableModel := range all {
-		if channelAccessibleWithSet(channelGroupMap[availableModel.ChannelID], userGroupSet) {
+		if evaluateChannelGroupAccess(channelGroupMap[availableModel.ChannelID], userGroupSet).Allowed {
 			result = append(result, availableModel)
 		}
 	}

@@ -118,7 +118,10 @@ func TestPrepareResponsesWebsocketTurnSkipsMappingsWhenDisabled(t *testing.T) {
 				ModelsJSON: string(modelsJSON),
 			},
 		},
-		groups: map[string][]string{},
+		groups: map[string][]string{
+			"preferred": {"basic"},
+			"sticky":    {"basic"},
+		},
 	}
 
 	originalService := responsesWebsocketChannelService
@@ -176,7 +179,10 @@ func TestPrepareResponsesWebsocketTurnExtractsThinkingLevelFromRequestBody(t *te
 				ModelsJSON: string(modelsJSON),
 			},
 		},
-		groups: map[string][]string{},
+		groups: map[string][]string{
+			"preferred": {"basic"},
+			"sticky":    {"basic"},
+		},
 	}
 
 	originalService := responsesWebsocketChannelService
@@ -233,7 +239,10 @@ func TestSelectResponsesWebsocketChannelUsesStickyChannelBeforePreferred(t *test
 				ModelsJSON: string(modelsJSON),
 			},
 		},
-		groups: map[string][]string{},
+		groups: map[string][]string{
+			"preferred": {"basic"},
+			"sticky":    {"basic"},
+		},
 	}
 
 	originalService := responsesWebsocketChannelService
@@ -242,7 +251,7 @@ func TestSelectResponsesWebsocketChannelUsesStickyChannelBeforePreferred(t *test
 
 	channel, errResp := selectResponsesWebsocketChannel(
 		&responsesWebsocketSession{},
-		&ProxyConfig{},
+		&ProxyConfig{GroupIDs: []string{"basic"}},
 		MappingResult{
 			MappedModel:        "gpt-4.1",
 			PreferredChannelID: "preferred",

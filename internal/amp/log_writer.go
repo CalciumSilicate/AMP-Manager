@@ -825,7 +825,7 @@ func (w *LoggingBodyWrapper) Close() error {
 
 							if proxyCfg != nil && adjustedCostMicros > 0 {
 								billingSvc := service.NewBillingService()
-								result, err := billingSvc.SettleRequestCostResult(w.trace.RequestID, proxyCfg.UserID, adjustedCostMicros)
+								result, err := billingSvc.SettleRequestCostResultWithSource(w.trace.RequestID, proxyCfg.UserID, adjustedCostMicros, proxyCfg.ForcedBillingSource)
 								if err != nil {
 									log.Warnf("log writer: failed to settle cost for user %s: %v", proxyCfg.UserID, err)
 								} else {

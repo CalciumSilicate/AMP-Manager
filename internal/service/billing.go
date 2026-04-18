@@ -43,6 +43,7 @@ type AdmissionRequest struct {
 	UserID              string
 	PricingModel        string
 	EstimatedCostMicros int64
+	ForcedBillingSource *model.BillingSource
 }
 
 func NewBillingService() *BillingService {
@@ -77,11 +78,21 @@ func NewBillingServiceWithRepo(
 	}
 }
 
-func (s *BillingService) CanStartRequest(userID string) (bool, error) {
-	return s.canStartRequestLegacy(userID)
+func effectiveBillingSources(setting *model.UserBillingSetting, forcedSource *model.BillingSource) []model.BillingSource {
+	if forcedSource != nil {
+		return []model.BillingSource{*forcedSource}
+	}
+	if setting == nil {
+		return []model.BillingSource{model.BillingSourceSubscription, model.BillingSourceBalance}
+	}
+	return []model.BillingSource{setting.PrimarySource, setting.SecondarySource}
 }
 
-func (s *BillingService) canStartRequestLegacy(userID string) (bool, error) {
+func (s *BillingService) CanStartRequest(userID string) (bool, error) {
+	return s.canStartRequestLegacy(userID, nil)
+}
+
+func (s *BillingService) canStartRequestLegacy(userID string, forcedSource *model.BillingSource) (bool, error) {
 	setting, err := s.settingRepo.GetByUserID(userID)
 	if err != nil {
 		return false, err
@@ -112,7 +123,7 @@ func (s *BillingService) canStartRequestLegacy(userID string) (bool, error) {
 		}
 	}
 
-	sources := []model.BillingSource{setting.PrimarySource, setting.SecondarySource}
+	sources := effectiveBillingSources(setting, forcedSource)
 	for _, src := range sources {
 		switch src {
 		case model.BillingSourceSubscription:
@@ -131,7 +142,7 @@ func (s *BillingService) canStartRequestLegacy(userID string) (bool, error) {
 
 func (s *BillingService) ReserveRequest(req AdmissionRequest) (bool, error) {
 	if runtime := billingstate.Get(); runtime != nil {
-		if err := runtime.ReserveRequest(context.Background(), req.RequestID, req.UserID, req.EstimatedCostMicros); err != nil {
+		if err := runtime.ReserveRequest(context.Background(), req.RequestID, req.UserID, req.EstimatedCostMicros, req.ForcedBillingSource); err != nil {
 			if errors.Is(err, billingstate.ErrInsufficientBudget) {
 				return false, nil
 			}
@@ -139,7 +150,7 @@ func (s *BillingService) ReserveRequest(req AdmissionRequest) (bool, error) {
 		}
 		return true, nil
 	}
-	return s.canStartRequestLegacy(req.UserID)
+	return s.canStartRequestLegacy(req.UserID, req.ForcedBillingSource)
 }
 
 func (s *BillingService) calcSubscriptionRemaining(sub *model.UserSubscription, limits []model.SubscriptionPlanLimit) int64 {
@@ -175,7 +186,7 @@ func (s *BillingService) calcSubscriptionRemaining(sub *model.UserSubscription, 
 }
 
 func (s *BillingService) SettleRequestCost(requestLogID, userID string, costMicros int64) error {
-	result, err := s.SettleRequestCostResult(requestLogID, userID, costMicros)
+	result, err := s.SettleRequestCostResultWithSource(requestLogID, userID, costMicros, nil)
 	if err != nil {
 		return err
 	}
@@ -193,11 +204,15 @@ func (s *BillingService) ApplyBillingResult(requestLogID string, result *Request
 }
 
 func (s *BillingService) SettleRequestCostResult(requestLogID, userID string, costMicros int64) (*RequestBillingResult, error) {
+	return s.SettleRequestCostResultWithSource(requestLogID, userID, costMicros, nil)
+}
+
+func (s *BillingService) SettleRequestCostResultWithSource(requestLogID, userID string, costMicros int64, forcedSource *model.BillingSource) (*RequestBillingResult, error) {
 	if runtime := billingstate.Get(); runtime != nil {
-		result, err := runtime.SettleRequest(context.Background(), requestLogID, userID, costMicros)
+		result, err := runtime.SettleRequest(context.Background(), requestLogID, userID, costMicros, forcedSource)
 		if err != nil {
 			if errors.Is(err, billingstate.ErrReservationNotFound) {
-				return s.settleRequestCostLegacy(requestLogID, userID, costMicros)
+				return s.settleRequestCostLegacy(requestLogID, userID, costMicros, forcedSource)
 			}
 			return nil, err
 		}
@@ -225,10 +240,10 @@ func (s *BillingService) SettleRequestCostResult(requestLogID, userID string, co
 			ChargedBalanceMicros:      chargedBal,
 		}, nil
 	}
-	return s.settleRequestCostLegacy(requestLogID, userID, costMicros)
+	return s.settleRequestCostLegacy(requestLogID, userID, costMicros, forcedSource)
 }
 
-func (s *BillingService) settleRequestCostLegacy(requestLogID, userID string, costMicros int64) (*RequestBillingResult, error) {
+func (s *BillingService) settleRequestCostLegacy(requestLogID, userID string, costMicros int64, forcedSource *model.BillingSource) (*RequestBillingResult, error) {
 	if costMicros < 0 {
 		return nil, fmt.Errorf("billing: invalid negative cost %d", costMicros)
 	}
@@ -270,7 +285,7 @@ func (s *BillingService) settleRequestCostLegacy(requestLogID, userID string, co
 	var chargedSubscription, chargedBalance int64
 	remaining := costMicros
 
-	sources := []model.BillingSource{setting.PrimarySource, setting.SecondarySource}
+	sources := effectiveBillingSources(setting, forcedSource)
 	for _, src := range sources {
 		if remaining <= 0 {
 			break

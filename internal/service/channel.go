@@ -68,9 +68,9 @@ type enabledChannelsCache struct {
 }
 
 type enabledChannelsSnapshotEntry struct {
-	channels        []*model.Channel
-	channelGroupMap map[string][]string
-	loadedAt        time.Time
+	channels               []*model.Channel
+	channelGroupBindingMap map[string]*model.ChannelGroupBinding
+	loadedAt               time.Time
 }
 
 // getParsedModels 从缓存获取或解析 ModelsJSON
@@ -259,7 +259,70 @@ func (s *ChannelService) getRRCounter(key string) *atomic.Uint64 {
 	return actual.(*atomic.Uint64)
 }
 
+func normalizeGroupIDs(ids []string) []string {
+	if len(ids) == 0 {
+		return nil
+	}
+	seen := make(map[string]struct{}, len(ids))
+	result := make([]string, 0, len(ids))
+	for _, id := range ids {
+		trimmed := strings.TrimSpace(id)
+		if trimmed == "" {
+			continue
+		}
+		if _, ok := seen[trimmed]; ok {
+			continue
+		}
+		seen[trimmed] = struct{}{}
+		result = append(result, trimmed)
+	}
+	return result
+}
+
+func mergeGroupIDs(parts ...[]string) []string {
+	merged := make([]string, 0)
+	for _, part := range parts {
+		merged = append(merged, part...)
+	}
+	return normalizeGroupIDs(merged)
+}
+
+func normalizeChannelGroupBinding(req *model.ChannelRequest) *model.ChannelGroupBinding {
+	if req == nil {
+		return &model.ChannelGroupBinding{}
+	}
+
+	sharedGroupIDs := normalizeGroupIDs(req.GroupIDs)
+	subscriptionGroupIDs := normalizeGroupIDs(req.SubscriptionGroupIDs)
+	usageGroupIDs := normalizeGroupIDs(req.UsageGroupIDs)
+
+	if !req.SplitGroupsBySource {
+		sharedGroupIDs = normalizeGroupIDs(sharedGroupIDs)
+		return &model.ChannelGroupBinding{
+			SplitBySource:        false,
+			SharedGroupIDs:       sharedGroupIDs,
+			SubscriptionGroupIDs: append([]string(nil), sharedGroupIDs...),
+			UsageGroupIDs:        append([]string(nil), sharedGroupIDs...),
+		}
+	}
+
+	if len(subscriptionGroupIDs) == 0 && len(sharedGroupIDs) > 0 {
+		subscriptionGroupIDs = append([]string(nil), sharedGroupIDs...)
+	}
+	if len(usageGroupIDs) == 0 && len(sharedGroupIDs) > 0 {
+		usageGroupIDs = append([]string(nil), sharedGroupIDs...)
+	}
+
+	return &model.ChannelGroupBinding{
+		SplitBySource:        true,
+		SharedGroupIDs:       mergeGroupIDs(subscriptionGroupIDs, usageGroupIDs),
+		SubscriptionGroupIDs: subscriptionGroupIDs,
+		UsageGroupIDs:        usageGroupIDs,
+	}
+}
+
 func (s *ChannelService) Create(req *model.ChannelRequest) (*model.ChannelResponse, error) {
+	groupBinding := normalizeChannelGroupBinding(req)
 	modelsJSON, _ := json.Marshal(req.Models)
 	if req.Models == nil {
 		modelsJSON = []byte("[]")
@@ -295,6 +358,7 @@ func (s *ChannelService) Create(req *model.ChannelRequest) (*model.ChannelRespon
 		BaseURL:               strings.TrimSuffix(req.BaseURL, "/"),
 		APIKey:                req.APIKey,
 		Enabled:               req.Enabled,
+		SplitGroupsBySource:   groupBinding.SplitBySource,
 		Weight:                weight,
 		Priority:              priority,
 		RateMultiplierPPM:     rateMultiplierPPM,
@@ -316,9 +380,7 @@ func (s *ChannelService) Create(req *model.ChannelRequest) (*model.ChannelRespon
 	}
 	invalidateEnabledChannelsCache()
 
-	if len(req.GroupIDs) > 0 {
-		_ = s.repo.SetGroups(channel.ID, req.GroupIDs)
-	}
+	_ = s.repo.SetGroupBinding(channel.ID, groupBinding)
 
 	return s.toResponse(channel), nil
 }
@@ -363,6 +425,7 @@ func (s *ChannelService) Update(id string, req *model.ChannelRequest) (*model.Ch
 	if existing == nil {
 		return nil, ErrChannelNotFound
 	}
+	groupBinding := normalizeChannelGroupBinding(req)
 
 	modelsJSON, _ := json.Marshal(req.Models)
 	if req.Models == nil {
@@ -397,6 +460,7 @@ func (s *ChannelService) Update(id string, req *model.ChannelRequest) (*model.Ch
 	existing.Name = req.Name
 	existing.BaseURL = strings.TrimSuffix(req.BaseURL, "/")
 	existing.Enabled = req.Enabled
+	existing.SplitGroupsBySource = groupBinding.SplitBySource
 	existing.Weight = weight
 	existing.Priority = priority
 	existing.RateMultiplierPPM = rateMultiplierPPM
@@ -421,7 +485,7 @@ func (s *ChannelService) Update(id string, req *model.ChannelRequest) (*model.Ch
 	}
 	invalidateEnabledChannelsCache()
 
-	_ = s.repo.SetGroups(id, req.GroupIDs)
+	_ = s.repo.SetGroupBinding(id, groupBinding)
 
 	return s.toResponse(existing), nil
 }
@@ -764,10 +828,11 @@ func (s *ChannelService) SelectSpecificChannelForModelWithGroupsAndFormat(channe
 		return nil, nil
 	}
 
-	channelGroupIDs := channelGroupMap[channelID]
-	if !channelAccessibleForGroups(channelGroupIDs, groupIDs) {
+	decision := evaluateChannelGroupAccess(channelGroupMap[channelID], toStringSet(groupIDs))
+	if !decision.Allowed {
 		return nil, nil
 	}
+	channel.ForcedBillingSource = decision.ForcedBillingSource
 
 	return channel, nil
 }
@@ -798,7 +863,9 @@ func (s *ChannelService) SelectChannelForModelWithGroupsAndFormatAndProvider(mod
 		if !s.channelMatchesModel(ch, modelName) || !s.channelSupportsRequestFormat(ch, incomingFormat, allowTranslation) {
 			continue
 		}
-		if channelAccessibleWithSet(channelGroupMap[ch.ID], userGroupIDSet) {
+		decision := evaluateChannelGroupAccess(channelGroupMap[ch.ID], userGroupIDSet)
+		if decision.Allowed {
+			ch.ForcedBillingSource = decision.ForcedBillingSource
 			candidates = append(candidates, ch)
 		}
 	}
@@ -871,31 +938,40 @@ func (s *ChannelService) listEnabledChannels() ([]*model.Channel, error) {
 	cloned := cloneChannels(channels)
 	enabledChannelsSnapshot.mu.Lock()
 	enabledChannelsSnapshot.snapshots[cacheKey] = enabledChannelsSnapshotEntry{
-		channels:        cloneChannels(channels),
-		channelGroupMap: nil,
-		loadedAt:        time.Now(),
+		channels:               cloneChannels(channels),
+		channelGroupBindingMap: nil,
+		loadedAt:               time.Now(),
 	}
 	enabledChannelsSnapshot.mu.Unlock()
 	return cloned, nil
 }
 
-func cloneChannelGroupMap(source map[string][]string) map[string][]string {
+func cloneChannelGroupMap(source map[string]*model.ChannelGroupBinding) map[string]*model.ChannelGroupBinding {
 	if len(source) == 0 {
 		return nil
 	}
-	cloned := make(map[string][]string, len(source))
-	for key, values := range source {
-		cloned[key] = append([]string(nil), values...)
+	cloned := make(map[string]*model.ChannelGroupBinding, len(source))
+	for key, binding := range source {
+		if binding == nil {
+			cloned[key] = &model.ChannelGroupBinding{}
+			continue
+		}
+		cloned[key] = &model.ChannelGroupBinding{
+			SplitBySource:        binding.SplitBySource,
+			SharedGroupIDs:       append([]string(nil), binding.SharedGroupIDs...),
+			SubscriptionGroupIDs: append([]string(nil), binding.SubscriptionGroupIDs...),
+			UsageGroupIDs:        append([]string(nil), binding.UsageGroupIDs...),
+		}
 	}
 	return cloned
 }
 
-func (s *ChannelService) listEnabledChannelsWithGroups() ([]*model.Channel, map[string][]string, error) {
+func (s *ChannelService) listEnabledChannelsWithGroups() ([]*model.Channel, map[string]*model.ChannelGroupBinding, error) {
 	cacheKey := cacheKeyForChannelRepo(s.repo)
 	enabledChannelsSnapshot.mu.RLock()
-	if snapshot, ok := enabledChannelsSnapshot.snapshots[cacheKey]; ok && time.Since(snapshot.loadedAt) < enabledChannelsSnapshot.cacheTTL && len(snapshot.channels) > 0 && snapshot.channelGroupMap != nil {
+	if snapshot, ok := enabledChannelsSnapshot.snapshots[cacheKey]; ok && time.Since(snapshot.loadedAt) < enabledChannelsSnapshot.cacheTTL && len(snapshot.channels) > 0 && snapshot.channelGroupBindingMap != nil {
 		channels := cloneChannels(snapshot.channels)
-		groupMap := cloneChannelGroupMap(snapshot.channelGroupMap)
+		groupMap := cloneChannelGroupMap(snapshot.channelGroupBindingMap)
 		enabledChannelsSnapshot.mu.RUnlock()
 		return channels, groupMap, nil
 	}
@@ -914,12 +990,12 @@ func (s *ChannelService) listEnabledChannelsWithGroups() ([]*model.Channel, map[
 		channelIDs = append(channelIDs, ch.ID)
 	}
 
-	channelGroupMap, batchErr := s.repo.GetGroupIDsByChannelIDs(channelIDs)
+	channelGroupMap, batchErr := s.repo.GetGroupBindingsByChannelIDs(channelIDs)
 	fallbackToSingleLookup := batchErr != nil
 	if fallbackToSingleLookup {
-		channelGroupMap = make(map[string][]string, len(channelIDs))
+		channelGroupMap = make(map[string]*model.ChannelGroupBinding, len(channelIDs))
 		for _, channelID := range channelIDs {
-			gids, err := s.repo.GetGroupIDs(channelID)
+			gids, err := s.repo.GetGroupBinding(channelID)
 			if err != nil {
 				continue
 			}
@@ -931,9 +1007,9 @@ func (s *ChannelService) listEnabledChannelsWithGroups() ([]*model.Channel, map[
 	clonedGroups := cloneChannelGroupMap(channelGroupMap)
 	enabledChannelsSnapshot.mu.Lock()
 	enabledChannelsSnapshot.snapshots[cacheKey] = enabledChannelsSnapshotEntry{
-		channels:        cloneChannels(channels),
-		channelGroupMap: cloneChannelGroupMap(channelGroupMap),
-		loadedAt:        time.Now(),
+		channels:               cloneChannels(channels),
+		channelGroupBindingMap: cloneChannelGroupMap(channelGroupMap),
+		loadedAt:               time.Now(),
 	}
 	enabledChannelsSnapshot.mu.Unlock()
 	return clonedChannels, clonedGroups, nil
@@ -955,15 +1031,33 @@ func hasAnyInSet(set map[string]struct{}, values []string) bool {
 	return false
 }
 
-func channelAccessibleForGroups(channelGroupIDs, userGroupIDs []string) bool {
-	return channelAccessibleWithSet(channelGroupIDs, toStringSet(userGroupIDs))
+type channelGroupAccessDecision struct {
+	Allowed             bool
+	ForcedBillingSource *model.BillingSource
 }
 
-func channelAccessibleWithSet(channelGroupIDs []string, userGroupIDSet map[string]struct{}) bool {
-	if len(channelGroupIDs) == 0 {
-		return true
+func evaluateChannelGroupAccess(binding *model.ChannelGroupBinding, userGroupIDSet map[string]struct{}) channelGroupAccessDecision {
+	if binding == nil {
+		return channelGroupAccessDecision{}
 	}
-	return len(userGroupIDSet) > 0 && hasAnyInSet(userGroupIDSet, channelGroupIDs)
+
+	subscriptionMatched := len(binding.SubscriptionGroupIDs) > 0 && len(userGroupIDSet) > 0 && hasAnyInSet(userGroupIDSet, binding.SubscriptionGroupIDs)
+	usageMatched := len(binding.UsageGroupIDs) > 0 && len(userGroupIDSet) > 0 && hasAnyInSet(userGroupIDSet, binding.UsageGroupIDs)
+	if len(binding.SubscriptionGroupIDs) == 0 && len(binding.UsageGroupIDs) == 0 {
+		return channelGroupAccessDecision{}
+	}
+	if subscriptionMatched && usageMatched {
+		return channelGroupAccessDecision{Allowed: true}
+	}
+	if subscriptionMatched {
+		source := model.BillingSourceSubscription
+		return channelGroupAccessDecision{Allowed: true, ForcedBillingSource: &source}
+	}
+	if usageMatched {
+		source := model.BillingSourceBalance
+		return channelGroupAccessDecision{Allowed: true, ForcedBillingSource: &source}
+	}
+	return channelGroupAccessDecision{}
 }
 
 func channelNativeFormat(channel *model.Channel) internaltranslator.Format {
@@ -1064,20 +1158,34 @@ func (s *ChannelService) GetChannelInternal(id string) (*model.Channel, error) {
 	return s.repo.GetByID(id)
 }
 
+func groupNamesFromIDs(groupIDs []string, groupMap map[string]*model.Group) []string {
+	if len(groupIDs) == 0 {
+		return nil
+	}
+	groupNames := make([]string, 0, len(groupIDs))
+	for _, gid := range groupIDs {
+		if group, ok := groupMap[gid]; ok && group != nil {
+			groupNames = append(groupNames, group.Name)
+		}
+	}
+	return groupNames
+}
+
 func (s *ChannelService) toResponse(channel *model.Channel) *model.ChannelResponse {
-	groupIDs := []string{}
-	if gids, err := s.repo.GetGroupIDs(channel.ID); err == nil {
-		groupIDs = gids
+	groupBinding, err := s.repo.GetGroupBinding(channel.ID)
+	if err != nil || groupBinding == nil {
+		groupBinding = &model.ChannelGroupBinding{}
 	}
 
 	groupMap := make(map[string]*model.Group)
-	if len(groupIDs) > 0 {
-		if groups, err := s.groupRepo.GetByIDs(groupIDs); err == nil {
+	allGroupIDs := mergeGroupIDs(groupBinding.SharedGroupIDs, groupBinding.SubscriptionGroupIDs, groupBinding.UsageGroupIDs)
+	if len(allGroupIDs) > 0 {
+		if groups, err := s.groupRepo.GetByIDs(allGroupIDs); err == nil {
 			groupMap = groups
 		}
 	}
 
-	return s.buildResponse(channel, groupIDs, groupMap)
+	return s.buildResponse(channel, groupBinding, groupMap)
 }
 
 func (s *ChannelService) toResponsesBatch(channels []*model.Channel) ([]*model.ChannelResponse, error) {
@@ -1090,19 +1198,22 @@ func (s *ChannelService) toResponsesBatch(channels []*model.Channel) ([]*model.C
 		channelIDs[i] = ch.ID
 	}
 
-	channelGroupMap, err := s.repo.GetGroupIDsByChannelIDs(channelIDs)
+	channelGroupMap, err := s.repo.GetGroupBindingsByChannelIDs(channelIDs)
 	if err != nil {
-		channelGroupMap = make(map[string][]string, len(channels))
+		channelGroupMap = make(map[string]*model.ChannelGroupBinding, len(channels))
 		for _, ch := range channels {
-			if gids, singleLookupErr := s.repo.GetGroupIDs(ch.ID); singleLookupErr == nil {
-				channelGroupMap[ch.ID] = gids
+			if binding, singleLookupErr := s.repo.GetGroupBinding(ch.ID); singleLookupErr == nil {
+				channelGroupMap[ch.ID] = binding
 			}
 		}
 	}
 
 	groupIDSet := make(map[string]struct{})
-	for _, gids := range channelGroupMap {
-		for _, gid := range gids {
+	for _, binding := range channelGroupMap {
+		if binding == nil {
+			continue
+		}
+		for _, gid := range mergeGroupIDs(binding.SharedGroupIDs, binding.SubscriptionGroupIDs, binding.UsageGroupIDs) {
 			groupIDSet[gid] = struct{}{}
 		}
 	}
@@ -1126,7 +1237,7 @@ func (s *ChannelService) toResponsesBatch(channels []*model.Channel) ([]*model.C
 	return responses, nil
 }
 
-func (s *ChannelService) buildResponse(channel *model.Channel, gids []string, groupMap map[string]*model.Group) *model.ChannelResponse {
+func (s *ChannelService) buildResponse(channel *model.Channel, binding *model.ChannelGroupBinding, groupMap map[string]*model.Group) *model.ChannelResponse {
 	models, validModels := getParsedModels(channel.ModelsJSON)
 	if !validModels || models == nil {
 		models = []model.ChannelModel{}
@@ -1147,43 +1258,48 @@ func (s *ChannelService) buildResponse(channel *model.Channel, gids []string, gr
 		translatorConfig = model.ChannelTranslator{}
 	}
 
-	groupIDs := []string{}
-	groupNames := []string{}
-	if len(gids) > 0 {
-		groupIDs = append([]string(nil), gids...)
-		for _, gid := range gids {
-			if g, ok := groupMap[gid]; ok && g != nil {
-				groupNames = append(groupNames, g.Name)
-			}
-		}
+	if binding == nil {
+		binding = &model.ChannelGroupBinding{}
 	}
 
+	groupIDs := append([]string(nil), binding.SharedGroupIDs...)
+	groupNames := groupNamesFromIDs(groupIDs, groupMap)
+	subscriptionGroupIDs := append([]string(nil), binding.SubscriptionGroupIDs...)
+	subscriptionGroupNames := groupNamesFromIDs(subscriptionGroupIDs, groupMap)
+	usageGroupIDs := append([]string(nil), binding.UsageGroupIDs...)
+	usageGroupNames := groupNamesFromIDs(usageGroupIDs, groupMap)
+
 	return &model.ChannelResponse{
-		ID:                    channel.ID,
-		Type:                  channel.Type,
-		Endpoint:              channel.Endpoint,
-		Name:                  channel.Name,
-		BaseURL:               channel.BaseURL,
-		APIKeySet:             channel.APIKey != "",
-		Enabled:               channel.Enabled,
-		Weight:                channel.Weight,
-		Priority:              channel.Priority,
-		RateMultiplierPPM:     channel.RateMultiplierPPM,
-		RateMultiplier:        precision.MultiplierPPMToFloat64(channel.RateMultiplierPPM),
-		ModelWhitelist:        channel.ModelWhitelist,
-		SimulateCLI:           channel.SimulateCLI,
-		SimulateUA:            channel.SimulateUA,
-		SimulateSystemPrompt:  channel.SimulateSystemPrompt,
-		TraditionalChinese:    channel.TraditionalChinese,
-		CopilotAPI:            channel.CopilotAPI,
-		CodexWebsocketEnabled: channel.CodexWebsocketEnabled,
-		GroupIDs:              groupIDs,
-		GroupNames:            groupNames,
-		Models:                models,
-		Headers:               clonedHeaders,
-		Translator:            translatorConfig,
-		CreatedAt:             channel.CreatedAt,
-		UpdatedAt:             channel.UpdatedAt,
+		ID:                     channel.ID,
+		Type:                   channel.Type,
+		Endpoint:               channel.Endpoint,
+		Name:                   channel.Name,
+		BaseURL:                channel.BaseURL,
+		APIKeySet:              channel.APIKey != "",
+		Enabled:                channel.Enabled,
+		SplitGroupsBySource:    channel.SplitGroupsBySource,
+		Weight:                 channel.Weight,
+		Priority:               channel.Priority,
+		RateMultiplierPPM:      channel.RateMultiplierPPM,
+		RateMultiplier:         precision.MultiplierPPMToFloat64(channel.RateMultiplierPPM),
+		ModelWhitelist:         channel.ModelWhitelist,
+		SimulateCLI:            channel.SimulateCLI,
+		SimulateUA:             channel.SimulateUA,
+		SimulateSystemPrompt:   channel.SimulateSystemPrompt,
+		TraditionalChinese:     channel.TraditionalChinese,
+		CopilotAPI:             channel.CopilotAPI,
+		CodexWebsocketEnabled:  channel.CodexWebsocketEnabled,
+		GroupIDs:               groupIDs,
+		GroupNames:             groupNames,
+		SubscriptionGroupIDs:   subscriptionGroupIDs,
+		SubscriptionGroupNames: subscriptionGroupNames,
+		UsageGroupIDs:          usageGroupIDs,
+		UsageGroupNames:        usageGroupNames,
+		Models:                 models,
+		Headers:                clonedHeaders,
+		Translator:             translatorConfig,
+		CreatedAt:              channel.CreatedAt,
+		UpdatedAt:              channel.UpdatedAt,
 	}
 }
 

@@ -284,6 +284,13 @@ func buildProjectorConsumerNames(host string, pid int, instanceID string, worker
 	return names
 }
 
+func resolveBillingSourceOverride(primary, secondary model.BillingSource, forcedSource *model.BillingSource) (string, string) {
+	if forcedSource != nil {
+		return string(*forcedSource), ""
+	}
+	return string(primary), string(secondary)
+}
+
 func (r *Runtime) Close() {
 	select {
 	case <-r.stopCh:
@@ -297,7 +304,7 @@ func (r *Runtime) Close() {
 	_ = r.client.Close()
 }
 
-func (r *Runtime) ReserveRequest(ctx context.Context, requestID, userID string, estimatedCostMicros int64) error {
+func (r *Runtime) ReserveRequest(ctx context.Context, requestID, userID string, estimatedCostMicros int64, forcedSource *model.BillingSource) error {
 	start := time.Now()
 	defer func() {
 		r.metrics.recordReserve(time.Since(start))
@@ -315,6 +322,7 @@ func (r *Runtime) ReserveRequest(ctx context.Context, requestID, userID string, 
 	now := time.Now().UTC()
 	windowRefsJSON := state.WindowRefsJSON
 	windowKeyList := state.WindowKeyList
+	primarySource, secondarySource := resolveBillingSourceOverride(state.PrimarySource, state.SecondarySource, forcedSource)
 
 	result, err := reserveScript.Run(
 		ctx,
@@ -333,6 +341,8 @@ func (r *Runtime) ReserveRequest(ctx context.Context, requestID, userID string, 
 		windowRefsJSON,
 		now.Unix(),
 		requestID,
+		primarySource,
+		secondarySource,
 	).Result()
 	if err != nil {
 		r.metrics.addReserveFailure()
@@ -370,6 +380,8 @@ func (r *Runtime) ReserveRequest(ctx context.Context, requestID, userID string, 
 			state.WindowRefsJSON,
 			now.Unix(),
 			requestID,
+			primarySource,
+			secondarySource,
 		).Result()
 		if err != nil {
 			r.metrics.addReserveFailure()
@@ -392,7 +404,7 @@ func (r *Runtime) ReserveRequest(ctx context.Context, requestID, userID string, 
 	}
 }
 
-func (r *Runtime) SettleRequest(ctx context.Context, requestID, userID string, actualCostMicros int64) (*SettleResult, error) {
+func (r *Runtime) SettleRequest(ctx context.Context, requestID, userID string, actualCostMicros int64, forcedSource *model.BillingSource) (*SettleResult, error) {
 	start := time.Now()
 	defer func() {
 		r.metrics.recordSettle(time.Since(start))
@@ -403,7 +415,7 @@ func (r *Runtime) SettleRequest(ctx context.Context, requestID, userID string, a
 	}
 
 	now := time.Now().UTC()
-	values, err := r.runSettleScript(ctx, requestID, userID, actualCostMicros, now.Unix())
+	values, err := r.runSettleScript(ctx, requestID, userID, actualCostMicros, now.Unix(), forcedSource)
 	if err != nil {
 		r.metrics.addSettleFailure()
 		return nil, err
@@ -415,7 +427,7 @@ func (r *Runtime) SettleRequest(ctx context.Context, requestID, userID string, a
 			return nil, err
 		}
 
-		values, err = r.runSettleScript(ctx, requestID, userID, actualCostMicros, now.Unix())
+		values, err = r.runSettleScript(ctx, requestID, userID, actualCostMicros, now.Unix(), forcedSource)
 		if err != nil {
 			r.metrics.addSettleFailure()
 			return nil, err
@@ -833,7 +845,12 @@ func (r *Runtime) releaseExpiredReservation(ctx context.Context, requestID strin
 	return ErrRedisStateUnhealthy
 }
 
-func (r *Runtime) runSettleScript(ctx context.Context, requestID, userID string, actualCostMicros, nowUnix int64) ([]string, error) {
+func (r *Runtime) runSettleScript(ctx context.Context, requestID, userID string, actualCostMicros, nowUnix int64, forcedSource *model.BillingSource) ([]string, error) {
+	primarySource := ""
+	secondarySource := ""
+	if forcedSource != nil {
+		primarySource = string(*forcedSource)
+	}
 	result, err := settleScript.Run(
 		ctx,
 		r.client,
@@ -845,6 +862,8 @@ func (r *Runtime) runSettleScript(ctx context.Context, requestID, userID string,
 		},
 		actualCostMicros,
 		nowUnix,
+		primarySource,
+		secondarySource,
 	).Result()
 	if err != nil {
 		return nil, err

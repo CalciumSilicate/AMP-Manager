@@ -600,6 +600,7 @@ func BillingCheckMiddleware() gin.HandlerFunc {
 			UserID:              cfg.UserID,
 			PricingModel:        safeEstimateModel(estimate),
 			EstimatedCostMicros: safeEstimateCost(estimate),
+			ForcedBillingSource: cfg.ForcedBillingSource,
 		})
 		if err != nil {
 			log.Errorf("billing check: failed for user %s: %v", cfg.UserID, err)
