@@ -1,3 +1,5 @@
+import { useRef, useState } from 'react'
+
 import { motion } from '@/lib/motion'
 import { cn } from '@/lib/utils'
 
@@ -27,11 +29,74 @@ export function ScrollableTabBar<T extends string>({
   innerClassName,
   buttonClassName,
 }: ScrollableTabBarProps<T>) {
+  const scrollRef = useRef<HTMLDivElement | null>(null)
+  const dragStartXRef = useRef(0)
+  const dragStartScrollLeftRef = useRef(0)
+  const draggingRef = useRef(false)
+  const movedRef = useRef(false)
+  const suppressClickRef = useRef(false)
+  const [isDragging, setIsDragging] = useState(false)
+
+  const handlePointerDown = (event: React.PointerEvent<HTMLDivElement>) => {
+    if (event.pointerType === 'mouse' && event.button !== 0) {
+      return
+    }
+
+    const container = scrollRef.current
+    if (!container) {
+      return
+    }
+
+    draggingRef.current = true
+    movedRef.current = false
+    dragStartXRef.current = event.clientX
+    dragStartScrollLeftRef.current = container.scrollLeft
+    setIsDragging(true)
+    container.setPointerCapture(event.pointerId)
+  }
+
+  const handlePointerMove = (event: React.PointerEvent<HTMLDivElement>) => {
+    const container = scrollRef.current
+    if (!draggingRef.current || !container) {
+      return
+    }
+
+    const deltaX = event.clientX - dragStartXRef.current
+    if (Math.abs(deltaX) > 4) {
+      movedRef.current = true
+    }
+
+    container.scrollLeft = dragStartScrollLeftRef.current - deltaX
+  }
+
+  const finishDrag = (event: React.PointerEvent<HTMLDivElement>) => {
+    const container = scrollRef.current
+    if (draggingRef.current && container?.hasPointerCapture(event.pointerId)) {
+      container.releasePointerCapture(event.pointerId)
+    }
+
+    draggingRef.current = false
+    setIsDragging(false)
+
+    if (movedRef.current) {
+      suppressClickRef.current = true
+      requestAnimationFrame(() => {
+        suppressClickRef.current = false
+      })
+    }
+  }
+
   return (
     <div
+      ref={scrollRef}
+      onPointerDown={handlePointerDown}
+      onPointerMove={handlePointerMove}
+      onPointerUp={finishDrag}
+      onPointerCancel={finishDrag}
       className={cn(
-        'overflow-x-auto pb-0',
+        'overflow-x-auto overflow-y-hidden pb-0 touch-pan-x select-none [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden',
         showBorder && 'border-b',
+        isDragging ? 'cursor-grabbing' : 'cursor-grab',
         outerClassName,
       )}
     >
@@ -40,7 +105,13 @@ export function ScrollableTabBar<T extends string>({
           <button
             key={tab.key}
             type="button"
-            onClick={() => onTabChange(tab.key)}
+            onClick={(event) => {
+              if (suppressClickRef.current) {
+                event.preventDefault()
+                return
+              }
+              onTabChange(tab.key)
+            }}
             className={cn(
               'relative rounded-t-md px-3 py-2 text-sm font-medium whitespace-nowrap transition-colors md:px-4',
               activeTab === tab.key
