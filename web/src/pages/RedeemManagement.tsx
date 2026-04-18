@@ -21,6 +21,7 @@ import {
   type RedeemRedemption,
 } from '@/api/redeem'
 import { getPlans, type SubscriptionPlanResponse } from '@/api/subscription'
+import { OverflowCopyText } from '@/components/OverflowCopyText'
 import { TablePagination } from '@/components/TablePagination'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
@@ -113,6 +114,14 @@ function toDatetimeLocal(value?: string | null): string {
 
 function campaignReward(item: RedeemCampaign): string {
   return rewardSummary(item.subscriptionPlanName, item.subscriptionDurationDays, item.balanceMicros)
+}
+
+function campaignLimitSummary(item: RedeemCampaign): string {
+  return `总上限 ${item.totalRedemptionsLimit > 0 ? item.totalRedemptionsLimit : '不限'} / 单用户 ${item.perUserLimit}`
+}
+
+function campaignInventorySummary(item: RedeemCampaign): string {
+  return `${item.redeemedCount} / ${item.totalRedemptionsLimit > 0 ? item.totalRedemptionsLimit : '∞'} · ${item.codeCount} 个码 / ${item.batchCount} 批`
 }
 
 function rewardSummary(subscriptionPlanName?: string | null, subscriptionDurationDays = 0, balanceMicros = 0): string {
@@ -599,11 +608,13 @@ export default function RedeemManagement() {
                   <TableBody>
                     {visibleCampaigns.map((item) => (
                       <TableRow key={item.id}>
-                        <TableCell>
-                          <div>
-                            <p className="font-medium">{item.name}</p>
-                            <p className="text-xs text-muted-foreground">{item.description || '-'}</p>
-                          </div>
+                        <TableCell className="max-w-[320px]">
+                          <OverflowCopyText
+                            text={item.name}
+                            copyValue={item.name}
+                            tooltipText={`${item.name} · ${item.description || '-'}`}
+                            className="max-w-[320px] font-medium"
+                          />
                         </TableCell>
                         <TableCell>
                           <div className="flex flex-wrap gap-2">
@@ -614,21 +625,19 @@ export default function RedeemManagement() {
                           </div>
                         </TableCell>
                         <TableCell>{campaignReward(item)}</TableCell>
-                        <TableCell className="text-sm text-muted-foreground">
-                          <div>总上限 {item.totalRedemptionsLimit > 0 ? item.totalRedemptionsLimit : '不限'}</div>
-                          <div>单用户 {item.perUserLimit}</div>
+                        <TableCell className="max-w-[220px] text-sm text-muted-foreground">
+                          <OverflowCopyText text={campaignLimitSummary(item)} className="max-w-[220px] text-sm text-muted-foreground" />
                         </TableCell>
                         <TableCell>
                           <Badge variant={item.enabled ? 'default' : 'secondary'}>
                             {item.enabled ? '启用' : '停用'}
                           </Badge>
                         </TableCell>
-                        <TableCell className="text-sm text-muted-foreground">
-                          <div>{item.redeemedCount} / {item.totalRedemptionsLimit > 0 ? item.totalRedemptionsLimit : '∞'}</div>
-                          <div>{item.codeCount} 个码 / {item.batchCount} 批</div>
+                        <TableCell className="max-w-[240px] text-sm text-muted-foreground">
+                          <OverflowCopyText text={campaignInventorySummary(item)} className="max-w-[240px] text-sm text-muted-foreground" />
                         </TableCell>
-                        <TableCell className="text-right">
-                          <div className="flex flex-wrap justify-end gap-2">
+                        <TableCell className="min-w-[280px] text-right">
+                          <div className="flex justify-end gap-2">
                             {item.codeMode === 'shared' && item.sharedCode ? (
                               <Button type="button" variant="outline" size="sm" onClick={() => navigator.clipboard.writeText(item.sharedCode || '').catch(() => undefined)}>
                                 <Copy className="mr-2 h-4 w-4" />

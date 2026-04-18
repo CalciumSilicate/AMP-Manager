@@ -4,6 +4,7 @@ import { Check, ChevronsUpDown } from 'lucide-react'
 
 import { type APIKeyRevealResponse } from '@/api/amp'
 import { type AvailableModel } from '@/api/models'
+import { ScrollableTabBar } from '@/components/layout/ScrollableTabBar'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import {
@@ -291,29 +292,14 @@ export function APIKeyUsageDialog({ open, onOpenChange, revealKey, siteName, api
           ) : null}
 
           <div className="sticky top-0 z-20 border-b bg-background/95 pb-0 backdrop-blur supports-[backdrop-filter]:bg-background/80">
-            <div className="overflow-x-auto overflow-y-hidden [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-              <div className="flex min-w-max items-center gap-1">
-                {tabs.map((tab) => (
-                  <button
-                    key={tab.value}
-                    type="button"
-                    onClick={() => setActiveTab(tab.value)}
-                    className={`relative rounded-t-md px-4 py-2 text-sm font-medium transition-colors whitespace-nowrap ${
-                      activeTab === tab.value ? 'text-foreground' : 'text-muted-foreground hover:text-foreground/80'
-                    }`}
-                  >
-                    {tab.label}
-                    {activeTab === tab.value ? (
-                      <motion.div
-                        layoutId="api-key-usage-tab-indicator"
-                        className="absolute inset-x-0 -bottom-px h-0.5 bg-primary"
-                        transition={{ type: 'spring', bounce: 0.2, duration: 0.4 }}
-                      />
-                    ) : null}
-                  </button>
-                ))}
-              </div>
-            </div>
+            <ScrollableTabBar
+              tabs={tabs.map((tab) => ({ key: tab.value, label: tab.label }))}
+              activeTab={activeTab}
+              onTabChange={setActiveTab}
+              indicatorId="api-key-usage-tab-indicator"
+              showBorder={false}
+              outerClassName="overflow-y-hidden [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+            />
           </div>
 
           <div className="pt-5">

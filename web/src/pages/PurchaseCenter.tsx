@@ -13,6 +13,7 @@ import {
   type PurchaseProduct,
   type PurchaseQuoteResponse,
 } from '@/api/purchase'
+import { OverflowCopyText } from '@/components/OverflowCopyText'
 import { RedeemQuickEntry } from '@/components/redeem/RedeemPanels'
 import { TablePagination } from '@/components/TablePagination'
 import { TabbedSettingsPage, type TabbedSettingsPageTab } from '@/components/layout/TabbedSettingsPage'
@@ -484,20 +485,21 @@ export default function PurchaseCenter() {
                       <TableBody>
                         {visibleOrders.map((order) => (
                           <TableRow key={order.id}>
-                            <TableCell>
-                              <div>
-                                <p className="font-mono text-xs">{order.orderNo}</p>
-                                {order.alipayTradeNo ? (
-                                  <p className="mt-1 text-xs text-muted-foreground">{order.alipayTradeNo}</p>
-                                ) : null}
-                              </div>
+                            <TableCell className="max-w-[220px]">
+                              <OverflowCopyText
+                                text={order.orderNo}
+                                copyValue={order.orderNo}
+                                tooltipText={order.alipayTradeNo ? `${order.orderNo} · ${order.alipayTradeNo}` : order.orderNo}
+                                className="max-w-[220px] font-mono text-xs"
+                              />
                             </TableCell>
-                            <TableCell>
-                              <div>
-                                <p className="font-medium">{order.productName}</p>
-                                <p className="text-xs text-muted-foreground">{order.subscriptionPlanName}</p>
-                                <p className="text-xs text-muted-foreground">{order.deliveryMode === 'redeem_code' ? '交付：兑换码' : '交付：本账号'}</p>
-                              </div>
+                            <TableCell className="max-w-[320px]">
+                              <OverflowCopyText
+                                text={order.productName}
+                                copyValue={order.productName}
+                                tooltipText={`${order.productName} · ${order.subscriptionPlanName} · ${order.deliveryMode === 'redeem_code' ? '交付：兑换码' : '交付：本账号'}`}
+                                className="max-w-[320px] font-medium"
+                              />
                             </TableCell>
                             <TableCell>{formatCNY(order.amountCnyCent)}</TableCell>
                             <TableCell>
@@ -511,8 +513,8 @@ export default function PurchaseCenter() {
                               </Badge>
                             </TableCell>
                             <TableCell className="text-xs text-muted-foreground">{formatDateTime(order.createdAt)}</TableCell>
-                            <TableCell className="text-right">
-                              <div className="flex flex-wrap justify-end gap-2">
+                            <TableCell className="min-w-[360px] text-right">
+                              <div className="flex items-center justify-end gap-2">
                                 {order.paymentStatus === 'pending' ? (
                                   <Button type="button" variant="outline" size="sm" onClick={() => setPendingOrder(order)}>
                                     <QrCode className="mr-2 h-4 w-4" />
@@ -530,16 +532,21 @@ export default function PurchaseCenter() {
                                     刷新
                                   </Button>
                                 ) : null}
+                                {order.failureReason ? (
+                                  <OverflowCopyText
+                                    text={order.failureReason}
+                                    className="max-w-[180px] text-xs text-rose-600"
+                                  />
+                                ) : null}
+                                {order.generatedRedeemCode ? (
+                                  <OverflowCopyText
+                                    text={order.generatedRedeemCode}
+                                    copyValue={order.generatedRedeemCode}
+                                    className="max-w-[180px] font-mono text-xs"
+                                    tooltipText={`兑换码 · ${order.generatedRedeemCode}`}
+                                  />
+                                ) : null}
                               </div>
-                              {order.failureReason ? (
-                                <p className="mt-2 text-xs text-rose-600">{order.failureReason}</p>
-                              ) : null}
-                              {order.generatedRedeemCode ? (
-                                <div className="mt-2 rounded-lg border border-border/70 px-3 py-2 text-left">
-                                  <p className="text-[11px] uppercase tracking-[0.16em] text-muted-foreground">兑换码</p>
-                                  <p className="mt-1 font-mono text-xs">{order.generatedRedeemCode}</p>
-                                </div>
-                              ) : null}
                             </TableCell>
                           </TableRow>
                         ))}

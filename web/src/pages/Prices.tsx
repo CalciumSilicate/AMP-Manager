@@ -23,6 +23,7 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table'
+import { OverflowCopyText } from '@/components/OverflowCopyText'
 import {
   Dialog,
   DialogContent,
@@ -533,8 +534,11 @@ export default function PricesPage() {
                     <motion.tbody variants={tableStaggerContainer} initial="hidden" animate="visible" key={`${page}-${pageSize}-${searchTerm}-${providerFilter}`}>
                       {paginatedPrices.map((price) => (
                         <motion.tr key={`${price.provider ?? 'unknown'}:${price.model}`} variants={tableRowVariants} className="border-b transition-colors hover:bg-muted/50 data-[state=selected]:bg-muted">
-                          <TableCell className="font-mono text-sm max-w-xs truncate" title={price.model}>
-                            {price.model}
+                          <TableCell className="max-w-[260px]">
+                            <OverflowCopyText
+                              text={price.model}
+                              className="max-w-[260px] font-mono text-sm"
+                            />
                           </TableCell>
                           <TableCell>
                             <Badge variant={providerVariants[price.provider ?? ''] || 'outline'}>

@@ -13,6 +13,7 @@ import {
   updateAPIKey,
 } from '../api/amp'
 import { AdminPageShell, AdminSurface } from '@/components/admin/AdminPageShell'
+import { OverflowCopyText } from '@/components/OverflowCopyText'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -433,20 +434,25 @@ export default function APIKeys({ siteName }: Props) {
                     <motion.tbody variants={tableStaggerContainer} initial="hidden" animate="visible" key={keys.length}>
                       {keys.map((key) => (
                         <motion.tr key={key.id} variants={tableRowVariants}>
-                          <TableCell className="font-medium">{key.name}</TableCell>
+                          <TableCell className="max-w-[220px]">
+                            <OverflowCopyText text={key.name} className="max-w-[220px] font-medium" />
+                          </TableCell>
                           <TableCell className="font-mono text-muted-foreground">{key.prefix}...</TableCell>
                           <TableCell>
                             <Badge variant={getStatusVariant(key.status)}>
                               {getStatusLabel(key.status)}
                             </Badge>
                           </TableCell>
-                          <TableCell className="max-w-48 text-sm text-muted-foreground">
-                            {formatAllowedProviders(key.allowedProviders)}
+                          <TableCell className="max-w-[220px]">
+                            <OverflowCopyText
+                              text={formatAllowedProviders(key.allowedProviders)}
+                              className="max-w-[220px] text-sm text-muted-foreground"
+                            />
                           </TableCell>
                           <TableCell>{formatDate(key.expiresAt)}</TableCell>
                           <TableCell>{formatUsedAt(key.lastUsedAt)}</TableCell>
                           <TableCell>{formatDateTime(key.createdAt)}</TableCell>
-                          <TableCell className="text-right">
+                          <TableCell className="min-w-[360px] text-right">
                             <div className="flex items-center justify-end gap-2">
                               <Button variant="ghost" size="sm" onClick={() => handleOpenEdit(key)}>
                                 编辑

@@ -10,6 +10,7 @@ import {
   ModelMetadataRequest,
 } from '../api/modelMetadata'
 import { AdminPageShell, AdminSurface } from '@/components/admin/AdminPageShell'
+import { OverflowCopyText } from '@/components/OverflowCopyText'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -192,8 +193,12 @@ export default function ModelMetadataPage() {
                     <motion.tbody variants={tableStaggerContainer} initial="hidden" animate="visible" key={metadata.length}>
                       {metadata.map((item) => (
                         <motion.tr key={item.id} variants={tableRowVariants}>
-                          <TableCell className="font-mono text-sm">{item.modelPattern}</TableCell>
-                          <TableCell>{item.displayName}</TableCell>
+                          <TableCell className="max-w-[260px]">
+                            <OverflowCopyText text={item.modelPattern} className="max-w-[260px] font-mono text-sm" />
+                          </TableCell>
+                          <TableCell className="max-w-[220px]">
+                            <OverflowCopyText text={item.displayName} className="max-w-[220px]" />
+                          </TableCell>
                           <TableCell>{formatTokenCount(item.contextLength)}</TableCell>
                           <TableCell>{formatTokenCount(item.maxCompletionTokens)}</TableCell>
                           <TableCell>

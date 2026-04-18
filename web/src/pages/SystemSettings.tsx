@@ -54,6 +54,7 @@ import { RequestFiltersPanel } from '@/components/system/RequestFiltersPanel'
 import { StatusMonitorSettingsPanel } from '@/components/system/StatusMonitorSettingsPanel'
 import { SecuritySettingsPanel } from '@/components/system/SecuritySettingsPanel'
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/card'
+import { ScrollableTabBar } from '@/components/layout/ScrollableTabBar'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import {
   Table,
@@ -790,28 +791,13 @@ export default function SystemSettings({
         initial={{ opacity: 0, y: 10 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ type: 'spring', bounce: 0.2, duration: 0.5, delay: 0.05 }}
-        className="flex items-center gap-1 border-b pb-0"
       >
-        {tabs.map((tab) => (
-          <button
-            key={tab.key}
-            onClick={() => setActiveTab(tab.key)}
-            className={`relative px-4 py-2 text-sm font-medium transition-colors rounded-t-md ${
-              activeTab === tab.key
-                ? 'text-foreground'
-                : 'text-muted-foreground hover:text-foreground/80'
-            }`}
-          >
-            {tab.label}
-            {activeTab === tab.key && (
-              <motion.div
-                layoutId="settings-tab-indicator"
-                className="absolute inset-x-0 -bottom-px h-0.5 bg-primary"
-                transition={{ type: 'spring', bounce: 0.2, duration: 0.4 }}
-              />
-            )}
-          </button>
-        ))}
+        <ScrollableTabBar
+          tabs={tabs}
+          activeTab={activeTab}
+          onTabChange={setActiveTab}
+          indicatorId="settings-tab-indicator"
+        />
       </motion.div>
 
       <AnimatePresence mode="wait">

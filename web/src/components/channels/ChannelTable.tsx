@@ -3,6 +3,7 @@ import { type ReactNode, useEffect, useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Input } from '@/components/ui/input'
+import { OverflowCopyText } from '@/components/OverflowCopyText'
 import { Switch } from '@/components/ui/switch'
 import {
   Table,
@@ -290,8 +291,12 @@ export function ChannelTable({
                     {channel.type.toUpperCase()}
                   </Badge>
                 </TableCell>
-                <TableCell className="max-w-xs truncate" title={channel.baseUrl}>
-                  {channel.baseUrl}
+                <TableCell className="max-w-[260px]">
+                  <OverflowCopyText
+                    text={channel.baseUrl}
+                    copyValue={channel.baseUrl}
+                    className="max-w-[260px] text-muted-foreground"
+                  />
                 </TableCell>
                 <TableCell>
                   <div className="flex items-center gap-2">

@@ -391,8 +391,12 @@ export default function Dashboard({
         >
           {/* Logo */}
           <div className="flex h-16 items-center border-b px-4">
-            <motion.div
-              className={`grid items-center gap-3 overflow-hidden ${collapsed ? 'grid-cols-[36px_0px]' : 'grid-cols-[36px_minmax(0,1fr)]'}`}
+            <motion.button
+              type="button"
+              onClick={() => setCollapsed(!collapsed)}
+              title={collapsed ? '展开侧边栏' : '折叠侧边栏'}
+              aria-label={collapsed ? '展开侧边栏' : '折叠侧边栏'}
+              className={`grid w-full items-center gap-3 overflow-hidden rounded-xl text-left transition-colors hover:bg-muted/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 ${collapsed ? 'grid-cols-[36px_0px]' : 'grid-cols-[36px_minmax(0,1fr)]'}`}
               initial={{ opacity: 0, x: -20 }}
               animate={{ opacity: 1, x: 0 }}
               transition={{ type: 'spring', bounce: 0.3, duration: 0.6 }}
@@ -409,7 +413,7 @@ export default function Dashboard({
               >
                 {siteName}
               </div>
-            </motion.div>
+            </motion.button>
           </div>
 
           {/* Nav */}

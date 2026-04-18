@@ -12,6 +12,7 @@ import {
   type PurchaseQuoteResponse,
 } from '@/api/purchase'
 import { getMyInviteSummary, listMyInviteRewards, type InviteRewardEvent, type InviteSummary } from '@/api/invite'
+import { ScrollableTabBar } from '@/components/layout/ScrollableTabBar'
 import { RedeemQuickEntry, RedeemRecordTable } from '@/components/redeem/RedeemPanels'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -312,29 +313,13 @@ export default function AccountSettings({ username, onUsernameChange }: Props) {
         initial={{ opacity: 0, y: 10 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ type: 'spring', bounce: 0.2, duration: 0.5, delay: 0.05 }}
-        className="flex items-center gap-1 border-b pb-0"
       >
-        {tabs.map((tab) => (
-          <button
-            key={tab.key}
-            type="button"
-            onClick={() => setActiveTab(tab.key)}
-            className={`relative rounded-t-md px-4 py-2 text-sm font-medium transition-colors ${
-              activeTab === tab.key
-                ? 'text-foreground'
-                : 'text-muted-foreground hover:text-foreground/80'
-            }`}
-          >
-            {tab.label}
-            {activeTab === tab.key && (
-              <motion.div
-                layoutId="account-settings-tab-indicator"
-                className="absolute inset-x-0 -bottom-px h-0.5 bg-primary"
-                transition={{ type: 'spring', bounce: 0.2, duration: 0.4 }}
-              />
-            )}
-          </button>
-        ))}
+        <ScrollableTabBar
+          tabs={tabs}
+          activeTab={activeTab}
+          onTabChange={setActiveTab}
+          indicatorId="account-settings-tab-indicator"
+        />
       </motion.div>
 
       <AnimatePresence mode="wait">

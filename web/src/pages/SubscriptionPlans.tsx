@@ -76,6 +76,16 @@ function formatUsdLabel(micros: number): string {
   }).format(micros / 1_000_000)
 }
 
+function summarizePlanLimits(plan: SubscriptionPlanResponse): string {
+  if (!plan.limits || plan.limits.length === 0) {
+    return '暂无限制'
+  }
+
+  return plan.limits
+    .map((limit) => `${LIMIT_TYPE_LABELS[limit.limitType]} ${formatUsdLabel(limit.limitMicros)}`)
+    .join(' / ')
+}
+
 function usdToMicros(usd: string): number {
   const val = parseFloat(usd)
   if (Number.isNaN(val)) return 0
@@ -380,24 +390,15 @@ export default function SubscriptionPlans() {
                         <TableCell>{plan.upgradeRank}</TableCell>
                         <TableCell>¥{((plan.upgradeValuationCnyCentPerDay || 0) / 100).toFixed(2)}</TableCell>
                         <TableCell>{(plan.limits || []).length}</TableCell>
-                        <TableCell>
-                          <div className="space-y-1.5">
-                            {(plan.limits || []).map((limit) => (
-                              <div key={limit.id} className="flex items-center gap-2 text-sm">
-                                <span className="text-muted-foreground">{LIMIT_TYPE_LABELS[limit.limitType]}</span>
-                                <Num
-                                  value={limit.limitMicros / 1_000_000}
-                                  fullTextOverride={formatUsdLabel(limit.limitMicros)}
-                                  interactive
-                                  copyable
-                                  className="font-medium"
-                                />
-                              </div>
-                            ))}
-                          </div>
+                        <TableCell className="max-w-[360px]">
+                          <OverflowCopyText
+                            text={summarizePlanLimits(plan)}
+                            copyValue={summarizePlanLimits(plan)}
+                            className="max-w-[360px] text-muted-foreground"
+                          />
                         </TableCell>
                         <TableCell className="text-muted-foreground">{formatDateTime(plan.createdAt)}</TableCell>
-                        <TableCell className="text-right">
+                        <TableCell className="min-w-[140px] text-right">
                           <div className="flex justify-end gap-2">
                             <Button variant="ghost" size="sm" onClick={() => handleEdit(plan)}>
                               编辑

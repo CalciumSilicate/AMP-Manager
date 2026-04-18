@@ -13,6 +13,7 @@ import {
   type ErrorRuleRequestType,
   type ErrorRuleUpsertRequest,
 } from '@/api/system'
+import { OverflowCopyText } from '@/components/OverflowCopyText'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
@@ -307,9 +308,9 @@ export function ErrorRulesPanel({ onMessage }: Props) {
                 rules.map((rule) => (
                   <TableRow key={rule.id}>
                     <TableCell>
-                      <div className="space-y-1">
-                        <div className="font-medium">{rule.name}</div>
-                        <div className="font-mono text-[11px] text-muted-foreground">{rule.upstreamStatus} · {rule.priority}</div>
+                      <div className="flex min-w-0 items-center gap-2">
+                        <OverflowCopyText text={rule.name} className="max-w-[180px] font-medium" />
+                        <span className="shrink-0 font-mono text-[11px] text-muted-foreground">{rule.upstreamStatus} · {rule.priority}</span>
                       </div>
                     </TableCell>
                     <TableCell>{requestTypeOptions.find((option) => option.value === rule.requestType)?.label || rule.requestType}</TableCell>

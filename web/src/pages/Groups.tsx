@@ -9,6 +9,7 @@ import {
   GroupRequest,
 } from '../api/groups'
 import { AdminPageShell, AdminSurface } from '@/components/admin/AdminPageShell'
+import { OverflowCopyText } from '@/components/OverflowCopyText'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -152,8 +153,15 @@ export default function Groups() {
                   <motion.tbody variants={tableStaggerContainer} initial="hidden" animate="visible" key={groups.length}>
                     {groups.map((group) => (
                       <motion.tr key={group.id} variants={tableRowVariants}>
-                        <TableCell className="font-medium">{group.name}</TableCell>
-                        <TableCell className="text-muted-foreground">{group.description || '-'}</TableCell>
+                        <TableCell className="max-w-[220px]">
+                          <OverflowCopyText text={group.name} className="max-w-[220px] font-medium" />
+                        </TableCell>
+                        <TableCell className="max-w-[280px] text-muted-foreground">
+                          <OverflowCopyText
+                            text={group.description || '-'}
+                            className="max-w-[280px] text-muted-foreground"
+                          />
+                        </TableCell>
                         <TableCell>
                           <Badge variant={group.rateMultiplier === 1 ? 'outline' : 'default'}>{group.rateMultiplier}x</Badge>
                         </TableCell>

@@ -12,6 +12,7 @@ import {
   type RequestFilterMatchType,
   type RequestFilterUpsertRequest,
 } from '@/api/system'
+import { OverflowCopyText } from '@/components/OverflowCopyText'
 import { SearchableMultiSelect } from '@/components/SearchableMultiSelect'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -271,9 +272,9 @@ export function RequestFiltersPanel({
                 filters.map((filter) => (
                   <TableRow key={filter.id}>
                     <TableCell>
-                      <div className="space-y-1">
-                        <div className="font-medium">{filter.name}</div>
-                        <div className="font-mono text-[11px] text-muted-foreground">{filter.priority}</div>
+                      <div className="flex min-w-0 items-center gap-2">
+                        <OverflowCopyText text={filter.name} className="max-w-[180px] font-medium" />
+                        <span className="shrink-0 font-mono text-[11px] text-muted-foreground">P{filter.priority}</span>
                       </div>
                     </TableCell>
                     <TableCell>{filter.bindingType}</TableCell>

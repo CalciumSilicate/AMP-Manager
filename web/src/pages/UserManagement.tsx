@@ -907,7 +907,7 @@ export default function UserManagement() {
                     <TableHead>并发限制</TableHead>
                     <TableHead>管理员权限</TableHead>
                     <TableHead>创建时间</TableHead>
-                    <TableHead className="w-[280px]">操作</TableHead>
+                    <TableHead className="min-w-[320px]">操作</TableHead>
                   </TableRow>
                 </TableHeader>
                 <motion.tbody key="user-table-body" variants={tableStaggerContainer} initial="hidden" animate="visible">
@@ -1020,8 +1020,8 @@ export default function UserManagement() {
                         <TableCell className="text-muted-foreground">
                           {formatDateTime(user.createdAt)}
                         </TableCell>
-                        <TableCell>
-                          <div className="flex flex-wrap items-center gap-2">
+                        <TableCell className="min-w-[320px]">
+                          <div className="flex items-center gap-2">
                             <Button variant="outline" size="sm" onClick={() => handleOpenEditSubscription(user.id, user.username)}>
                               <CreditCard className="mr-1.5 h-4 w-4" />
                               编辑订阅

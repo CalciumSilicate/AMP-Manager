@@ -33,6 +33,7 @@ import {
   TableRow,
 } from '@/components/ui/table'
 import { Textarea } from '@/components/ui/textarea'
+import { OverflowCopyText } from '@/components/OverflowCopyText'
 
 const audienceOptions: { value: AnnouncementAudience; label: string }[] = [
   { value: 'public', label: '公开' },
@@ -202,14 +203,17 @@ export function AnnouncementAdminSection({ onMessage }: Props) {
                   {visibleAnnouncements.map((announcement) => (
                     <TableRow key={announcement.id}>
                       <TableCell>
-                        <div className="space-y-1">
-                          <div className="flex flex-wrap items-center gap-2">
-                            <span className="font-medium">{announcement.title}</span>
-                            {announcement.pinned ? <Badge>置顶</Badge> : null}
-                          </div>
-                          <p className="max-w-[38rem] overflow-hidden text-ellipsis whitespace-nowrap text-xs text-muted-foreground">
+                        <div className="flex min-w-0 items-center gap-2">
+                          <OverflowCopyText
+                            text={announcement.title}
+                            copyValue={announcement.title}
+                            tooltipText={`${announcement.title} · ${announcement.content}`}
+                            className="max-w-[220px] font-medium"
+                          />
+                          {announcement.pinned ? <Badge className="shrink-0">置顶</Badge> : null}
+                          <span className="max-w-[320px] truncate text-xs text-muted-foreground">
                             {announcement.content}
-                          </p>
+                          </span>
                         </div>
                       </TableCell>
                       <TableCell>

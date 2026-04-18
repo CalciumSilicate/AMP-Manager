@@ -28,6 +28,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog'
+import { OverflowCopyText } from '@/components/OverflowCopyText'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { ScrollArea } from '@/components/ui/scroll-area'
@@ -505,24 +506,29 @@ export function StatusMonitorSettingsPanel({ onMessage }: Props) {
               <TableBody>
                 {items.map((item) => (
                   <TableRow key={item.id}>
-                    <TableCell className="min-w-[180px]">
-                      <div className="space-y-1">
-                        <div className="font-medium">{item.name}</div>
-                        <div className="text-xs text-muted-foreground">
-                          {item.requestFormat ? FORMAT_LABELS[item.requestFormat] : 'HTTP'} · 超时 {item.timeoutMs || runtimeConfig?.defaultTimeoutMs || 45000} ms
-                        </div>
-                      </div>
+                    <TableCell className="max-w-[260px]">
+                      <OverflowCopyText
+                        text={item.name}
+                        copyValue={item.name}
+                        tooltipText={`${item.name} · ${item.requestFormat ? FORMAT_LABELS[item.requestFormat] : 'HTTP'} · 超时 ${item.timeoutMs || runtimeConfig?.defaultTimeoutMs || 45000} ms`}
+                        className="max-w-[260px] font-medium"
+                      />
                     </TableCell>
                     <TableCell>{item.groupName || TARGET_LABELS[item.targetType]}</TableCell>
                     <TableCell>
                       <Badge variant="outline">{TARGET_LABELS[item.targetType]}</Badge>
                     </TableCell>
-                    <TableCell className="max-w-[280px] text-sm text-muted-foreground">
-                      {item.targetType === 'custom_http'
-                        ? `${item.method} ${item.url}`
-                        : item.targetType === 'channel_direct'
-                          ? `${item.channelName || '未命名渠道'} · ${item.model}`
-                          : item.model}
+                    <TableCell className="max-w-[320px]">
+                      <OverflowCopyText
+                        text={
+                          item.targetType === 'custom_http'
+                            ? `${item.method} ${item.url}`
+                            : item.targetType === 'channel_direct'
+                              ? `${item.channelName || '未命名渠道'} · ${item.model}`
+                              : item.model
+                        }
+                        className="max-w-[320px] text-sm text-muted-foreground"
+                      />
                     </TableCell>
                     <TableCell>
                       <Switch

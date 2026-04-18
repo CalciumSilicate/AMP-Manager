@@ -14,6 +14,17 @@ function microsToUsd(value: number): string {
   return `$${formatDecimal(value / 1_000_000, 2)}`
 }
 
+function rewardSummary(item: RedeemRedemption): string {
+  const parts: string[] = []
+  if (item.subscriptionPlanName) {
+    parts.push(`${item.subscriptionPlanName} ${item.subscriptionDurationDays}天`)
+  }
+  if (item.balanceMicros > 0) {
+    parts.push(microsToUsd(item.balanceMicros))
+  }
+  return parts.join(' / ') || '-'
+}
+
 function MobileInfoRow({
   label,
   value,
@@ -193,10 +204,7 @@ export function RedeemRecordTable({
               <TableCell>{item.campaignName || '-'}</TableCell>
               <TableCell className="font-mono text-xs">{item.codeMask || '-'}</TableCell>
               {!compact ? (
-                <TableCell className="text-sm text-muted-foreground">
-                  <div>{item.subscriptionPlanName ? `${item.subscriptionPlanName} ${item.subscriptionDurationDays}天` : '-'}</div>
-                  {item.balanceMicros > 0 ? <div>{microsToUsd(item.balanceMicros)}</div> : null}
-                </TableCell>
+                <TableCell className="text-sm text-muted-foreground">{rewardSummary(item)}</TableCell>
               ) : null}
               <TableCell>
                 <Badge variant={item.status === 'success' ? 'default' : 'secondary'}>

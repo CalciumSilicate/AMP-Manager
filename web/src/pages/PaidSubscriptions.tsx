@@ -52,6 +52,7 @@ import {
   type CouponConfig,
   type CouponUsage,
 } from '@/api/coupons'
+import { OverflowCopyText } from '@/components/OverflowCopyText'
 import { TablePagination } from '@/components/TablePagination'
 import { TabbedSettingsPage, type TabbedSettingsPageTab } from '@/components/layout/TabbedSettingsPage'
 import { Badge } from '@/components/ui/badge'
@@ -830,17 +831,19 @@ export default function PaidSubscriptions() {
                 <TableBody>
                   {visibleProducts.map((product) => (
                     <TableRow key={product.id}>
-                      <TableCell>
-                        <div>
-                          <div className="font-medium">{product.name}</div>
-                          <div className="text-xs text-muted-foreground">{product.summary || '-'}</div>
-                        </div>
+                      <TableCell className="max-w-[320px]">
+                        <OverflowCopyText
+                          text={product.name}
+                          copyValue={product.name}
+                          tooltipText={`${product.name} · ${product.summary || '-'}`}
+                          className="max-w-[320px] font-medium"
+                        />
                       </TableCell>
                       <TableCell>{product.subscriptionPlanName}</TableCell>
                       <TableCell>{product.durationDays} 天</TableCell>
                       <TableCell>{formatCNY(product.priceCnyCent)}</TableCell>
                       <TableCell><Badge variant="outline" className={product.enabled ? 'border-emerald-200 bg-emerald-50 text-emerald-700' : 'border-slate-200 bg-slate-100 text-slate-600'}>{product.enabled ? '上架' : '下架'}</Badge></TableCell>
-                      <TableCell className="text-right">
+                      <TableCell className="min-w-[260px] text-right">
                         <div className="flex justify-end gap-2">
                           <Button type="button" variant="outline" size="sm" onClick={() => openEditProduct(product)}><Pencil className="mr-2 h-4 w-4" />编辑</Button>
                           <Button type="button" variant="outline" size="sm" onClick={() => void handleToggleProduct(product)}>{product.enabled ? '下架' : '上架'}</Button>
@@ -966,16 +969,24 @@ export default function PaidSubscriptions() {
                 <TableBody>
                   {orders.map((order) => (
                     <TableRow key={order.id}>
-                      <TableCell>
-                        <div className="font-mono text-xs">{order.orderNo}</div>
-                        <div className="text-xs text-muted-foreground">{formatDateTime(order.createdAt)}</div>
+                      <TableCell className="max-w-[220px]">
+                        <OverflowCopyText
+                          text={order.orderNo}
+                          copyValue={order.orderNo}
+                          tooltipText={`${order.orderNo} · ${formatDateTime(order.createdAt)}`}
+                          className="max-w-[220px] font-mono text-xs"
+                        />
                       </TableCell>
-                      <TableCell>{order.username || '-'}</TableCell>
-                      <TableCell>
-                        <div>
-                          <div className="font-medium">{order.productName}</div>
-                          <div className="text-xs text-muted-foreground">{order.subscriptionPlanName}</div>
-                        </div>
+                      <TableCell className="max-w-[180px]">
+                        <OverflowCopyText text={order.username || '-'} className="max-w-[180px]" />
+                      </TableCell>
+                      <TableCell className="max-w-[280px]">
+                        <OverflowCopyText
+                          text={order.productName}
+                          copyValue={order.productName}
+                          tooltipText={`${order.productName} · ${order.subscriptionPlanName}`}
+                          className="max-w-[280px] font-medium"
+                        />
                       </TableCell>
                       <TableCell>{formatCNY(order.amountCnyCent)}</TableCell>
                       <TableCell><Badge variant="outline" className={paymentTone(order.paymentStatus)}>{paymentLabel(order.paymentStatus)}</Badge></TableCell>
@@ -992,13 +1003,18 @@ export default function PaidSubscriptions() {
                           {order.manualSettlementDone ? '已分账' : '未分账'}
                         </Badge>
                       </TableCell>
-                      <TableCell className="text-right">
-                        <div className="flex justify-end gap-2">
+                      <TableCell className="min-w-[340px] text-right">
+                        <div className="flex items-center justify-end gap-2">
                           {order.canRefresh && <Button type="button" size="sm" variant="outline" disabled={refreshingOrderNo === order.orderNo} onClick={() => void handleRefreshOrder(order.orderNo)}><RefreshCw className={`mr-2 h-4 w-4 ${refreshingOrderNo === order.orderNo ? 'animate-spin' : ''}`} />刷新</Button>}
                           <Button type="button" size="sm" variant="outline" onClick={() => void openStatusDialog(order)}>修改订单信息</Button>
                           <Button type="button" size="sm" variant="outline" disabled={order.manualSettlementDone || !['paid', 'refunded'].includes(order.paymentStatus)} onClick={() => openSingleSettlementDialog(order)}>单笔分账</Button>
+                          {order.failureReason ? (
+                            <OverflowCopyText
+                              text={order.failureReason}
+                              className="max-w-[180px] text-xs text-rose-600"
+                            />
+                          ) : null}
                         </div>
-                        {order.failureReason && <div className="mt-2 text-xs text-rose-600">{order.failureReason}</div>}
                       </TableCell>
                     </TableRow>
                   ))}

@@ -1,5 +1,6 @@
 import { useEffect, useRef, type ReactNode } from 'react'
 
+import { ScrollableTabBar } from '@/components/layout/ScrollableTabBar'
 import { AnimatePresence, motion } from '@/lib/motion'
 import { useGlobalToast } from '@/components/ui/use-global-toast'
 
@@ -57,31 +58,14 @@ export function TabbedSettingsPage<T extends string>({
         initial={{ opacity: 0, y: 10 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ type: 'spring', bounce: 0.2, duration: 0.5, delay: 0.05 }}
-        className="overflow-x-auto border-b pb-0 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
       >
-        <div className="flex min-w-max items-center gap-1">
-          {tabs.map((tab) => (
-            <button
-              key={tab.key}
-              type="button"
-              onClick={() => onTabChange(tab.key)}
-              className={`relative rounded-t-md px-3 py-2 text-sm font-medium transition-colors md:px-4 ${
-                activeTab === tab.key
-                  ? 'text-foreground'
-                  : 'text-muted-foreground hover:text-foreground/80'
-              }`}
-            >
-              {tab.label}
-              {activeTab === tab.key && (
-                <motion.div
-                  layoutId={indicatorId}
-                  className="absolute inset-x-0 -bottom-px h-0.5 bg-primary"
-                  transition={{ type: 'spring', bounce: 0.2, duration: 0.4 }}
-                />
-              )}
-            </button>
-          ))}
-        </div>
+        <ScrollableTabBar
+          tabs={tabs}
+          activeTab={activeTab}
+          onTabChange={onTabChange}
+          indicatorId={indicatorId}
+          outerClassName="[-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+        />
       </motion.div>
 
       {extraContent}
