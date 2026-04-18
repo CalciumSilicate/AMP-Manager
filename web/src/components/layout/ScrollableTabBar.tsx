@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 
 import { motion } from '@/lib/motion'
 import { cn } from '@/lib/utils'
@@ -37,8 +37,62 @@ export function ScrollableTabBar<T extends string>({
   const suppressClickRef = useRef(false)
   const [isDragging, setIsDragging] = useState(false)
 
-  const handlePointerDown = (event: React.PointerEvent<HTMLDivElement>) => {
-    if (event.pointerType === 'mouse' && event.button !== 0) {
+  const handleMouseMove = (event: MouseEvent) => {
+    const container = scrollRef.current
+    if (!draggingRef.current || !container) {
+      return
+    }
+
+    const deltaX = event.clientX - dragStartXRef.current
+    if (Math.abs(deltaX) > 4) {
+      movedRef.current = true
+    }
+
+    container.scrollLeft = dragStartScrollLeftRef.current - deltaX
+
+    if (movedRef.current) {
+      event.preventDefault()
+    }
+  }
+
+  const stopDragging = () => {
+    draggingRef.current = false
+    setIsDragging(false)
+
+    if (movedRef.current) {
+      suppressClickRef.current = true
+      window.setTimeout(() => {
+        suppressClickRef.current = false
+      }, 0)
+    }
+  }
+
+  const handleMouseUp = () => {
+    stopDragging()
+  }
+
+  useEffect(() => {
+    if (!isDragging) {
+      return
+    }
+
+    window.addEventListener('mousemove', handleMouseMove)
+    window.addEventListener('mouseup', handleMouseUp)
+
+    return () => {
+      window.removeEventListener('mousemove', handleMouseMove)
+      window.removeEventListener('mouseup', handleMouseUp)
+    }
+  }, [isDragging])
+
+  useEffect(() => {
+    return () => {
+      draggingRef.current = false
+    }
+  }, [])
+
+  const handleMouseDown = (event: React.MouseEvent<HTMLDivElement>) => {
+    if (event.button !== 0) {
       return
     }
 
@@ -52,47 +106,12 @@ export function ScrollableTabBar<T extends string>({
     dragStartXRef.current = event.clientX
     dragStartScrollLeftRef.current = container.scrollLeft
     setIsDragging(true)
-    container.setPointerCapture(event.pointerId)
-  }
-
-  const handlePointerMove = (event: React.PointerEvent<HTMLDivElement>) => {
-    const container = scrollRef.current
-    if (!draggingRef.current || !container) {
-      return
-    }
-
-    const deltaX = event.clientX - dragStartXRef.current
-    if (Math.abs(deltaX) > 4) {
-      movedRef.current = true
-    }
-
-    container.scrollLeft = dragStartScrollLeftRef.current - deltaX
-  }
-
-  const finishDrag = (event: React.PointerEvent<HTMLDivElement>) => {
-    const container = scrollRef.current
-    if (draggingRef.current && container?.hasPointerCapture(event.pointerId)) {
-      container.releasePointerCapture(event.pointerId)
-    }
-
-    draggingRef.current = false
-    setIsDragging(false)
-
-    if (movedRef.current) {
-      suppressClickRef.current = true
-      requestAnimationFrame(() => {
-        suppressClickRef.current = false
-      })
-    }
   }
 
   return (
     <div
       ref={scrollRef}
-      onPointerDown={handlePointerDown}
-      onPointerMove={handlePointerMove}
-      onPointerUp={finishDrag}
-      onPointerCancel={finishDrag}
+      onMouseDown={handleMouseDown}
       className={cn(
         'overflow-x-auto overflow-y-hidden pb-0 touch-pan-x select-none [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden',
         showBorder && 'border-b',
