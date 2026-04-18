@@ -7,7 +7,6 @@ import {
   createSinglePurchaseManualSettlement,
   deletePurchaseProduct,
   deletePurchaseWebhookTarget,
-  getPurchaseSettings,
   listPurchaseOrderPaymentStatusHistory,
   listPurchaseOrdersAdmin,
   listPurchaseProductsAdmin,
@@ -19,17 +18,14 @@ import {
   testPurchaseWebhookTarget,
   updatePurchaseOrderPaymentStatus,
   updatePurchaseProduct,
-  updatePurchaseSettings,
   updatePurchaseWebhookTarget,
   type AdminOrderFilters,
-  type AlipayEnvironment,
   type PurchaseManualSettlementBatch,
   type PurchaseManualSettlementPreviewResponse,
   type PurchaseOrder,
   type PurchaseOrderPaymentStatusHistory,
   type PurchaseProduct,
   type PurchaseProductRequest,
-  type PurchaseSettingsResponse,
   type PurchaseWebhookTarget,
   type PurchaseWebhookTargetRequest,
   type PurchaseWebhookTestResponse,
@@ -66,18 +62,15 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Switch } from '@/components/ui/switch'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { Textarea } from '@/components/ui/textarea'
-import { CreditCard, Pencil, Plus, RefreshCw, Send, Trash2 } from 'lucide-react'
+import { Pencil, Plus, RefreshCw, Send, Trash2 } from 'lucide-react'
 
-type PaidSubscriptionsTab = 'products' | 'orders' | 'webhooks' | 'coupons' | 'settings'
-
-const DEFAULT_ALIPAY_NOTIFY_URL = 'https://amphk.asxs.top/api/public/purchase/alipay/notify'
+type PaidSubscriptionsTab = 'products' | 'orders' | 'webhooks' | 'coupons'
 
 const tabs: TabbedSettingsPageTab<PaidSubscriptionsTab>[] = [
   { key: 'products', label: '售卖商品' },
   { key: 'orders', label: '订单' },
   { key: 'webhooks', label: '订单通知' },
   { key: 'coupons', label: '优惠码' },
-  { key: 'settings', label: '支付设置' },
 ]
 
 function formatCNY(cents: number): string {
@@ -176,7 +169,6 @@ function initialCouponForm(): CouponCampaignRequest {
 
 export default function PaidSubscriptions() {
   const [activeTab, setActiveTab] = useState<PaidSubscriptionsTab>('products')
-  const [settings, setSettings] = useState<PurchaseSettingsResponse | null>(null)
   const [products, setProducts] = useState<PurchaseProduct[]>([])
   const [orders, setOrders] = useState<PurchaseOrder[]>([])
   const [ordersTotal, setOrdersTotal] = useState(0)
@@ -185,18 +177,6 @@ export default function PaidSubscriptions() {
   const [loading, setLoading] = useState(true)
   const [ordersLoading, setOrdersLoading] = useState(false)
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
-
-  const [settingsDraft, setSettingsDraft] = useState({
-    purchaseEnabled: false,
-    debugAutoPaid: false,
-    alipayAppId: '',
-    alipayPid: '',
-    alipayEnvironment: 'sandbox' as AlipayEnvironment,
-    alipayNotifyUrl: DEFAULT_ALIPAY_NOTIFY_URL,
-    alipayPublicKey: '',
-  })
-  const [alipayPrivateKeyInput, setAlipayPrivateKeyInput] = useState('')
-  const [savingSettings, setSavingSettings] = useState(false)
 
   const [productDialogOpen, setProductDialogOpen] = useState(false)
   const [editingProduct, setEditingProduct] = useState<PurchaseProduct | null>(null)
@@ -261,8 +241,7 @@ export default function PaidSubscriptions() {
   const loadBase = async () => {
     setLoading(true)
     try {
-      const [settingsData, productData, planData, webhookData] = await Promise.all([
-        getPurchaseSettings(),
+      const [productData, planData, webhookData] = await Promise.all([
         listPurchaseProductsAdmin(),
         getPlans(),
         listPurchaseWebhookTargets(),
@@ -273,7 +252,6 @@ export default function PaidSubscriptions() {
         listCouponCodes(),
         listCouponUsages(),
       ])
-      setSettings(settingsData)
       setProducts(productData)
       setPlans(planData)
       setWebhooks(webhookData)
@@ -281,15 +259,6 @@ export default function PaidSubscriptions() {
       setCouponCampaigns(couponCampaignsData)
       setCouponCodes(couponCodesData)
       setCouponUsages(couponUsagesData)
-      setSettingsDraft({
-        purchaseEnabled: settingsData.purchaseEnabled,
-        debugAutoPaid: settingsData.debugAutoPaid,
-        alipayAppId: settingsData.alipayAppId,
-        alipayPid: settingsData.alipayPid,
-        alipayEnvironment: settingsData.alipayEnvironment,
-        alipayNotifyUrl: settingsData.alipayNotifyUrl || DEFAULT_ALIPAY_NOTIFY_URL,
-        alipayPublicKey: settingsData.alipayPublicKey,
-      })
       await loadOrders({
         paymentStatus: '',
         fulfillmentStatus: '',
@@ -525,32 +494,6 @@ export default function PaidSubscriptions() {
       showMessage('error', error instanceof Error ? error.message : '测试失败')
     } finally {
       setTestingWebhookID(null)
-    }
-  }
-
-  const handleSaveSettings = async () => {
-    setSavingSettings(true)
-    try {
-      const response = await updatePurchaseSettings({
-        ...settingsDraft,
-        alipayPrivateKey: alipayPrivateKeyInput.trim() || undefined,
-      })
-      setSettings(response.settings)
-      setSettingsDraft({
-        purchaseEnabled: response.settings.purchaseEnabled,
-        debugAutoPaid: response.settings.debugAutoPaid,
-        alipayAppId: response.settings.alipayAppId,
-        alipayPid: response.settings.alipayPid,
-        alipayEnvironment: response.settings.alipayEnvironment,
-        alipayNotifyUrl: response.settings.alipayNotifyUrl || DEFAULT_ALIPAY_NOTIFY_URL,
-        alipayPublicKey: response.settings.alipayPublicKey,
-      })
-      setAlipayPrivateKeyInput('')
-      showMessage('success', '支付设置已保存')
-    } catch (error) {
-      showMessage('error', error instanceof Error ? error.message : '保存失败')
-    } finally {
-      setSavingSettings(false)
     }
   }
 
@@ -1187,55 +1130,6 @@ export default function PaidSubscriptions() {
           </div>
         )}
 
-        {activeTab === 'settings' && (
-          <Card>
-            <CardHeader className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-              <CardTitle>支付设置</CardTitle>
-              <Badge variant="outline" className={settings?.paymentConfigured ? 'border-emerald-200 bg-emerald-50 text-emerald-700' : 'border-slate-200 bg-slate-100 text-slate-600'}>
-                {settings?.paymentConfigured ? '配置完整' : '待补齐'}
-              </Badge>
-            </CardHeader>
-            <CardContent className="space-y-6">
-              <div className="grid gap-6 lg:grid-cols-2">
-                <div className="space-y-4">
-                  <div className="flex items-center justify-between border-b pb-3"><Label>支付功能</Label><Switch checked={settingsDraft.purchaseEnabled} onCheckedChange={(checked) => setSettingsDraft((current) => ({ ...current, purchaseEnabled: checked }))} /></div>
-                  <div className="flex items-center justify-between border-b pb-3"><Label>DEBUG 自动支付</Label><Switch checked={settingsDraft.debugAutoPaid} onCheckedChange={(checked) => setSettingsDraft((current) => ({ ...current, debugAutoPaid: checked }))} /></div>
-                  <div className="grid gap-4 sm:grid-cols-2">
-                    <div className="space-y-2"><Label htmlFor="alipayAppId">App ID</Label><Input id="alipayAppId" value={settingsDraft.alipayAppId} onChange={(event) => setSettingsDraft((current) => ({ ...current, alipayAppId: event.target.value }))} /></div>
-                    <div className="space-y-2"><Label htmlFor="alipayPid">PID</Label><Input id="alipayPid" value={settingsDraft.alipayPid} onChange={(event) => setSettingsDraft((current) => ({ ...current, alipayPid: event.target.value }))} /></div>
-                    <div className="space-y-2">
-                      <Label>环境</Label>
-                      <Select value={settingsDraft.alipayEnvironment} onValueChange={(value: AlipayEnvironment) => setSettingsDraft((current) => ({ ...current, alipayEnvironment: value }))}>
-                        <SelectTrigger><SelectValue /></SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="sandbox">沙箱</SelectItem>
-                          <SelectItem value="production">生产</SelectItem>
-                        </SelectContent>
-                      </Select>
-                    </div>
-                    <div className="space-y-2"><Label htmlFor="alipayNotifyUrl">回调地址</Label><Input id="alipayNotifyUrl" value={settingsDraft.alipayNotifyUrl} onChange={(event) => setSettingsDraft((current) => ({ ...current, alipayNotifyUrl: event.target.value }))} /></div>
-                  </div>
-                </div>
-                <div className="space-y-4">
-                  <div className="space-y-2"><Label htmlFor="alipayPublicKey">支付宝公钥</Label><Textarea id="alipayPublicKey" value={settingsDraft.alipayPublicKey} onChange={(event) => setSettingsDraft((current) => ({ ...current, alipayPublicKey: event.target.value }))} className="min-h-[148px]" /></div>
-                  <div className="space-y-2">
-                    <div className="flex items-center justify-between">
-                      <Label htmlFor="alipayPrivateKey">应用私钥</Label>
-                      {settings?.privateKeySet && <Badge variant="outline">已设置</Badge>}
-                    </div>
-                    <Textarea id="alipayPrivateKey" value={alipayPrivateKeyInput} onChange={(event) => setAlipayPrivateKeyInput(event.target.value)} placeholder={settings?.privateKeySet ? '留空保持现有私钥' : '-----BEGIN PRIVATE KEY-----'} className="min-h-[148px]" />
-                  </div>
-                </div>
-              </div>
-              <div className="flex justify-end">
-                <Button type="button" disabled={savingSettings} onClick={() => void handleSaveSettings()}>
-                  {savingSettings ? <RefreshCw className="mr-2 h-4 w-4 animate-spin" /> : <CreditCard className="mr-2 h-4 w-4" />}
-                  保存设置
-                </Button>
-              </div>
-            </CardContent>
-          </Card>
-        )}
       </TabbedSettingsPage>
 
       <Dialog open={productDialogOpen} onOpenChange={setProductDialogOpen}>

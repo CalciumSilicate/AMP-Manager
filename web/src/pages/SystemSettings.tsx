@@ -2,7 +2,12 @@ import { useState, useEffect, useRef, useCallback } from 'react'
 import { motion, AnimatePresence } from '@/lib/motion'
 import { formatDateTime } from '@/lib/formatters'
 import { SITE_TIME_ZONE_OPTIONS } from '@/lib/site-config'
-import { getPurchaseSettings, updatePurchaseSettings } from '@/api/purchase'
+import {
+  getPurchaseSettings,
+  updatePurchaseSettings,
+  type AlipayEnvironment,
+  type PurchaseSettingsResponse,
+} from '@/api/purchase'
 import {
   getDatabaseInfo,
   DatabaseInfo,
@@ -74,10 +79,13 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { RefreshCw } from 'lucide-react'
 import { useGlobalToast } from '@/components/ui/use-global-toast'
 
-type SettingsTab = 'site' | 'invite' | 'security' | 'status-monitor' | 'announcements' | 'database' | 'retry' | 'error-rules' | 'request-filters' | 'monitoring' | 'cache' | 'timeout' | 'billing'
+type SettingsTab = 'site' | 'payment' | 'invite' | 'security' | 'status-monitor' | 'announcements' | 'database' | 'retry' | 'error-rules' | 'request-filters' | 'monitoring' | 'cache' | 'timeout' | 'billing'
+
+const DEFAULT_ALIPAY_NOTIFY_URL = 'https://amphk.asxs.top/api/public/purchase/alipay/notify'
 
 const tabs: { key: SettingsTab; label: string }[] = [
   { key: 'site', label: '网站配置' },
+  { key: 'payment', label: '支付设置' },
   { key: 'invite', label: '邀请系统' },
   { key: 'security', label: '安全' },
   { key: 'status-monitor', label: '状态监控' },
@@ -149,7 +157,18 @@ export default function SystemSettings({
   const [ampSettingsPolicyInput, setAmpSettingsPolicyInput] = useState<AmpProxySettingsPolicy>(ampSettingsPolicy)
   const [siteContactInput, setSiteContactInput] = useState<SiteContactConfig>(siteContact)
   const [siteConfigSaving, setSiteConfigSaving] = useState(false)
-  const [balanceTopupPriceInput, setBalanceTopupPriceInput] = useState('0')
+  const [purchaseSettings, setPurchaseSettings] = useState<PurchaseSettingsResponse | null>(null)
+  const [purchaseSettingsDraft, setPurchaseSettingsDraft] = useState({
+    purchaseEnabled: false,
+    debugAutoPaid: false,
+    alipayAppId: '',
+    alipayPid: '',
+    alipayEnvironment: 'sandbox' as AlipayEnvironment,
+    alipayNotifyUrl: DEFAULT_ALIPAY_NOTIFY_URL,
+    alipayPublicKey: '',
+    balanceTopupPriceCnyPerUsd: '0',
+  })
+  const [alipayPrivateKeyInput, setAlipayPrivateKeyInput] = useState('')
   const [balanceTopupSaving, setBalanceTopupSaving] = useState(false)
   const [billingDailyResetConfig, setBillingDailyResetConfig] = useState<BillingDailyResetConfig | null>(null)
   const [billingDailyResetSaving, setBillingDailyResetSaving] = useState(false)
@@ -278,7 +297,17 @@ export default function SystemSettings({
   const fetchBalanceTopupSettings = useCallback(async () => {
     try {
       const data = await getPurchaseSettings()
-      setBalanceTopupPriceInput(String(data.balanceTopupPriceCnyPerUsd || 0))
+      setPurchaseSettings(data)
+      setPurchaseSettingsDraft({
+        purchaseEnabled: data.purchaseEnabled,
+        debugAutoPaid: data.debugAutoPaid,
+        alipayAppId: data.alipayAppId,
+        alipayPid: data.alipayPid,
+        alipayEnvironment: data.alipayEnvironment,
+        alipayNotifyUrl: data.alipayNotifyUrl || DEFAULT_ALIPAY_NOTIFY_URL,
+        alipayPublicKey: data.alipayPublicKey,
+        balanceTopupPriceCnyPerUsd: String(data.balanceTopupPriceCnyPerUsd || 0),
+      })
     } catch (err) {
       console.error('获取余额充值单价失败:', err)
     }
@@ -453,7 +482,7 @@ export default function SystemSettings({
   }
 
   const handleSaveBalanceTopupPrice = async () => {
-    const price = Number.parseFloat(balanceTopupPriceInput)
+    const price = Number.parseFloat(purchaseSettingsDraft.balanceTopupPriceCnyPerUsd)
     if (Number.isNaN(price) || price < 0) {
       showMessage('error', '单价格式错误')
       return
@@ -461,19 +490,30 @@ export default function SystemSettings({
 
     setBalanceTopupSaving(true)
     try {
-      const current = await getPurchaseSettings()
-      await updatePurchaseSettings({
-        purchaseEnabled: current.purchaseEnabled,
-        debugAutoPaid: current.debugAutoPaid,
-        alipayAppId: current.alipayAppId,
-        alipayPid: current.alipayPid,
-        alipayEnvironment: current.alipayEnvironment,
-        alipayNotifyUrl: current.alipayNotifyUrl,
-        alipayPublicKey: current.alipayPublicKey,
+      const response = await updatePurchaseSettings({
+        purchaseEnabled: purchaseSettingsDraft.purchaseEnabled,
+        debugAutoPaid: purchaseSettingsDraft.debugAutoPaid,
+        alipayAppId: purchaseSettingsDraft.alipayAppId,
+        alipayPid: purchaseSettingsDraft.alipayPid,
+        alipayEnvironment: purchaseSettingsDraft.alipayEnvironment,
+        alipayNotifyUrl: purchaseSettingsDraft.alipayNotifyUrl,
+        alipayPublicKey: purchaseSettingsDraft.alipayPublicKey,
+        alipayPrivateKey: alipayPrivateKeyInput.trim() || undefined,
         balanceTopupPriceCnyPerUsd: price,
       })
-      setBalanceTopupPriceInput(String(price))
-      showMessage('success', '充值单价已保存')
+      setPurchaseSettings(response.settings)
+      setPurchaseSettingsDraft({
+        purchaseEnabled: response.settings.purchaseEnabled,
+        debugAutoPaid: response.settings.debugAutoPaid,
+        alipayAppId: response.settings.alipayAppId,
+        alipayPid: response.settings.alipayPid,
+        alipayEnvironment: response.settings.alipayEnvironment,
+        alipayNotifyUrl: response.settings.alipayNotifyUrl || DEFAULT_ALIPAY_NOTIFY_URL,
+        alipayPublicKey: response.settings.alipayPublicKey,
+        balanceTopupPriceCnyPerUsd: String(response.settings.balanceTopupPriceCnyPerUsd || 0),
+      })
+      setAlipayPrivateKeyInput('')
+      showMessage('success', '支付设置已保存')
     } catch (err) {
       showMessage('error', err instanceof Error ? err.message : '保存失败')
     } finally {
@@ -992,30 +1032,6 @@ export default function SystemSettings({
 
               <Card>
                 <CardHeader>
-                  <CardTitle>余额充值</CardTitle>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                  <div className="max-w-xs space-y-2">
-                    <Label htmlFor="balanceTopupPrice">元/刀</Label>
-                    <Input
-                      id="balanceTopupPrice"
-                      type="number"
-                      min="0"
-                      step="0.01"
-                      value={balanceTopupPriceInput}
-                      onChange={(e) => setBalanceTopupPriceInput(e.target.value)}
-                    />
-                  </div>
-                  <div className="flex justify-end">
-                    <Button onClick={handleSaveBalanceTopupPrice} disabled={balanceTopupSaving}>
-                      {balanceTopupSaving ? '保存中...' : '保存单价'}
-                    </Button>
-                  </div>
-                </CardContent>
-              </Card>
-
-              <Card>
-                <CardHeader>
                   <CardTitle>计费重置</CardTitle>
                   <CardDescription>控制用户侧“重置今日计费”按钮的准入规则</CardDescription>
                 </CardHeader>
@@ -1088,6 +1104,127 @@ export default function SystemSettings({
 
           {activeTab === 'invite' && (
             <InviteSettingsPanel onMessage={showMessage} />
+          )}
+
+          {activeTab === 'payment' && (
+            <Card className={settingsTabCardClassName}>
+              <CardHeader className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                <div className="space-y-1">
+                  <CardTitle>支付与余额充值</CardTitle>
+                  <CardDescription>复用现有购买支付配置接口，统一维护支付开关、支付宝参数和余额单价。</CardDescription>
+                </div>
+                <Badge
+                  variant="outline"
+                  className={purchaseSettings?.paymentConfigured ? 'border-emerald-200 bg-emerald-50 text-emerald-700' : 'border-slate-200 bg-slate-100 text-slate-600'}
+                >
+                  {purchaseSettings?.paymentConfigured ? '配置完整' : '待补齐'}
+                </Badge>
+              </CardHeader>
+              <CardContent className="space-y-6">
+                <div className="grid gap-6 lg:grid-cols-2">
+                  <div className="space-y-4">
+                    <div className="flex items-center justify-between border-b pb-3">
+                      <Label htmlFor="purchaseEnabled">支付功能</Label>
+                      <Switch
+                        id="purchaseEnabled"
+                        checked={purchaseSettingsDraft.purchaseEnabled}
+                        onCheckedChange={(checked) => setPurchaseSettingsDraft((current) => ({ ...current, purchaseEnabled: checked }))}
+                      />
+                    </div>
+                    <div className="flex items-center justify-between border-b pb-3">
+                      <Label htmlFor="debugAutoPaid">DEBUG 自动支付</Label>
+                      <Switch
+                        id="debugAutoPaid"
+                        checked={purchaseSettingsDraft.debugAutoPaid}
+                        onCheckedChange={(checked) => setPurchaseSettingsDraft((current) => ({ ...current, debugAutoPaid: checked }))}
+                      />
+                    </div>
+                    <div className="max-w-xs space-y-2">
+                      <Label htmlFor="balanceTopupPrice">余额单价（元/刀）</Label>
+                      <Input
+                        id="balanceTopupPrice"
+                        type="number"
+                        min="0"
+                        step="0.01"
+                        value={purchaseSettingsDraft.balanceTopupPriceCnyPerUsd}
+                        onChange={(e) => setPurchaseSettingsDraft((current) => ({ ...current, balanceTopupPriceCnyPerUsd: e.target.value }))}
+                      />
+                    </div>
+                    <div className="grid gap-4 sm:grid-cols-2">
+                      <div className="space-y-2">
+                        <Label htmlFor="alipayAppId">App ID</Label>
+                        <Input
+                          id="alipayAppId"
+                          value={purchaseSettingsDraft.alipayAppId}
+                          onChange={(event) => setPurchaseSettingsDraft((current) => ({ ...current, alipayAppId: event.target.value }))}
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <Label htmlFor="alipayPid">PID</Label>
+                        <Input
+                          id="alipayPid"
+                          value={purchaseSettingsDraft.alipayPid}
+                          onChange={(event) => setPurchaseSettingsDraft((current) => ({ ...current, alipayPid: event.target.value }))}
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <Label htmlFor="alipayEnvironment">环境</Label>
+                        <Select
+                          value={purchaseSettingsDraft.alipayEnvironment}
+                          onValueChange={(value: AlipayEnvironment) => setPurchaseSettingsDraft((current) => ({ ...current, alipayEnvironment: value }))}
+                        >
+                          <SelectTrigger id="alipayEnvironment">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="sandbox">沙箱</SelectItem>
+                            <SelectItem value="production">生产</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      <div className="space-y-2">
+                        <Label htmlFor="alipayNotifyUrl">回调地址</Label>
+                        <Input
+                          id="alipayNotifyUrl"
+                          value={purchaseSettingsDraft.alipayNotifyUrl}
+                          onChange={(event) => setPurchaseSettingsDraft((current) => ({ ...current, alipayNotifyUrl: event.target.value }))}
+                        />
+                      </div>
+                    </div>
+                  </div>
+                  <div className="space-y-4">
+                    <div className="space-y-2">
+                      <Label htmlFor="alipayPublicKey">支付宝公钥</Label>
+                      <Textarea
+                        id="alipayPublicKey"
+                        value={purchaseSettingsDraft.alipayPublicKey}
+                        onChange={(event) => setPurchaseSettingsDraft((current) => ({ ...current, alipayPublicKey: event.target.value }))}
+                        className="min-h-[148px]"
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <div className="flex items-center justify-between">
+                        <Label htmlFor="alipayPrivateKey">应用私钥</Label>
+                        {purchaseSettings?.privateKeySet ? <Badge variant="outline">已设置</Badge> : null}
+                      </div>
+                      <Textarea
+                        id="alipayPrivateKey"
+                        value={alipayPrivateKeyInput}
+                        onChange={(event) => setAlipayPrivateKeyInput(event.target.value)}
+                        placeholder={purchaseSettings?.privateKeySet ? '留空保持现有私钥' : '-----BEGIN PRIVATE KEY-----'}
+                        className="min-h-[148px]"
+                      />
+                    </div>
+                  </div>
+                </div>
+                <div className="flex justify-end">
+                  <Button type="button" disabled={balanceTopupSaving} onClick={() => void handleSaveBalanceTopupPrice()}>
+                    {balanceTopupSaving ? <RefreshCw className="mr-2 h-4 w-4 animate-spin" /> : null}
+                    保存设置
+                  </Button>
+                </div>
+              </CardContent>
+            </Card>
           )}
 
           {activeTab === 'announcements' && (
