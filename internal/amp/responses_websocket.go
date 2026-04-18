@@ -409,8 +409,12 @@ func prepareResponsesWebsocketTurn(c *gin.Context, session *responsesWebsocketSe
 	} else {
 		trace.SetUpstreamTransport(responsesWebsocketTransportHTTP)
 	}
-	if result.ThinkingLevel != "" {
-		trace.SetThinkingLevel(result.ThinkingLevel)
+	thinkingLevel := result.ThinkingLevel
+	if thinkingLevel == "" {
+		thinkingLevel = extractThinkingLevelFromBody(body)
+	}
+	if thinkingLevel != "" {
+		trace.SetThinkingLevel(thinkingLevel)
 	}
 
 	return &responsesPreparedTurn{

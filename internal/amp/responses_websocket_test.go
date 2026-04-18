@@ -1,6 +1,7 @@
 package amp
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"net/http"
@@ -153,6 +154,51 @@ func TestPrepareResponsesWebsocketTurnSkipsMappingsWhenDisabled(t *testing.T) {
 	}
 	if got := gjson.GetBytes(prepared.body, "model").String(); got != "gpt-4.1" {
 		t.Fatalf("expected request body model to remain gpt-4.1, got %q", got)
+	}
+}
+
+func TestPrepareResponsesWebsocketTurnExtractsThinkingLevelFromRequestBody(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	modelsJSON, _ := json.Marshal([]model.ChannelModel{{Name: "gpt-4.1"}})
+	repo := &fakeChannelRepo{
+		channels: map[string]*model.Channel{
+			"channel-1": {
+				ID:         "channel-1",
+				Name:       "Primary",
+				Type:       model.ChannelTypeOpenAI,
+				Endpoint:   model.ChannelEndpointResponses,
+				BaseURL:    "https://example.com",
+				APIKey:     "sk-test",
+				Enabled:    true,
+				Priority:   1,
+				Weight:     1,
+				ModelsJSON: string(modelsJSON),
+			},
+		},
+		groups: map[string][]string{},
+	}
+
+	originalService := responsesWebsocketChannelService
+	responsesWebsocketChannelService = service.NewChannelServiceWithRepo(repo)
+	defer func() { responsesWebsocketChannelService = originalService }()
+
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	reqBody := []byte(`{"model":"gpt-4.1","reasoning":{"effort":"high"},"input":[]}`)
+	req := httptest.NewRequest(http.MethodPost, "/v1/responses", bytes.NewReader(reqBody))
+	req.Header.Set("Content-Type", "application/json")
+	c.Request = req.WithContext(WithProxyConfig(req.Context(), &ProxyConfig{}))
+
+	prepared, errResp := prepareResponsesWebsocketTurn(c, &responsesWebsocketSession{}, reqBody, true)
+	if errResp != nil {
+		t.Fatalf("prepareResponsesWebsocketTurn returned error: %v", errResp)
+	}
+	if prepared == nil || prepared.trace == nil {
+		t.Fatal("expected prepared trace")
+	}
+	if got := prepared.trace.ThinkingLevel; got != "high" {
+		t.Fatalf("expected thinking level high, got %q", got)
 	}
 }
 
