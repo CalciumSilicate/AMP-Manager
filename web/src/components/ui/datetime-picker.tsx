@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { cn } from '@/lib/utils'
 import { Calendar, ChevronLeft, ChevronRight, Clock, X } from 'lucide-react'
@@ -18,10 +19,25 @@ function pad(n: number) {
   return n.toString().padStart(2, '0')
 }
 
+export function toDateTimePickerValue(value?: string | null): string {
+  if (!value) return ''
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return ''
+  const offset = date.getTimezoneOffset()
+  return new Date(date.getTime() - offset * 60_000).toISOString().slice(0, 16)
+}
+
+export function toDateTimePickerISOString(value: string): string | undefined {
+  if (!value) return undefined
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return undefined
+  return date.toISOString()
+}
+
 function formatDisplay(value: string): string {
   if (!value) return ''
   const d = new Date(value)
-  if (isNaN(d.getTime())) return ''
+  if (Number.isNaN(d.getTime())) return ''
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`
 }
 
@@ -171,29 +187,20 @@ export function DateTimePicker({ value, onChange, placeholder = '选择时间', 
   const displayValue = formatDisplay(value)
 
   return (
-    <Popover open={open} onOpenChange={setOpen}>
-      <div className="relative block">
-        <PopoverTrigger asChild>
-          <Button
-            type="button"
-            variant="outline"
-            className={cn(
-              'h-9 w-[200px] justify-start gap-2 pr-8 text-left font-normal',
-              !value && 'text-muted-foreground',
-              className
-            )}
-          >
-            <Calendar className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-            <span className="truncate text-xs">
-              {displayValue || placeholder}
-            </span>
-          </Button>
-        </PopoverTrigger>
+    <>
+      <div className="relative sm:hidden">
+        <Input
+          type="datetime-local"
+          value={value}
+          onChange={(event) => onChange(event.target.value)}
+          className={cn('pr-10', className)}
+          aria-label={placeholder}
+        />
         {value && (
           <button
             type="button"
             aria-label="清空时间"
-            className="absolute right-2 top-1/2 inline-flex h-4 w-4 -translate-y-1/2 items-center justify-center text-muted-foreground transition-colors hover:text-foreground"
+            className="absolute right-3 top-1/2 inline-flex h-4 w-4 -translate-y-1/2 items-center justify-center text-muted-foreground transition-colors hover:text-foreground"
             onPointerDown={handleClearPointerDown}
             onMouseDown={handleClearMouseDown}
             onClick={handleClear}
@@ -202,110 +209,138 @@ export function DateTimePicker({ value, onChange, placeholder = '选择时间', 
           </button>
         )}
       </div>
-      <PopoverContent className="w-[280px] p-0" align="start">
-        <div className="p-3">
-          {/* Month/Year Header */}
-          <div className="flex items-center justify-between mb-2">
-            <Button variant="ghost" size="icon" className="h-7 w-7" onClick={prevMonth}>
-              <ChevronLeft className="h-4 w-4" />
-            </Button>
-            <span className="text-sm font-medium">
-              {MONTHS[viewMonth]} {viewYear}
-            </span>
-            <Button variant="ghost" size="icon" className="h-7 w-7" onClick={nextMonth}>
-              <ChevronRight className="h-4 w-4" />
-            </Button>
-          </div>
-
-          {/* Weekday Headers */}
-          <div className="grid grid-cols-7 gap-0 mb-1">
-            {WEEKDAYS.map(d => (
-              <div key={d} className="text-center text-xs text-muted-foreground py-1 font-medium">
-                {d}
-              </div>
-            ))}
-          </div>
-
-          {/* Days Grid */}
-          <div className="grid grid-cols-7 gap-0">
-            {days.map((day, idx) => {
-              if (day === null) {
-                return <div key={`empty-${idx}`} className="h-8 w-8" />
-              }
-              const isSelected = day === selectedDay && viewMonth === selectedMonth && viewYear === selectedYear
-              const isToday = day === today.getDate() && viewMonth === today.getMonth() && viewYear === today.getFullYear()
-              return (
-                <button
-                  key={day}
-                  onClick={() => handleDayClick(day)}
-                  className={cn(
-                    'h-8 w-8 rounded-md text-xs font-medium transition-colors',
-                    'hover:bg-accent hover:text-accent-foreground',
-                    'focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring',
-                    isSelected && 'bg-primary text-primary-foreground hover:bg-primary/90',
-                    isToday && !isSelected && 'border border-primary/50 text-primary',
-                  )}
-                >
-                  {day}
-                </button>
-              )
-            })}
-          </div>
-
-          {/* Time Selector */}
-          <div className="border-t mt-3 pt-3">
-            <div className="flex items-center justify-between mb-2">
-              <div className="flex items-center gap-1.5">
-                <Clock className="h-3.5 w-3.5 text-muted-foreground" />
-                <span className="text-sm font-medium">{hour}:{minute}</span>
-              </div>
-              <Button variant="ghost" size="sm" className="h-7 text-xs" onClick={setNow}>
-                现在
+      <div className="hidden sm:block">
+        <Popover open={open} onOpenChange={setOpen}>
+          <div className="relative block">
+            <PopoverTrigger asChild>
+              <Button
+                type="button"
+                variant="outline"
+                className={cn(
+                  'h-9 w-full justify-between gap-2 pr-8 text-left font-normal',
+                  !value && 'text-muted-foreground',
+                  className
+                )}
+              >
+                <span className="flex min-w-0 items-center gap-2">
+                  <Calendar className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                  <span className="truncate text-xs">{displayValue || placeholder}</span>
+                </span>
               </Button>
-            </div>
-            <div className="flex gap-2">
-              {/* Hour list */}
-              <div className="flex-1">
-                <div className="text-xs text-muted-foreground text-center mb-1">时</div>
-                <div ref={hourListRef} className="h-[140px] overflow-auto rounded-md border">
-                  {Array.from({ length: 24 }, (_, i) => (
-                    <button
-                      key={i}
-                      onClick={() => handleHourSelect(i)}
-                      className={cn(
-                        'w-full h-7 text-xs text-center transition-colors',
-                        'hover:bg-accent hover:text-accent-foreground',
-                        pad(i) === hour && 'bg-primary text-primary-foreground hover:bg-primary/90',
-                      )}
-                    >
-                      {pad(i)}
-                    </button>
-                  ))}
-                </div>
-              </div>
-              {/* Minute list */}
-              <div className="flex-1">
-                <div className="text-xs text-muted-foreground text-center mb-1">分</div>
-                <div ref={minuteListRef} className="h-[140px] overflow-auto rounded-md border">
-                  {Array.from({ length: 60 }, (_, i) => (
-                    <button
-                      key={i}
-                      onClick={() => handleMinuteSelect(i)}
-                      className={cn(
-                        'w-full h-7 text-xs text-center transition-colors',
-                        'hover:bg-accent hover:text-accent-foreground',
-                        pad(i) === minute && 'bg-primary text-primary-foreground hover:bg-primary/90',
-                      )}
-                    >
-                      {pad(i)}
-                    </button>
-                  ))}
-                </div>
-              </div>
-            </div>
+            </PopoverTrigger>
+            {value && (
+              <button
+                type="button"
+                aria-label="清空时间"
+                className="absolute right-2 top-1/2 inline-flex h-4 w-4 -translate-y-1/2 items-center justify-center text-muted-foreground transition-colors hover:text-foreground"
+                onPointerDown={handleClearPointerDown}
+                onMouseDown={handleClearMouseDown}
+                onClick={handleClear}
+              >
+                <X className="h-3 w-3" />
+              </button>
+            )}
           </div>
-        </div>
-      </PopoverContent>
-    </Popover>
+          <PopoverContent className="w-[320px] p-0" align="start">
+            <div className="p-3">
+              <div className="mb-2 flex items-center justify-between">
+                <Button variant="ghost" size="icon" className="h-7 w-7" onClick={prevMonth}>
+                  <ChevronLeft className="h-4 w-4" />
+                </Button>
+                <span className="text-sm font-medium">
+                  {MONTHS[viewMonth]} {viewYear}
+                </span>
+                <Button variant="ghost" size="icon" className="h-7 w-7" onClick={nextMonth}>
+                  <ChevronRight className="h-4 w-4" />
+                </Button>
+              </div>
+
+              <div className="mb-1 grid grid-cols-7 gap-0">
+                {WEEKDAYS.map((dayLabel) => (
+                  <div key={dayLabel} className="py-1 text-center text-xs font-medium text-muted-foreground">
+                    {dayLabel}
+                  </div>
+                ))}
+              </div>
+
+              <div className="grid grid-cols-7 gap-0">
+                {days.map((day, idx) => {
+                  if (day === null) {
+                    return <div key={`empty-${idx}`} className="h-8 w-8" />
+                  }
+                  const isSelected = day === selectedDay && viewMonth === selectedMonth && viewYear === selectedYear
+                  const isToday = day === today.getDate() && viewMonth === today.getMonth() && viewYear === today.getFullYear()
+                  return (
+                    <button
+                      key={day}
+                      onClick={() => handleDayClick(day)}
+                      className={cn(
+                        'h-8 w-8 rounded-md text-xs font-medium transition-colors',
+                        'hover:bg-accent hover:text-accent-foreground',
+                        'focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring',
+                        isSelected && 'bg-primary text-primary-foreground hover:bg-primary/90',
+                        isToday && !isSelected && 'border border-primary/50 text-primary',
+                      )}
+                    >
+                      {day}
+                    </button>
+                  )
+                })}
+              </div>
+
+              <div className="mt-3 border-t pt-3">
+                <div className="mb-2 flex items-center justify-between">
+                  <div className="flex items-center gap-1.5">
+                    <Clock className="h-3.5 w-3.5 text-muted-foreground" />
+                    <span className="text-sm font-medium">{hour}:{minute}</span>
+                  </div>
+                  <Button variant="ghost" size="sm" className="h-7 text-xs" onClick={setNow}>
+                    现在
+                  </Button>
+                </div>
+                <div className="flex gap-2">
+                  <div className="flex-1">
+                    <div className="mb-1 text-center text-xs text-muted-foreground">时</div>
+                    <div ref={hourListRef} className="h-[140px] overflow-auto rounded-md border">
+                      {Array.from({ length: 24 }, (_, i) => (
+                        <button
+                          key={i}
+                          onClick={() => handleHourSelect(i)}
+                          className={cn(
+                            'h-7 w-full text-center text-xs transition-colors',
+                            'hover:bg-accent hover:text-accent-foreground',
+                            pad(i) === hour && 'bg-primary text-primary-foreground hover:bg-primary/90',
+                          )}
+                        >
+                          {pad(i)}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                  <div className="flex-1">
+                    <div className="mb-1 text-center text-xs text-muted-foreground">分</div>
+                    <div ref={minuteListRef} className="h-[140px] overflow-auto rounded-md border">
+                      {Array.from({ length: 60 }, (_, i) => (
+                        <button
+                          key={i}
+                          onClick={() => handleMinuteSelect(i)}
+                          className={cn(
+                            'h-7 w-full text-center text-xs transition-colors',
+                            'hover:bg-accent hover:text-accent-foreground',
+                            pad(i) === minute && 'bg-primary text-primary-foreground hover:bg-primary/90',
+                          )}
+                        >
+                          {pad(i)}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </PopoverContent>
+        </Popover>
+      </div>
+    </>
   )
 }

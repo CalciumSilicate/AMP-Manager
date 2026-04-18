@@ -28,6 +28,7 @@ import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
+import { DateTimePicker, toDateTimePickerISOString, toDateTimePickerValue } from '@/components/ui/datetime-picker'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
@@ -94,22 +95,6 @@ function usdToMicros(value: string): number {
   const amount = Number.parseFloat(value)
   if (Number.isNaN(amount) || amount <= 0) return 0
   return Math.round(amount * 1_000_000)
-}
-
-function normalizeDatetimeLocal(value: string): string | undefined {
-  if (!value) return undefined
-  const parsed = new Date(value)
-  if (Number.isNaN(parsed.getTime())) return undefined
-  return parsed.toISOString()
-}
-
-function toDatetimeLocal(value?: string | null): string {
-  if (!value) return ''
-  const date = new Date(value)
-  if (Number.isNaN(date.getTime())) return ''
-  const offset = date.getTimezoneOffset()
-  const local = new Date(date.getTime() - offset * 60_000)
-  return local.toISOString().slice(0, 16)
 }
 
 function campaignReward(item: RedeemCampaign): string {
@@ -331,8 +316,8 @@ export default function RedeemManagement() {
       balanceUsd: item.balanceMicros > 0 ? String(item.balanceMicros / 1_000_000) : '',
       totalRedemptionsLimit: item.totalRedemptionsLimit,
       perUserLimit: item.perUserLimit,
-      startsAt: toDatetimeLocal(item.startsAt),
-      endsAt: toDatetimeLocal(item.endsAt),
+      startsAt: toDateTimePickerValue(item.startsAt),
+      endsAt: toDateTimePickerValue(item.endsAt),
       enabled: item.enabled,
     })
     setCampaignDialogOpen(true)
@@ -354,8 +339,8 @@ export default function RedeemManagement() {
       balanceMicros: usdToMicros(campaignForm.balanceUsd),
       totalRedemptionsLimit: campaignForm.totalRedemptionsLimit,
       perUserLimit: campaignForm.perUserLimit,
-      startsAt: normalizeDatetimeLocal(campaignForm.startsAt),
-      endsAt: normalizeDatetimeLocal(campaignForm.endsAt),
+      startsAt: toDateTimePickerISOString(campaignForm.startsAt),
+      endsAt: toDateTimePickerISOString(campaignForm.endsAt),
       enabled: campaignForm.enabled,
     }
 
@@ -431,8 +416,8 @@ export default function RedeemManagement() {
         subscriptionPlanId: manualCodeForm.campaignId ? '' : manualCodeForm.subscriptionPlanId,
         subscriptionDurationDays: manualCodeForm.campaignId ? 0 : manualCodeForm.subscriptionDurationDays,
         balanceMicros: manualCodeForm.campaignId ? 0 : usdToMicros(manualCodeBalanceUsd),
-        startsAt: manualCodeForm.campaignId ? undefined : normalizeDatetimeLocal(manualCodeForm.startsAt || ''),
-        endsAt: manualCodeForm.campaignId ? undefined : normalizeDatetimeLocal(manualCodeForm.endsAt || ''),
+        startsAt: manualCodeForm.campaignId ? undefined : toDateTimePickerISOString(manualCodeForm.startsAt || ''),
+        endsAt: manualCodeForm.campaignId ? undefined : toDateTimePickerISOString(manualCodeForm.endsAt || ''),
       })
       setManualCodeDialogOpen(false)
       showMessage('success', '兑换码已创建')
@@ -1133,20 +1118,20 @@ export default function RedeemManagement() {
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="manualStartsAt">开始时间</Label>
-                  <Input
-                    id="manualStartsAt"
-                    type="datetime-local"
+                  <DateTimePicker
                     value={manualCodeForm.startsAt || ''}
-                    onChange={(event) => setManualCodeForm((current) => ({ ...current, startsAt: event.target.value }))}
+                    onChange={(value) => setManualCodeForm((current) => ({ ...current, startsAt: value }))}
+                    placeholder="选择开始时间"
+                    className="w-full"
                   />
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="manualEndsAt">结束时间</Label>
-                  <Input
-                    id="manualEndsAt"
-                    type="datetime-local"
+                  <DateTimePicker
                     value={manualCodeForm.endsAt || ''}
-                    onChange={(event) => setManualCodeForm((current) => ({ ...current, endsAt: event.target.value }))}
+                    onChange={(value) => setManualCodeForm((current) => ({ ...current, endsAt: value }))}
+                    placeholder="选择结束时间"
+                    className="w-full"
                   />
                 </div>
               </>
@@ -1288,20 +1273,20 @@ export default function RedeemManagement() {
               </div>
               <div className="space-y-2">
                 <Label htmlFor="startsAt">开始时间</Label>
-                <Input
-                  id="startsAt"
-                  type="datetime-local"
+                <DateTimePicker
                   value={campaignForm.startsAt}
-                  onChange={(event) => setCampaignForm((current) => ({ ...current, startsAt: event.target.value }))}
+                  onChange={(value) => setCampaignForm((current) => ({ ...current, startsAt: value }))}
+                  placeholder="选择开始时间"
+                  className="w-full"
                 />
               </div>
               <div className="space-y-2">
                 <Label htmlFor="endsAt">结束时间</Label>
-                <Input
-                  id="endsAt"
-                  type="datetime-local"
+                <DateTimePicker
                   value={campaignForm.endsAt}
-                  onChange={(event) => setCampaignForm((current) => ({ ...current, endsAt: event.target.value }))}
+                  onChange={(value) => setCampaignForm((current) => ({ ...current, endsAt: value }))}
+                  placeholder="选择结束时间"
+                  className="w-full"
                 />
               </div>
               <div className="flex items-center justify-between rounded-xl border border-border/70 px-4 py-3 sm:col-span-2">
