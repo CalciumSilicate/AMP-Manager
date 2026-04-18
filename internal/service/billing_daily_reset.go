@@ -79,13 +79,14 @@ func (s *BillingService) ResetDailyBilling(userID string) (*model.BillingStateRe
 	}
 	defer tx.Rollback()
 
-	sub, err := s.queryActiveSubscription(tx, userID)
+	subs, err := s.queryActiveSubscriptions(tx, userID)
 	if err != nil {
 		return nil, err
 	}
-	if sub == nil {
+	if len(subs) == 0 {
 		return nil, newBillingDailyResetRuleError("当前没有可重置的活跃订阅")
 	}
+	sub := subs[0]
 	if sub.ExpiresAt == nil {
 		return nil, newBillingDailyResetRuleError("当前订阅未设置到期时间，无法重置")
 	}

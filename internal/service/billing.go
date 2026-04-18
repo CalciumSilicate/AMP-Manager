@@ -98,19 +98,21 @@ func (s *BillingService) canStartRequestLegacy(userID string, forcedSource *mode
 		return false, err
 	}
 
-	sub, err := s.subRepo.GetActiveByUserID(userID)
+	subs, err := s.subRepo.ListActiveByUserID(userID)
 	if err != nil {
 		return false, err
 	}
-
-	var subscriptionRemaining int64
-	if sub != nil {
+	subscriptionRemaining := int64(0)
+	for _, sub := range subs {
 		_, limits, err := s.planRepo.GetByID(sub.PlanID)
 		if err != nil {
 			return false, err
 		}
-		if len(limits) > 0 {
-			subscriptionRemaining = s.calcSubscriptionRemaining(sub, limits)
+		if len(limits) == 0 {
+			continue
+		}
+		if remaining := s.calcSubscriptionRemaining(sub, limits); remaining > 0 {
+			subscriptionRemaining += remaining
 		}
 	}
 
@@ -264,17 +266,22 @@ func (s *BillingService) settleRequestCostLegacy(requestLogID, userID string, co
 		return nil, fmt.Errorf("billing: query setting: %w", err)
 	}
 
-	sub, err := s.queryActiveSubscription(tx, userID)
+	subs, err := s.queryActiveSubscriptions(tx, userID)
 	if err != nil {
 		return nil, fmt.Errorf("billing: query subscription: %w", err)
 	}
-
-	var subscriptionRemaining int64
-	if sub != nil {
-		subscriptionRemaining, err = s.calcSubscriptionRemainingTx(tx, sub)
+	type subscriptionCharge struct {
+		sub       *model.UserSubscription
+		remaining int64
+		charged   int64
+	}
+	subscriptionCharges := make([]*subscriptionCharge, 0, len(subs))
+	for _, sub := range subs {
+		remainingMicros, err := s.calcSubscriptionRemainingTx(tx, sub)
 		if err != nil {
 			return nil, fmt.Errorf("billing: calc subscription remaining: %w", err)
 		}
+		subscriptionCharges = append(subscriptionCharges, &subscriptionCharge{sub: sub, remaining: remainingMicros})
 	}
 
 	balance, err := s.queryBalance(tx, userID)
@@ -292,14 +299,21 @@ func (s *BillingService) settleRequestCostLegacy(requestLogID, userID string, co
 		}
 		switch src {
 		case model.BillingSourceSubscription:
-			if sub != nil && subscriptionRemaining > 0 {
-				charge := remaining
-				if charge > subscriptionRemaining {
-					charge = subscriptionRemaining
+			for _, item := range subscriptionCharges {
+				if remaining <= 0 {
+					break
 				}
+				if item.remaining <= 0 {
+					continue
+				}
+				charge := remaining
+				if charge > item.remaining {
+					charge = item.remaining
+				}
+				item.charged += charge
+				item.remaining -= charge
 				chargedSubscription += charge
 				remaining -= charge
-				subscriptionRemaining -= charge
 			}
 		case model.BillingSourceBalance:
 			if balance > 0 {
@@ -319,8 +333,11 @@ func (s *BillingService) settleRequestCostLegacy(requestLogID, userID string, co
 
 	now := time.Now().UTC()
 
-	if chargedSubscription > 0 && sub != nil {
-		if err := s.insertBillingEvent(tx, requestLogID, userID, &sub.ID, model.BillingSourceSubscription, "charge", chargedSubscription, now); err != nil {
+	for _, item := range subscriptionCharges {
+		if item.charged <= 0 {
+			continue
+		}
+		if err := s.insertBillingEvent(tx, requestLogID, userID, &item.sub.ID, model.BillingSourceSubscription, "charge", item.charged, now); err != nil {
 			return nil, fmt.Errorf("billing: insert subscription event: %w", err)
 		}
 	}
@@ -422,19 +439,29 @@ func (s *BillingService) queryBillingSetting(tx *sql.Tx, userID string) (*model.
 	return setting, err
 }
 
-func (s *BillingService) queryActiveSubscription(tx *sql.Tx, userID string) (*model.UserSubscription, error) {
-	sub := &model.UserSubscription{}
+func (s *BillingService) queryActiveSubscriptions(tx *sql.Tx, userID string) ([]*model.UserSubscription, error) {
 	now := time.Now().UTC()
-	err := tx.QueryRow(
-		`SELECT id, user_id, plan_id, starts_at, expires_at, status, created_at, updated_at 
-		 FROM user_subscriptions 
-		 WHERE user_id = ? AND status = 'active' AND (expires_at IS NULL OR expires_at > ?)`,
+	rows, err := tx.Query(
+		`SELECT id, user_id, plan_id, starts_at, expires_at, status, created_at, updated_at
+		 FROM user_subscriptions
+		 WHERE user_id = ? AND status = 'active' AND (expires_at IS NULL OR expires_at > ?)
+		 ORDER BY CASE WHEN expires_at IS NULL THEN 1 ELSE 0 END ASC, expires_at ASC, created_at ASC`,
 		userID, now,
-	).Scan(&sub.ID, &sub.UserID, &sub.PlanID, &sub.StartsAt, &sub.ExpiresAt, &sub.Status, &sub.CreatedAt, &sub.UpdatedAt)
-	if err == sql.ErrNoRows {
-		return nil, nil
+	)
+	if err != nil {
+		return nil, err
 	}
-	return sub, err
+	defer rows.Close()
+
+	var subs []*model.UserSubscription
+	for rows.Next() {
+		sub := &model.UserSubscription{}
+		if err := rows.Scan(&sub.ID, &sub.UserID, &sub.PlanID, &sub.StartsAt, &sub.ExpiresAt, &sub.Status, &sub.CreatedAt, &sub.UpdatedAt); err != nil {
+			return nil, err
+		}
+		subs = append(subs, sub)
+	}
+	return subs, rows.Err()
 }
 
 func (s *BillingService) queryBalance(tx *sql.Tx, userID string) (int64, error) {
