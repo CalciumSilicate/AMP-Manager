@@ -141,7 +141,7 @@ export default function SystemSettings({
   const [requestDetailLoadError, setRequestDetailLoadError] = useState<string | null>(null)
   const [timeoutConfig, setTimeoutConfig] = useState<TimeoutConfig | null>(null)
   const [timeoutLoading, setTimeoutLoading] = useState(false)
-  const [cacheTTL, setCacheTTL] = useState<string>('1h')
+  const [cacheTTL, setCacheTTL] = useState<string>('')
   const [cacheTTLLoading, setCacheTTLLoading] = useState(false)
   const [siteNameInput, setSiteNameInput] = useState(siteName)
   const [siteTimeZoneInput, setSiteTimeZoneInput] = useState(siteTimeZone)
@@ -775,6 +775,7 @@ export default function SystemSettings({
   const siteTimeZoneOptions = SITE_TIME_ZONE_OPTIONS.some((option) => option.value === siteTimeZoneInput)
     ? SITE_TIME_ZONE_OPTIONS
     : [{ value: siteTimeZoneInput, label: siteTimeZoneInput }, ...SITE_TIME_ZONE_OPTIONS]
+  const settingsTabCardClassName = 'border-border/70 bg-muted/20'
 
   return (
     <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-6">
@@ -811,264 +812,181 @@ export default function SystemSettings({
         >
           {activeTab === 'site' && (
             <>
-              <div className="grid gap-6 xl:grid-cols-[minmax(0,1.5fr)_minmax(320px,0.9fr)]">
-                <Card>
-                  <CardHeader>
-                    <CardTitle>网站配置</CardTitle>
-                  </CardHeader>
-                  <CardContent className="space-y-6">
-                    <div className="grid gap-4 md:grid-cols-2">
-                      <div className="space-y-2 md:col-span-2">
-                        <Label htmlFor="siteName">网站名称</Label>
+              <Card>
+                <CardHeader>
+                  <CardTitle>网站配置</CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-6">
+                  <div className="grid gap-6 xl:grid-cols-[minmax(0,1.35fr)_minmax(320px,0.95fr)]">
+                    <div className="space-y-4">
+                      <div className="grid gap-4 md:grid-cols-2">
+                        <div className="space-y-2 md:col-span-2">
+                          <Label htmlFor="siteName">网站名称</Label>
+                          <Input
+                            id="siteName"
+                            value={siteNameInput}
+                            onChange={(e) => setSiteNameInput(e.target.value)}
+                            placeholder="AMP Manager"
+                            maxLength={64}
+                          />
+                        </div>
+                        <div className="space-y-2">
+                          <Label htmlFor="siteTimeZone">时区</Label>
+                          <Select value={siteTimeZoneInput} onValueChange={setSiteTimeZoneInput}>
+                            <SelectTrigger id="siteTimeZone">
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {siteTimeZoneOptions.map((option) => (
+                                <SelectItem key={option.value} value={option.value}>
+                                  {option.label}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </div>
+                        <div className="space-y-2">
+                          <Label htmlFor="ampProxySettingsPolicy">路由设置</Label>
+                          <Select value={ampProxySettingsPolicyInput} onValueChange={(value) => setAmpProxySettingsPolicyInput(value as AmpProxySettingsPolicy)}>
+                            <SelectTrigger id="ampProxySettingsPolicy">
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="disabled">禁用</SelectItem>
+                              <SelectItem value="admin_only">仅管理员</SelectItem>
+                              <SelectItem value="all">启用</SelectItem>
+                            </SelectContent>
+                          </Select>
+                        </div>
+                        <div className="space-y-2 md:col-span-2">
+                          <Label htmlFor="ampSettingsPolicy">Amp 设置</Label>
+                          <Select value={ampSettingsPolicyInput} onValueChange={(value) => setAmpSettingsPolicyInput(value as AmpProxySettingsPolicy)}>
+                            <SelectTrigger id="ampSettingsPolicy">
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="disabled">禁用</SelectItem>
+                              <SelectItem value="admin_only">仅管理员</SelectItem>
+                              <SelectItem value="all">启用</SelectItem>
+                            </SelectContent>
+                          </Select>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="space-y-4 rounded-xl border border-border/70 bg-muted/20 p-4">
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="space-y-1">
+                          <h3 className="text-sm font-medium">联系方式</h3>
+                          <p className="text-sm text-muted-foreground">保存后会按链接生成对应二维码。</p>
+                        </div>
+                        <Switch
+                          id="siteContactEnabled"
+                          checked={siteContactInput.enabled}
+                          onCheckedChange={(checked) => setSiteContactInput((current) => ({ ...current, enabled: checked }))}
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <Label htmlFor="siteContactTitle">标题</Label>
                         <Input
-                          id="siteName"
-                          value={siteNameInput}
-                          onChange={(e) => setSiteNameInput(e.target.value)}
-                          placeholder="AMP Manager"
+                          id="siteContactTitle"
+                          value={siteContactInput.title}
+                          onChange={(e) => setSiteContactInput((current) => ({ ...current, title: e.target.value }))}
+                          placeholder="Telegram / 企业微信 / Discord"
                           maxLength={64}
                         />
                       </div>
                       <div className="space-y-2">
-                        <Label htmlFor="siteTimeZone">时区</Label>
-                        <Select value={siteTimeZoneInput} onValueChange={setSiteTimeZoneInput}>
-                          <SelectTrigger id="siteTimeZone">
-                            <SelectValue />
-                          </SelectTrigger>
-                          <SelectContent>
-                            {siteTimeZoneOptions.map((option) => (
-                              <SelectItem key={option.value} value={option.value}>
-                                {option.label}
-                              </SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
+                        <Label htmlFor="siteContactDescription">说明</Label>
+                        <Textarea
+                          id="siteContactDescription"
+                          value={siteContactInput.description}
+                          onChange={(e) => setSiteContactInput((current) => ({ ...current, description: e.target.value }))}
+                          rows={4}
+                        />
                       </div>
                       <div className="space-y-2">
-                        <Label htmlFor="ampProxySettingsPolicy">路由设置</Label>
-                        <Select value={ampProxySettingsPolicyInput} onValueChange={(value) => setAmpProxySettingsPolicyInput(value as AmpProxySettingsPolicy)}>
-                          <SelectTrigger id="ampProxySettingsPolicy">
-                            <SelectValue />
-                          </SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="disabled">禁用</SelectItem>
-                            <SelectItem value="admin_only">仅管理员</SelectItem>
-                            <SelectItem value="all">启用</SelectItem>
-                          </SelectContent>
-                        </Select>
+                        <Label htmlFor="siteContactLink">链接</Label>
+                        <Input
+                          id="siteContactLink"
+                          value={siteContactInput.link}
+                          onChange={(e) => setSiteContactInput((current) => ({ ...current, link: e.target.value }))}
+                          placeholder="https://example.com/contact"
+                          maxLength={2048}
+                        />
                       </div>
                       <div className="space-y-2">
-                        <Label htmlFor="ampSettingsPolicy">Amp 设置</Label>
-                        <Select value={ampSettingsPolicyInput} onValueChange={(value) => setAmpSettingsPolicyInput(value as AmpProxySettingsPolicy)}>
-                          <SelectTrigger id="ampSettingsPolicy">
-                            <SelectValue />
-                          </SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="disabled">禁用</SelectItem>
-                            <SelectItem value="admin_only">仅管理员</SelectItem>
-                            <SelectItem value="all">启用</SelectItem>
-                          </SelectContent>
-                        </Select>
-                      </div>
-                    </div>
-
-                    <div className="space-y-4 border-t border-border/70 pt-5">
-                      <div className="flex items-center justify-between">
-                        <h3 className="text-sm font-medium">计费重置</h3>
-                        <Switch
-                          id="billingDailyResetEnabled"
-                          checked={billingDailyResetConfig?.enabled || false}
-                          onCheckedChange={(checked) => billingDailyResetConfig && setBillingDailyResetConfig({ ...billingDailyResetConfig, enabled: checked })}
-                          disabled={!billingDailyResetConfig}
-                        />
-                      </div>
-                      {billingDailyResetConfig ? (
-                        <div className="grid gap-4 md:grid-cols-3">
-                          <div className="space-y-2">
-                            <Label htmlFor="billingDailyResetMinRemainingDays">最少时长</Label>
-                            <Input
-                              id="billingDailyResetMinRemainingDays"
-                              type="number"
-                              min={2}
-                              step={1}
-                              value={billingDailyResetConfig.minRemainingDays}
-                              onChange={(e) => handleBillingDailyResetConfigChange('minRemainingDays', parseInt(e.target.value) || 2)}
-                            />
-                          </div>
-                          <div className="space-y-2">
-                            <Label htmlFor="billingDailyResetUsageThresholdPercent">消耗阈值</Label>
-                            <Input
-                              id="billingDailyResetUsageThresholdPercent"
-                              type="number"
-                              min={0}
-                              max={100}
-                              step={1}
-                              value={billingDailyResetConfig.usageThresholdPercent}
-                              onChange={(e) => handleBillingDailyResetConfigChange('usageThresholdPercent', parseInt(e.target.value) || 0)}
-                            />
-                          </div>
-                          <div className="space-y-2">
-                            <Label htmlFor="billingDailyResetDailyLimit">每日次数</Label>
-                            <Input
-                              id="billingDailyResetDailyLimit"
-                              type="number"
-                              min={0}
-                              step={1}
-                              value={billingDailyResetConfig.dailyLimit}
-                              onChange={(e) => handleBillingDailyResetConfigChange('dailyLimit', parseInt(e.target.value) || 0)}
-                            />
-                          </div>
+                        <Label>二维码</Label>
+                        <div className="flex h-40 w-40 items-center justify-center rounded-xl border bg-background">
+                          {siteContactInput.qrCodeImageDataUrl ? (
+                            <img src={siteContactInput.qrCodeImageDataUrl} alt="联系方式二维码预览" className="h-32 w-32 object-contain" />
+                          ) : (
+                            <div className="px-4 text-center text-xs text-muted-foreground">
+                              {siteContactInput.link.trim() ? '保存后生成' : '填写链接后生成'}
+                            </div>
+                          )}
                         </div>
-                      ) : (
-                        <div className="text-sm text-muted-foreground">加载中...</div>
-                      )}
-                    </div>
-
-                    <div className="flex justify-end">
-                      <Button onClick={handleSaveSiteConfig} disabled={siteConfigSaving}>
-                        {siteConfigSaving ? '保存中...' : '保存设置'}
-                      </Button>
-                    </div>
-                  </CardContent>
-                </Card>
-
-                <Card>
-                  <CardHeader className="flex flex-row items-start justify-between gap-3">
-                    <CardTitle>联系方式</CardTitle>
-                    <Switch
-                      id="siteContactEnabled"
-                      checked={siteContactInput.enabled}
-                      onCheckedChange={(checked) => setSiteContactInput((current) => ({ ...current, enabled: checked }))}
-                    />
-                  </CardHeader>
-                  <CardContent className="space-y-4">
-                    <div className="space-y-2">
-                      <Label htmlFor="siteContactTitle">标题</Label>
-                      <Input
-                        id="siteContactTitle"
-                        value={siteContactInput.title}
-                        onChange={(e) => setSiteContactInput((current) => ({ ...current, title: e.target.value }))}
-                        placeholder="Telegram / 企业微信 / Discord"
-                        maxLength={64}
-                      />
-                    </div>
-                    <div className="space-y-2">
-                      <Label htmlFor="siteContactDescription">说明</Label>
-                      <Textarea
-                        id="siteContactDescription"
-                        value={siteContactInput.description}
-                        onChange={(e) => setSiteContactInput((current) => ({ ...current, description: e.target.value }))}
-                        rows={4}
-                      />
-                    </div>
-                    <div className="space-y-2">
-                      <Label htmlFor="siteContactLink">链接</Label>
-                      <Input
-                        id="siteContactLink"
-                        value={siteContactInput.link}
-                        onChange={(e) => setSiteContactInput((current) => ({ ...current, link: e.target.value }))}
-                        placeholder="https://example.com/contact"
-                        maxLength={2048}
-                      />
-                    </div>
-                    <div className="space-y-2">
-                      <Label>二维码</Label>
-                      <div className="flex h-40 w-40 items-center justify-center rounded-xl border bg-muted/20">
-                        {siteContactInput.qrCodeImageDataUrl ? (
-                          <img src={siteContactInput.qrCodeImageDataUrl} alt="联系方式二维码预览" className="h-32 w-32 object-contain" />
-                        ) : (
-                          <div className="px-4 text-center text-xs text-muted-foreground">
-                            {siteContactInput.link.trim() ? '保存后生成' : '填写链接后生成'}
-                          </div>
-                        )}
                       </div>
                     </div>
-                  </CardContent>
-                </Card>
-              </div>
-
-              <Card>
-                <CardHeader className="flex flex-row items-start justify-between gap-3">
-                  <div className="space-y-1">
-                    <CardTitle>Session 粘滞</CardTitle>
                   </div>
-                  <div className="flex gap-2">
-                    <Button variant="outline" size="sm" onClick={() => fetchSessionSticky()} disabled={sessionStickyLoading}>
-                      刷新
-                    </Button>
-                    <Button size="sm" onClick={handleSaveSessionStickyConfig} disabled={sessionStickyLoading || !sessionStickyConfig}>
-                      {sessionStickyLoading ? '保存中...' : '保存'}
-                    </Button>
-                  </div>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                  {sessionStickyConfig ? (
-                    <>
-                      <div className="grid gap-4 md:grid-cols-2">
-                        <div className="space-y-2 rounded-lg border px-4 py-3">
-                          <div className="flex items-center justify-between gap-3">
-                            <span className="text-sm text-muted-foreground">运行时</span>
-                            <Badge variant={sessionStickyBadge.variant}>{sessionStickyBadge.label}</Badge>
-                          </div>
-                          <p className="text-sm text-muted-foreground">{sessionStickyRuntimeDescription}</p>
-                        </div>
-                        <div className="space-y-2 rounded-lg border px-4 py-3">
-                          <div className="flex items-center justify-between gap-3">
-                            <span className="text-sm text-muted-foreground">Redis 前缀</span>
-                            <Badge variant="outline">{sessionStickyRuntime?.redisPrefix || '-'}</Badge>
-                          </div>
-                          <p className="text-sm text-muted-foreground">活跃 Session {sessionStickyRuntime?.activeSessionCount ?? '-'}</p>
-                        </div>
-                      </div>
 
-                      <div className="flex items-center justify-between rounded-lg border px-4 py-3">
-                        <Label htmlFor="sessionStickyEnabled">启用</Label>
-                        <Switch
-                          id="sessionStickyEnabled"
-                          checked={sessionStickyConfig.enabled}
-                          onCheckedChange={(checked) => handleSessionStickyConfigChange('enabled', checked)}
-                        />
-                      </div>
-
-                      <div className="flex items-start justify-between gap-4 rounded-lg border px-4 py-3">
-                        <div className="space-y-1">
-                          <Label htmlFor="sessionStickyInjectPromptCacheKeyResponses">转 Responses 时注入 prompt cache key</Label>
-                          <p className="text-sm text-muted-foreground">
-                            仅在非 Responses 请求被翻译到 Responses 上游时生效，使用当前 SessionID 写入 <span className="font-mono">prompt_cache_key</span>。
-                          </p>
-                        </div>
-                        <Switch
-                          id="sessionStickyInjectPromptCacheKeyResponses"
-                          checked={sessionStickyConfig.injectPromptCacheKeyResponses}
-                          onCheckedChange={(checked) => handleSessionStickyConfigChange('injectPromptCacheKeyResponses', checked)}
-                        />
-                      </div>
-
-                      <div className="grid gap-4 md:grid-cols-2">
+                  <div className="space-y-4 border-t border-border/70 pt-5">
+                    <div className="flex items-center justify-between">
+                      <h3 className="text-sm font-medium">计费重置</h3>
+                      <Switch
+                        id="billingDailyResetEnabled"
+                        checked={billingDailyResetConfig?.enabled || false}
+                        onCheckedChange={(checked) => billingDailyResetConfig && setBillingDailyResetConfig({ ...billingDailyResetConfig, enabled: checked })}
+                        disabled={!billingDailyResetConfig}
+                      />
+                    </div>
+                    {billingDailyResetConfig ? (
+                      <div className="grid gap-4 md:grid-cols-3">
                         <div className="space-y-2">
-                          <Label htmlFor="sessionStickyWindowMinutes">窗口 (分钟)</Label>
+                          <Label htmlFor="billingDailyResetMinRemainingDays">最少时长</Label>
                           <Input
-                            id="sessionStickyWindowMinutes"
+                            id="billingDailyResetMinRemainingDays"
                             type="number"
-                            min={1}
-                            value={sessionStickyConfig.windowMinutes}
-                            onChange={(e) => handleSessionStickyConfigChange('windowMinutes', parseInt(e.target.value, 10) || 1)}
+                            min={2}
+                            step={1}
+                            value={billingDailyResetConfig.minRemainingDays}
+                            onChange={(e) => handleBillingDailyResetConfigChange('minRemainingDays', parseInt(e.target.value) || 2)}
                           />
                         </div>
                         <div className="space-y-2">
-                          <Label htmlFor="sessionStickyLogSearchMinChars">最短检索字符</Label>
+                          <Label htmlFor="billingDailyResetUsageThresholdPercent">消耗阈值</Label>
                           <Input
-                            id="sessionStickyLogSearchMinChars"
+                            id="billingDailyResetUsageThresholdPercent"
                             type="number"
-                            min={1}
-                            value={sessionStickyConfig.logSearchMinChars}
-                            onChange={(e) => handleSessionStickyConfigChange('logSearchMinChars', parseInt(e.target.value, 10) || 1)}
+                            min={0}
+                            max={100}
+                            step={1}
+                            value={billingDailyResetConfig.usageThresholdPercent}
+                            onChange={(e) => handleBillingDailyResetConfigChange('usageThresholdPercent', parseInt(e.target.value) || 0)}
+                          />
+                        </div>
+                        <div className="space-y-2">
+                          <Label htmlFor="billingDailyResetDailyLimit">每日次数</Label>
+                          <Input
+                            id="billingDailyResetDailyLimit"
+                            type="number"
+                            min={0}
+                            step={1}
+                            value={billingDailyResetConfig.dailyLimit}
+                            onChange={(e) => handleBillingDailyResetConfigChange('dailyLimit', parseInt(e.target.value) || 0)}
                           />
                         </div>
                       </div>
-                    </>
-                  ) : (
-                    <div className="text-center text-muted-foreground py-4">加载中...</div>
-                  )}
+                    ) : (
+                      <div className="text-sm text-muted-foreground">加载中...</div>
+                    )}
+                  </div>
+
+                  <div className="flex justify-end">
+                    <Button onClick={handleSaveSiteConfig} disabled={siteConfigSaving}>
+                      {siteConfigSaving ? '保存中...' : '保存设置'}
+                    </Button>
+                  </div>
                 </CardContent>
               </Card>
 
@@ -1173,11 +1091,19 @@ export default function SystemSettings({
           )}
 
           {activeTab === 'announcements' && (
-            <AnnouncementAdminSection onMessage={showMessage} />
+            <Card className={settingsTabCardClassName}>
+              <CardContent className="pt-6">
+                <AnnouncementAdminSection onMessage={showMessage} />
+              </CardContent>
+            </Card>
           )}
 
           {activeTab === 'status-monitor' && (
-            <StatusMonitorSettingsPanel onMessage={showMessage} />
+            <Card className={settingsTabCardClassName}>
+              <CardContent className="pt-6">
+                <StatusMonitorSettingsPanel onMessage={showMessage} />
+              </CardContent>
+            </Card>
           )}
 
           {activeTab === 'security' && (
@@ -1573,175 +1499,282 @@ export default function SystemSettings({
             </Card>
           )}
 
-          {activeTab === 'error-rules' && <ErrorRulesPanel onMessage={showMessage} />}
+          {activeTab === 'error-rules' && (
+            <Card className={settingsTabCardClassName}>
+              <CardContent className="pt-6">
+                <ErrorRulesPanel onMessage={showMessage} />
+              </CardContent>
+            </Card>
+          )}
 
           {activeTab === 'request-filters' && (
-            <RequestFiltersPanel
-              onMessage={showMessage}
-              requestPayloadLimitMB={requestPayloadLimitMB}
-              requestPayloadSaving={requestPayloadSaving}
-              onRequestPayloadLimitMBChange={setRequestPayloadLimitMB}
-              onSaveRequestPayloadLimit={handleSaveRequestPayloadLimit}
-            />
+            <Card className={settingsTabCardClassName}>
+              <CardContent className="pt-6">
+                <RequestFiltersPanel
+                  onMessage={showMessage}
+                  requestPayloadLimitMB={requestPayloadLimitMB}
+                  requestPayloadSaving={requestPayloadSaving}
+                  onRequestPayloadLimitMBChange={setRequestPayloadLimitMB}
+                  onSaveRequestPayloadLimit={handleSaveRequestPayloadLimit}
+                />
+              </CardContent>
+            </Card>
           )}
 
           {activeTab === 'monitoring' && (
-            <Card>
-              <CardHeader>
-                <CardTitle>请求详情监控</CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-6">
-                {requestDetailConfig ? (
-                  <>
-                    <div className="grid gap-4 md:grid-cols-2">
-                      <div className="rounded-lg bg-muted/30 px-4 py-3 space-y-2">
-                        <div className="flex items-center justify-between">
-                          <span className="text-sm text-muted-foreground">当前状态</span>
-                          <Badge variant={requestDetailConfig.enabled ? 'default' : 'secondary'}>
-                            {requestDetailConfig.enabled ? '已启用' : '已关闭'}
-                          </Badge>
+            <>
+              <Card>
+                <CardHeader>
+                  <CardTitle>请求详情监控</CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-6">
+                  {requestDetailConfig ? (
+                    <>
+                      <div className="grid gap-4 md:grid-cols-2">
+                        <div className="rounded-lg bg-muted/30 px-4 py-3 space-y-2">
+                          <div className="flex items-center justify-between">
+                            <span className="text-sm text-muted-foreground">当前状态</span>
+                            <Badge variant={requestDetailConfig.enabled ? 'default' : 'secondary'}>
+                              {requestDetailConfig.enabled ? '已启用' : '已关闭'}
+                            </Badge>
+                          </div>
+                          <p className="text-sm text-muted-foreground">控制日志详情采集。</p>
                         </div>
-                        <p className="text-sm text-muted-foreground">控制日志详情采集。</p>
-                      </div>
-                      <div className="rounded-lg bg-muted/30 px-4 py-3 space-y-2">
-                        <div className="flex items-center justify-between">
-                          <span className="text-sm text-muted-foreground">高 RPM 策略</span>
-                          <Badge variant="outline">
-                            {requestDetailConfig.highRpmMode === 'full'
-                              ? '全量保留'
-                              : requestDetailConfig.highRpmMode === 'sample'
-                                ? `采样 ${requestDetailConfig.highRpmSamplePercent}%`
-                                : '停止采集'}
-                          </Badge>
+                        <div className="rounded-lg bg-muted/30 px-4 py-3 space-y-2">
+                          <div className="flex items-center justify-between">
+                            <span className="text-sm text-muted-foreground">高 RPM 策略</span>
+                            <Badge variant="outline">
+                              {requestDetailConfig.highRpmMode === 'full'
+                                ? '全量保留'
+                                : requestDetailConfig.highRpmMode === 'sample'
+                                  ? `采样 ${requestDetailConfig.highRpmSamplePercent}%`
+                                  : '停止采集'}
+                            </Badge>
+                          </div>
+                          <p className="text-sm text-muted-foreground">阈值 {requestDetailConfig.highRpmThreshold} RPM。</p>
                         </div>
-                        <p className="text-sm text-muted-foreground">阈值 {requestDetailConfig.highRpmThreshold} RPM。</p>
                       </div>
-                    </div>
 
-                    <div className="space-y-4">
-                      <div className="flex items-center justify-between">
-                        <Label>启用详情监控</Label>
-                        <Switch
-                          checked={requestDetailConfig.enabled}
-                          onCheckedChange={(checked) => handleRequestDetailConfigChange('enabled', checked)}
-                          disabled={requestDetailLoading}
-                        />
+                      <div className="space-y-4">
+                        <div className="flex items-center justify-between">
+                          <Label>启用详情监控</Label>
+                          <Switch
+                            checked={requestDetailConfig.enabled}
+                            onCheckedChange={(checked) => handleRequestDetailConfigChange('enabled', checked)}
+                            disabled={requestDetailLoading}
+                          />
+                        </div>
+                        <div className="flex items-center justify-between">
+                          <Label>启用持久化</Label>
+                          <Switch
+                            checked={requestDetailConfig.persistEnabled}
+                            onCheckedChange={(checked) => handleRequestDetailConfigChange('persistEnabled', checked)}
+                            disabled={requestDetailLoading}
+                          />
+                        </div>
                       </div>
-                      <div className="flex items-center justify-between">
-                        <Label>启用持久化</Label>
-                        <Switch
-                          checked={requestDetailConfig.persistEnabled}
-                          onCheckedChange={(checked) => handleRequestDetailConfigChange('persistEnabled', checked)}
-                          disabled={requestDetailLoading}
-                        />
-                      </div>
-                    </div>
 
-                    <div className="grid gap-4 md:grid-cols-2">
-                      <div className="space-y-2">
-                        <Label>内存保留时间 (秒)</Label>
-                        <Input
-                          type="number"
-                          min={30}
-                          value={requestDetailConfig.ttlSec}
-                          onChange={(e) => handleRequestDetailConfigChange('ttlSec', parseInt(e.target.value) || 30)}
-                        />
+                      <div className="grid gap-4 md:grid-cols-2">
+                        <div className="space-y-2">
+                          <Label>内存保留时间 (秒)</Label>
+                          <Input
+                            type="number"
+                            min={30}
+                            value={requestDetailConfig.ttlSec}
+                            onChange={(e) => handleRequestDetailConfigChange('ttlSec', parseInt(e.target.value) || 30)}
+                          />
+                        </div>
+                        <div className="space-y-2">
+                          <Label>最大记录条数</Label>
+                          <Input
+                            type="number"
+                            min={50}
+                            value={requestDetailConfig.maxEntries}
+                            onChange={(e) => handleRequestDetailConfigChange('maxEntries', parseInt(e.target.value) || 50)}
+                          />
+                        </div>
+                        <div className="space-y-2">
+                          <Label>最大内存预算 (MB)</Label>
+                          <Input
+                            type="number"
+                            min={16}
+                            value={requestDetailConfig.maxMemoryMB}
+                            onChange={(e) => handleRequestDetailConfigChange('maxMemoryMB', parseInt(e.target.value) || 16)}
+                          />
+                        </div>
+                        <div className="space-y-2">
+                          <Label>单次正文截断上限 (KB)</Label>
+                          <Input
+                            type="number"
+                            min={4}
+                            value={requestDetailConfig.bodyCapKB}
+                            onChange={(e) => handleRequestDetailConfigChange('bodyCapKB', parseInt(e.target.value) || 4)}
+                          />
+                        </div>
                       </div>
-                      <div className="space-y-2">
-                        <Label>最大记录条数</Label>
-                        <Input
-                          type="number"
-                          min={50}
-                          value={requestDetailConfig.maxEntries}
-                          onChange={(e) => handleRequestDetailConfigChange('maxEntries', parseInt(e.target.value) || 50)}
-                        />
-                      </div>
-                      <div className="space-y-2">
-                        <Label>最大内存预算 (MB)</Label>
-                        <Input
-                          type="number"
-                          min={16}
-                          value={requestDetailConfig.maxMemoryMB}
-                          onChange={(e) => handleRequestDetailConfigChange('maxMemoryMB', parseInt(e.target.value) || 16)}
-                        />
-                      </div>
-                      <div className="space-y-2">
-                        <Label>单次正文截断上限 (KB)</Label>
-                        <Input
-                          type="number"
-                          min={4}
-                          value={requestDetailConfig.bodyCapKB}
-                          onChange={(e) => handleRequestDetailConfigChange('bodyCapKB', parseInt(e.target.value) || 4)}
-                        />
-                      </div>
-                    </div>
 
-                    <div className="grid gap-4 md:grid-cols-2">
-                      <div className="space-y-2">
-                        <Label>高 RPM 模式</Label>
-                        <Select
-                          value={requestDetailConfig.highRpmMode}
-                          onValueChange={(value: RequestDetailConfig['highRpmMode']) =>
-                            handleRequestDetailConfigChange('highRpmMode', value)
-                          }
-                        >
-                          <SelectTrigger>
-                            <SelectValue placeholder="选择高 RPM 策略" />
-                          </SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="full">继续全量记录</SelectItem>
-                            <SelectItem value="sample">按采样率记录</SelectItem>
-                            <SelectItem value="off">停止记录详情</SelectItem>
-                          </SelectContent>
-                        </Select>
+                      <div className="grid gap-4 md:grid-cols-2">
+                        <div className="space-y-2">
+                          <Label>高 RPM 模式</Label>
+                          <Select
+                            value={requestDetailConfig.highRpmMode}
+                            onValueChange={(value: RequestDetailConfig['highRpmMode']) =>
+                              handleRequestDetailConfigChange('highRpmMode', value)
+                            }
+                          >
+                            <SelectTrigger>
+                              <SelectValue placeholder="选择高 RPM 策略" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="full">继续全量记录</SelectItem>
+                              <SelectItem value="sample">按采样率记录</SelectItem>
+                              <SelectItem value="off">停止记录详情</SelectItem>
+                            </SelectContent>
+                          </Select>
+                        </div>
+                        <div className="space-y-2">
+                          <Label>高 RPM 阈值</Label>
+                          <Input
+                            type="number"
+                            min={100}
+                            value={requestDetailConfig.highRpmThreshold}
+                            onChange={(e) =>
+                              handleRequestDetailConfigChange('highRpmThreshold', parseInt(e.target.value) || 100)
+                            }
+                          />
+                        </div>
+                        <div className="space-y-2 md:col-span-2">
+                          <Label>高 RPM 采样率 (%)</Label>
+                          <Input
+                            type="number"
+                            min={1}
+                            max={100}
+                            value={requestDetailConfig.highRpmSamplePercent}
+                            onChange={(e) =>
+                              handleRequestDetailConfigChange('highRpmSamplePercent', parseInt(e.target.value) || 1)
+                            }
+                            disabled={requestDetailConfig.highRpmMode !== 'sample'}
+                          />
+                        </div>
                       </div>
-                      <div className="space-y-2">
-                        <Label>高 RPM 阈值</Label>
-                        <Input
-                          type="number"
-                          min={100}
-                          value={requestDetailConfig.highRpmThreshold}
-                          onChange={(e) =>
-                            handleRequestDetailConfigChange('highRpmThreshold', parseInt(e.target.value) || 100)
-                          }
-                        />
-                      </div>
-                      <div className="space-y-2 md:col-span-2">
-                        <Label>高 RPM 采样率 (%)</Label>
-                        <Input
-                          type="number"
-                          min={1}
-                          max={100}
-                          value={requestDetailConfig.highRpmSamplePercent}
-                          onChange={(e) =>
-                            handleRequestDetailConfigChange('highRpmSamplePercent', parseInt(e.target.value) || 1)
-                          }
-                          disabled={requestDetailConfig.highRpmMode !== 'sample'}
-                        />
-                      </div>
-                    </div>
 
-                    <Button onClick={handleSaveRequestDetailConfig} disabled={requestDetailLoading}>
-                      {requestDetailLoading ? '保存中...' : '保存配置'}
+                      <Button onClick={handleSaveRequestDetailConfig} disabled={requestDetailLoading}>
+                        {requestDetailLoading ? '保存中...' : '保存配置'}
+                      </Button>
+                    </>
+                  ) : (
+                    <div className="text-center text-muted-foreground py-4">加载中...</div>
+                  )}
+                </CardContent>
+              </Card>
+
+              <Card>
+                <CardHeader className="flex flex-row items-start justify-between gap-3">
+                  <div className="space-y-1">
+                    <CardTitle>Session 粘滞</CardTitle>
+                    <CardDescription>和请求日志检索、Session 续用策略相关的运行时配置。</CardDescription>
+                  </div>
+                  <div className="flex gap-2">
+                    <Button variant="outline" size="sm" onClick={() => fetchSessionSticky()} disabled={sessionStickyLoading}>
+                      刷新
                     </Button>
-                  </>
-                ) : (
-                  <div className="text-center text-muted-foreground py-4">加载中...</div>
-                )}
-              </CardContent>
-            </Card>
+                    <Button size="sm" onClick={handleSaveSessionStickyConfig} disabled={sessionStickyLoading || !sessionStickyConfig}>
+                      {sessionStickyLoading ? '保存中...' : '保存'}
+                    </Button>
+                  </div>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  {sessionStickyConfig ? (
+                    <>
+                      <div className="grid gap-4 md:grid-cols-2">
+                        <div className="space-y-2 rounded-lg border px-4 py-3">
+                          <div className="flex items-center justify-between gap-3">
+                            <span className="text-sm text-muted-foreground">运行时</span>
+                            <Badge variant={sessionStickyBadge.variant}>{sessionStickyBadge.label}</Badge>
+                          </div>
+                          <p className="text-sm text-muted-foreground">{sessionStickyRuntimeDescription}</p>
+                        </div>
+                        <div className="space-y-2 rounded-lg border px-4 py-3">
+                          <div className="flex items-center justify-between gap-3">
+                            <span className="text-sm text-muted-foreground">Redis 前缀</span>
+                            <Badge variant="outline">{sessionStickyRuntime?.redisPrefix || '-'}</Badge>
+                          </div>
+                          <p className="text-sm text-muted-foreground">活跃 Session {sessionStickyRuntime?.activeSessionCount ?? '-'}</p>
+                        </div>
+                      </div>
+
+                      <div className="flex items-center justify-between rounded-lg border px-4 py-3">
+                        <Label htmlFor="sessionStickyEnabled">启用</Label>
+                        <Switch
+                          id="sessionStickyEnabled"
+                          checked={sessionStickyConfig.enabled}
+                          onCheckedChange={(checked) => handleSessionStickyConfigChange('enabled', checked)}
+                        />
+                      </div>
+
+                      <div className="flex items-start justify-between gap-4 rounded-lg border px-4 py-3">
+                        <div className="space-y-1">
+                          <Label htmlFor="sessionStickyInjectPromptCacheKeyResponses">转 Responses 时注入 prompt cache key</Label>
+                          <p className="text-sm text-muted-foreground">
+                            仅在非 Responses 请求被翻译到 Responses 上游时生效，使用当前 SessionID 写入 <span className="font-mono">prompt_cache_key</span>。
+                          </p>
+                        </div>
+                        <Switch
+                          id="sessionStickyInjectPromptCacheKeyResponses"
+                          checked={sessionStickyConfig.injectPromptCacheKeyResponses}
+                          onCheckedChange={(checked) => handleSessionStickyConfigChange('injectPromptCacheKeyResponses', checked)}
+                        />
+                      </div>
+
+                      <div className="grid gap-4 md:grid-cols-2">
+                        <div className="space-y-2">
+                          <Label htmlFor="sessionStickyWindowMinutes">窗口 (分钟)</Label>
+                          <Input
+                            id="sessionStickyWindowMinutes"
+                            type="number"
+                            min={1}
+                            value={sessionStickyConfig.windowMinutes}
+                            onChange={(e) => handleSessionStickyConfigChange('windowMinutes', parseInt(e.target.value, 10) || 1)}
+                          />
+                        </div>
+                        <div className="space-y-2">
+                          <Label htmlFor="sessionStickyLogSearchMinChars">最短检索字符</Label>
+                          <Input
+                            id="sessionStickyLogSearchMinChars"
+                            type="number"
+                            min={1}
+                            value={sessionStickyConfig.logSearchMinChars}
+                            onChange={(e) => handleSessionStickyConfigChange('logSearchMinChars', parseInt(e.target.value, 10) || 1)}
+                          />
+                        </div>
+                      </div>
+                    </>
+                  ) : (
+                    <div className="text-center text-muted-foreground py-4">加载中...</div>
+                  )}
+                </CardContent>
+              </Card>
+            </>
           )}
 
           {activeTab === 'cache' && (
             <Card>
               <CardHeader>
                 <CardTitle>缓存 TTL 覆盖</CardTitle>
-                <CardDescription>控制发送给 Claude API 的 cache_control TTL 值</CardDescription>
+                <CardDescription>默认不覆盖；仅在需要统一覆盖时写入指定 TTL</CardDescription>
               </CardHeader>
               <CardContent className="space-y-4">
                 <div className="space-y-3">
                   <Label>TTL 策略</Label>
                   <div className="flex gap-2">
+                    <Button
+                      variant={cacheTTL === '' ? 'default' : 'outline'}
+                      size="sm"
+                      onClick={() => handleCacheTTLChange('')}
+                      disabled={cacheTTLLoading}
+                    >
+                      不覆盖
+                    </Button>
                     <Button
                       variant={cacheTTL === '1h' ? 'default' : 'outline'}
                       size="sm"
@@ -1758,17 +1791,9 @@ export default function SystemSettings({
                     >
                       5 分钟
                     </Button>
-                    <Button
-                      variant={cacheTTL === '' ? 'default' : 'outline'}
-                      size="sm"
-                      onClick={() => handleCacheTTLChange('')}
-                      disabled={cacheTTLLoading}
-                    >
-                      不覆盖
-                    </Button>
                   </div>
                   <p className="text-sm text-muted-foreground">
-                    选择"1小时"将强制所有 cache_control TTL 为 1h（省钱），"5分钟"为原始值，"不覆盖"保留请求原始 TTL 不做修改。
+                    默认使用“不覆盖”。选择 “1 小时” 或 “5 分钟” 时，才会统一改写请求里的 cache_control TTL。
                   </p>
                 </div>
               </CardContent>
@@ -1970,6 +1995,11 @@ export default function SystemSettings({
                                 </TableRow>
                               </TableHeader>
                               <TableBody>
+                                <TableRow>
+                                  <TableCell colSpan={5} className="text-xs text-muted-foreground">
+                                    p95/p99 为阶段耗时，失败数为该阶段失败样本。
+                                  </TableCell>
+                                </TableRow>
                                 {billingMetricItems.map((item) => (
                                   <TableRow key={item.key}>
                                     <TableCell className="font-medium">{item.label}</TableCell>
