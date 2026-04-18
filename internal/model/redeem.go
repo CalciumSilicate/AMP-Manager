@@ -233,10 +233,11 @@ type RedeemRequest struct {
 }
 
 type RedeemResultResponse struct {
-	Message             string                    `json:"message"`
-	Campaign            *RedeemCampaignResponse   `json:"campaign"`
-	Redemption          *RedeemRedemptionResponse `json:"redemption"`
-	CurrentSubscription *UserSubscriptionResponse `json:"currentSubscription,omitempty"`
-	BalanceMicros       int64                     `json:"balanceMicros"`
-	BalanceUsd          string                    `json:"balanceUsd"`
+	Message             string                      `json:"message"`
+	Campaign            *RedeemCampaignResponse     `json:"campaign"`
+	Redemption          *RedeemRedemptionResponse   `json:"redemption"`
+	CurrentSubscription *UserSubscriptionResponse   `json:"currentSubscription,omitempty"`
+	Subscriptions       []*UserSubscriptionResponse `json:"subscriptions,omitempty"`
+	BalanceMicros       int64                       `json:"balanceMicros"`
+	BalanceUsd          string                      `json:"balanceUsd"`
 }

@@ -678,9 +678,13 @@ func (s *RedeemService) Redeem(_ context.Context, userID, username, rawCode stri
 		return nil, err
 	}
 
-	currentSubscription, err := s.subSvc.GetActive(userID)
+	subscriptions, err := s.subSvc.ListActive(userID)
 	if err != nil {
 		return nil, err
+	}
+	var currentSubscription *model.UserSubscriptionResponse
+	if len(subscriptions) > 0 {
+		currentSubscription = subscriptions[0]
 	}
 	if balanceAfterMicros == 0 {
 		balanceAfterMicros, err = s.userRepo.GetBalance(userID)
@@ -720,6 +724,7 @@ func (s *RedeemService) Redeem(_ context.Context, userID, username, rawCode stri
 		Campaign:            campaignResponse,
 		Redemption:          responseRedemption,
 		CurrentSubscription: currentSubscription,
+		Subscriptions:       subscriptions,
 		BalanceMicros:       balanceAfterMicros,
 		BalanceUsd:          formatBalanceMicros(balanceAfterMicros),
 	}, nil

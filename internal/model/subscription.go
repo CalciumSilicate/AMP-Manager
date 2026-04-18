@@ -274,13 +274,14 @@ type WindowRemaining struct {
 }
 
 type BillingStateResponse struct {
-	BalanceMicros   int64                     `json:"balanceMicros"`
-	BalanceUsd      string                    `json:"balanceUsd"`
-	Subscription    *UserSubscriptionResponse `json:"subscription"`
-	Windows         []WindowRemaining         `json:"windows"`
-	DailyReset      BillingDailyResetState    `json:"dailyReset"`
-	PrimarySource   BillingSource             `json:"primarySource"`
-	SecondarySource BillingSource             `json:"secondarySource"`
+	BalanceMicros   int64                       `json:"balanceMicros"`
+	BalanceUsd      string                      `json:"balanceUsd"`
+	Subscription    *UserSubscriptionResponse   `json:"subscription"`
+	Subscriptions   []*UserSubscriptionResponse `json:"subscriptions"`
+	Windows         []WindowRemaining           `json:"windows"`
+	DailyReset      BillingDailyResetState      `json:"dailyReset"`
+	PrimarySource   BillingSource               `json:"primarySource"`
+	SecondarySource BillingSource               `json:"secondarySource"`
 }
 
 type UpdateBillingPriorityRequest struct {

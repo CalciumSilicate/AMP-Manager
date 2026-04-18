@@ -148,9 +148,13 @@ func (s *PurchaseService) GetCatalog(userID string) (*model.PurchaseCatalogRespo
 		return nil, err
 	}
 
-	currentSubscription, err := s.getCurrentSubscriptionResponse(userID)
+	subscriptions, err := s.getActiveSubscriptionResponses(userID)
 	if err != nil {
 		return nil, err
+	}
+	var currentSubscription *model.UserSubscriptionResponse
+	if len(subscriptions) > 0 {
+		currentSubscription = subscriptions[0]
 	}
 
 	responses := make([]*model.PurchaseProductResponse, 0, len(products))
@@ -172,6 +176,7 @@ func (s *PurchaseService) GetCatalog(userID string) (*model.PurchaseCatalogRespo
 		PaymentConfigured:              s.settingsSvc.CanCreateOrders(settings),
 		RenewalRule:                    "同套餐购买顺延到期，不同套餐需先取消当前订阅",
 		CurrentSubscription:            currentSubscription,
+		Subscriptions:                  subscriptions,
 		Products:                       responses,
 		BalanceTopupEnabled:            s.settingsSvc.CanCreateBalanceTopup(settings),
 		BalanceTopupPriceCnyPerUsd:     float64(settings.BalanceTopupPriceCnyCentPerUSD) / 100,
@@ -1260,34 +1265,38 @@ func (s *PurchaseService) listPlanMap() (map[string]*model.SubscriptionPlan, err
 	return result, nil
 }
 
-func (s *PurchaseService) getCurrentSubscriptionResponse(userID string) (*model.UserSubscriptionResponse, error) {
-	sub, err := s.subRepo.GetActiveByUserID(userID)
+func (s *PurchaseService) getActiveSubscriptionResponses(userID string) ([]*model.UserSubscriptionResponse, error) {
+	subs, err := s.subRepo.ListActiveByUserID(userID)
 	if err != nil {
 		return nil, err
 	}
-	if sub == nil {
-		return nil, nil
+	if len(subs) == 0 {
+		return []*model.UserSubscriptionResponse{}, nil
 	}
-	plan, limits, err := s.planRepo.GetByID(sub.PlanID)
-	if err != nil {
-		return nil, err
+	result := make([]*model.UserSubscriptionResponse, len(subs))
+	for i, sub := range subs {
+		plan, limits, err := s.planRepo.GetByID(sub.PlanID)
+		if err != nil {
+			return nil, err
+		}
+		planName := ""
+		if plan != nil {
+			planName = plan.Name
+		}
+		result[i] = &model.UserSubscriptionResponse{
+			ID:        sub.ID,
+			UserID:    sub.UserID,
+			PlanID:    sub.PlanID,
+			PlanName:  planName,
+			StartsAt:  sub.StartsAt,
+			ExpiresAt: sub.ExpiresAt,
+			Status:    sub.Status,
+			Limits:    limits,
+			CreatedAt: sub.CreatedAt,
+			UpdatedAt: sub.UpdatedAt,
+		}
 	}
-	planName := ""
-	if plan != nil {
-		planName = plan.Name
-	}
-	return &model.UserSubscriptionResponse{
-		ID:        sub.ID,
-		UserID:    sub.UserID,
-		PlanID:    sub.PlanID,
-		PlanName:  planName,
-		StartsAt:  sub.StartsAt,
-		ExpiresAt: sub.ExpiresAt,
-		Status:    sub.Status,
-		Limits:    limits,
-		CreatedAt: sub.CreatedAt,
-		UpdatedAt: sub.UpdatedAt,
-	}, nil
+	return result, nil
 }
 
 func (s *PurchaseService) toProductResponse(product *model.PurchaseProduct, planName string) *model.PurchaseProductResponse {

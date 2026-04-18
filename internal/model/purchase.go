@@ -253,16 +253,17 @@ type PurchaseOrderResponse struct {
 }
 
 type PurchaseCatalogResponse struct {
-	PurchaseEnabled                bool                       `json:"purchaseEnabled"`
-	CouponEnabled                  bool                       `json:"couponEnabled"`
-	DebugAutoPaid                  bool                       `json:"debugAutoPaid"`
-	PaymentConfigured              bool                       `json:"paymentConfigured"`
-	RenewalRule                    string                     `json:"renewalRule"`
-	CurrentSubscription            *UserSubscriptionResponse  `json:"currentSubscription"`
-	Products                       []*PurchaseProductResponse `json:"products"`
-	BalanceTopupEnabled            bool                       `json:"balanceTopupEnabled"`
-	BalanceTopupPriceCnyPerUsd     float64                    `json:"balanceTopupPriceCnyPerUsd"`
-	BalanceTopupPriceCnyCentPerUsd int64                      `json:"balanceTopupPriceCnyCentPerUsd"`
+	PurchaseEnabled                bool                        `json:"purchaseEnabled"`
+	CouponEnabled                  bool                        `json:"couponEnabled"`
+	DebugAutoPaid                  bool                        `json:"debugAutoPaid"`
+	PaymentConfigured              bool                        `json:"paymentConfigured"`
+	RenewalRule                    string                      `json:"renewalRule"`
+	CurrentSubscription            *UserSubscriptionResponse   `json:"currentSubscription"`
+	Subscriptions                  []*UserSubscriptionResponse `json:"subscriptions"`
+	Products                       []*PurchaseProductResponse  `json:"products"`
+	BalanceTopupEnabled            bool                        `json:"balanceTopupEnabled"`
+	BalanceTopupPriceCnyPerUsd     float64                     `json:"balanceTopupPriceCnyPerUsd"`
+	BalanceTopupPriceCnyCentPerUsd int64                       `json:"balanceTopupPriceCnyCentPerUsd"`
 }
 
 type PurchaseOrderListResponse struct {

@@ -155,6 +155,7 @@ export interface BillingStateResponse {
   balanceMicros: number
   balanceUsd: string
   subscription: BillingStateSubscription | null
+  subscriptions: BillingStateSubscription[]
   windows: WindowRemaining[] | null
   dailyReset: BillingDailyResetState
   primarySource: 'subscription' | 'balance'

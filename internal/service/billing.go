@@ -374,9 +374,13 @@ func (s *BillingService) GetBillingState(userID string) (*model.BillingStateResp
 	}
 
 	subSvc := s.subSvc
-	subResp, err := subSvc.GetActive(userID)
+	subscriptions, err := subSvc.ListActive(userID)
 	if err != nil {
 		return nil, err
+	}
+	var subResp *model.UserSubscriptionResponse
+	if len(subscriptions) > 0 {
+		subResp = subscriptions[0]
 	}
 
 	quotaSvc := s.quotaSvc
@@ -394,6 +398,7 @@ func (s *BillingService) GetBillingState(userID string) (*model.BillingStateResp
 		BalanceMicros:   balance,
 		BalanceUsd:      fmt.Sprintf("%.6f", float64(balance)/1e6),
 		Subscription:    subResp,
+		Subscriptions:   subscriptions,
 		Windows:         windows,
 		DailyReset:      dailyReset,
 		PrimarySource:   setting.PrimarySource,

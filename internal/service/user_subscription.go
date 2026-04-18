@@ -129,25 +129,37 @@ func (s *UserSubscriptionService) Assign(userID string, req *model.AssignSubscri
 }
 
 func (s *UserSubscriptionService) GetActive(userID string) (*model.UserSubscriptionResponse, error) {
-	sub, err := s.subRepo.GetActiveByUserID(userID)
+	subs, err := s.ListActive(userID)
 	if err != nil {
 		return nil, err
 	}
-	if sub == nil {
+	if len(subs) == 0 {
 		return nil, nil
 	}
+	return subs[0], nil
+}
 
-	plan, limits, err := s.planRepo.GetByID(sub.PlanID)
+func (s *UserSubscriptionService) ListActive(userID string) ([]*model.UserSubscriptionResponse, error) {
+	subs, err := s.subRepo.ListActiveByUserID(userID)
 	if err != nil {
 		return nil, err
 	}
-
-	planName := ""
-	if plan != nil {
-		planName = plan.Name
+	if len(subs) == 0 {
+		return []*model.UserSubscriptionResponse{}, nil
 	}
-
-	return buildUserSubscriptionResponse(sub, planName, limits), nil
+	result := make([]*model.UserSubscriptionResponse, len(subs))
+	for i, sub := range subs {
+		plan, limits, err := s.planRepo.GetByID(sub.PlanID)
+		if err != nil {
+			return nil, err
+		}
+		planName := ""
+		if plan != nil {
+			planName = plan.Name
+		}
+		result[i] = buildUserSubscriptionResponse(sub, planName, limits)
+	}
+	return result, nil
 }
 
 func (s *UserSubscriptionService) Cancel(userID string) error {

@@ -136,6 +136,7 @@ export interface PurchaseCatalogResponse {
   paymentConfigured: boolean
   renewalRule: string
   currentSubscription: UserSubscriptionResponse | null
+  subscriptions: UserSubscriptionResponse[]
   products: PurchaseProduct[]
   balanceTopupEnabled: boolean
   balanceTopupPriceCnyPerUsd: number

@@ -147,6 +147,7 @@ export interface RedeemResult {
   campaign: RedeemCampaign | null
   redemption: RedeemRedemption | null
   currentSubscription?: UserSubscriptionResponse | null
+  subscriptions?: UserSubscriptionResponse[]
   balanceMicros: number
   balanceUsd: string
 }
