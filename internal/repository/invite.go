@@ -222,8 +222,8 @@ func (r *InviteRepository) GetSummary(userID string) (*model.InviteSummaryRespon
 	}
 	if err := db.QueryRow(
 		`SELECT COUNT(*),
-		        SUM(CASE WHEN status = ? THEN 1 ELSE 0 END),
-		        SUM(CASE WHEN status = ? THEN 1 ELSE 0 END)
+		        COALESCE(SUM(CASE WHEN status = ? THEN 1 ELSE 0 END), 0),
+		        COALESCE(SUM(CASE WHEN status = ? THEN 1 ELSE 0 END), 0)
 		   FROM invite_relationships
 		  WHERE inviter_user_id = ?`,
 		model.InviteRelationshipStatusPending,
@@ -346,8 +346,8 @@ func (r *InviteRepository) GetStats() (*model.InviteStatsResponse, error) {
 	stats := &model.InviteStatsResponse{}
 	if err := db.QueryRow(
 		`SELECT COUNT(*),
-		        SUM(CASE WHEN status = ? THEN 1 ELSE 0 END),
-		        SUM(CASE WHEN status = ? THEN 1 ELSE 0 END)
+		        COALESCE(SUM(CASE WHEN status = ? THEN 1 ELSE 0 END), 0),
+		        COALESCE(SUM(CASE WHEN status = ? THEN 1 ELSE 0 END), 0)
 		   FROM invite_relationships`,
 		model.InviteRelationshipStatusPending,
 		model.InviteRelationshipStatusRewarded,

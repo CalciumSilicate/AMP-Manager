@@ -49,6 +49,7 @@ import {
 import { Button } from '@/components/ui/button'
 import { AnnouncementAdminSection } from '@/components/announcements/AnnouncementAdminSection'
 import { ErrorRulesPanel } from '@/components/system/ErrorRulesPanel'
+import { InviteSettingsPanel } from '@/components/system/InviteSettingsPanel'
 import { RequestFiltersPanel } from '@/components/system/RequestFiltersPanel'
 import { StatusMonitorSettingsPanel } from '@/components/system/StatusMonitorSettingsPanel'
 import { SecuritySettingsPanel } from '@/components/system/SecuritySettingsPanel'
@@ -72,10 +73,11 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { RefreshCw } from 'lucide-react'
 import { useGlobalToast } from '@/components/ui/use-global-toast'
 
-type SettingsTab = 'site' | 'security' | 'status-monitor' | 'announcements' | 'database' | 'retry' | 'error-rules' | 'request-filters' | 'monitoring' | 'cache' | 'timeout' | 'billing'
+type SettingsTab = 'site' | 'invite' | 'security' | 'status-monitor' | 'announcements' | 'database' | 'retry' | 'error-rules' | 'request-filters' | 'monitoring' | 'cache' | 'timeout' | 'billing'
 
 const tabs: { key: SettingsTab; label: string }[] = [
   { key: 'site', label: '网站配置' },
+  { key: 'invite', label: '邀请系统' },
   { key: 'security', label: '安全' },
   { key: 'status-monitor', label: '状态监控' },
   { key: 'announcements', label: '公告管理' },
@@ -1178,6 +1180,10 @@ export default function SystemSettings({
                 </CardContent>
               </Card>
             </>
+          )}
+
+          {activeTab === 'invite' && (
+            <InviteSettingsPanel onMessage={showMessage} />
           )}
 
           {activeTab === 'announcements' && (

@@ -1150,7 +1150,7 @@ func (s *ChannelService) buildResponse(channel *model.Channel, gids []string, gr
 	groupIDs := []string{}
 	groupNames := []string{}
 	if len(gids) > 0 {
-		groupIDs = gids
+		groupIDs = append([]string(nil), gids...)
 		for _, gid := range gids {
 			if g, ok := groupMap[gid]; ok && g != nil {
 				groupNames = append(groupNames, g.Name)

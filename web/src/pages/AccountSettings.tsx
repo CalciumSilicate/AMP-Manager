@@ -103,6 +103,12 @@ export default function AccountSettings({ username, onUsernameChange }: Props) {
     void handlePreviewTopupQuote()
   }, [topupDialogOpen, topupAmountUsd, topupCouponCode])
 
+  useEffect(() => {
+    if (!purchaseCatalog?.couponEnabled && topupCouponCode) {
+      setTopupCouponCode('')
+    }
+  }, [purchaseCatalog?.couponEnabled, topupCouponCode])
+
   const showMessage = (type: 'success' | 'error', text: string) => {
     showToast(type, text)
   }
@@ -222,7 +228,7 @@ export default function AccountSettings({ username, onUsernameChange }: Props) {
 
     setCreatingTopupOrder(true)
     try {
-      const order = await createBalanceTopupOrder(amountUsd, topupCouponCode.trim())
+      const order = await createBalanceTopupOrder(amountUsd, purchaseCatalog?.couponEnabled ? topupCouponCode.trim() : '')
       setTopupDialogOpen(false)
       setTopupAmountUsd(String(amountUsd))
       setTopupCouponCode('')
@@ -270,12 +276,12 @@ export default function AccountSettings({ username, onUsernameChange }: Props) {
       const quote = await quotePurchaseOrder({
         kind: 'balance_topup',
         amountUsd: topupAmountUsd,
-        couponCode: topupCouponCode.trim(),
+        couponCode: purchaseCatalog?.couponEnabled ? topupCouponCode.trim() : '',
       })
       setTopupQuote(quote)
     } catch (error) {
       setTopupQuote(null)
-      if (topupCouponCode.trim()) {
+      if (purchaseCatalog?.couponEnabled && topupCouponCode.trim()) {
         showMessage('error', error instanceof Error ? error.message : '预览失败')
       }
     }
@@ -735,16 +741,18 @@ export default function AccountSettings({ username, onUsernameChange }: Props) {
                 onChange={(event) => setTopupAmountUsd(event.target.value)}
               />
             </div>
-            <div className="space-y-2">
-              <Label htmlFor="topupCouponCode">优惠码</Label>
-              <Input
-                id="topupCouponCode"
-                value={topupCouponCode}
-                onChange={(event) => setTopupCouponCode(event.target.value.toUpperCase())}
-                placeholder="可选填写"
-                className="font-mono"
-              />
-            </div>
+            {purchaseCatalog?.couponEnabled ? (
+              <div className="space-y-2">
+                <Label htmlFor="topupCouponCode">优惠码</Label>
+                <Input
+                  id="topupCouponCode"
+                  value={topupCouponCode}
+                  onChange={(event) => setTopupCouponCode(event.target.value.toUpperCase())}
+                  placeholder="可选填写"
+                  className="font-mono"
+                />
+              </div>
+            ) : null}
             {topupQuote ? (
               <div className="rounded-lg border px-4 py-4 text-sm">
                 <div className="flex items-center justify-between gap-4">

@@ -135,6 +135,10 @@ func (s *PurchaseService) GetCatalog(userID string) (*model.PurchaseCatalogRespo
 	if err != nil {
 		return nil, err
 	}
+	couponConfig, err := s.couponSvc.GetConfig()
+	if err != nil {
+		return nil, err
+	}
 
 	products, err := s.productRepo.List(false)
 	if err != nil {
@@ -161,6 +165,7 @@ func (s *PurchaseService) GetCatalog(userID string) (*model.PurchaseCatalogRespo
 
 	return &model.PurchaseCatalogResponse{
 		PurchaseEnabled:                settings.PurchaseEnabled,
+		CouponEnabled:                  couponConfig.Enabled,
 		DebugAutoPaid:                  settings.DebugAutoPaid,
 		PaymentConfigured:              s.settingsSvc.CanCreateOrders(settings),
 		RenewalRule:                    "显式区分续期、加额、换档与余额充值；礼品码路径不改当前账号",

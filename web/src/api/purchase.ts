@@ -136,6 +136,7 @@ export interface PurchaseOrder {
 
 export interface PurchaseCatalogResponse {
   purchaseEnabled: boolean
+  couponEnabled: boolean
   debugAutoPaid: boolean
   paymentConfigured: boolean
   renewalRule: string

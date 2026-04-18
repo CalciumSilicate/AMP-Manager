@@ -1,6 +1,12 @@
 import { authFetch } from './client'
 
 const API_BASE = '/api/admin/channels'
+const DEFAULT_TRANSLATOR: ChannelTranslator = {
+  compatible: false,
+  responses: false,
+  messages: false,
+  gemini: false,
+}
 
 async function handleResponse<T>(response: Response): Promise<T> {
   if (!response.ok) {
@@ -91,15 +97,43 @@ export interface TestChannelRequest {
   thinkingEffort?: string
 }
 
+function normalizeChannelModels(input: unknown): ChannelModel[] {
+  if (!Array.isArray(input)) {
+    return []
+  }
+  return input.map((item) => {
+    const model = item as Partial<ChannelModel> | null
+    return {
+      name: typeof model?.name === 'string' ? model.name : '',
+      alias: typeof model?.alias === 'string' ? model.alias : '',
+    }
+  })
+}
+
+function normalizeChannel(channel: Channel): Channel {
+  const headers = channel.headers && typeof channel.headers === 'object'
+    ? Object.fromEntries(Object.entries(channel.headers).filter(([key]) => key.trim() !== ''))
+    : {}
+
+  return {
+    ...channel,
+    groupIds: Array.isArray(channel.groupIds) ? [...channel.groupIds] : [],
+    groupNames: Array.isArray(channel.groupNames) ? [...channel.groupNames] : [],
+    models: normalizeChannelModels(channel.models),
+    headers,
+    translator: { ...DEFAULT_TRANSLATOR, ...(channel.translator || {}) },
+  }
+}
+
 export async function listChannels(): Promise<Channel[]> {
   const response = await authFetch(API_BASE)
   const data = await handleResponse<{ channels: Channel[] }>(response)
-  return data.channels || []
+  return (data.channels || []).map(normalizeChannel)
 }
 
 export async function getChannel(id: string): Promise<Channel> {
   const response = await authFetch(`${API_BASE}/${id}`)
-  return handleResponse<Channel>(response)
+  return normalizeChannel(await handleResponse<Channel>(response))
 }
 
 export async function createChannel(data: ChannelRequest): Promise<Channel> {
@@ -107,7 +141,7 @@ export async function createChannel(data: ChannelRequest): Promise<Channel> {
     method: 'POST',
     body: JSON.stringify(data),
   })
-  return handleResponse<Channel>(response)
+  return normalizeChannel(await handleResponse<Channel>(response))
 }
 
 export async function updateChannel(id: string, data: ChannelRequest): Promise<Channel> {
@@ -115,7 +149,7 @@ export async function updateChannel(id: string, data: ChannelRequest): Promise<C
     method: 'PUT',
     body: JSON.stringify(data),
   })
-  return handleResponse<Channel>(response)
+  return normalizeChannel(await handleResponse<Channel>(response))
 }
 
 export async function deleteChannel(id: string): Promise<void> {

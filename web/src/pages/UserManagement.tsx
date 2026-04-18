@@ -38,17 +38,6 @@ import {
   updateSubscriptionExpiry,
   UserSubscriptionResponse,
 } from '../api/subscription'
-import {
-  getInviteConfig,
-  getInviteStats,
-  listInviteRelations,
-  listInviteRewardEvents,
-  updateInviteConfig,
-  type InviteConfig,
-  type InviteRelation,
-  type InviteRewardEvent,
-  type InviteStats,
-} from '@/api/invite'
 import { AdminPageShell, AdminSurface } from '@/components/admin/AdminPageShell'
 import { Num } from '@/components/Num'
 import { OverflowCopyText } from '@/components/OverflowCopyText'
@@ -207,11 +196,6 @@ export default function UserManagement() {
   const [batchPreview, setBatchPreview] = useState<UserBatchPreviewResponse | null>(null)
   const [batchPreviewing, setBatchPreviewing] = useState(false)
   const [batchApplying, setBatchApplying] = useState(false)
-  const [inviteConfig, setInviteConfig] = useState<InviteConfig | null>(null)
-  const [inviteStats, setInviteStats] = useState<InviteStats | null>(null)
-  const [inviteRelations, setInviteRelations] = useState<InviteRelation[]>([])
-  const [inviteRewardEvents, setInviteRewardEvents] = useState<InviteRewardEvent[]>([])
-  const [inviteSaving, setInviteSaving] = useState(false)
   const { showToast } = useGlobalToast()
 
   const showMessage = useCallback((type: 'success' | 'error', text: string) => {
@@ -259,25 +243,6 @@ export default function UserManagement() {
     fetchGroups()
     fetchPlansList()
   }, [fetchGroups, fetchPlansList])
-
-  useEffect(() => {
-    void (async () => {
-      try {
-        const [config, stats, relations, rewards] = await Promise.all([
-          getInviteConfig(),
-          getInviteStats(),
-          listInviteRelations(),
-          listInviteRewardEvents(),
-        ])
-        setInviteConfig(config)
-        setInviteStats(stats)
-        setInviteRelations(relations)
-        setInviteRewardEvents(rewards)
-      } catch (err) {
-        showMessage('error', err instanceof Error ? err.message : '获取邀请配置失败')
-      }
-    })()
-  }, [showMessage])
 
   const buildBatchFilters = useCallback((): UserBatchFilter | undefined => {
     const filters: UserBatchFilter = {}
@@ -507,28 +472,6 @@ export default function UserManagement() {
       showMessage('error', err instanceof Error ? err.message : '创建用户失败')
     } finally {
       setCreatingUser(false)
-    }
-  }
-
-  const handleSaveInviteConfig = async () => {
-    if (!inviteConfig) return
-    try {
-      setInviteSaving(true)
-      const config = await updateInviteConfig({
-        enabled: inviteConfig.enabled,
-        inviterRewardMicros: inviteConfig.inviterRewardMicros,
-        inviteeRewardMicros: inviteConfig.inviteeRewardMicros,
-        minFirstPaidCnyCent: inviteConfig.minFirstPaidCnyCent,
-      })
-      setInviteConfig(config)
-      setInviteStats(await getInviteStats())
-      setInviteRelations(await listInviteRelations())
-      setInviteRewardEvents(await listInviteRewardEvents())
-      showMessage('success', '邀请配置已更新')
-    } catch (err) {
-      showMessage('error', err instanceof Error ? err.message : '保存邀请配置失败')
-    } finally {
-      setInviteSaving(false)
     }
   }
 
@@ -797,102 +740,6 @@ export default function UserManagement() {
         >
           <AdminSurface>
             <div className={fetching ? 'admin-surface-body opacity-60 transition-opacity' : 'admin-surface-body transition-opacity'}>
-              <div className="mb-6 space-y-4 rounded-xl border border-border/70 p-4">
-                <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-                  <div>
-                    <div className="text-lg font-semibold">邀请系统</div>
-                    <div className="text-sm text-muted-foreground">配置邀请奖励金额、首单门槛并查看全局关系与奖励记录</div>
-                  </div>
-                  <Button size="sm" onClick={() => void handleSaveInviteConfig()} disabled={!inviteConfig || inviteSaving}>
-                    {inviteSaving ? '保存中...' : '保存邀请配置'}
-                  </Button>
-                </div>
-                <div className="grid gap-4 lg:grid-cols-4">
-                  <div className="space-y-2">
-                    <Label>启用邀请</Label>
-                    <div className="flex h-10 items-center">
-                      <Switch checked={inviteConfig?.enabled || false} onCheckedChange={(checked) => setInviteConfig((current) => current ? { ...current, enabled: checked } : current)} />
-                    </div>
-                  </div>
-                  <div className="space-y-2">
-                    <Label>邀请人奖励 (USD)</Label>
-                    <Input
-                      type="number"
-                      min="0"
-                      step="0.01"
-                      value={inviteConfig ? String((inviteConfig.inviterRewardMicros || 0) / 1_000_000) : '0'}
-                      onChange={(event) => setInviteConfig((current) => current ? { ...current, inviterRewardMicros: Math.round(Number.parseFloat(event.target.value || '0') * 1_000_000) } : current)}
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <Label>被邀请人奖励 (USD)</Label>
-                    <Input
-                      type="number"
-                      min="0"
-                      step="0.01"
-                      value={inviteConfig ? String((inviteConfig.inviteeRewardMicros || 0) / 1_000_000) : '0'}
-                      onChange={(event) => setInviteConfig((current) => current ? { ...current, inviteeRewardMicros: Math.round(Number.parseFloat(event.target.value || '0') * 1_000_000) } : current)}
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <Label>首单最低实付 (CNY)</Label>
-                    <Input
-                      type="number"
-                      min="0"
-                      step="0.01"
-                      value={inviteConfig ? String((inviteConfig.minFirstPaidCnyCent || 0) / 100) : '0'}
-                      onChange={(event) => setInviteConfig((current) => current ? { ...current, minFirstPaidCnyCent: Math.round(Number.parseFloat(event.target.value || '0') * 100) } : current)}
-                    />
-                  </div>
-                </div>
-                {inviteStats ? (
-                  <div className="grid gap-4 md:grid-cols-4">
-                    <div className="rounded-lg border px-3 py-3"><div className="text-xs text-muted-foreground">关系总数</div><div className="mt-1 text-xl font-semibold">{inviteStats.relationsTotal}</div></div>
-                    <div className="rounded-lg border px-3 py-3"><div className="text-xs text-muted-foreground">待返奖励</div><div className="mt-1 text-xl font-semibold">{inviteStats.pendingTotal}</div></div>
-                    <div className="rounded-lg border px-3 py-3"><div className="text-xs text-muted-foreground">已返奖励</div><div className="mt-1 text-xl font-semibold">{inviteStats.rewardedTotal}</div></div>
-                    <div className="rounded-lg border px-3 py-3"><div className="text-xs text-muted-foreground">已发奖励</div><div className="mt-1 text-xl font-semibold">{formatUsdExact(inviteStats.grantedRewardMicros / 1_000_000, 2)}</div></div>
-                  </div>
-                ) : null}
-                {inviteRelations.length > 0 ? (
-                  <div className="space-y-2">
-                    <div className="text-sm font-medium">最近邀请关系</div>
-                    <div className="space-y-2">
-                      {inviteRelations.slice(0, 5).map((item) => (
-                        <div key={item.id} className="flex flex-col gap-2 rounded-lg border px-3 py-3 lg:flex-row lg:items-center lg:justify-between">
-                          <div>
-                            <div className="font-medium">{item.inviterUsername} → {item.inviteeUsername}</div>
-                            <div className="text-xs text-muted-foreground">邀请码 {item.inviterCode} · {item.firstPaidOrderNo || '未触发首单'}</div>
-                          </div>
-                          <Badge variant={item.status === 'rewarded' ? 'default' : 'secondary'}>
-                            {item.status === 'rewarded' ? '已返奖' : '待首单'}
-                          </Badge>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                ) : null}
-                {inviteRewardEvents.length > 0 ? (
-                  <div className="space-y-2">
-                    <div className="text-sm font-medium">最近奖励事件</div>
-                    <div className="space-y-2">
-                      {inviteRewardEvents.slice(0, 5).map((item) => (
-                        <div key={item.id} className="flex flex-col gap-2 rounded-lg border px-3 py-3 lg:flex-row lg:items-center lg:justify-between">
-                          <div>
-                            <div className="font-medium">{item.beneficiaryUsername}</div>
-                            <div className="text-xs text-muted-foreground">订单 {item.orderNo || '-'} · {formatDateTime(item.createdAt)}</div>
-                          </div>
-                          <div className="flex items-center gap-3">
-                            <Badge variant={item.status === 'granted' ? 'default' : 'secondary'}>
-                              {item.status === 'granted' ? '发放' : '回滚'}
-                            </Badge>
-                            <span className="font-medium">{formatUsdExact(item.amountMicros / 1_000_000, 2)}</span>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                ) : null}
-              </div>
               <div className="mb-4 space-y-3">
                 {selectedUserIds.length > 0 ? (
                   <div className="flex flex-wrap items-center justify-between gap-3 text-sm">

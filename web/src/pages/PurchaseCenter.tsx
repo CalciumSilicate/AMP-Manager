@@ -127,10 +127,17 @@ export default function PurchaseCenter() {
   const [ordersPageSize, setOrdersPageSize] = useState(10)
 
   const pendingOrders = orders.filter((item) => item.paymentStatus === 'pending')
+  const couponEnabled = Boolean(catalog?.couponEnabled)
 
   useEffect(() => {
     void loadAll()
   }, [])
+
+  useEffect(() => {
+    if (!couponEnabled && couponCode) {
+      setCouponCode('')
+    }
+  }, [couponEnabled, couponCode])
 
   useEffect(() => {
     if (!pendingOrder?.expiresAt || pendingOrder.paymentStatus !== 'pending') {
@@ -156,18 +163,18 @@ export default function PurchaseCenter() {
           kind: 'subscription',
           productId: confirmProduct.id,
           deliveryMode,
-          couponCode: couponCode.trim(),
+          couponCode: couponEnabled ? couponCode.trim() : '',
         })
         setQuote(nextQuote)
       } catch (error) {
         setQuote(null)
-        if (couponCode.trim()) {
+        if (couponEnabled && couponCode.trim()) {
           showMessage('error', error instanceof Error ? error.message : '预览失败')
         }
       }
     }
     void run()
-  }, [confirmProduct, deliveryMode, couponCode])
+  }, [confirmProduct, couponCode, couponEnabled, deliveryMode])
 
   const showMessage = (type: 'success' | 'error', text: string) => {
     setMessage({ type, text })
@@ -200,7 +207,7 @@ export default function PurchaseCenter() {
     if (!confirmProduct) return
     setCreating(true)
     try {
-      const order = await createPurchaseOrderWithMode(confirmProduct.id, deliveryMode, couponCode.trim())
+      const order = await createPurchaseOrderWithMode(confirmProduct.id, deliveryMode, couponEnabled ? couponCode.trim() : '')
       setConfirmProduct(null)
       setDeliveryMode('account')
       setCouponCode('')
@@ -667,31 +674,33 @@ export default function PurchaseCenter() {
                 </RadioGroup>
                 {purchaseHint ? <p className="mt-3 text-xs text-muted-foreground">{purchaseHint}</p> : null}
               </div>
-              <div className="space-y-3 border-b border-border/70 pb-4">
-                <div className="text-[11px] uppercase tracking-[0.18em] text-muted-foreground">优惠码</div>
-                <input
-                  value={couponCode}
-                  onChange={(event) => setCouponCode(event.target.value.toUpperCase())}
-                  placeholder="可选填写"
-                  className="w-full rounded-md border border-input bg-background px-3 py-2 font-mono text-sm"
-                />
-                {quote ? (
-                  <div className="rounded-lg border px-3 py-3 text-sm">
-                    <div className="flex items-center justify-between gap-4">
-                      <span className="text-muted-foreground">原价</span>
-                      <span>{formatCNY(quote.originalAmountCnyCent)}</span>
+              {couponEnabled ? (
+                <div className="space-y-3 border-b border-border/70 pb-4">
+                  <div className="text-[11px] uppercase tracking-[0.18em] text-muted-foreground">优惠码</div>
+                  <input
+                    value={couponCode}
+                    onChange={(event) => setCouponCode(event.target.value.toUpperCase())}
+                    placeholder="可选填写"
+                    className="w-full rounded-md border border-input bg-background px-3 py-2 font-mono text-sm"
+                  />
+                  {quote ? (
+                    <div className="rounded-lg border px-3 py-3 text-sm">
+                      <div className="flex items-center justify-between gap-4">
+                        <span className="text-muted-foreground">原价</span>
+                        <span>{formatCNY(quote.originalAmountCnyCent)}</span>
+                      </div>
+                      <div className="mt-2 flex items-center justify-between gap-4">
+                        <span className="text-muted-foreground">优惠</span>
+                        <span>-{formatCNY(quote.discountCnyCent)}</span>
+                      </div>
+                      <div className="mt-2 flex items-center justify-between gap-4 font-semibold">
+                        <span>应付</span>
+                        <span>{formatCNY(quote.finalAmountCnyCent)}</span>
+                      </div>
                     </div>
-                    <div className="mt-2 flex items-center justify-between gap-4">
-                      <span className="text-muted-foreground">优惠</span>
-                      <span>-{formatCNY(quote.discountCnyCent)}</span>
-                    </div>
-                    <div className="mt-2 flex items-center justify-between gap-4 font-semibold">
-                      <span>应付</span>
-                      <span>{formatCNY(quote.finalAmountCnyCent)}</span>
-                    </div>
-                  </div>
-                ) : null}
-              </div>
+                  ) : null}
+                </div>
+              ) : null}
               <div className="space-y-3 text-sm">
                 <div className="flex items-center justify-between gap-4">
                   <span className="text-muted-foreground">时长</span>

@@ -163,92 +163,97 @@ export function ChannelTable({
   return (
     <div className="rounded-md border">
       <div className="space-y-3 p-4 md:hidden">
-        {channels.map((channel) => (
-          <div key={channel.id} className="rounded-xl border border-border/70 px-4 py-4">
-            <div className="flex items-start justify-between gap-3">
-              <div className="min-w-0">
-                <div className="flex flex-wrap items-center gap-2">
-                  <span className="font-medium">{channel.name}</span>
-                  {channel.type === 'openai' && channel.endpoint === 'responses' && channel.codexWebsocketEnabled ? (
-                    <Badge variant="outline" className="text-[10px] uppercase tracking-[0.12em] text-muted-foreground">
-                      WS
-                    </Badge>
-                  ) : null}
-                </div>
-                <p className="mt-1 break-all text-xs text-muted-foreground">{channel.baseUrl}</p>
-              </div>
-              <Badge variant={getTypeBadgeVariant(channel.type)}>
-                {channel.type.toUpperCase()}
-              </Badge>
-            </div>
+        {channels.map((channel) => {
+          const groupNames = channel.groupNames ?? []
+          const models = channel.models ?? []
 
-            <div className="mt-3 flex flex-wrap gap-2">
-              <Badge variant="outline">{getEndpointLabel(channel.endpoint)}</Badge>
-              {channel.groupNames.length > 0 ? (
-                <Badge variant="secondary" className="max-w-full truncate">
-                  {channel.groupNames.join(' / ')}
-                </Badge>
-              ) : null}
-              <Badge variant="outline">
-                模型 {modelCounts[channel.id] ?? channel.models.length}
-              </Badge>
-            </div>
-
-            <div className="mt-3 grid gap-2 text-sm">
-              <MobileInfoRow
-                label="状态"
-                value={(
-                  <div className="flex items-center justify-end gap-2">
-                    <span className="text-sm text-muted-foreground">
-                      {channel.enabled ? '启用' : '禁用'}
-                    </span>
-                    <Switch
-                      checked={channel.enabled}
-                      onCheckedChange={(checked) => onToggleEnabled(channel.id, checked)}
-                    />
+          return (
+            <div key={channel.id} className="rounded-xl border border-border/70 px-4 py-4">
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="font-medium">{channel.name}</span>
+                    {channel.type === 'openai' && channel.endpoint === 'responses' && channel.codexWebsocketEnabled ? (
+                      <Badge variant="outline" className="text-[10px] uppercase tracking-[0.12em] text-muted-foreground">
+                        WS
+                      </Badge>
+                    ) : null}
                   </div>
-                )}
-              />
-              <MobileInfoRow
-                label="优先级"
-                value={<EditableNumericCell value={channel.priority} onSave={(value) => onQuickUpdate(channel, 'priority', Math.round(value))} />}
-              />
-              <MobileInfoRow
-                label="权重"
-                value={<EditableNumericCell value={channel.weight} onSave={(value) => onQuickUpdate(channel, 'weight', Math.round(value))} />}
-              />
-              <MobileInfoRow
-                label="倍率"
-                value={<EditableNumericCell value={channel.rateMultiplier} step="0.01" suffix="x" onSave={(value) => onQuickUpdate(channel, 'rateMultiplier', value)} />}
-              />
-            </div>
+                  <p className="mt-1 break-all text-xs text-muted-foreground">{channel.baseUrl}</p>
+                </div>
+                <Badge variant={getTypeBadgeVariant(channel.type)}>
+                  {channel.type.toUpperCase()}
+                </Badge>
+              </div>
 
-            <div className="mt-3 flex flex-wrap gap-2">
-              <Button variant="outline" size="sm" onClick={() => onTest(channel)}>
-                测试
-              </Button>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => onFetchModels(channel.id)}
-                disabled={fetchingModels[channel.id]}
-              >
-                {fetchingModels[channel.id] ? '获取中...' : '获取模型'}
-              </Button>
-              <Button variant="outline" size="sm" onClick={() => onEdit(channel)}>
-                编辑
-              </Button>
-              <Button
-                variant="outline"
-                size="sm"
-                className="text-destructive hover:text-destructive"
-                onClick={() => onDelete(channel.id, channel.name)}
-              >
-                删除
-              </Button>
+              <div className="mt-3 flex flex-wrap gap-2">
+                <Badge variant="outline">{getEndpointLabel(channel.endpoint)}</Badge>
+                {groupNames.length > 0 ? (
+                  <Badge variant="secondary" className="max-w-full truncate">
+                    {groupNames.join(' / ')}
+                  </Badge>
+                ) : null}
+                <Badge variant="outline">
+                  模型 {modelCounts[channel.id] ?? models.length}
+                </Badge>
+              </div>
+
+              <div className="mt-3 grid gap-2 text-sm">
+                <MobileInfoRow
+                  label="状态"
+                  value={(
+                    <div className="flex items-center justify-end gap-2">
+                      <span className="text-sm text-muted-foreground">
+                        {channel.enabled ? '启用' : '禁用'}
+                      </span>
+                      <Switch
+                        checked={channel.enabled}
+                        onCheckedChange={(checked) => onToggleEnabled(channel.id, checked)}
+                      />
+                    </div>
+                  )}
+                />
+                <MobileInfoRow
+                  label="优先级"
+                  value={<EditableNumericCell value={channel.priority} onSave={(value) => onQuickUpdate(channel, 'priority', Math.round(value))} />}
+                />
+                <MobileInfoRow
+                  label="权重"
+                  value={<EditableNumericCell value={channel.weight} onSave={(value) => onQuickUpdate(channel, 'weight', Math.round(value))} />}
+                />
+                <MobileInfoRow
+                  label="倍率"
+                  value={<EditableNumericCell value={channel.rateMultiplier} step="0.01" suffix="x" onSave={(value) => onQuickUpdate(channel, 'rateMultiplier', value)} />}
+                />
+              </div>
+
+              <div className="mt-3 flex flex-wrap gap-2">
+                <Button variant="outline" size="sm" onClick={() => onTest(channel)}>
+                  测试
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => onFetchModels(channel.id)}
+                  disabled={fetchingModels[channel.id]}
+                >
+                  {fetchingModels[channel.id] ? '获取中...' : '获取模型'}
+                </Button>
+                <Button variant="outline" size="sm" onClick={() => onEdit(channel)}>
+                  编辑
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="text-destructive hover:text-destructive"
+                  onClick={() => onDelete(channel.id, channel.name)}
+                >
+                  删除
+                </Button>
+              </div>
             </div>
-          </div>
-        ))}
+          )
+        })}
       </div>
 
       <Table className="hidden md:table">
@@ -265,77 +270,85 @@ export function ChannelTable({
           </TableRow>
         </TableHeader>
         <motion.tbody variants={tableStaggerContainer} initial="hidden" animate="visible" key={channels.length}>
-          {channels.map((channel) => (
-            <motion.tr key={channel.id} variants={tableRowVariants} className="border-b transition-colors hover:bg-muted/50 data-[state=selected]:bg-muted">
-              <TableCell>
-                <div className="flex items-center gap-2">
-                  <span className="font-medium">{channel.name}</span>
-                  {channel.type === 'openai' && channel.endpoint === 'responses' && channel.codexWebsocketEnabled && (
-                    <Badge variant="outline" className="text-[10px] uppercase tracking-[0.12em] text-muted-foreground">
-                      WS
-                    </Badge>
-                  )}
-                </div>
-              </TableCell>
-              <TableCell>
-                <Badge variant={getTypeBadgeVariant(channel.type)}>
-                  {channel.type.toUpperCase()}
-                </Badge>
-              </TableCell>
-              <TableCell className="max-w-xs truncate" title={channel.baseUrl}>
-                {channel.baseUrl}
-              </TableCell>
-              <TableCell>
-                <div className="flex items-center gap-2">
-                  <Switch
-                    checked={channel.enabled}
-                    onCheckedChange={(checked) => onToggleEnabled(channel.id, checked)}
-                  />
-                  <span className="text-sm text-muted-foreground">
-                    {channel.enabled ? '启用' : '禁用'}
-                  </span>
-                </div>
-              </TableCell>
-              <TableCell>
-                <EditableNumericCell value={channel.priority} onSave={(value) => onQuickUpdate(channel, 'priority', Math.round(value))} />
-              </TableCell>
-              <TableCell>
-                <EditableNumericCell value={channel.weight} onSave={(value) => onQuickUpdate(channel, 'weight', Math.round(value))} />
-              </TableCell>
-              <TableCell>
-                <EditableNumericCell value={channel.rateMultiplier} step="0.01" suffix="x" onSave={(value) => onQuickUpdate(channel, 'rateMultiplier', value)} />
-              </TableCell>
-              <TableCell className="text-right space-x-2">
-                <Button variant="ghost" size="sm" onClick={() => onTest(channel)}>
-                  测试
-                </Button>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => onFetchModels(channel.id)}
-                  disabled={fetchingModels[channel.id]}
-                >
-                  {fetchingModels[channel.id] ? '获取中...' : '获取模型'}
-                  {modelCounts[channel.id] !== undefined && (
-                    <span className="ml-1 text-xs text-muted-foreground">
-                      ({modelCounts[channel.id]})
+          {channels.map((channel) => {
+            const models = channel.models ?? []
+
+            return (
+              <motion.tr key={channel.id} variants={tableRowVariants} className="border-b transition-colors hover:bg-muted/50 data-[state=selected]:bg-muted">
+                <TableCell>
+                  <div className="flex items-center gap-2">
+                    <span className="font-medium">{channel.name}</span>
+                    {channel.type === 'openai' && channel.endpoint === 'responses' && channel.codexWebsocketEnabled && (
+                      <Badge variant="outline" className="text-[10px] uppercase tracking-[0.12em] text-muted-foreground">
+                        WS
+                      </Badge>
+                    )}
+                  </div>
+                </TableCell>
+                <TableCell>
+                  <Badge variant={getTypeBadgeVariant(channel.type)}>
+                    {channel.type.toUpperCase()}
+                  </Badge>
+                </TableCell>
+                <TableCell className="max-w-xs truncate" title={channel.baseUrl}>
+                  {channel.baseUrl}
+                </TableCell>
+                <TableCell>
+                  <div className="flex items-center gap-2">
+                    <Switch
+                      checked={channel.enabled}
+                      onCheckedChange={(checked) => onToggleEnabled(channel.id, checked)}
+                    />
+                    <span className="text-sm text-muted-foreground">
+                      {channel.enabled ? '启用' : '禁用'}
                     </span>
-                  )}
-                </Button>
-                <Button variant="ghost" size="sm" onClick={() => onEdit(channel)}>
-                  编辑
-                </Button>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className="text-destructive hover:text-destructive"
-                  onClick={() => onDelete(channel.id, channel.name)}
-                >
-                  删除
-                </Button>
-              </TableCell>
-            </motion.tr>
-          ))}
+                  </div>
+                </TableCell>
+                <TableCell>
+                  <EditableNumericCell value={channel.priority} onSave={(value) => onQuickUpdate(channel, 'priority', Math.round(value))} />
+                </TableCell>
+                <TableCell>
+                  <EditableNumericCell value={channel.weight} onSave={(value) => onQuickUpdate(channel, 'weight', Math.round(value))} />
+                </TableCell>
+                <TableCell>
+                  <EditableNumericCell value={channel.rateMultiplier} step="0.01" suffix="x" onSave={(value) => onQuickUpdate(channel, 'rateMultiplier', value)} />
+                </TableCell>
+                <TableCell className="text-right space-x-2">
+                  <Button variant="ghost" size="sm" onClick={() => onTest(channel)}>
+                    测试
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => onFetchModels(channel.id)}
+                    disabled={fetchingModels[channel.id]}
+                  >
+                    {fetchingModels[channel.id] ? '获取中...' : '获取模型'}
+                    {modelCounts[channel.id] !== undefined ? (
+                      <span className="ml-1 text-xs text-muted-foreground">
+                        ({modelCounts[channel.id]})
+                      </span>
+                    ) : models.length > 0 ? (
+                      <span className="ml-1 text-xs text-muted-foreground">
+                        ({models.length})
+                      </span>
+                    ) : null}
+                  </Button>
+                  <Button variant="ghost" size="sm" onClick={() => onEdit(channel)}>
+                    编辑
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="text-destructive hover:text-destructive"
+                    onClick={() => onDelete(channel.id, channel.name)}
+                  >
+                    删除
+                  </Button>
+                </TableCell>
+              </motion.tr>
+            )
+          })}
         </motion.tbody>
       </Table>
     </div>

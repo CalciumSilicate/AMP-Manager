@@ -270,6 +270,7 @@ type PurchaseOrderResponse struct {
 
 type PurchaseCatalogResponse struct {
 	PurchaseEnabled                bool                       `json:"purchaseEnabled"`
+	CouponEnabled                  bool                       `json:"couponEnabled"`
 	DebugAutoPaid                  bool                       `json:"debugAutoPaid"`
 	PaymentConfigured              bool                       `json:"paymentConfigured"`
 	RenewalRule                    string                     `json:"renewalRule"`
