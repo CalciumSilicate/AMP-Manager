@@ -14,6 +14,8 @@ import (
 	"sync"
 	"time"
 
+	"ampmanager/internal/model"
+
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 	log "github.com/sirupsen/logrus"
@@ -37,6 +39,7 @@ type ProxyConfig struct {
 	RateMultiplier       float64
 	GroupRateMultiplier  float64
 	GroupIDs             []string
+	ForcedBillingSource  *model.BillingSource
 }
 
 func WithProxyConfig(ctx context.Context, cfg *ProxyConfig) context.Context {

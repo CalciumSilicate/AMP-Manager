@@ -431,6 +431,9 @@ func selectResponsesWebsocketChannel(session *responsesWebsocketSession, proxyCf
 		if err != nil {
 			return nil, &responsesWebsocketError{StatusCode: http.StatusBadGateway, Message: "failed to resolve pinned channel"}
 		}
+		if proxyCfg != nil && channel != nil {
+			proxyCfg.ForcedBillingSource = cloneBillingSource(channel.ForcedBillingSource)
+		}
 		return channel, nil
 	}
 
@@ -440,6 +443,9 @@ func selectResponsesWebsocketChannel(session *responsesWebsocketSession, proxyCf
 			return nil, &responsesWebsocketError{StatusCode: http.StatusBadGateway, Message: "failed to resolve sticky channel"}
 		}
 		if channel != nil {
+			if proxyCfg != nil {
+				proxyCfg.ForcedBillingSource = cloneBillingSource(channel.ForcedBillingSource)
+			}
 			return channel, nil
 		}
 		log.Warnf("responses websocket: sticky channel '%s' is unavailable for model '%s', falling back to preferred/automatic selection", stickyChannelID, result.MappedModel)
@@ -449,6 +455,9 @@ func selectResponsesWebsocketChannel(session *responsesWebsocketSession, proxyCf
 		channel, err := responsesWebsocketChannelService.SelectSpecificChannelForModelWithGroupsAndFormat(result.PreferredChannelID, result.MappedModel, proxyCfg.GroupIDs, incomingFormat, false)
 		if err != nil {
 			return nil, &responsesWebsocketError{StatusCode: http.StatusBadGateway, Message: "failed to resolve preferred channel"}
+		}
+		if proxyCfg != nil && channel != nil {
+			proxyCfg.ForcedBillingSource = cloneBillingSource(channel.ForcedBillingSource)
 		}
 		return channel, nil
 	}
@@ -464,6 +473,9 @@ func selectResponsesWebsocketChannel(session *responsesWebsocketSession, proxyCf
 	}
 	if err != nil {
 		return nil, &responsesWebsocketError{StatusCode: http.StatusBadGateway, Message: "failed to select channel"}
+	}
+	if proxyCfg != nil && channel != nil {
+		proxyCfg.ForcedBillingSource = cloneBillingSource(channel.ForcedBillingSource)
 	}
 	return channel, nil
 }
@@ -733,7 +745,7 @@ func applyResponsesTraceCost(trace *RequestTrace, ctx context.Context) {
 
 	if proxyCfg != nil && adjustedCostMicros > 0 {
 		billingSvc := service.NewBillingService()
-		result, err := billingSvc.SettleRequestCostResult(trace.RequestID, proxyCfg.UserID, adjustedCostMicros)
+		result, err := billingSvc.SettleRequestCostResultWithSource(trace.RequestID, proxyCfg.UserID, adjustedCostMicros, proxyCfg.ForcedBillingSource)
 		if err != nil {
 			log.Warnf("responses websocket: failed to settle cost for user %s: %v", proxyCfg.UserID, err)
 		} else {

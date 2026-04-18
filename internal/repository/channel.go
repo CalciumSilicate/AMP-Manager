@@ -186,6 +186,15 @@ func (r *ChannelRepository) SetGroups(id string, groupIDs []string) error {
 	if err := setChannelGroupRows(tx, "channel_groups", id, groupIDs); err != nil {
 		return err
 	}
+	if _, err := tx.Exec(`UPDATE channels SET split_groups_by_source = 0, updated_at = ? WHERE id = ?`, time.Now().UTC(), id); err != nil {
+		return err
+	}
+	if err := setChannelGroupRows(tx, "channel_subscription_groups", id, groupIDs); err != nil {
+		return err
+	}
+	if err := setChannelGroupRows(tx, "channel_usage_groups", id, groupIDs); err != nil {
+		return err
+	}
 	return tx.Commit()
 }
 

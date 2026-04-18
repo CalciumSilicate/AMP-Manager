@@ -107,6 +107,28 @@ func GetChannelConfig(c *gin.Context) *ChannelConfig {
 	return nil
 }
 
+func cloneBillingSource(source *model.BillingSource) *model.BillingSource {
+	if source == nil {
+		return nil
+	}
+	cloned := *source
+	return &cloned
+}
+
+func attachSelectedChannel(c *gin.Context, channel *model.Channel, modelName string) {
+	if channel == nil {
+		return
+	}
+	WithChannelConfig(c, &ChannelConfig{
+		Channel: channel,
+		Model:   modelName,
+	})
+	if proxyCfg := GetProxyConfig(c.Request.Context()); proxyCfg != nil {
+		proxyCfg.ForcedBillingSource = cloneBillingSource(channel.ForcedBillingSource)
+		c.Request = c.Request.WithContext(WithProxyConfig(c.Request.Context(), proxyCfg))
+	}
+}
+
 var channelService = service.NewChannelService()
 
 // WithTranslationInfo stores translation info in context
@@ -250,10 +272,7 @@ func ChannelRouterMiddleware() gin.HandlerFunc {
 			}
 			if channel != nil {
 				log.Infof("channel router: routing model '%s' to sticky channel '%s' (%s)", modelName, channel.Name, channel.Type)
-				WithChannelConfig(c, &ChannelConfig{
-					Channel: channel,
-					Model:   modelName,
-				})
+				attachSelectedChannel(c, channel, modelName)
 				c.Next()
 				return
 			}
@@ -274,10 +293,7 @@ func ChannelRouterMiddleware() gin.HandlerFunc {
 			}
 			if channel != nil {
 				log.Infof("channel router: routing model '%s' to preferred channel '%s' (%s)", modelName, channel.Name, channel.Type)
-				WithChannelConfig(c, &ChannelConfig{
-					Channel: channel,
-					Model:   modelName,
-				})
+				attachSelectedChannel(c, channel, modelName)
 				c.Next()
 				return
 			}
@@ -301,10 +317,7 @@ func ChannelRouterMiddleware() gin.HandlerFunc {
 		}
 
 		log.Infof("channel router: routing model '%s' to channel '%s' (%s)", modelName, channel.Name, channel.Type)
-		WithChannelConfig(c, &ChannelConfig{
-			Channel: channel,
-			Model:   modelName,
-		})
+		attachSelectedChannel(c, channel, modelName)
 
 		c.Next()
 	}
@@ -1468,7 +1481,7 @@ func handleNonStreamingResponse(resp *http.Response, trace *RequestTrace, transI
 
 							if proxyCfg != nil && adjustedCostMicros > 0 {
 								billingSvc := service.NewBillingService()
-								result, err := billingSvc.SettleRequestCostResult(trace.RequestID, proxyCfg.UserID, adjustedCostMicros)
+								result, err := billingSvc.SettleRequestCostResultWithSource(trace.RequestID, proxyCfg.UserID, adjustedCostMicros, proxyCfg.ForcedBillingSource)
 								if err != nil {
 									log.Warnf("channel router: failed to settle cost for user %s: %v", proxyCfg.UserID, err)
 								} else {

@@ -143,7 +143,9 @@ func TestApplyModelMappingMiddleware_BindsPreferredChannel(t *testing.T) {
 		channels: map[string]*model.Channel{
 			"preferred": testChannel("preferred", "Preferred"),
 		},
-		groups: map[string][]string{},
+		groups: map[string][]string{
+			"preferred": {"basic"},
+		},
 	}
 
 	originalService := mappingChannelService
@@ -164,7 +166,7 @@ func TestApplyModelMappingMiddleware_BindsPreferredChannel(t *testing.T) {
 
 	router := gin.New()
 	router.Use(func(c *gin.Context) {
-		cfg := &ProxyConfig{ModelMappingsJSON: string(mappingsJSON), RouteMappingsEnabled: true}
+		cfg := &ProxyConfig{ModelMappingsJSON: string(mappingsJSON), RouteMappingsEnabled: true, GroupIDs: []string{"basic"}}
 		c.Request = c.Request.WithContext(WithProxyConfig(c.Request.Context(), cfg))
 		c.Next()
 	})
@@ -279,7 +281,10 @@ func TestChannelRouterMiddleware_UsesPreferredChannel(t *testing.T) {
 			"auto":      testChannel("auto", "Auto"),
 			"preferred": testChannel("preferred", "Preferred"),
 		},
-		groups: map[string][]string{},
+		groups: map[string][]string{
+			"auto":      {"basic"},
+			"preferred": {"basic"},
+		},
 	}
 
 	originalService := channelService
@@ -290,7 +295,7 @@ func TestChannelRouterMiddleware_UsesPreferredChannel(t *testing.T) {
 
 	router := gin.New()
 	router.Use(func(c *gin.Context) {
-		c.Request = c.Request.WithContext(WithProxyConfig(c.Request.Context(), &ProxyConfig{}))
+		c.Request = c.Request.WithContext(WithProxyConfig(c.Request.Context(), &ProxyConfig{GroupIDs: []string{"basic"}}))
 		c.Set(PreferredChannelContextKey, "preferred")
 		c.Next()
 	})
@@ -326,7 +331,11 @@ func TestChannelRouterMiddleware_UsesStickyChannelBeforePreferredAndRoundRobin(t
 			"preferred": testChannel("preferred", "Preferred"),
 			"sticky":    testChannel("sticky", "Sticky"),
 		},
-		groups: map[string][]string{},
+		groups: map[string][]string{
+			"auto":      {"basic"},
+			"preferred": {"basic"},
+			"sticky":    {"basic"},
+		},
 	}
 
 	originalService := channelService
@@ -337,7 +346,7 @@ func TestChannelRouterMiddleware_UsesStickyChannelBeforePreferredAndRoundRobin(t
 
 	router := gin.New()
 	router.Use(func(c *gin.Context) {
-		ctx := WithProxyConfig(c.Request.Context(), &ProxyConfig{})
+		ctx := WithProxyConfig(c.Request.Context(), &ProxyConfig{GroupIDs: []string{"basic"}})
 		ctx = WithRequestSession(ctx, &RequestSession{
 			SessionID:       "sess-1",
 			StickyChannelID: "sticky",
@@ -378,6 +387,7 @@ func TestChannelRouterMiddleware_FallsBackWhenPreferredChannelIsInaccessible(t *
 			"preferred": testChannel("preferred", "Preferred"),
 		},
 		groups: map[string][]string{
+			"public":    {"basic"},
 			"preferred": {"vip"},
 		},
 	}
@@ -390,7 +400,7 @@ func TestChannelRouterMiddleware_FallsBackWhenPreferredChannelIsInaccessible(t *
 
 	router := gin.New()
 	router.Use(func(c *gin.Context) {
-		cfg := &ProxyConfig{GroupIDs: nil}
+		cfg := &ProxyConfig{GroupIDs: []string{"basic"}}
 		c.Request = c.Request.WithContext(WithProxyConfig(c.Request.Context(), cfg))
 		c.Set(PreferredChannelContextKey, "preferred")
 		c.Next()

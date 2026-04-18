@@ -39,6 +39,7 @@ type Channel struct {
 	APIKey                string          `json:"-"`
 	Enabled               bool            `json:"enabled"`
 	SplitGroupsBySource   bool            `json:"splitGroupsBySource"`
+	ForcedBillingSource   *BillingSource  `json:"-"`
 	Weight                int             `json:"weight"`
 	Priority              int             `json:"priority"`
 	RateMultiplierPPM     int64           `json:"rateMultiplierPpm,omitempty"`

@@ -27,6 +27,8 @@ local windowKeyList = ARGV[5]
 local windowRefsJSON = ARGV[6]
 local nowUnix = ARGV[7]
 local requestID = ARGV[8]
+local forcedPrimary = ARGV[9] or ''
+local forcedSecondary = ARGV[10] or ''
 
 if redis.call('EXISTS', accountKey) == 0 then
   return {'MISS'}
@@ -43,8 +45,8 @@ for _, windowKey in ipairs(windowKeys) do
   end
 end
 
-local primary = redis.call('HGET', accountKey, 'primary_source') or 'subscription'
-local secondary = redis.call('HGET', accountKey, 'secondary_source') or 'balance'
+local primary = forcedPrimary ~= '' and forcedPrimary or (redis.call('HGET', accountKey, 'primary_source') or 'subscription')
+local secondary = forcedSecondary ~= '' and forcedSecondary or (redis.call('HGET', accountKey, 'secondary_source') or 'balance')
 local balance = tonumber(redis.call('HGET', accountKey, 'balance_micros') or '0')
 local reservedSub = 0
 local reservedBal = 0
@@ -151,6 +153,8 @@ local expiryKey = KEYS[3]
 local streamKey = KEYS[4]
 local actual = tonumber(ARGV[1]) or 0
 local nowUnix = ARGV[2]
+local forcedPrimary = ARGV[3] or ''
+local forcedSecondary = ARGV[4] or ''
 
 if redis.call('EXISTS', reservationKey) == 0 then
   return {'NOT_FOUND'}
@@ -169,8 +173,8 @@ local reservedBal = tonumber(redis.call('HGET', reservationKey, 'reserved_balanc
 local windowKeyList = redis.call('HGET', reservationKey, 'window_key_list') or ''
 local windowRefsJSON = redis.call('HGET', reservationKey, 'window_refs_json') or ''
 local windowKeys = split_keys(windowKeyList)
-local primary = redis.call('HGET', accountKey, 'primary_source') or 'subscription'
-local secondary = redis.call('HGET', accountKey, 'secondary_source') or 'balance'
+local primary = forcedPrimary ~= '' and forcedPrimary or (redis.call('HGET', accountKey, 'primary_source') or 'subscription')
+local secondary = forcedSecondary ~= '' and forcedSecondary or (redis.call('HGET', accountKey, 'secondary_source') or 'balance')
 local balance = tonumber(redis.call('HGET', accountKey, 'balance_micros') or '0')
 local minWindowRemaining = 0
 

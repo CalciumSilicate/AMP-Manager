@@ -68,9 +68,9 @@ type enabledChannelsCache struct {
 }
 
 type enabledChannelsSnapshotEntry struct {
-	channels        []*model.Channel
-	channelGroupMap map[string][]string
-	loadedAt        time.Time
+	channels               []*model.Channel
+	channelGroupBindingMap map[string]*model.ChannelGroupBinding
+	loadedAt               time.Time
 }
 
 // getParsedModels 从缓存获取或解析 ModelsJSON
@@ -828,10 +828,11 @@ func (s *ChannelService) SelectSpecificChannelForModelWithGroupsAndFormat(channe
 		return nil, nil
 	}
 
-	channelGroupIDs := channelGroupMap[channelID]
-	if !channelAccessibleForGroups(channelGroupIDs, groupIDs) {
+	decision := evaluateChannelGroupAccess(channelGroupMap[channelID], toStringSet(groupIDs))
+	if !decision.Allowed {
 		return nil, nil
 	}
+	channel.ForcedBillingSource = decision.ForcedBillingSource
 
 	return channel, nil
 }
@@ -862,7 +863,9 @@ func (s *ChannelService) SelectChannelForModelWithGroupsAndFormatAndProvider(mod
 		if !s.channelMatchesModel(ch, modelName) || !s.channelSupportsRequestFormat(ch, incomingFormat, allowTranslation) {
 			continue
 		}
-		if channelAccessibleWithSet(channelGroupMap[ch.ID], userGroupIDSet) {
+		decision := evaluateChannelGroupAccess(channelGroupMap[ch.ID], userGroupIDSet)
+		if decision.Allowed {
+			ch.ForcedBillingSource = decision.ForcedBillingSource
 			candidates = append(candidates, ch)
 		}
 	}
@@ -935,31 +938,40 @@ func (s *ChannelService) listEnabledChannels() ([]*model.Channel, error) {
 	cloned := cloneChannels(channels)
 	enabledChannelsSnapshot.mu.Lock()
 	enabledChannelsSnapshot.snapshots[cacheKey] = enabledChannelsSnapshotEntry{
-		channels:        cloneChannels(channels),
-		channelGroupMap: nil,
-		loadedAt:        time.Now(),
+		channels:               cloneChannels(channels),
+		channelGroupBindingMap: nil,
+		loadedAt:               time.Now(),
 	}
 	enabledChannelsSnapshot.mu.Unlock()
 	return cloned, nil
 }
 
-func cloneChannelGroupMap(source map[string][]string) map[string][]string {
+func cloneChannelGroupMap(source map[string]*model.ChannelGroupBinding) map[string]*model.ChannelGroupBinding {
 	if len(source) == 0 {
 		return nil
 	}
-	cloned := make(map[string][]string, len(source))
-	for key, values := range source {
-		cloned[key] = append([]string(nil), values...)
+	cloned := make(map[string]*model.ChannelGroupBinding, len(source))
+	for key, binding := range source {
+		if binding == nil {
+			cloned[key] = &model.ChannelGroupBinding{}
+			continue
+		}
+		cloned[key] = &model.ChannelGroupBinding{
+			SplitBySource:        binding.SplitBySource,
+			SharedGroupIDs:       append([]string(nil), binding.SharedGroupIDs...),
+			SubscriptionGroupIDs: append([]string(nil), binding.SubscriptionGroupIDs...),
+			UsageGroupIDs:        append([]string(nil), binding.UsageGroupIDs...),
+		}
 	}
 	return cloned
 }
 
-func (s *ChannelService) listEnabledChannelsWithGroups() ([]*model.Channel, map[string][]string, error) {
+func (s *ChannelService) listEnabledChannelsWithGroups() ([]*model.Channel, map[string]*model.ChannelGroupBinding, error) {
 	cacheKey := cacheKeyForChannelRepo(s.repo)
 	enabledChannelsSnapshot.mu.RLock()
-	if snapshot, ok := enabledChannelsSnapshot.snapshots[cacheKey]; ok && time.Since(snapshot.loadedAt) < enabledChannelsSnapshot.cacheTTL && len(snapshot.channels) > 0 && snapshot.channelGroupMap != nil {
+	if snapshot, ok := enabledChannelsSnapshot.snapshots[cacheKey]; ok && time.Since(snapshot.loadedAt) < enabledChannelsSnapshot.cacheTTL && len(snapshot.channels) > 0 && snapshot.channelGroupBindingMap != nil {
 		channels := cloneChannels(snapshot.channels)
-		groupMap := cloneChannelGroupMap(snapshot.channelGroupMap)
+		groupMap := cloneChannelGroupMap(snapshot.channelGroupBindingMap)
 		enabledChannelsSnapshot.mu.RUnlock()
 		return channels, groupMap, nil
 	}
@@ -978,12 +990,12 @@ func (s *ChannelService) listEnabledChannelsWithGroups() ([]*model.Channel, map[
 		channelIDs = append(channelIDs, ch.ID)
 	}
 
-	channelGroupMap, batchErr := s.repo.GetGroupIDsByChannelIDs(channelIDs)
+	channelGroupMap, batchErr := s.repo.GetGroupBindingsByChannelIDs(channelIDs)
 	fallbackToSingleLookup := batchErr != nil
 	if fallbackToSingleLookup {
-		channelGroupMap = make(map[string][]string, len(channelIDs))
+		channelGroupMap = make(map[string]*model.ChannelGroupBinding, len(channelIDs))
 		for _, channelID := range channelIDs {
-			gids, err := s.repo.GetGroupIDs(channelID)
+			gids, err := s.repo.GetGroupBinding(channelID)
 			if err != nil {
 				continue
 			}
@@ -995,9 +1007,9 @@ func (s *ChannelService) listEnabledChannelsWithGroups() ([]*model.Channel, map[
 	clonedGroups := cloneChannelGroupMap(channelGroupMap)
 	enabledChannelsSnapshot.mu.Lock()
 	enabledChannelsSnapshot.snapshots[cacheKey] = enabledChannelsSnapshotEntry{
-		channels:        cloneChannels(channels),
-		channelGroupMap: cloneChannelGroupMap(channelGroupMap),
-		loadedAt:        time.Now(),
+		channels:               cloneChannels(channels),
+		channelGroupBindingMap: cloneChannelGroupMap(channelGroupMap),
+		loadedAt:               time.Now(),
 	}
 	enabledChannelsSnapshot.mu.Unlock()
 	return clonedChannels, clonedGroups, nil
@@ -1019,15 +1031,33 @@ func hasAnyInSet(set map[string]struct{}, values []string) bool {
 	return false
 }
 
-func channelAccessibleForGroups(channelGroupIDs, userGroupIDs []string) bool {
-	return channelAccessibleWithSet(channelGroupIDs, toStringSet(userGroupIDs))
+type channelGroupAccessDecision struct {
+	Allowed             bool
+	ForcedBillingSource *model.BillingSource
 }
 
-func channelAccessibleWithSet(channelGroupIDs []string, userGroupIDSet map[string]struct{}) bool {
-	if len(channelGroupIDs) == 0 {
-		return true
+func evaluateChannelGroupAccess(binding *model.ChannelGroupBinding, userGroupIDSet map[string]struct{}) channelGroupAccessDecision {
+	if binding == nil {
+		return channelGroupAccessDecision{}
 	}
-	return len(userGroupIDSet) > 0 && hasAnyInSet(userGroupIDSet, channelGroupIDs)
+
+	subscriptionMatched := len(binding.SubscriptionGroupIDs) > 0 && len(userGroupIDSet) > 0 && hasAnyInSet(userGroupIDSet, binding.SubscriptionGroupIDs)
+	usageMatched := len(binding.UsageGroupIDs) > 0 && len(userGroupIDSet) > 0 && hasAnyInSet(userGroupIDSet, binding.UsageGroupIDs)
+	if len(binding.SubscriptionGroupIDs) == 0 && len(binding.UsageGroupIDs) == 0 {
+		return channelGroupAccessDecision{}
+	}
+	if subscriptionMatched && usageMatched {
+		return channelGroupAccessDecision{Allowed: true}
+	}
+	if subscriptionMatched {
+		source := model.BillingSourceSubscription
+		return channelGroupAccessDecision{Allowed: true, ForcedBillingSource: &source}
+	}
+	if usageMatched {
+		source := model.BillingSourceBalance
+		return channelGroupAccessDecision{Allowed: true, ForcedBillingSource: &source}
+	}
+	return channelGroupAccessDecision{}
 }
 
 func channelNativeFormat(channel *model.Channel) internaltranslator.Format {

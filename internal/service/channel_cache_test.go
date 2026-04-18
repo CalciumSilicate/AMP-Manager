@@ -107,6 +107,7 @@ func (r *countingChannelRepo) GetGroupBinding(channelID string) (*model.ChannelG
 }
 
 func (r *countingChannelRepo) GetGroupBindingsByChannelIDs(channelIDs []string) (map[string]*model.ChannelGroupBinding, error) {
+	r.groupBatchCalls++
 	result := make(map[string]*model.ChannelGroupBinding, len(channelIDs))
 	for _, channelID := range channelIDs {
 		groupIDs := append([]string(nil), r.channelGroupIDs[channelID]...)

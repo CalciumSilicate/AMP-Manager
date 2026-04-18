@@ -32,7 +32,7 @@ func TestSettleRequestRefillsHotReservationAfterNotFound(t *testing.T) {
 		},
 	}
 
-	result, err := rt.SettleRequest(context.Background(), "req-1", "user-1", 7)
+	result, err := rt.SettleRequest(context.Background(), "req-1", "user-1", 7, nil)
 	if err != nil {
 		t.Fatalf("SettleRequest returned error: %v", err)
 	}
@@ -78,7 +78,7 @@ func TestSettleRequestReturnsNotFoundWhenReservationCannotBeRefilled(t *testing.
 		},
 	}
 
-	_, err := rt.SettleRequest(context.Background(), "missing", "user-1", 7)
+	_, err := rt.SettleRequest(context.Background(), "missing", "user-1", 7, nil)
 	if !errors.Is(err, ErrReservationNotFound) {
 		t.Fatalf("SettleRequest error = %v, want %v", err, ErrReservationNotFound)
 	}
