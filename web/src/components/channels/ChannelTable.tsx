@@ -51,6 +51,28 @@ function getTypeBadgeVariant(type: ChannelType): 'default' | 'secondary' | 'outl
   }
 }
 
+function getCircuitBreakerLabel(state: string): string {
+  switch (state) {
+    case 'open':
+      return '熔断中'
+    case 'half_open':
+      return '半开'
+    default:
+      return '关闭'
+  }
+}
+
+function getCircuitBreakerVariant(state: string): 'default' | 'secondary' | 'destructive' | 'outline' {
+  switch (state) {
+    case 'open':
+      return 'destructive'
+    case 'half_open':
+      return 'secondary'
+    default:
+      return 'outline'
+  }
+}
+
 function EditableNumericCell({
   value,
   step = '1',
@@ -230,6 +252,10 @@ export function ChannelTable({
                   label="倍率"
                   value={<EditableNumericCell value={channel.rateMultiplier} step="0.01" suffix="x" onSave={(value) => onQuickUpdate(channel, 'rateMultiplier', value)} />}
                 />
+                <MobileInfoRow
+                  label="熔断"
+                  value={<Badge variant={getCircuitBreakerVariant(channel.circuitBreakerState)}>{getCircuitBreakerLabel(channel.circuitBreakerState)}</Badge>}
+                />
               </div>
 
               <div className="mt-3 flex flex-wrap gap-2">
@@ -277,12 +303,15 @@ export function ChannelTable({
                   <div className="space-y-1.5">
                     <div className="flex items-center gap-2">
                       <span className="font-medium">{channel.name}</span>
-                      {channel.type === 'openai' && channel.endpoint === 'responses' && channel.codexWebsocketEnabled && (
-                        <Badge variant="outline" className="text-[10px] uppercase tracking-[0.12em] text-muted-foreground">
-                          WS
-                        </Badge>
-                      )}
-                    </div>
+                    {channel.type === 'openai' && channel.endpoint === 'responses' && channel.codexWebsocketEnabled && (
+                      <Badge variant="outline" className="text-[10px] uppercase tracking-[0.12em] text-muted-foreground">
+                        WS
+                      </Badge>
+                    )}
+                    <Badge variant={getCircuitBreakerVariant(channel.circuitBreakerState)} className="text-[10px]">
+                      {getCircuitBreakerLabel(channel.circuitBreakerState)}
+                    </Badge>
+                  </div>
                     {!channel.splitGroupsBySource && groupNames.length > 0 ? (
                       <p className="text-xs text-muted-foreground">{groupNames.join(' / ')}</p>
                     ) : null}

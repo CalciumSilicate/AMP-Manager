@@ -102,6 +102,22 @@ func (r *fakeChannelRepo) GetGroupBindingsByChannelIDs(channelIDs []string) (map
 	return result, nil
 }
 
+func (r *fakeChannelRepo) UpdateCircuitBreakerState(channel *model.Channel) error {
+	if channel == nil {
+		return nil
+	}
+	if existing, ok := r.channels[channel.ID]; ok {
+		existing.CircuitBreakerThreshold = channel.CircuitBreakerThreshold
+		existing.CircuitBreakerOpenMinutes = channel.CircuitBreakerOpenMinutes
+		existing.CircuitBreakerHalfOpenMinutes = channel.CircuitBreakerHalfOpenMinutes
+		existing.CircuitBreakerState = channel.CircuitBreakerState
+		existing.CircuitBreakerConsecutiveErrors = channel.CircuitBreakerConsecutiveErrors
+		existing.CircuitBreakerOpenedAt = channel.CircuitBreakerOpenedAt
+		existing.CircuitBreakerHalfOpenStartedAt = channel.CircuitBreakerHalfOpenStartedAt
+	}
+	return nil
+}
+
 func (r *fakeChannelRepo) listChannels(enabledOnly bool) []*model.Channel {
 	ids := make([]string, 0, len(r.channels))
 	for id := range r.channels {

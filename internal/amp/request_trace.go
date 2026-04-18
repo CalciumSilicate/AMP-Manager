@@ -71,7 +71,8 @@ type RequestTrace struct {
 	ErrorType string
 
 	// API Key 熔断统计
-	APIKeyCircuitBreakerProcessed bool
+	APIKeyCircuitBreakerProcessed  bool
+	ChannelCircuitBreakerProcessed bool
 
 	// 响应文本（/v1/responses 聚合的助手文本）
 	ResponseText string
@@ -209,6 +210,22 @@ func (t *RequestTrace) APIKeyCircuitBreakerOutcome() model.APIKeyCircuitBreakerO
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	return model.ClassifyAPIKeyCircuitBreakerOutcome(t.StatusCode, strings.TrimSpace(t.ErrorType))
+}
+
+func (t *RequestTrace) CompleteChannelCircuitBreakerOutcome() bool {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if t.ChannelCircuitBreakerProcessed {
+		return false
+	}
+	t.ChannelCircuitBreakerProcessed = true
+	return true
+}
+
+func (t *RequestTrace) ChannelCircuitBreakerOutcome() model.ChannelCircuitBreakerOutcome {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	return model.ClassifyChannelCircuitBreakerOutcome(t.StatusCode, strings.TrimSpace(t.ErrorType))
 }
 
 // SetThinkingLevel 设置思维等级

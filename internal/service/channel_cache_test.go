@@ -120,6 +120,22 @@ func (r *countingChannelRepo) GetGroupBindingsByChannelIDs(channelIDs []string) 
 	return result, nil
 }
 
+func (r *countingChannelRepo) UpdateCircuitBreakerState(channel *model.Channel) error {
+	if channel == nil {
+		return nil
+	}
+	if existing, ok := r.channels[channel.ID]; ok {
+		existing.CircuitBreakerThreshold = channel.CircuitBreakerThreshold
+		existing.CircuitBreakerOpenMinutes = channel.CircuitBreakerOpenMinutes
+		existing.CircuitBreakerHalfOpenMinutes = channel.CircuitBreakerHalfOpenMinutes
+		existing.CircuitBreakerState = channel.CircuitBreakerState
+		existing.CircuitBreakerConsecutiveErrors = channel.CircuitBreakerConsecutiveErrors
+		existing.CircuitBreakerOpenedAt = channel.CircuitBreakerOpenedAt
+		existing.CircuitBreakerHalfOpenStartedAt = channel.CircuitBreakerHalfOpenStartedAt
+	}
+	return nil
+}
+
 func TestSelectChannelForModelUsesEnabledChannelCache(t *testing.T) {
 	invalidateEnabledChannelsCache()
 	repo := &countingChannelRepo{
@@ -281,6 +297,49 @@ func TestSelectSpecificChannelForModelWithGroupsUsesCachedSnapshot(t *testing.T)
 	}
 	if repo.getGroupIDCalls != 0 {
 		t.Fatalf("GetGroupIDs calls = %d, want 0", repo.getGroupIDCalls)
+	}
+}
+
+func TestSelectChannelForModelSkipsOpenCircuitBreakerChannel(t *testing.T) {
+	invalidateEnabledChannelsCache()
+	now := time.Now().UTC()
+	repo := &countingChannelRepo{
+		channels: map[string]*model.Channel{
+			"open": {
+				ID:                            "open",
+				Enabled:                       true,
+				Priority:                      1,
+				Weight:                        1,
+				Type:                          model.ChannelTypeOpenAI,
+				ModelsJSON:                    `[{"name":"gpt-4o"}]`,
+				CircuitBreakerThreshold:       2,
+				CircuitBreakerOpenMinutes:     10,
+				CircuitBreakerHalfOpenMinutes: 2,
+				CircuitBreakerState:           model.ChannelCircuitBreakerStateOpen,
+				CircuitBreakerOpenedAt:        &now,
+			},
+			"healthy": {
+				ID:                            "healthy",
+				Enabled:                       true,
+				Priority:                      1,
+				Weight:                        1,
+				Type:                          model.ChannelTypeOpenAI,
+				ModelsJSON:                    `[{"name":"gpt-4o"}]`,
+				CircuitBreakerThreshold:       2,
+				CircuitBreakerOpenMinutes:     10,
+				CircuitBreakerHalfOpenMinutes: 2,
+				CircuitBreakerState:           model.ChannelCircuitBreakerStateClosed,
+			},
+		},
+	}
+
+	svc := NewChannelServiceWithRepo(repo)
+	channel, err := svc.SelectChannelForModel("gpt-4o")
+	if err != nil {
+		t.Fatalf("SelectChannelForModel returned error: %v", err)
+	}
+	if channel == nil || channel.ID != "healthy" {
+		t.Fatalf("expected healthy channel, got %+v", channel)
 	}
 }
 

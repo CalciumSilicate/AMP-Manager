@@ -192,6 +192,7 @@ func (w *LogWriter) UpdateFromTrace(trace *RequestTrace) bool {
 		return false
 	}
 	w.FinalizeAPIKeyCircuitBreaker(trace)
+	w.FinalizeChannelCircuitBreaker(trace)
 
 	snapshot := trace.Clone()
 
@@ -431,6 +432,33 @@ func (w *LogWriter) FinalizeAPIKeyCircuitBreaker(trace *RequestTrace) {
 		if model.ApplyAPIKeyCircuitBreakerOutcome(key, trace.APIKeyCircuitBreakerOutcome(), now) {
 			if err := repo.UpdateCircuitBreakerState(key); err != nil {
 				log.Warnf("log writer: failed to persist api key circuit breaker state for %s: %v", trace.APIKeyID, err)
+			}
+		}
+	})
+}
+
+func (w *LogWriter) FinalizeChannelCircuitBreaker(trace *RequestTrace) {
+	if trace == nil || trace.ChannelID == "" {
+		return
+	}
+	if !trace.CompleteChannelCircuitBreakerOutcome() {
+		return
+	}
+
+	repo := repository.NewChannelRepository()
+	channel, err := repo.GetByID(trace.ChannelID)
+	if err != nil || channel == nil {
+		if err != nil {
+			log.Warnf("log writer: failed to load channel circuit breaker state for %s: %v", trace.ChannelID, err)
+		}
+		return
+	}
+
+	service.WithChannelCircuitBreakerLock(trace.ChannelID, func() {
+		now := time.Now().UTC()
+		if model.ApplyChannelCircuitBreakerOutcome(channel, trace.ChannelCircuitBreakerOutcome(), now) {
+			if err := repo.UpdateCircuitBreakerState(channel); err != nil {
+				log.Warnf("log writer: failed to persist channel circuit breaker state for %s: %v", trace.ChannelID, err)
 			}
 		}
 	})

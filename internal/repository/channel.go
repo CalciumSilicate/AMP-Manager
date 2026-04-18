@@ -12,7 +12,7 @@ import (
 	"github.com/google/uuid"
 )
 
-const channelSelectColumns = `id, type, endpoint, name, base_url, api_key, enabled, split_groups_by_source, weight, priority, rate_multiplier, rate_multiplier_ppm, model_whitelist, simulate_cli, simulate_ua, simulate_system_prompt, traditional_chinese, copilot_api, codex_websocket_enabled, models_json, headers_json, translator_json, created_at, updated_at`
+const channelSelectColumns = `id, type, endpoint, name, base_url, api_key, enabled, split_groups_by_source, circuit_breaker_threshold, circuit_breaker_open_minutes, circuit_breaker_half_open_minutes, circuit_breaker_state, circuit_breaker_consecutive_errors, circuit_breaker_opened_at, circuit_breaker_half_open_started_at, weight, priority, rate_multiplier, rate_multiplier_ppm, model_whitelist, simulate_cli, simulate_ua, simulate_system_prompt, traditional_chinese, copilot_api, codex_websocket_enabled, models_json, headers_json, translator_json, created_at, updated_at`
 
 type ChannelRepositoryInterface interface {
 	Create(channel *model.Channel) error
@@ -28,6 +28,7 @@ type ChannelRepositoryInterface interface {
 	SetGroupBinding(id string, binding *model.ChannelGroupBinding) error
 	GetGroupBinding(channelID string) (*model.ChannelGroupBinding, error)
 	GetGroupBindingsByChannelIDs(channelIDs []string) (map[string]*model.ChannelGroupBinding, error)
+	UpdateCircuitBreakerState(channel *model.Channel) error
 }
 
 var _ ChannelRepositoryInterface = (*ChannelRepository)(nil)
@@ -46,10 +47,10 @@ func (r *ChannelRepository) Create(channel *model.Channel) error {
 	channel.UpdatedAt = now
 
 	_, err := db.Exec(
-		`INSERT INTO channels (id, type, endpoint, name, base_url, api_key, enabled, split_groups_by_source, weight, priority, rate_multiplier, rate_multiplier_ppm, model_whitelist, simulate_cli, simulate_ua, simulate_system_prompt, traditional_chinese, copilot_api, codex_websocket_enabled, models_json, headers_json, translator_json, created_at, updated_at)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		`INSERT INTO channels (id, type, endpoint, name, base_url, api_key, enabled, split_groups_by_source, circuit_breaker_threshold, circuit_breaker_open_minutes, circuit_breaker_half_open_minutes, circuit_breaker_state, circuit_breaker_consecutive_errors, circuit_breaker_opened_at, circuit_breaker_half_open_started_at, weight, priority, rate_multiplier, rate_multiplier_ppm, model_whitelist, simulate_cli, simulate_ua, simulate_system_prompt, traditional_chinese, copilot_api, codex_websocket_enabled, models_json, headers_json, translator_json, created_at, updated_at)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		channel.ID, channel.Type, channel.Endpoint, channel.Name, channel.BaseURL, channel.APIKey,
-		channel.Enabled, channel.SplitGroupsBySource, channel.Weight, channel.Priority, channel.RateMultiplier, channel.RateMultiplierPPM, channel.ModelWhitelist, channel.SimulateCLI, channel.SimulateUA, channel.SimulateSystemPrompt, channel.TraditionalChinese, channel.CopilotAPI, channel.CodexWebsocketEnabled, channel.ModelsJSON, channel.HeadersJSON, channel.TranslatorJSON,
+		channel.Enabled, channel.SplitGroupsBySource, channel.CircuitBreakerThreshold, channel.CircuitBreakerOpenMinutes, channel.CircuitBreakerHalfOpenMinutes, channel.CircuitBreakerState, channel.CircuitBreakerConsecutiveErrors, channel.CircuitBreakerOpenedAt, channel.CircuitBreakerHalfOpenStartedAt, channel.Weight, channel.Priority, channel.RateMultiplier, channel.RateMultiplierPPM, channel.ModelWhitelist, channel.SimulateCLI, channel.SimulateUA, channel.SimulateSystemPrompt, channel.TraditionalChinese, channel.CopilotAPI, channel.CodexWebsocketEnabled, channel.ModelsJSON, channel.HeadersJSON, channel.TranslatorJSON,
 		channel.CreatedAt, channel.UpdatedAt,
 	)
 	return err
@@ -61,10 +62,12 @@ func scanChannel(scanner interface {
 	channel := &model.Channel{}
 	var rateMultiplier sql.NullFloat64
 	var rateMultiplierPPM sql.NullInt64
+	var circuitOpenedAt sql.NullTime
+	var circuitHalfOpenStartedAt sql.NullTime
 
 	err := scanner.Scan(
 		&channel.ID, &channel.Type, &channel.Endpoint, &channel.Name, &channel.BaseURL, &channel.APIKey,
-		&channel.Enabled, &channel.SplitGroupsBySource, &channel.Weight, &channel.Priority, &rateMultiplier, &rateMultiplierPPM, &channel.ModelWhitelist, &channel.SimulateCLI, &channel.SimulateUA, &channel.SimulateSystemPrompt, &channel.TraditionalChinese, &channel.CopilotAPI, &channel.CodexWebsocketEnabled, &channel.ModelsJSON, &channel.HeadersJSON, &channel.TranslatorJSON,
+		&channel.Enabled, &channel.SplitGroupsBySource, &channel.CircuitBreakerThreshold, &channel.CircuitBreakerOpenMinutes, &channel.CircuitBreakerHalfOpenMinutes, &channel.CircuitBreakerState, &channel.CircuitBreakerConsecutiveErrors, &circuitOpenedAt, &circuitHalfOpenStartedAt, &channel.Weight, &channel.Priority, &rateMultiplier, &rateMultiplierPPM, &channel.ModelWhitelist, &channel.SimulateCLI, &channel.SimulateUA, &channel.SimulateSystemPrompt, &channel.TraditionalChinese, &channel.CopilotAPI, &channel.CodexWebsocketEnabled, &channel.ModelsJSON, &channel.HeadersJSON, &channel.TranslatorJSON,
 		&channel.CreatedAt, &channel.UpdatedAt,
 	)
 	if err != nil {
@@ -72,6 +75,13 @@ func scanChannel(scanner interface {
 	}
 	channel.RateMultiplierPPM = deriveChannelMultiplierPPM(rateMultiplierPPM, rateMultiplier)
 	channel.RateMultiplier = precision.MultiplierPPMToFloat64(channel.RateMultiplierPPM)
+	if circuitOpenedAt.Valid {
+		channel.CircuitBreakerOpenedAt = &circuitOpenedAt.Time
+	}
+	if circuitHalfOpenStartedAt.Valid {
+		channel.CircuitBreakerHalfOpenStartedAt = &circuitHalfOpenStartedAt.Time
+	}
+	model.ApplyDefaultChannelCircuitBreakerConfig(channel)
 	return channel, nil
 }
 
@@ -130,9 +140,30 @@ func (r *ChannelRepository) Update(channel *model.Channel) error {
 	channel.UpdatedAt = time.Now().UTC()
 
 	_, err := db.Exec(
-		`UPDATE channels SET type = ?, endpoint = ?, name = ?, base_url = ?, api_key = ?, enabled = ?, split_groups_by_source = ?, weight = ?, priority = ?, rate_multiplier = ?, rate_multiplier_ppm = ?, model_whitelist = ?, simulate_cli = ?, simulate_ua = ?, simulate_system_prompt = ?, traditional_chinese = ?, copilot_api = ?, codex_websocket_enabled = ?, models_json = ?, headers_json = ?, translator_json = ?, updated_at = ?
+		`UPDATE channels SET type = ?, endpoint = ?, name = ?, base_url = ?, api_key = ?, enabled = ?, split_groups_by_source = ?, circuit_breaker_threshold = ?, circuit_breaker_open_minutes = ?, circuit_breaker_half_open_minutes = ?, circuit_breaker_state = ?, circuit_breaker_consecutive_errors = ?, circuit_breaker_opened_at = ?, circuit_breaker_half_open_started_at = ?, weight = ?, priority = ?, rate_multiplier = ?, rate_multiplier_ppm = ?, model_whitelist = ?, simulate_cli = ?, simulate_ua = ?, simulate_system_prompt = ?, traditional_chinese = ?, copilot_api = ?, codex_websocket_enabled = ?, models_json = ?, headers_json = ?, translator_json = ?, updated_at = ?
 		 WHERE id = ?`,
-		channel.Type, channel.Endpoint, channel.Name, channel.BaseURL, channel.APIKey, channel.Enabled, channel.SplitGroupsBySource, channel.Weight, channel.Priority, channel.RateMultiplier, channel.RateMultiplierPPM, channel.ModelWhitelist, channel.SimulateCLI, channel.SimulateUA, channel.SimulateSystemPrompt, channel.TraditionalChinese, channel.CopilotAPI, channel.CodexWebsocketEnabled, channel.ModelsJSON, channel.HeadersJSON, channel.TranslatorJSON, channel.UpdatedAt,
+		channel.Type, channel.Endpoint, channel.Name, channel.BaseURL, channel.APIKey, channel.Enabled, channel.SplitGroupsBySource, channel.CircuitBreakerThreshold, channel.CircuitBreakerOpenMinutes, channel.CircuitBreakerHalfOpenMinutes, channel.CircuitBreakerState, channel.CircuitBreakerConsecutiveErrors, channel.CircuitBreakerOpenedAt, channel.CircuitBreakerHalfOpenStartedAt, channel.Weight, channel.Priority, channel.RateMultiplier, channel.RateMultiplierPPM, channel.ModelWhitelist, channel.SimulateCLI, channel.SimulateUA, channel.SimulateSystemPrompt, channel.TraditionalChinese, channel.CopilotAPI, channel.CodexWebsocketEnabled, channel.ModelsJSON, channel.HeadersJSON, channel.TranslatorJSON, channel.UpdatedAt,
+		channel.ID,
+	)
+	return err
+}
+
+func (r *ChannelRepository) UpdateCircuitBreakerState(channel *model.Channel) error {
+	if channel == nil || channel.ID == "" {
+		return nil
+	}
+	model.ApplyDefaultChannelCircuitBreakerConfig(channel)
+	_, err := database.GetDB().Exec(
+		`UPDATE channels
+		 SET circuit_breaker_state = ?,
+		     circuit_breaker_consecutive_errors = ?,
+		     circuit_breaker_opened_at = ?,
+		     circuit_breaker_half_open_started_at = ?
+		 WHERE id = ?`,
+		channel.CircuitBreakerState,
+		channel.CircuitBreakerConsecutiveErrors,
+		channel.CircuitBreakerOpenedAt,
+		channel.CircuitBreakerHalfOpenStartedAt,
 		channel.ID,
 	)
 	return err

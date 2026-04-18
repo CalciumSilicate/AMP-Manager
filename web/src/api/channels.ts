@@ -40,6 +40,12 @@ export interface Channel {
   apiKeySet: boolean
   enabled: boolean
   splitGroupsBySource: boolean
+  circuitBreakerThreshold: number
+  circuitBreakerOpenMinutes: number
+  circuitBreakerHalfOpenMinutes: number
+  circuitBreakerState: string
+  circuitBreakerOpenedAt?: string
+  circuitBreakerHalfOpenStartedAt?: string
   weight: number
   priority: number
   rateMultiplier: number
@@ -71,6 +77,9 @@ export interface ChannelRequest {
   apiKey?: string
   enabled: boolean
   splitGroupsBySource?: boolean
+  circuitBreakerThreshold?: number
+  circuitBreakerOpenMinutes?: number
+  circuitBreakerHalfOpenMinutes?: number
   weight: number
   priority: number
   rateMultiplier: number
@@ -126,6 +135,10 @@ function normalizeChannel(channel: Channel): Channel {
   return {
     ...channel,
     splitGroupsBySource: Boolean(channel.splitGroupsBySource),
+    circuitBreakerThreshold: Number.isFinite(channel.circuitBreakerThreshold) ? channel.circuitBreakerThreshold : 50,
+    circuitBreakerOpenMinutes: Number.isFinite(channel.circuitBreakerOpenMinutes) ? channel.circuitBreakerOpenMinutes : 10,
+    circuitBreakerHalfOpenMinutes: Number.isFinite(channel.circuitBreakerHalfOpenMinutes) ? channel.circuitBreakerHalfOpenMinutes : 2,
+    circuitBreakerState: channel.circuitBreakerState || 'closed',
     groupIds: Array.isArray(channel.groupIds) ? [...channel.groupIds] : [],
     groupNames: Array.isArray(channel.groupNames) ? [...channel.groupNames] : [],
     subscriptionGroupIds: Array.isArray(channel.subscriptionGroupIds) ? [...channel.subscriptionGroupIds] : [],

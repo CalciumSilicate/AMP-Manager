@@ -12,6 +12,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Switch } from '@/components/ui/switch'
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import {
   Channel,
   ChannelRequest,
@@ -22,6 +23,7 @@ import {
 } from '@/api/channels'
 import { Group } from '@/api/groups'
 import ModelRulesEditor from './ModelRulesEditor'
+import { Info } from 'lucide-react'
 
 const CHANNEL_TYPES: { value: ChannelType; label: string; defaultUrl: string; defaultEndpoint: ChannelEndpoint }[] = [
   { value: 'gemini', label: 'Gemini', defaultUrl: 'https://generativelanguage.googleapis.com', defaultEndpoint: 'generate_content' },
@@ -91,6 +93,24 @@ function SwitchRow({ label, hint, checked, onCheckedChange, disabled }: SwitchRo
         <p className="text-xs text-muted-foreground">{hint}</p>
       </div>
       <Switch checked={checked} disabled={disabled} onCheckedChange={onCheckedChange} />
+    </div>
+  )
+}
+
+function CircuitBreakerFieldLabel({ label, description }: { label: string; description: string }) {
+  return (
+    <div className="flex items-center gap-1.5">
+      <span>{label}</span>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <button type="button" className="text-muted-foreground transition-colors hover:text-foreground" aria-label={`${label}说明`}>
+            <Info className="h-3.5 w-3.5" />
+          </button>
+        </TooltipTrigger>
+        <TooltipContent side="top" className="max-w-72 border bg-popover px-3 py-2 text-xs text-popover-foreground shadow-md">
+          {description}
+        </TooltipContent>
+      </Tooltip>
     </div>
   )
 }
@@ -399,6 +419,42 @@ export function ChannelFormDialog({
                 value={formData.rateMultiplier ?? 1}
                 onChange={(e) => setFormData(prev => ({ ...prev, rateMultiplier: Number.parseFloat(e.target.value) || 0 }))}
               />
+            </div>
+          </div>
+
+          <div className="col-span-2 rounded-md border border-border/70 p-4">
+            <div className="mb-3 space-y-1">
+              <Label>渠道熔断</Label>
+              <p className="text-xs text-muted-foreground">语义与 API Key 熔断一致，429 不计数，成功一次即清零。</p>
+            </div>
+            <div className="grid gap-4 md:grid-cols-3">
+              <div className="space-y-2">
+                <CircuitBreakerFieldLabel label="错误阈值" description="非 2xx 和网络错误会累计，429 不计数；成功一次即清零。" />
+                <Input
+                  type="number"
+                  min="1"
+                  value={formData.circuitBreakerThreshold ?? 50}
+                  onChange={(e) => setFormData(prev => ({ ...prev, circuitBreakerThreshold: Number.parseInt(e.target.value, 10) || 50 }))}
+                />
+              </div>
+              <div className="space-y-2">
+                <CircuitBreakerFieldLabel label="熔断时长" description="进入 open 后拒绝请求的时长，结束后进入半开窗口。" />
+                <Input
+                  type="number"
+                  min="1"
+                  value={formData.circuitBreakerOpenMinutes ?? 10}
+                  onChange={(e) => setFormData(prev => ({ ...prev, circuitBreakerOpenMinutes: Number.parseInt(e.target.value, 10) || 10 }))}
+                />
+              </div>
+              <div className="space-y-2">
+                <CircuitBreakerFieldLabel label="半开时长" description="半开窗口整段放流；窗口内任一失败立刻重新熔断；整窗无失败才关闭。" />
+                <Input
+                  type="number"
+                  min="1"
+                  value={formData.circuitBreakerHalfOpenMinutes ?? 2}
+                  onChange={(e) => setFormData(prev => ({ ...prev, circuitBreakerHalfOpenMinutes: Number.parseInt(e.target.value, 10) || 2 }))}
+                />
+              </div>
             </div>
           </div>
 

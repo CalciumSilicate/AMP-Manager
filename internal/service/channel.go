@@ -321,6 +321,57 @@ func normalizeChannelGroupBinding(req *model.ChannelRequest) *model.ChannelGroup
 	}
 }
 
+func normalizeChannelCircuitBreakerThreshold(value int) int {
+	if value <= 0 {
+		return model.DefaultChannelCircuitBreakerThreshold
+	}
+	return value
+}
+
+func normalizeChannelCircuitBreakerOpenMinutes(value int) int {
+	if value <= 0 {
+		return model.DefaultChannelCircuitBreakerOpenMinutes
+	}
+	return value
+}
+
+func normalizeChannelCircuitBreakerHalfOpenMinutes(value int) int {
+	if value <= 0 {
+		return model.DefaultChannelCircuitBreakerHalfOpenMinutes
+	}
+	return value
+}
+
+func resolveChannelCircuitBreakerThreshold(value, current int) int {
+	if value > 0 {
+		return normalizeChannelCircuitBreakerThreshold(value)
+	}
+	if current > 0 {
+		return current
+	}
+	return model.DefaultChannelCircuitBreakerThreshold
+}
+
+func resolveChannelCircuitBreakerOpenMinutes(value, current int) int {
+	if value > 0 {
+		return normalizeChannelCircuitBreakerOpenMinutes(value)
+	}
+	if current > 0 {
+		return current
+	}
+	return model.DefaultChannelCircuitBreakerOpenMinutes
+}
+
+func resolveChannelCircuitBreakerHalfOpenMinutes(value, current int) int {
+	if value > 0 {
+		return normalizeChannelCircuitBreakerHalfOpenMinutes(value)
+	}
+	if current > 0 {
+		return current
+	}
+	return model.DefaultChannelCircuitBreakerHalfOpenMinutes
+}
+
 func (s *ChannelService) Create(req *model.ChannelRequest) (*model.ChannelResponse, error) {
 	groupBinding := normalizeChannelGroupBinding(req)
 	modelsJSON, _ := json.Marshal(req.Models)
@@ -352,27 +403,31 @@ func (s *ChannelService) Create(req *model.ChannelRequest) (*model.ChannelRespon
 	}
 
 	channel := &model.Channel{
-		Type:                  req.Type,
-		Endpoint:              endpoint,
-		Name:                  req.Name,
-		BaseURL:               strings.TrimSuffix(req.BaseURL, "/"),
-		APIKey:                req.APIKey,
-		Enabled:               req.Enabled,
-		SplitGroupsBySource:   groupBinding.SplitBySource,
-		Weight:                weight,
-		Priority:              priority,
-		RateMultiplierPPM:     rateMultiplierPPM,
-		RateMultiplier:        precision.MultiplierPPMToFloat64(rateMultiplierPPM),
-		ModelWhitelist:        req.ModelWhitelist,
-		SimulateCLI:           req.SimulateCLI,
-		SimulateUA:            req.SimulateUA,
-		SimulateSystemPrompt:  req.SimulateSystemPrompt,
-		TraditionalChinese:    req.TraditionalChinese,
-		CopilotAPI:            req.CopilotAPI,
-		CodexWebsocketEnabled: req.CodexWebsocketEnabled,
-		ModelsJSON:            string(modelsJSON),
-		HeadersJSON:           string(headersJSON),
-		TranslatorJSON:        translatorJSON,
+		Type:                          req.Type,
+		Endpoint:                      endpoint,
+		Name:                          req.Name,
+		BaseURL:                       strings.TrimSuffix(req.BaseURL, "/"),
+		APIKey:                        req.APIKey,
+		Enabled:                       req.Enabled,
+		SplitGroupsBySource:           groupBinding.SplitBySource,
+		CircuitBreakerThreshold:       normalizeChannelCircuitBreakerThreshold(req.CircuitBreakerThreshold),
+		CircuitBreakerOpenMinutes:     normalizeChannelCircuitBreakerOpenMinutes(req.CircuitBreakerOpenMinutes),
+		CircuitBreakerHalfOpenMinutes: normalizeChannelCircuitBreakerHalfOpenMinutes(req.CircuitBreakerHalfOpenMinutes),
+		CircuitBreakerState:           model.ChannelCircuitBreakerStateClosed,
+		Weight:                        weight,
+		Priority:                      priority,
+		RateMultiplierPPM:             rateMultiplierPPM,
+		RateMultiplier:                precision.MultiplierPPMToFloat64(rateMultiplierPPM),
+		ModelWhitelist:                req.ModelWhitelist,
+		SimulateCLI:                   req.SimulateCLI,
+		SimulateUA:                    req.SimulateUA,
+		SimulateSystemPrompt:          req.SimulateSystemPrompt,
+		TraditionalChinese:            req.TraditionalChinese,
+		CopilotAPI:                    req.CopilotAPI,
+		CodexWebsocketEnabled:         req.CodexWebsocketEnabled,
+		ModelsJSON:                    string(modelsJSON),
+		HeadersJSON:                   string(headersJSON),
+		TranslatorJSON:                translatorJSON,
 	}
 
 	if err := s.repo.Create(channel); err != nil {
@@ -398,6 +453,23 @@ func (s *ChannelService) defaultEndpointForType(channelType model.ChannelType) m
 	}
 }
 
+func (s *ChannelService) refreshChannelCircuitBreakerState(channel *model.Channel) error {
+	return s.refreshChannelCircuitBreakerStateAt(channel, time.Now().UTC())
+}
+
+func (s *ChannelService) refreshChannelCircuitBreakerStateAt(channel *model.Channel, now time.Time) error {
+	if channel == nil {
+		return nil
+	}
+	var updateErr error
+	WithChannelCircuitBreakerLock(channel.ID, func() {
+		if model.RefreshChannelCircuitBreakerState(channel, now) {
+			updateErr = s.repo.UpdateCircuitBreakerState(channel)
+		}
+	})
+	return updateErr
+}
+
 func (s *ChannelService) GetByID(id string) (*model.ChannelResponse, error) {
 	channel, err := s.repo.GetByID(id)
 	if err != nil {
@@ -406,6 +478,9 @@ func (s *ChannelService) GetByID(id string) (*model.ChannelResponse, error) {
 	if channel == nil {
 		return nil, ErrChannelNotFound
 	}
+	if err := s.refreshChannelCircuitBreakerState(channel); err != nil {
+		return nil, err
+	}
 	return s.toResponse(channel), nil
 }
 
@@ -413,6 +488,11 @@ func (s *ChannelService) List() ([]*model.ChannelResponse, error) {
 	channels, err := s.repo.List()
 	if err != nil {
 		return nil, err
+	}
+	for _, channel := range channels {
+		if err := s.refreshChannelCircuitBreakerState(channel); err != nil {
+			return nil, err
+		}
 	}
 	return s.toResponsesBatch(channels)
 }
@@ -461,6 +541,9 @@ func (s *ChannelService) Update(id string, req *model.ChannelRequest) (*model.Ch
 	existing.BaseURL = strings.TrimSuffix(req.BaseURL, "/")
 	existing.Enabled = req.Enabled
 	existing.SplitGroupsBySource = groupBinding.SplitBySource
+	existing.CircuitBreakerThreshold = resolveChannelCircuitBreakerThreshold(req.CircuitBreakerThreshold, existing.CircuitBreakerThreshold)
+	existing.CircuitBreakerOpenMinutes = resolveChannelCircuitBreakerOpenMinutes(req.CircuitBreakerOpenMinutes, existing.CircuitBreakerOpenMinutes)
+	existing.CircuitBreakerHalfOpenMinutes = resolveChannelCircuitBreakerHalfOpenMinutes(req.CircuitBreakerHalfOpenMinutes, existing.CircuitBreakerHalfOpenMinutes)
 	existing.Weight = weight
 	existing.Priority = priority
 	existing.RateMultiplierPPM = rateMultiplierPPM
@@ -783,9 +866,16 @@ func (s *ChannelService) SelectChannelForModelAndFormatAndProvider(modelName str
 	if err != nil {
 		return nil, err
 	}
+	now := time.Now().UTC()
 
 	var candidates []*model.Channel
 	for _, ch := range channels {
+		if err := s.refreshChannelCircuitBreakerStateAt(ch, now); err != nil {
+			return nil, err
+		}
+		if model.IsChannelCircuitBreakerBlocked(ch, now) {
+			continue
+		}
 		if provider != "" && !strings.EqualFold(provider, stickyProviderForChannel(ch)) {
 			continue
 		}
@@ -824,6 +914,13 @@ func (s *ChannelService) SelectSpecificChannelForModelWithGroupsAndFormat(channe
 	if channel == nil {
 		return nil, nil
 	}
+	now := time.Now().UTC()
+	if err := s.refreshChannelCircuitBreakerStateAt(channel, now); err != nil {
+		return nil, err
+	}
+	if model.IsChannelCircuitBreakerBlocked(channel, now) {
+		return nil, nil
+	}
 	if !s.channelMatchesModel(channel, modelName) || !s.channelSupportsRequestFormat(channel, incomingFormat, allowTranslation) {
 		return nil, nil
 	}
@@ -855,8 +952,15 @@ func (s *ChannelService) SelectChannelForModelWithGroupsAndFormatAndProvider(mod
 	}
 
 	userGroupIDSet := toStringSet(groupIDs)
+	now := time.Now().UTC()
 	var candidates []*model.Channel
 	for _, ch := range channels {
+		if err := s.refreshChannelCircuitBreakerStateAt(ch, now); err != nil {
+			return nil, err
+		}
+		if model.IsChannelCircuitBreakerBlocked(ch, now) {
+			continue
+		}
 		if provider != "" && !strings.EqualFold(provider, stickyProviderForChannel(ch)) {
 			continue
 		}
@@ -1270,36 +1374,42 @@ func (s *ChannelService) buildResponse(channel *model.Channel, binding *model.Ch
 	usageGroupNames := groupNamesFromIDs(usageGroupIDs, groupMap)
 
 	return &model.ChannelResponse{
-		ID:                     channel.ID,
-		Type:                   channel.Type,
-		Endpoint:               channel.Endpoint,
-		Name:                   channel.Name,
-		BaseURL:                channel.BaseURL,
-		APIKeySet:              channel.APIKey != "",
-		Enabled:                channel.Enabled,
-		SplitGroupsBySource:    channel.SplitGroupsBySource,
-		Weight:                 channel.Weight,
-		Priority:               channel.Priority,
-		RateMultiplierPPM:      channel.RateMultiplierPPM,
-		RateMultiplier:         precision.MultiplierPPMToFloat64(channel.RateMultiplierPPM),
-		ModelWhitelist:         channel.ModelWhitelist,
-		SimulateCLI:            channel.SimulateCLI,
-		SimulateUA:             channel.SimulateUA,
-		SimulateSystemPrompt:   channel.SimulateSystemPrompt,
-		TraditionalChinese:     channel.TraditionalChinese,
-		CopilotAPI:             channel.CopilotAPI,
-		CodexWebsocketEnabled:  channel.CodexWebsocketEnabled,
-		GroupIDs:               groupIDs,
-		GroupNames:             groupNames,
-		SubscriptionGroupIDs:   subscriptionGroupIDs,
-		SubscriptionGroupNames: subscriptionGroupNames,
-		UsageGroupIDs:          usageGroupIDs,
-		UsageGroupNames:        usageGroupNames,
-		Models:                 models,
-		Headers:                clonedHeaders,
-		Translator:             translatorConfig,
-		CreatedAt:              channel.CreatedAt,
-		UpdatedAt:              channel.UpdatedAt,
+		ID:                              channel.ID,
+		Type:                            channel.Type,
+		Endpoint:                        channel.Endpoint,
+		Name:                            channel.Name,
+		BaseURL:                         channel.BaseURL,
+		APIKeySet:                       channel.APIKey != "",
+		Enabled:                         channel.Enabled,
+		SplitGroupsBySource:             channel.SplitGroupsBySource,
+		CircuitBreakerThreshold:         channel.CircuitBreakerThreshold,
+		CircuitBreakerOpenMinutes:       channel.CircuitBreakerOpenMinutes,
+		CircuitBreakerHalfOpenMinutes:   channel.CircuitBreakerHalfOpenMinutes,
+		CircuitBreakerState:             channel.CircuitBreakerState,
+		CircuitBreakerOpenedAt:          channel.CircuitBreakerOpenedAt,
+		CircuitBreakerHalfOpenStartedAt: channel.CircuitBreakerHalfOpenStartedAt,
+		Weight:                          channel.Weight,
+		Priority:                        channel.Priority,
+		RateMultiplierPPM:               channel.RateMultiplierPPM,
+		RateMultiplier:                  precision.MultiplierPPMToFloat64(channel.RateMultiplierPPM),
+		ModelWhitelist:                  channel.ModelWhitelist,
+		SimulateCLI:                     channel.SimulateCLI,
+		SimulateUA:                      channel.SimulateUA,
+		SimulateSystemPrompt:            channel.SimulateSystemPrompt,
+		TraditionalChinese:              channel.TraditionalChinese,
+		CopilotAPI:                      channel.CopilotAPI,
+		CodexWebsocketEnabled:           channel.CodexWebsocketEnabled,
+		GroupIDs:                        groupIDs,
+		GroupNames:                      groupNames,
+		SubscriptionGroupIDs:            subscriptionGroupIDs,
+		SubscriptionGroupNames:          subscriptionGroupNames,
+		UsageGroupIDs:                   usageGroupIDs,
+		UsageGroupNames:                 usageGroupNames,
+		Models:                          models,
+		Headers:                         clonedHeaders,
+		Translator:                      translatorConfig,
+		CreatedAt:                       channel.CreatedAt,
+		UpdatedAt:                       channel.UpdatedAt,
 	}
 }
 

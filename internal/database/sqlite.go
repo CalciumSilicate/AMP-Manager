@@ -354,6 +354,13 @@ func createTables() error {
 		api_key TEXT NOT NULL DEFAULT '',
 		enabled INTEGER NOT NULL DEFAULT 1,
 		split_groups_by_source INTEGER NOT NULL DEFAULT 0,
+		circuit_breaker_threshold INTEGER NOT NULL DEFAULT 50,
+		circuit_breaker_open_minutes INTEGER NOT NULL DEFAULT 10,
+		circuit_breaker_half_open_minutes INTEGER NOT NULL DEFAULT 2,
+		circuit_breaker_state TEXT NOT NULL DEFAULT 'closed',
+		circuit_breaker_consecutive_errors INTEGER NOT NULL DEFAULT 0,
+		circuit_breaker_opened_at DATETIME,
+		circuit_breaker_half_open_started_at DATETIME,
 		weight INTEGER NOT NULL DEFAULT 1,
 		priority INTEGER NOT NULL DEFAULT 100,
 		rate_multiplier REAL NOT NULL DEFAULT 1.0,
@@ -1822,6 +1829,16 @@ func runMigrations() error {
 		{
 			name: "add_channels_split_groups_by_source",
 			sql:  `ALTER TABLE channels ADD COLUMN split_groups_by_source INTEGER NOT NULL DEFAULT 0`,
+		},
+		{
+			name: "add_channels_circuit_breaker_columns",
+			sql: `ALTER TABLE channels ADD COLUMN circuit_breaker_threshold INTEGER NOT NULL DEFAULT 50;
+				  ALTER TABLE channels ADD COLUMN circuit_breaker_open_minutes INTEGER NOT NULL DEFAULT 10;
+				  ALTER TABLE channels ADD COLUMN circuit_breaker_half_open_minutes INTEGER NOT NULL DEFAULT 2;
+				  ALTER TABLE channels ADD COLUMN circuit_breaker_state TEXT NOT NULL DEFAULT 'closed';
+				  ALTER TABLE channels ADD COLUMN circuit_breaker_consecutive_errors INTEGER NOT NULL DEFAULT 0;
+				  ALTER TABLE channels ADD COLUMN circuit_breaker_opened_at DATETIME;
+				  ALTER TABLE channels ADD COLUMN circuit_breaker_half_open_started_at DATETIME`,
 		},
 		{
 			name: "create_channel_subscription_groups_table",
