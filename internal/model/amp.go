@@ -9,6 +9,18 @@ const (
 	WebSearchModeLocalDDG    = "local_duckduckgo" // 本地 DuckDuckGo 搜索
 )
 
+const (
+	APIKeyCircuitBreakerStateClosed   = "closed"
+	APIKeyCircuitBreakerStateOpen     = "open"
+	APIKeyCircuitBreakerStateHalfOpen = "half_open"
+)
+
+const (
+	DefaultAPIKeyCircuitBreakerThreshold       = 50
+	DefaultAPIKeyCircuitBreakerOpenMinutes     = 10
+	DefaultAPIKeyCircuitBreakerHalfOpenMinutes = 2
+)
+
 type AmpSettings struct {
 	ID                   string    `json:"id"`
 	UserID               string    `json:"user_id"`
@@ -40,17 +52,24 @@ type ModelMapping struct {
 }
 
 type UserAPIKey struct {
-	ID         string     `json:"id"`
-	UserID     string     `json:"user_id"`
-	Name       string     `json:"name"`
-	KeyHash    string     `json:"-"`
-	APIKey     string     `json:"-"`
-	Prefix     string     `json:"prefix"`
-	LastUsedAt *time.Time `json:"last_used_at,omitempty"`
-	LastUsed   *time.Time `json:"last_used,omitempty"`
-	ExpiresAt  *time.Time `json:"expires_at,omitempty"`
-	RevokedAt  *time.Time `json:"revoked_at,omitempty"`
-	CreatedAt  time.Time  `json:"created_at"`
+	ID                              string     `json:"id"`
+	UserID                          string     `json:"user_id"`
+	Name                            string     `json:"name"`
+	KeyHash                         string     `json:"-"`
+	APIKey                          string     `json:"-"`
+	Prefix                          string     `json:"prefix"`
+	LastUsedAt                      *time.Time `json:"last_used_at,omitempty"`
+	LastUsed                        *time.Time `json:"last_used,omitempty"`
+	ExpiresAt                       *time.Time `json:"expires_at,omitempty"`
+	RevokedAt                       *time.Time `json:"revoked_at,omitempty"`
+	CircuitBreakerThreshold         int        `json:"circuit_breaker_threshold"`
+	CircuitBreakerOpenMinutes       int        `json:"circuit_breaker_open_minutes"`
+	CircuitBreakerHalfOpenMinutes   int        `json:"circuit_breaker_half_open_minutes"`
+	CircuitBreakerState             string     `json:"circuit_breaker_state"`
+	CircuitBreakerConsecutiveErrors int        `json:"circuit_breaker_consecutive_errors"`
+	CircuitBreakerOpenedAt          *time.Time `json:"circuit_breaker_opened_at,omitempty"`
+	CircuitBreakerHalfOpenStartedAt *time.Time `json:"circuit_breaker_half_open_started_at,omitempty"`
+	CreatedAt                       time.Time  `json:"created_at"`
 }
 
 // Request/Response 结构体
@@ -88,16 +107,22 @@ type TestConnectionResponse struct {
 }
 
 type CreateAPIKeyRequest struct {
-	Name      string     `json:"name" binding:"required,min=1,max=64"`
-	CustomKey string     `json:"customKey,omitempty"`
-	ExpiresAt *time.Time `json:"expiresAt,omitempty"`
+	Name                          string     `json:"name" binding:"required,min=1,max=64"`
+	CustomKey                     string     `json:"customKey,omitempty"`
+	ExpiresAt                     *time.Time `json:"expiresAt,omitempty"`
+	CircuitBreakerThreshold       *int       `json:"circuitBreakerThreshold,omitempty" binding:"omitempty,min=1,max=1000"`
+	CircuitBreakerOpenMinutes     *int       `json:"circuitBreakerOpenMinutes,omitempty" binding:"omitempty,min=1,max=1440"`
+	CircuitBreakerHalfOpenMinutes *int       `json:"circuitBreakerHalfOpenMinutes,omitempty" binding:"omitempty,min=1,max=240"`
 }
 
 type UpdateAPIKeyRequest struct {
-	Name        string     `json:"name" binding:"required,min=1,max=64"`
-	APIKey      string     `json:"apiKey,omitempty"`
-	ExpiresAt   *time.Time `json:"expiresAt,omitempty"`
-	ClearExpiry bool       `json:"clearExpiry,omitempty"`
+	Name                          string     `json:"name" binding:"required,min=1,max=64"`
+	APIKey                        string     `json:"apiKey,omitempty"`
+	ExpiresAt                     *time.Time `json:"expiresAt,omitempty"`
+	ClearExpiry                   bool       `json:"clearExpiry,omitempty"`
+	CircuitBreakerThreshold       *int       `json:"circuitBreakerThreshold,omitempty" binding:"omitempty,min=1,max=1000"`
+	CircuitBreakerOpenMinutes     *int       `json:"circuitBreakerOpenMinutes,omitempty" binding:"omitempty,min=1,max=1440"`
+	CircuitBreakerHalfOpenMinutes *int       `json:"circuitBreakerHalfOpenMinutes,omitempty" binding:"omitempty,min=1,max=240"`
 }
 
 type UpdateAPIKeyStatusRequest struct {
@@ -105,22 +130,30 @@ type UpdateAPIKeyStatusRequest struct {
 }
 
 type CreateAPIKeyResponse struct {
-	ID        string     `json:"id"`
-	Name      string     `json:"name"`
-	Prefix    string     `json:"prefix"`
-	APIKey    string     `json:"apiKey"`
-	ExpiresAt *time.Time `json:"expiresAt,omitempty"`
-	CreatedAt time.Time  `json:"createdAt"`
-	Message   string     `json:"message"`
+	ID                            string     `json:"id"`
+	Name                          string     `json:"name"`
+	Prefix                        string     `json:"prefix"`
+	APIKey                        string     `json:"apiKey"`
+	ExpiresAt                     *time.Time `json:"expiresAt,omitempty"`
+	CircuitBreakerThreshold       int        `json:"circuitBreakerThreshold"`
+	CircuitBreakerOpenMinutes     int        `json:"circuitBreakerOpenMinutes"`
+	CircuitBreakerHalfOpenMinutes int        `json:"circuitBreakerHalfOpenMinutes"`
+	CircuitBreakerState           string     `json:"circuitBreakerState"`
+	CreatedAt                     time.Time  `json:"createdAt"`
+	Message                       string     `json:"message"`
 }
 
 type APIKeyRevealResponse struct {
-	ID        string     `json:"id"`
-	Name      string     `json:"name"`
-	Prefix    string     `json:"prefix"`
-	APIKey    string     `json:"apiKey"`
-	ExpiresAt *time.Time `json:"expiresAt,omitempty"`
-	CreatedAt time.Time  `json:"createdAt"`
+	ID                            string     `json:"id"`
+	Name                          string     `json:"name"`
+	Prefix                        string     `json:"prefix"`
+	APIKey                        string     `json:"apiKey"`
+	ExpiresAt                     *time.Time `json:"expiresAt,omitempty"`
+	CircuitBreakerThreshold       int        `json:"circuitBreakerThreshold"`
+	CircuitBreakerOpenMinutes     int        `json:"circuitBreakerOpenMinutes"`
+	CircuitBreakerHalfOpenMinutes int        `json:"circuitBreakerHalfOpenMinutes"`
+	CircuitBreakerState           string     `json:"circuitBreakerState"`
+	CreatedAt                     time.Time  `json:"createdAt"`
 }
 
 type CCSwitchUsageItem struct {
@@ -135,16 +168,22 @@ type CCSwitchUsageItem struct {
 }
 
 type APIKeyListItem struct {
-	ID        string     `json:"id"`
-	Name      string     `json:"name"`
-	Prefix    string     `json:"prefix"`
-	APIKey    string     `json:"apiKey,omitempty"`
-	CreatedAt time.Time  `json:"createdAt"`
-	RevokedAt *time.Time `json:"revokedAt,omitempty"`
-	LastUsed  *time.Time `json:"lastUsedAt,omitempty"`
-	ExpiresAt *time.Time `json:"expiresAt,omitempty"`
-	Status    string     `json:"status"`
-	IsActive  bool       `json:"isActive"`
+	ID                              string     `json:"id"`
+	Name                            string     `json:"name"`
+	Prefix                          string     `json:"prefix"`
+	APIKey                          string     `json:"apiKey,omitempty"`
+	CreatedAt                       time.Time  `json:"createdAt"`
+	RevokedAt                       *time.Time `json:"revokedAt,omitempty"`
+	LastUsed                        *time.Time `json:"lastUsedAt,omitempty"`
+	ExpiresAt                       *time.Time `json:"expiresAt,omitempty"`
+	Status                          string     `json:"status"`
+	IsActive                        bool       `json:"isActive"`
+	CircuitBreakerThreshold         int        `json:"circuitBreakerThreshold"`
+	CircuitBreakerOpenMinutes       int        `json:"circuitBreakerOpenMinutes"`
+	CircuitBreakerHalfOpenMinutes   int        `json:"circuitBreakerHalfOpenMinutes"`
+	CircuitBreakerState             string     `json:"circuitBreakerState"`
+	CircuitBreakerOpenedAt          *time.Time `json:"circuitBreakerOpenedAt,omitempty"`
+	CircuitBreakerHalfOpenStartedAt *time.Time `json:"circuitBreakerHalfOpenStartedAt,omitempty"`
 }
 
 type BootstrapResponse struct {

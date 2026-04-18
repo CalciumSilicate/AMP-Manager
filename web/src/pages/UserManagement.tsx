@@ -72,10 +72,12 @@ import {
 import { Switch } from '@/components/ui/switch'
 import { Table, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { DateTimePicker } from '@/components/ui/datetime-picker'
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { useGlobalToast } from '@/components/ui/use-global-toast'
 import { formatDateTime, formatGroupedNumericString } from '@/lib/formatters'
 import {
   CreditCard,
+  Info,
   Key,
   KeyRound,
   MoreHorizontal,
@@ -127,6 +129,51 @@ function getAPIKeyStatusLabel(status: APIKey['status']): string {
   }
 }
 
+function getAPIKeyCircuitBreakerLabel(state: APIKey['circuitBreakerState']): string {
+  switch (state) {
+    case 'open':
+      return '已熔断'
+    case 'half_open':
+      return '半开'
+    default:
+      return '关闭'
+  }
+}
+
+function getAPIKeyCircuitBreakerVariant(state: APIKey['circuitBreakerState']): 'default' | 'secondary' | 'destructive' | 'outline' {
+  switch (state) {
+    case 'open':
+      return 'destructive'
+    case 'half_open':
+      return 'outline'
+    default:
+      return 'secondary'
+  }
+}
+
+function APIKeyCircuitBreakerLabel({ label, description }: { label: string; description: string }) {
+  return (
+    <div className="flex items-center gap-1.5">
+      <span>{label}</span>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <button type="button" className="text-muted-foreground transition-colors hover:text-foreground" aria-label={`${label}说明`}>
+            <Info className="h-3.5 w-3.5" />
+          </button>
+        </TooltipTrigger>
+        <TooltipContent side="top" className="max-w-72 border bg-popover px-3 py-2 text-xs text-popover-foreground shadow-md">
+          {description}
+        </TooltipContent>
+      </Tooltip>
+    </div>
+  )
+}
+
+function parsePositiveIntegerOrFallback(value: string, fallback: number) {
+  const parsed = Number.parseInt(value, 10)
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback
+}
+
 export default function UserManagement() {
   const [users, setUsers] = useState<UserInfo[]>([])
   const [groups, setGroups] = useState<Group[]>([])
@@ -165,6 +212,9 @@ export default function UserManagement() {
   const [editingUserAPIKeyName, setEditingUserAPIKeyName] = useState('')
   const [editingUserAPIKeyValue, setEditingUserAPIKeyValue] = useState('')
   const [editingUserAPIKeyExpiresAt, setEditingUserAPIKeyExpiresAt] = useState('')
+  const [editingUserAPIKeyCircuitBreakerThreshold, setEditingUserAPIKeyCircuitBreakerThreshold] = useState('50')
+  const [editingUserAPIKeyCircuitBreakerOpenMinutes, setEditingUserAPIKeyCircuitBreakerOpenMinutes] = useState('10')
+  const [editingUserAPIKeyCircuitBreakerHalfOpenMinutes, setEditingUserAPIKeyCircuitBreakerHalfOpenMinutes] = useState('2')
   const [savingUserAPIKey, setSavingUserAPIKey] = useState(false)
   const [deletingUserAPIKeyId, setDeletingUserAPIKeyId] = useState<string | null>(null)
   const [togglingUserAPIKeyId, setTogglingUserAPIKeyId] = useState<string | null>(null)
@@ -542,6 +592,9 @@ export default function UserManagement() {
     setEditingUserAPIKeyName(key.name)
     setEditingUserAPIKeyValue(key.apiKey || '')
     setEditingUserAPIKeyExpiresAt(key.expiresAt || '')
+    setEditingUserAPIKeyCircuitBreakerThreshold(String(key.circuitBreakerThreshold))
+    setEditingUserAPIKeyCircuitBreakerOpenMinutes(String(key.circuitBreakerOpenMinutes))
+    setEditingUserAPIKeyCircuitBreakerHalfOpenMinutes(String(key.circuitBreakerHalfOpenMinutes))
   }
 
   const handleSaveUserAPIKey = async () => {
@@ -553,6 +606,9 @@ export default function UserManagement() {
         name: editingUserAPIKeyName.trim(),
         apiKey: editingUserAPIKeyValue.trim(),
         ...(editingUserAPIKeyExpiresAt ? { expiresAt: editingUserAPIKeyExpiresAt } : { clearExpiry: true }),
+        circuitBreakerThreshold: parsePositiveIntegerOrFallback(editingUserAPIKeyCircuitBreakerThreshold, editingUserAPIKey.circuitBreakerThreshold),
+        circuitBreakerOpenMinutes: parsePositiveIntegerOrFallback(editingUserAPIKeyCircuitBreakerOpenMinutes, editingUserAPIKey.circuitBreakerOpenMinutes),
+        circuitBreakerHalfOpenMinutes: parsePositiveIntegerOrFallback(editingUserAPIKeyCircuitBreakerHalfOpenMinutes, editingUserAPIKey.circuitBreakerHalfOpenMinutes),
       })
       await loadUserAPIKeys(apiKeysModal.userId)
       setEditingUserAPIKey(null)
@@ -1706,9 +1762,15 @@ export default function UserManagement() {
                           <Badge variant={key.status === 'active' ? 'default' : 'secondary'}>
                             {getAPIKeyStatusLabel(key.status)}
                           </Badge>
+                          <Badge variant={getAPIKeyCircuitBreakerVariant(key.circuitBreakerState)}>
+                            {getAPIKeyCircuitBreakerLabel(key.circuitBreakerState)}
+                          </Badge>
                         </div>
                         <p className="font-mono text-xs text-muted-foreground">{key.apiKey || `${key.prefix}...`}</p>
                         <p className="text-xs text-muted-foreground">到期 {key.expiresAt ? formatDateTime(key.expiresAt) : '永不过期'}</p>
+                        <p className="text-xs text-muted-foreground">
+                          熔断 {key.circuitBreakerThreshold} / {key.circuitBreakerOpenMinutes} 分钟 / {key.circuitBreakerHalfOpenMinutes} 分钟
+                        </p>
                       </div>
                       <div className="flex items-center gap-2">
                         <Button variant="outline" size="sm" onClick={() => void handleToggleUserAPIKeyDisabled(key)} disabled={togglingUserAPIKeyId === key.id}>
@@ -1742,7 +1804,7 @@ export default function UserManagement() {
           <DialogContent>
             <DialogHeader>
               <DialogTitle>编辑用户 API Key</DialogTitle>
-              <DialogDescription>可直接修改明文 Key、名称和到期时间。</DialogDescription>
+              <DialogDescription>可直接修改明文 Key、名称、到期时间和熔断参数。</DialogDescription>
             </DialogHeader>
             <div className="space-y-4 py-4">
               <div className="space-y-2">
@@ -1768,6 +1830,26 @@ export default function UserManagement() {
                   placeholder="留空表示永不过期"
                   className="w-full justify-between"
                 />
+              </div>
+              <div className="grid gap-4 md:grid-cols-3">
+                <div className="space-y-2">
+                  <Label>
+                    <APIKeyCircuitBreakerLabel label="错误阈值" description="非 2xx 和网络错误会累计，429 不计数；成功一次即清零。" />
+                  </Label>
+                  <Input type="number" min="1" max="1000" value={editingUserAPIKeyCircuitBreakerThreshold} onChange={(event) => setEditingUserAPIKeyCircuitBreakerThreshold(event.target.value)} />
+                </div>
+                <div className="space-y-2">
+                  <Label>
+                    <APIKeyCircuitBreakerLabel label="熔断时长" description="进入 open 后拒绝请求的时长，结束后进入半开窗口。" />
+                  </Label>
+                  <Input type="number" min="1" max="1440" value={editingUserAPIKeyCircuitBreakerOpenMinutes} onChange={(event) => setEditingUserAPIKeyCircuitBreakerOpenMinutes(event.target.value)} />
+                </div>
+                <div className="space-y-2">
+                  <Label>
+                    <APIKeyCircuitBreakerLabel label="半开时长" description="半开窗口整段放流；窗口内任一失败立刻重新熔断；整窗无失败才关闭。" />
+                  </Label>
+                  <Input type="number" min="1" max="240" value={editingUserAPIKeyCircuitBreakerHalfOpenMinutes} onChange={(event) => setEditingUserAPIKeyCircuitBreakerHalfOpenMinutes(event.target.value)} />
+                </div>
               </div>
             </div>
             <DialogFooter>

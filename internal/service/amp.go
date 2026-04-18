@@ -21,6 +21,7 @@ import (
 var (
 	ErrAPIKeyNotFound       = errors.New("API Key 不存在")
 	ErrAPIKeyRevoked        = errors.New("API Key 已被撤销")
+	ErrAPIKeyCircuitOpen    = errors.New("API Key 熔断中")
 	ErrAPIKeyNotRetrievable = errors.New("API Key 只在创建时显示一次，无法再次获取")
 	ErrNotOwner             = errors.New("无权操作此资源")
 	ErrInvalidAPIKeyFormat  = errors.New("自定义 API Key 只能包含字母和数字，且长度至少为 16")
@@ -266,12 +267,16 @@ func (s *AmpService) CreateAPIKey(userID string, req *model.CreateAPIKeyRequest)
 	}
 
 	apiKey := &model.UserAPIKey{
-		UserID:    userID,
-		Name:      req.Name,
-		Prefix:    prefix,
-		KeyHash:   keyHash,
-		APIKey:    rawKey,
-		ExpiresAt: req.ExpiresAt,
+		UserID:                        userID,
+		Name:                          req.Name,
+		Prefix:                        prefix,
+		KeyHash:                       keyHash,
+		APIKey:                        rawKey,
+		ExpiresAt:                     req.ExpiresAt,
+		CircuitBreakerThreshold:       normalizeAPIKeyCircuitBreakerThreshold(req.CircuitBreakerThreshold),
+		CircuitBreakerOpenMinutes:     normalizeAPIKeyCircuitBreakerOpenMinutes(req.CircuitBreakerOpenMinutes),
+		CircuitBreakerHalfOpenMinutes: normalizeAPIKeyCircuitBreakerHalfOpenMinutes(req.CircuitBreakerHalfOpenMinutes),
+		CircuitBreakerState:           model.APIKeyCircuitBreakerStateClosed,
 	}
 
 	if err := s.apiKeyRepo.Create(apiKey); err != nil {
@@ -279,13 +284,17 @@ func (s *AmpService) CreateAPIKey(userID string, req *model.CreateAPIKeyRequest)
 	}
 
 	return &model.CreateAPIKeyResponse{
-		ID:        apiKey.ID,
-		Name:      apiKey.Name,
-		Prefix:    apiKey.Prefix,
-		APIKey:    rawKey,
-		ExpiresAt: apiKey.ExpiresAt,
-		CreatedAt: apiKey.CreatedAt,
-		Message:   "API Key 创建成功，请妥善保存，可在列表中再次查看",
+		ID:                            apiKey.ID,
+		Name:                          apiKey.Name,
+		Prefix:                        apiKey.Prefix,
+		APIKey:                        rawKey,
+		ExpiresAt:                     apiKey.ExpiresAt,
+		CircuitBreakerThreshold:       apiKey.CircuitBreakerThreshold,
+		CircuitBreakerOpenMinutes:     apiKey.CircuitBreakerOpenMinutes,
+		CircuitBreakerHalfOpenMinutes: apiKey.CircuitBreakerHalfOpenMinutes,
+		CircuitBreakerState:           apiKey.CircuitBreakerState,
+		CreatedAt:                     apiKey.CreatedAt,
+		Message:                       "API Key 创建成功，请妥善保存，可在列表中再次查看",
 	}, nil
 }
 
@@ -299,26 +308,32 @@ func (s *AmpService) UpdateAPIKey(userID, keyID string, req *model.UpdateAPIKeyR
 	if req.ClearExpiry {
 		expiresAt = nil
 	}
+	circuitBreakerThreshold := resolveAPIKeyCircuitBreakerThreshold(req.CircuitBreakerThreshold, key.CircuitBreakerThreshold)
+	circuitBreakerOpenMinutes := resolveAPIKeyCircuitBreakerOpenMinutes(req.CircuitBreakerOpenMinutes, key.CircuitBreakerOpenMinutes)
+	circuitBreakerHalfOpenMinutes := resolveAPIKeyCircuitBreakerHalfOpenMinutes(req.CircuitBreakerHalfOpenMinutes, key.CircuitBreakerHalfOpenMinutes)
 
 	if strings.TrimSpace(req.APIKey) != "" && req.APIKey != key.APIKey {
 		keyHash, prefix, err := s.prepareAPIKeyValue(req.APIKey)
 		if err != nil {
 			return nil, err
 		}
-		if err := s.apiKeyRepo.UpdateKeyFields(key.ID, req.Name, prefix, keyHash, req.APIKey, expiresAt); err != nil {
+		if err := s.apiKeyRepo.UpdateKeyFields(key.ID, req.Name, prefix, keyHash, req.APIKey, expiresAt, circuitBreakerThreshold, circuitBreakerOpenMinutes, circuitBreakerHalfOpenMinutes); err != nil {
 			return nil, err
 		}
 		key.APIKey = req.APIKey
 		key.KeyHash = keyHash
 		key.Prefix = prefix
 	} else {
-		if err := s.apiKeyRepo.UpdateEditableFields(key.ID, req.Name, expiresAt); err != nil {
+		if err := s.apiKeyRepo.UpdateEditableFields(key.ID, req.Name, expiresAt, circuitBreakerThreshold, circuitBreakerOpenMinutes, circuitBreakerHalfOpenMinutes); err != nil {
 			return nil, err
 		}
 	}
 
 	key.Name = req.Name
 	key.ExpiresAt = expiresAt
+	key.CircuitBreakerThreshold = circuitBreakerThreshold
+	key.CircuitBreakerOpenMinutes = circuitBreakerOpenMinutes
+	key.CircuitBreakerHalfOpenMinutes = circuitBreakerHalfOpenMinutes
 	return buildAPIKeyListItem(key), nil
 }
 
@@ -352,6 +367,9 @@ func (s *AmpService) ListAPIKeys(userID string) ([]*model.APIKeyListItem, error)
 
 	items := make([]*model.APIKeyListItem, 0, len(keys))
 	for _, k := range keys {
+		if err := s.refreshAPIKeyCircuitBreakerState(k); err != nil {
+			return nil, err
+		}
 		items = append(items, buildAPIKeyListItem(k))
 	}
 	return items, nil
@@ -393,12 +411,16 @@ func (s *AmpService) GetAPIKey(userID, keyID string) (*model.APIKeyRevealRespons
 		return nil, ErrAPIKeyNotRetrievable
 	}
 	return &model.APIKeyRevealResponse{
-		ID:        key.ID,
-		Name:      key.Name,
-		Prefix:    key.Prefix,
-		APIKey:    key.APIKey,
-		ExpiresAt: key.ExpiresAt,
-		CreatedAt: key.CreatedAt,
+		ID:                            key.ID,
+		Name:                          key.Name,
+		Prefix:                        key.Prefix,
+		APIKey:                        key.APIKey,
+		ExpiresAt:                     key.ExpiresAt,
+		CircuitBreakerThreshold:       key.CircuitBreakerThreshold,
+		CircuitBreakerOpenMinutes:     key.CircuitBreakerOpenMinutes,
+		CircuitBreakerHalfOpenMinutes: key.CircuitBreakerHalfOpenMinutes,
+		CircuitBreakerState:           key.CircuitBreakerState,
+		CreatedAt:                     key.CreatedAt,
 	}, nil
 }
 
@@ -582,6 +604,13 @@ func (s *AmpService) ValidateAPIKey(rawKey string) (*model.UserAPIKey, error) {
 	if key.RevokedAt != nil {
 		return nil, ErrAPIKeyRevoked
 	}
+	now := time.Now().UTC()
+	if err := s.refreshAPIKeyCircuitBreakerStateAt(key, now); err != nil {
+		return nil, err
+	}
+	if model.IsAPIKeyCircuitBreakerBlocked(key, now) {
+		return nil, ErrAPIKeyCircuitOpen
+	}
 
 	go s.apiKeyRepo.UpdateLastUsedThrottled(key.ID, time.Minute)
 
@@ -641,7 +670,30 @@ func (s *AmpService) getOwnedAPIKey(userID, keyID string) (*model.UserAPIKey, er
 	if key.UserID != userID {
 		return nil, ErrNotOwner
 	}
+	if err := s.refreshAPIKeyCircuitBreakerState(key); err != nil {
+		return nil, err
+	}
 	return key, nil
+}
+
+func (s *AmpService) refreshAPIKeyCircuitBreakerState(key *model.UserAPIKey) error {
+	return s.refreshAPIKeyCircuitBreakerStateAt(key, time.Now().UTC())
+}
+
+func (s *AmpService) refreshAPIKeyCircuitBreakerStateAt(key *model.UserAPIKey, now time.Time) error {
+	if key == nil {
+		return nil
+	}
+	var updateErr error
+	WithAPIKeyCircuitBreakerLock(key.ID, func() {
+		if model.RefreshAPIKeyCircuitBreakerState(key, now) {
+			updateErr = s.apiKeyRepo.UpdateCircuitBreakerState(key)
+		}
+	})
+	if updateErr != nil {
+		return updateErr
+	}
+	return nil
 }
 
 func buildAPIKeyListItem(key *model.UserAPIKey) *model.APIKeyListItem {
@@ -657,14 +709,71 @@ func buildAPIKeyListItem(key *model.UserAPIKey) *model.APIKeyListItem {
 	}
 
 	return &model.APIKeyListItem{
-		ID:        key.ID,
-		Name:      key.Name,
-		Prefix:    key.Prefix,
-		CreatedAt: key.CreatedAt,
-		RevokedAt: key.RevokedAt,
-		LastUsed:  key.LastUsed,
-		ExpiresAt: key.ExpiresAt,
-		Status:    status,
-		IsActive:  isActive,
+		ID:                              key.ID,
+		Name:                            key.Name,
+		Prefix:                          key.Prefix,
+		CreatedAt:                       key.CreatedAt,
+		RevokedAt:                       key.RevokedAt,
+		LastUsed:                        key.LastUsed,
+		ExpiresAt:                       key.ExpiresAt,
+		Status:                          status,
+		IsActive:                        isActive,
+		CircuitBreakerThreshold:         key.CircuitBreakerThreshold,
+		CircuitBreakerOpenMinutes:       key.CircuitBreakerOpenMinutes,
+		CircuitBreakerHalfOpenMinutes:   key.CircuitBreakerHalfOpenMinutes,
+		CircuitBreakerState:             key.CircuitBreakerState,
+		CircuitBreakerOpenedAt:          key.CircuitBreakerOpenedAt,
+		CircuitBreakerHalfOpenStartedAt: key.CircuitBreakerHalfOpenStartedAt,
 	}
+}
+
+func normalizeAPIKeyCircuitBreakerThreshold(value *int) int {
+	if value == nil || *value <= 0 {
+		return model.DefaultAPIKeyCircuitBreakerThreshold
+	}
+	return *value
+}
+
+func normalizeAPIKeyCircuitBreakerOpenMinutes(value *int) int {
+	if value == nil || *value <= 0 {
+		return model.DefaultAPIKeyCircuitBreakerOpenMinutes
+	}
+	return *value
+}
+
+func normalizeAPIKeyCircuitBreakerHalfOpenMinutes(value *int) int {
+	if value == nil || *value <= 0 {
+		return model.DefaultAPIKeyCircuitBreakerHalfOpenMinutes
+	}
+	return *value
+}
+
+func resolveAPIKeyCircuitBreakerThreshold(value *int, current int) int {
+	if value == nil {
+		if current > 0 {
+			return current
+		}
+		return model.DefaultAPIKeyCircuitBreakerThreshold
+	}
+	return normalizeAPIKeyCircuitBreakerThreshold(value)
+}
+
+func resolveAPIKeyCircuitBreakerOpenMinutes(value *int, current int) int {
+	if value == nil {
+		if current > 0 {
+			return current
+		}
+		return model.DefaultAPIKeyCircuitBreakerOpenMinutes
+	}
+	return normalizeAPIKeyCircuitBreakerOpenMinutes(value)
+}
+
+func resolveAPIKeyCircuitBreakerHalfOpenMinutes(value *int, current int) int {
+	if value == nil {
+		if current > 0 {
+			return current
+		}
+		return model.DefaultAPIKeyCircuitBreakerHalfOpenMinutes
+	}
+	return normalizeAPIKeyCircuitBreakerHalfOpenMinutes(value)
 }

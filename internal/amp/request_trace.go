@@ -2,9 +2,11 @@ package amp
 
 import (
 	"context"
+	"strings"
 	"sync"
 	"time"
 
+	"ampmanager/internal/model"
 	"ampmanager/internal/service"
 )
 
@@ -67,6 +69,9 @@ type RequestTrace struct {
 
 	// 错误信息
 	ErrorType string
+
+	// API Key 熔断统计
+	APIKeyCircuitBreakerProcessed bool
 
 	// 响应文本（/v1/responses 聚合的助手文本）
 	ResponseText string
@@ -190,6 +195,22 @@ func (t *RequestTrace) SetError(errorType string) {
 	t.ErrorType = errorType
 }
 
+func (t *RequestTrace) CompleteAPIKeyCircuitBreakerOutcome() bool {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if t.APIKeyCircuitBreakerProcessed {
+		return false
+	}
+	t.APIKeyCircuitBreakerProcessed = true
+	return true
+}
+
+func (t *RequestTrace) APIKeyCircuitBreakerOutcome() model.APIKeyCircuitBreakerOutcome {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	return model.ClassifyAPIKeyCircuitBreakerOutcome(t.StatusCode, strings.TrimSpace(t.ErrorType))
+}
+
 // SetThinkingLevel 设置思维等级
 func (t *RequestTrace) SetThinkingLevel(level string) {
 	t.mu.Lock()
@@ -298,46 +319,47 @@ func (t *RequestTrace) Clone() RequestTrace {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	return RequestTrace{
-		RequestID:                 t.RequestID,
-		StartTime:                 t.StartTime,
-		UserID:                    t.UserID,
-		APIKeyID:                  t.APIKeyID,
-		Method:                    t.Method,
-		Path:                      t.Path,
-		OriginalModel:             t.OriginalModel,
-		MappedModel:               t.MappedModel,
-		SessionID:                 t.SessionID,
-		Provider:                  t.Provider,
-		ChannelID:                 t.ChannelID,
-		Endpoint:                  t.Endpoint,
-		RequestFormat:             t.RequestFormat,
-		UpstreamFormat:            t.UpstreamFormat,
-		IsStreaming:               t.IsStreaming,
-		ThinkingLevel:             t.ThinkingLevel,
-		DownstreamTransport:       t.DownstreamTransport,
-		UpstreamTransport:         t.UpstreamTransport,
-		TransportFallbackReason:   t.TransportFallbackReason,
-		StatusCode:                t.StatusCode,
-		LatencyMs:                 t.LatencyMs,
-		TTFBMs:                    copyInt64Ptr(t.TTFBMs),
-		InputTokens:               copyIntPtr(t.InputTokens),
-		OutputTokens:              copyIntPtr(t.OutputTokens),
-		CacheReadInputTokens:      copyIntPtr(t.CacheReadInputTokens),
-		CacheCreationInputTokens:  copyIntPtr(t.CacheCreationInputTokens),
-		CostMicros:                copyInt64Ptr(t.CostMicros),
-		CostUsd:                   copyStringPtr(t.CostUsd),
-		PricingModel:              copyStringPtr(t.PricingModel),
-		PricingRuleName:           copyStringPtr(t.PricingRuleName),
-		BillingStatus:             copyStringPtr(t.BillingStatus),
-		ChargedSubscriptionMicros: copyInt64Ptr(t.ChargedSubscriptionMicros),
-		ChargedBalanceMicros:      copyInt64Ptr(t.ChargedBalanceMicros),
-		RateMultiplier:            t.RateMultiplier,
-		ChannelRateMultiplier:     t.ChannelRateMultiplier,
-		GroupRateMultiplier:       t.GroupRateMultiplier,
-		SpecialRateMultiplier:     t.SpecialRateMultiplier,
-		SpecialRateReason:         t.SpecialRateReason,
-		ErrorType:                 t.ErrorType,
-		ResponseText:              t.ResponseText,
+		RequestID:                     t.RequestID,
+		StartTime:                     t.StartTime,
+		UserID:                        t.UserID,
+		APIKeyID:                      t.APIKeyID,
+		Method:                        t.Method,
+		Path:                          t.Path,
+		OriginalModel:                 t.OriginalModel,
+		MappedModel:                   t.MappedModel,
+		SessionID:                     t.SessionID,
+		Provider:                      t.Provider,
+		ChannelID:                     t.ChannelID,
+		Endpoint:                      t.Endpoint,
+		RequestFormat:                 t.RequestFormat,
+		UpstreamFormat:                t.UpstreamFormat,
+		IsStreaming:                   t.IsStreaming,
+		ThinkingLevel:                 t.ThinkingLevel,
+		DownstreamTransport:           t.DownstreamTransport,
+		UpstreamTransport:             t.UpstreamTransport,
+		TransportFallbackReason:       t.TransportFallbackReason,
+		StatusCode:                    t.StatusCode,
+		LatencyMs:                     t.LatencyMs,
+		TTFBMs:                        copyInt64Ptr(t.TTFBMs),
+		InputTokens:                   copyIntPtr(t.InputTokens),
+		OutputTokens:                  copyIntPtr(t.OutputTokens),
+		CacheReadInputTokens:          copyIntPtr(t.CacheReadInputTokens),
+		CacheCreationInputTokens:      copyIntPtr(t.CacheCreationInputTokens),
+		CostMicros:                    copyInt64Ptr(t.CostMicros),
+		CostUsd:                       copyStringPtr(t.CostUsd),
+		PricingModel:                  copyStringPtr(t.PricingModel),
+		PricingRuleName:               copyStringPtr(t.PricingRuleName),
+		BillingStatus:                 copyStringPtr(t.BillingStatus),
+		ChargedSubscriptionMicros:     copyInt64Ptr(t.ChargedSubscriptionMicros),
+		ChargedBalanceMicros:          copyInt64Ptr(t.ChargedBalanceMicros),
+		RateMultiplier:                t.RateMultiplier,
+		ChannelRateMultiplier:         t.ChannelRateMultiplier,
+		GroupRateMultiplier:           t.GroupRateMultiplier,
+		SpecialRateMultiplier:         t.SpecialRateMultiplier,
+		SpecialRateReason:             t.SpecialRateReason,
+		ErrorType:                     t.ErrorType,
+		APIKeyCircuitBreakerProcessed: t.APIKeyCircuitBreakerProcessed,
+		ResponseText:                  t.ResponseText,
 	}
 }
 

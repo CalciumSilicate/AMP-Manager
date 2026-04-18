@@ -67,6 +67,12 @@ export interface APIKey {
   expiresAt?: string | null
   status: 'active' | 'disabled' | 'expired'
   isActive: boolean
+  circuitBreakerThreshold: number
+  circuitBreakerOpenMinutes: number
+  circuitBreakerHalfOpenMinutes: number
+  circuitBreakerState: 'closed' | 'open' | 'half_open'
+  circuitBreakerOpenedAt?: string | null
+  circuitBreakerHalfOpenStartedAt?: string | null
   createdAt: string
 }
 
@@ -76,6 +82,10 @@ export interface CreateAPIKeyResponse {
   prefix: string
   apiKey: string
   expiresAt?: string | null
+  circuitBreakerThreshold: number
+  circuitBreakerOpenMinutes: number
+  circuitBreakerHalfOpenMinutes: number
+  circuitBreakerState: 'closed' | 'open' | 'half_open'
   createdAt: string
   message: string
 }
@@ -86,6 +96,10 @@ export interface APIKeyRevealResponse {
   prefix: string
   apiKey: string
   expiresAt?: string | null
+  circuitBreakerThreshold: number
+  circuitBreakerOpenMinutes: number
+  circuitBreakerHalfOpenMinutes: number
+  circuitBreakerState: 'closed' | 'open' | 'half_open'
   createdAt: string
 }
 
@@ -128,7 +142,14 @@ export async function createAPIKey(name: string): Promise<CreateAPIKeyResponse> 
   return createAPIKeyWithOptions({ name })
 }
 
-export async function createAPIKeyWithOptions(data: { name: string; customKey?: string; expiresAt?: string | null }): Promise<CreateAPIKeyResponse> {
+export async function createAPIKeyWithOptions(data: {
+  name: string
+  customKey?: string
+  expiresAt?: string | null
+  circuitBreakerThreshold?: number
+  circuitBreakerOpenMinutes?: number
+  circuitBreakerHalfOpenMinutes?: number
+}): Promise<CreateAPIKeyResponse> {
   const response = await authFetch(`${API_BASE}/api-keys`, {
     method: 'POST',
     body: JSON.stringify(data),
@@ -136,7 +157,14 @@ export async function createAPIKeyWithOptions(data: { name: string; customKey?: 
   return handleResponse<CreateAPIKeyResponse>(response)
 }
 
-export async function updateAPIKey(id: string, data: { name: string; expiresAt?: string | null; clearExpiry?: boolean }): Promise<APIKey> {
+export async function updateAPIKey(id: string, data: {
+  name: string
+  expiresAt?: string | null
+  clearExpiry?: boolean
+  circuitBreakerThreshold?: number
+  circuitBreakerOpenMinutes?: number
+  circuitBreakerHalfOpenMinutes?: number
+}): Promise<APIKey> {
   const response = await authFetch(`${API_BASE}/api-keys/${id}`, {
     method: 'PATCH',
     body: JSON.stringify(data),
@@ -394,7 +422,15 @@ export async function getAdminUserAPIKeys(userId: string): Promise<APIKey[]> {
 export async function updateAdminUserAPIKey(
   userId: string,
   keyId: string,
-  data: { name: string; apiKey?: string; expiresAt?: string | null; clearExpiry?: boolean },
+  data: {
+    name: string
+    apiKey?: string
+    expiresAt?: string | null
+    clearExpiry?: boolean
+    circuitBreakerThreshold?: number
+    circuitBreakerOpenMinutes?: number
+    circuitBreakerHalfOpenMinutes?: number
+  },
 ): Promise<APIKey> {
   const response = await authFetch(`${ADMIN_API_BASE}/users/${userId}/api-keys/${keyId}`, {
     method: 'PATCH',
