@@ -965,7 +965,7 @@ func createTables() error {
 		name TEXT NOT NULL,
 		description TEXT NOT NULL DEFAULT '',
 		code_mode TEXT NOT NULL CHECK (code_mode IN ('single_use', 'shared')),
-		subscription_plan_id TEXT NOT NULL DEFAULT '',
+		subscription_plan_id TEXT,
 		subscription_duration_days INTEGER NOT NULL DEFAULT 0 CHECK (subscription_duration_days >= 0),
 		balance_micros BIGINT NOT NULL DEFAULT 0 CHECK (balance_micros >= 0),
 		total_redemptions_limit INTEGER NOT NULL DEFAULT 0 CHECK (total_redemptions_limit >= 0),
@@ -1044,13 +1044,13 @@ func createTables() error {
 		username TEXT NOT NULL DEFAULT '',
 		code_input TEXT NOT NULL DEFAULT '',
 		code_mask TEXT NOT NULL DEFAULT '',
-		subscription_plan_id TEXT NOT NULL DEFAULT '',
+		subscription_plan_id TEXT,
 		subscription_duration_days INTEGER NOT NULL DEFAULT 0 CHECK (subscription_duration_days >= 0),
 		balance_micros BIGINT NOT NULL DEFAULT 0 CHECK (balance_micros >= 0),
 		reward_snapshot_json TEXT NOT NULL DEFAULT '',
 		status TEXT NOT NULL CHECK (status IN ('success', 'rejected')),
 		failure_reason TEXT NOT NULL DEFAULT '',
-		granted_subscription_id TEXT NOT NULL DEFAULT '',
+		granted_subscription_id TEXT,
 		granted_expires_at DATETIME,
 		balance_after_micros BIGINT NOT NULL DEFAULT 0 CHECK (balance_after_micros >= 0),
 		created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
@@ -2067,7 +2067,7 @@ func runMigrations() error {
 					name TEXT NOT NULL,
 					description TEXT NOT NULL DEFAULT '',
 					code_mode TEXT NOT NULL CHECK (code_mode IN ('single_use', 'shared')),
-					subscription_plan_id TEXT NOT NULL DEFAULT '',
+					subscription_plan_id TEXT,
 					subscription_duration_days INTEGER NOT NULL DEFAULT 0 CHECK (subscription_duration_days >= 0),
 					balance_micros BIGINT NOT NULL DEFAULT 0 CHECK (balance_micros >= 0),
 					total_redemptions_limit INTEGER NOT NULL DEFAULT 0 CHECK (total_redemptions_limit >= 0),
@@ -2134,12 +2134,12 @@ func runMigrations() error {
 					username TEXT NOT NULL DEFAULT '',
 					code_input TEXT NOT NULL DEFAULT '',
 					code_mask TEXT NOT NULL DEFAULT '',
-					subscription_plan_id TEXT NOT NULL DEFAULT '',
+					subscription_plan_id TEXT,
 					subscription_duration_days INTEGER NOT NULL DEFAULT 0 CHECK (subscription_duration_days >= 0),
 					balance_micros BIGINT NOT NULL DEFAULT 0 CHECK (balance_micros >= 0),
 					status TEXT NOT NULL CHECK (status IN ('success', 'rejected')),
 					failure_reason TEXT NOT NULL DEFAULT '',
-					granted_subscription_id TEXT NOT NULL DEFAULT '',
+					granted_subscription_id TEXT,
 					granted_expires_at DATETIME,
 					balance_after_micros BIGINT NOT NULL DEFAULT 0 CHECK (balance_after_micros >= 0),
 					created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
@@ -2161,6 +2161,10 @@ func runMigrations() error {
 		},
 		{
 			name: "rebuild_redeem_codes_for_free_codes",
+			sql:  ``,
+		},
+		{
+			name: "rebuild_redeem_reward_plan_nullable",
 			sql:  ``,
 		},
 		{
@@ -2856,6 +2860,96 @@ func adaptMigrationSQL(name string, sqlText string) string {
 				ALTER TABLE redeem_codes_new RENAME TO redeem_codes;
 				CREATE INDEX IF NOT EXISTS idx_redeem_codes_campaign_status_created ON redeem_codes(campaign_id, status, created_at DESC);
 				CREATE INDEX IF NOT EXISTS idx_redeem_codes_batch_created ON redeem_codes(batch_id, created_at DESC);
+				PRAGMA foreign_keys = ON
+			`
+		}
+	case "rebuild_redeem_reward_plan_nullable":
+		if dbType == DBTypePostgres {
+			adapted = `
+				UPDATE redeem_campaigns SET subscription_plan_id = NULL WHERE BTRIM(subscription_plan_id) = '';
+				ALTER TABLE redeem_campaigns ALTER COLUMN subscription_plan_id DROP DEFAULT;
+				ALTER TABLE redeem_campaigns ALTER COLUMN subscription_plan_id DROP NOT NULL;
+				UPDATE redeem_redemptions SET subscription_plan_id = NULL WHERE BTRIM(subscription_plan_id) = '';
+				ALTER TABLE redeem_redemptions ALTER COLUMN subscription_plan_id DROP DEFAULT;
+				ALTER TABLE redeem_redemptions ALTER COLUMN subscription_plan_id DROP NOT NULL;
+				UPDATE redeem_redemptions SET granted_subscription_id = NULL WHERE BTRIM(granted_subscription_id) = '';
+				ALTER TABLE redeem_redemptions ALTER COLUMN granted_subscription_id DROP DEFAULT;
+				ALTER TABLE redeem_redemptions ALTER COLUMN granted_subscription_id DROP NOT NULL
+			`
+		} else {
+			adapted = `
+				PRAGMA foreign_keys = OFF;
+				CREATE TABLE redeem_campaigns_new_reward_plan (
+					id TEXT PRIMARY KEY,
+					name TEXT NOT NULL,
+					description TEXT NOT NULL DEFAULT '',
+					code_mode TEXT NOT NULL CHECK (code_mode IN ('single_use', 'shared')),
+					subscription_plan_id TEXT,
+					subscription_duration_days INTEGER NOT NULL DEFAULT 0 CHECK (subscription_duration_days >= 0),
+					balance_micros BIGINT NOT NULL DEFAULT 0 CHECK (balance_micros >= 0),
+					total_redemptions_limit INTEGER NOT NULL DEFAULT 0 CHECK (total_redemptions_limit >= 0),
+					redeemed_count INTEGER NOT NULL DEFAULT 0 CHECK (redeemed_count >= 0),
+					per_user_limit INTEGER NOT NULL DEFAULT 1 CHECK (per_user_limit > 0),
+					starts_at DATETIME,
+					ends_at DATETIME,
+					enabled INTEGER NOT NULL DEFAULT 1,
+					created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+					updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+					FOREIGN KEY (subscription_plan_id) REFERENCES subscription_plans(id) ON DELETE RESTRICT
+				);
+				INSERT INTO redeem_campaigns_new_reward_plan (
+					id, name, description, code_mode, subscription_plan_id, subscription_duration_days, balance_micros,
+					total_redemptions_limit, redeemed_count, per_user_limit, starts_at, ends_at, enabled, created_at, updated_at
+				)
+				SELECT
+					id, name, description, code_mode, NULLIF(TRIM(subscription_plan_id), ''), subscription_duration_days, balance_micros,
+					total_redemptions_limit, redeemed_count, per_user_limit, starts_at, ends_at, enabled, created_at, updated_at
+				FROM redeem_campaigns;
+				DROP TABLE redeem_campaigns;
+				ALTER TABLE redeem_campaigns_new_reward_plan RENAME TO redeem_campaigns;
+				CREATE INDEX IF NOT EXISTS idx_redeem_campaigns_mode_created ON redeem_campaigns(code_mode, created_at DESC);
+				CREATE INDEX IF NOT EXISTS idx_redeem_campaigns_enabled_window ON redeem_campaigns(enabled, starts_at, ends_at);
+
+				CREATE TABLE redeem_redemptions_new_reward_plan (
+					id TEXT PRIMARY KEY,
+					campaign_id TEXT,
+					code_id TEXT,
+					user_id TEXT NOT NULL,
+					username TEXT NOT NULL DEFAULT '',
+					code_input TEXT NOT NULL DEFAULT '',
+					code_mask TEXT NOT NULL DEFAULT '',
+					subscription_plan_id TEXT,
+					subscription_duration_days INTEGER NOT NULL DEFAULT 0 CHECK (subscription_duration_days >= 0),
+					balance_micros BIGINT NOT NULL DEFAULT 0 CHECK (balance_micros >= 0),
+					reward_snapshot_json TEXT NOT NULL DEFAULT '',
+					status TEXT NOT NULL CHECK (status IN ('success', 'rejected')),
+					failure_reason TEXT NOT NULL DEFAULT '',
+					granted_subscription_id TEXT,
+					granted_expires_at DATETIME,
+					balance_after_micros BIGINT NOT NULL DEFAULT 0 CHECK (balance_after_micros >= 0),
+					created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+					FOREIGN KEY (campaign_id) REFERENCES redeem_campaigns(id) ON DELETE SET NULL,
+					FOREIGN KEY (code_id) REFERENCES redeem_codes(id) ON DELETE SET NULL,
+					FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+					FOREIGN KEY (subscription_plan_id) REFERENCES subscription_plans(id) ON DELETE RESTRICT,
+					FOREIGN KEY (granted_subscription_id) REFERENCES user_subscriptions(id) ON DELETE SET NULL
+				);
+				INSERT INTO redeem_redemptions_new_reward_plan (
+					id, campaign_id, code_id, user_id, username, code_input, code_mask,
+					subscription_plan_id, subscription_duration_days, balance_micros, reward_snapshot_json, status, failure_reason,
+					granted_subscription_id, granted_expires_at, balance_after_micros, created_at
+				)
+				SELECT
+					id, campaign_id, code_id, user_id, username, code_input, code_mask,
+					NULLIF(TRIM(subscription_plan_id), ''), subscription_duration_days, balance_micros, reward_snapshot_json, status, failure_reason,
+					NULLIF(TRIM(granted_subscription_id), ''), granted_expires_at, balance_after_micros, created_at
+				FROM redeem_redemptions;
+				DROP TABLE redeem_redemptions;
+				ALTER TABLE redeem_redemptions_new_reward_plan RENAME TO redeem_redemptions;
+				CREATE INDEX IF NOT EXISTS idx_redeem_redemptions_user_created ON redeem_redemptions(user_id, created_at DESC);
+				CREATE INDEX IF NOT EXISTS idx_redeem_redemptions_campaign_created ON redeem_redemptions(campaign_id, created_at DESC);
+				CREATE INDEX IF NOT EXISTS idx_redeem_redemptions_code_created ON redeem_redemptions(code_id, created_at DESC);
+				CREATE INDEX IF NOT EXISTS idx_redeem_redemptions_status_created ON redeem_redemptions(status, created_at DESC);
 				PRAGMA foreign_keys = ON
 			`
 		}
