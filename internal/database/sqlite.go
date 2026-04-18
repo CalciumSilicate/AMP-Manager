@@ -328,7 +328,6 @@ func createTables() error {
 		name TEXT NOT NULL,
 		key_hash TEXT UNIQUE NOT NULL,
 		api_key TEXT NOT NULL DEFAULT '',
-		allowed_providers_json TEXT NOT NULL DEFAULT '[]',
 		prefix TEXT NOT NULL,
 		last_used_at DATETIME,
 		expires_at DATETIME,
@@ -1260,6 +1259,10 @@ func runMigrations() error {
 			);
 			CREATE INDEX IF NOT EXISTS idx_admin_management_keys_hash ON admin_management_keys(key_hash);
 			CREATE INDEX IF NOT EXISTS idx_admin_management_keys_previous_hash ON admin_management_keys(previous_key_hash)`,
+		},
+		{
+			name: "drop_api_key_allowed_providers_json",
+			sql:  ``,
 		},
 		{
 			name: "add_channels_endpoint",
@@ -2210,9 +2213,6 @@ func ensureCriticalSchema() error {
 	if err := ensureUserBootstrapSchema(); err != nil {
 		return err
 	}
-	if err := ensureAPIKeyProviderSchema(); err != nil {
-		return err
-	}
 	if err := ensureErrorRuleSchema(); err != nil {
 		return err
 	}
@@ -2263,13 +2263,6 @@ func ensureUserBootstrapSchema() error {
 		return err
 	}
 	if err := ensureColumnWithDefault("users", "legacy_ref_id", "TEXT NOT NULL DEFAULT ''"); err != nil {
-		return err
-	}
-	return nil
-}
-
-func ensureAPIKeyProviderSchema() error {
-	if err := ensureColumnWithDefault("user_api_keys", "allowed_providers_json", "TEXT NOT NULL DEFAULT '[]'"); err != nil {
 		return err
 	}
 	return nil
@@ -2703,6 +2696,38 @@ func adaptMigrationSQL(name string, sqlText string) string {
 	switch name {
 	case "add_request_detail_retention_default":
 		adapted = `INSERT INTO system_config (key, value, updated_at) VALUES ('request_detail_retention_days', '30', CURRENT_TIMESTAMP) ON CONFLICT (key) DO NOTHING`
+	case "drop_api_key_allowed_providers_json":
+		if dbType == DBTypePostgres {
+			adapted = `ALTER TABLE user_api_keys DROP COLUMN IF EXISTS allowed_providers_json`
+		} else {
+			adapted = `
+				PRAGMA foreign_keys = OFF;
+				ALTER TABLE user_api_keys RENAME TO user_api_keys_old;
+				CREATE TABLE user_api_keys (
+					id TEXT PRIMARY KEY,
+					user_id TEXT NOT NULL,
+					name TEXT NOT NULL,
+					key_hash TEXT UNIQUE NOT NULL,
+					api_key TEXT NOT NULL DEFAULT '',
+					prefix TEXT NOT NULL,
+					last_used_at DATETIME,
+					expires_at DATETIME,
+					revoked_at DATETIME,
+					created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+					FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+				);
+				INSERT INTO user_api_keys (
+					id, user_id, name, key_hash, api_key, prefix, last_used_at, expires_at, revoked_at, created_at
+				)
+				SELECT
+					id, user_id, name, key_hash, api_key, prefix, last_used_at, expires_at, revoked_at, created_at
+				FROM user_api_keys_old;
+				DROP TABLE user_api_keys_old;
+				CREATE INDEX IF NOT EXISTS idx_api_keys_user_created ON user_api_keys(user_id, created_at DESC);
+				CREATE INDEX IF NOT EXISTS idx_api_keys_user_active ON user_api_keys(user_id, revoked_at);
+				PRAGMA foreign_keys = ON
+			`
+		}
 	case "add_user_balance_micros":
 		if dbType == DBTypePostgres {
 			adapted = `ALTER TABLE users ADD COLUMN balance_micros BIGINT NOT NULL DEFAULT 0`

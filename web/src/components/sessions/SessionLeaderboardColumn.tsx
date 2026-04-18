@@ -1,29 +1,16 @@
-import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
+import { PageSurface } from '@/components/layout/PageScaffold'
 import type { SessionLeaderboardItem } from '@/api/sessions'
 
 interface SessionLeaderboardColumnProps {
   items: SessionLeaderboardItem[]
   loading: boolean
-  onRefresh: () => void
 }
 
-export function SessionLeaderboardColumn({ items, loading, onRefresh }: SessionLeaderboardColumnProps) {
+export function SessionLeaderboardColumn({ items, loading }: SessionLeaderboardColumnProps) {
   return (
-    <section className="flex min-h-[640px] flex-col overflow-hidden rounded-[24px] border border-border/70 bg-background/90 shadow-sm">
-      <div className="border-b border-border/70 px-5 py-4">
-        <div className="flex items-center justify-between gap-3">
-          <div className="space-y-1">
-            <h2 className="text-sm font-medium text-foreground">最近 5 分钟</h2>
-            <p className="text-xs text-muted-foreground">Session 排行</p>
-          </div>
-          <Button variant="ghost" size="sm" onClick={onRefresh} disabled={loading}>
-            刷新
-          </Button>
-        </div>
-      </div>
-
-      <div className="flex-1 overflow-y-auto">
+    <PageSurface title="排行" bodyClassName="px-0 py-0" className="min-h-[640px]">
+      <div className="max-h-[calc(100vh-360px)] min-h-[540px] overflow-y-auto">
         {loading ? (
           <div className="px-5 py-8 text-sm text-muted-foreground">加载中...</div>
         ) : items.length === 0 ? (
@@ -31,7 +18,7 @@ export function SessionLeaderboardColumn({ items, loading, onRefresh }: SessionL
         ) : (
           <div className="space-y-2 px-3 py-3">
             {items.map((item, index) => (
-              <div key={`${item.userId || item.username}-${index}`} className="flex items-center justify-between gap-3 rounded-2xl border border-border/70 px-4 py-4">
+              <div key={`${item.userId || item.username}-${index}`} className="flex items-center justify-between gap-3 rounded-xl border border-border/70 px-4 py-3">
                 <div className="min-w-0">
                   <p className="truncate text-sm font-medium text-foreground">{item.username}</p>
                   <p className="truncate text-xs text-muted-foreground">{item.userId || '-'}</p>
@@ -42,6 +29,6 @@ export function SessionLeaderboardColumn({ items, loading, onRefresh }: SessionL
           </div>
         )}
       </div>
-    </section>
+    </PageSurface>
   )
 }

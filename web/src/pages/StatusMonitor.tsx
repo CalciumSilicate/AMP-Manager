@@ -77,6 +77,14 @@ function writeStatusMonitorDashboardCache(period: StatusMonitorPeriod, data: Sta
   window.localStorage.setItem(getStatusMonitorCacheKey(period), JSON.stringify(data))
 }
 
+function clearStatusMonitorDashboardCache() {
+  if (typeof window === 'undefined') return
+
+  for (const option of PERIOD_OPTIONS) {
+    window.localStorage.removeItem(getStatusMonitorCacheKey(option.value))
+  }
+}
+
 export default function StatusMonitor() {
   const [period, setPeriod] = useState<StatusMonitorPeriod>('7d')
   const [loading, setLoading] = useState(() => !readStatusMonitorDashboardCache('7d'))
@@ -97,7 +105,12 @@ export default function StatusMonitor() {
       setData(result)
       writeStatusMonitorDashboardCache(nextPeriod, result)
     } catch (loadError) {
-      setError(loadError instanceof Error ? loadError.message : '加载状态监控面板失败')
+      const message = loadError instanceof Error ? loadError.message : '加载状态监控面板失败'
+      if (message.includes('状态监控未配置')) {
+        clearStatusMonitorDashboardCache()
+        setData(null)
+      }
+      setError(message)
     } finally {
       setLoading(false)
     }

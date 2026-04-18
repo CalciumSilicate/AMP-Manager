@@ -559,8 +559,8 @@ func importMidwebUsers(tx *sql.Tx, rows []midwebBoundCDKRow, templates map[int64
 			prefix = prefix[:8]
 		}
 		if _, err := tx.Exec(
-			`INSERT INTO user_api_keys (id, user_id, name, prefix, key_hash, api_key, allowed_providers_json, expires_at, created_at)
-			 VALUES (?, ?, 'default', ?, ?, ?, '[]', NULL, ?)
+			`INSERT INTO user_api_keys (id, user_id, name, prefix, key_hash, api_key, expires_at, created_at)
+			 VALUES (?, ?, 'default', ?, ?, ?, NULL, ?)
 			 ON CONFLICT (id) DO UPDATE SET prefix = excluded.prefix, key_hash = excluded.key_hash, api_key = excluded.api_key`,
 			fmt.Sprintf("midweb-key-%d-default", row.ID),
 			userID,

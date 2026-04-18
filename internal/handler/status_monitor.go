@@ -22,6 +22,16 @@ func NewStatusMonitorHandler() *StatusMonitorHandler {
 }
 
 func (h *StatusMonitorHandler) GetDashboard(c *gin.Context) {
+	hasConfiguredMonitors, err := h.service.HasConfiguredMonitors()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "获取状态监控面板失败"})
+		return
+	}
+	if !hasConfiguredMonitors {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "状态监控未配置，请先在系统设置中创建至少一个状态监控项"})
+		return
+	}
+
 	data, err := h.service.GetDashboard(c.DefaultQuery("period", "7d"))
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "获取状态监控面板失败"})

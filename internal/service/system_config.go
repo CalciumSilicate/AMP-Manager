@@ -286,6 +286,10 @@ func (s *SystemConfigService) GetSiteConfig() (model.SiteConfigResponse, error) 
 		return model.SiteConfigResponse{}, err
 	}
 	inviteEnabled := NewInviteService().IsPublicEnabled()
+	statusMonitorAvailable, err := NewStatusMonitorService().HasConfiguredMonitors()
+	if err != nil {
+		return model.SiteConfigResponse{}, err
+	}
 
 	siteName := strings.TrimSpace(siteNameValue)
 	if siteName == "" {
@@ -301,6 +305,7 @@ func (s *SystemConfigService) GetSiteConfig() (model.SiteConfigResponse, error) 
 		TimeZone:               timeZone,
 		AmpProxySettingsPolicy: ampProxySettingsPolicy,
 		AmpSettingsPolicy:      ampSettingsPolicy,
+		StatusMonitorAvailable: statusMonitorAvailable,
 		Contact:                contact,
 		InviteEnabled:          inviteEnabled,
 		SessionSticky: &model.SessionStickyPublicConfig{
@@ -475,12 +480,17 @@ func (s *SystemConfigService) SetSiteConfig(req model.SiteConfigRequest) (model.
 		}
 	}
 	contact.QRCodeImageDataURL = buildSiteContactQRCodeDataURL(contact.Link)
+	statusMonitorAvailable, err := NewStatusMonitorService().HasConfiguredMonitors()
+	if err != nil {
+		return model.SiteConfigResponse{}, err
+	}
 
 	return model.SiteConfigResponse{
 		SiteName:               siteName,
 		TimeZone:               timeZone,
 		AmpProxySettingsPolicy: ampProxySettingsPolicy,
 		AmpSettingsPolicy:      ampSettingsPolicy,
+		StatusMonitorAvailable: statusMonitorAvailable,
 		Contact:                contact,
 		InviteEnabled:          NewInviteService().IsPublicEnabled(),
 	}, nil

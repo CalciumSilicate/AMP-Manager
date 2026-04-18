@@ -28,6 +28,7 @@ function App() {
   const [siteTimeZone, setSiteTimeZone] = useState(DEFAULT_SITE_TIME_ZONE)
   const [ampProxySettingsPolicy, setAmpProxySettingsPolicy] = useState<AmpProxySettingsPolicy>('all')
   const [ampSettingsPolicy, setAmpSettingsPolicy] = useState<AmpProxySettingsPolicy>('all')
+  const [statusMonitorAvailable, setStatusMonitorAvailable] = useState(true)
   const [inviteEnabled, setInviteEnabled] = useState(false)
   const [siteContact, setSiteContact] = useState<SiteContactConfig>({
     enabled: false,
@@ -63,6 +64,7 @@ function App() {
           }
           setAmpProxySettingsPolicy(config.ampProxySettingsPolicy || 'all')
           setAmpSettingsPolicy(config.ampSettingsPolicy || 'all')
+          setStatusMonitorAvailable(config.statusMonitorAvailable !== false)
           setInviteEnabled(Boolean(config.inviteEnabled))
           setSiteContact(config.contact || {
             enabled: false,
@@ -186,6 +188,7 @@ function App() {
                 siteTimeZone={siteTimeZone}
                 ampProxySettingsPolicy={ampProxySettingsPolicy}
                 ampSettingsPolicy={ampSettingsPolicy}
+                statusMonitorAvailable={statusMonitorAvailable}
                 siteContact={siteContact}
                 onSiteNameChange={setSiteName}
                 onSiteTimeZoneChange={setSiteTimeZone}

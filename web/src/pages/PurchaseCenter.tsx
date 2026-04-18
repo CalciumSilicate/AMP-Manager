@@ -28,10 +28,10 @@ import { CreditCard, QrCode, RefreshCw, ShoppingCart } from 'lucide-react'
 type PurchaseCenterTab = 'subscription' | 'redeem' | 'orders' | 'products'
 
 const tabs: TabbedSettingsPageTab<PurchaseCenterTab>[] = [
+  { key: 'products', label: '商店' },
   { key: 'subscription', label: '当前订阅' },
   { key: 'redeem', label: '兑换码' },
   { key: 'orders', label: '我的订单' },
-  { key: 'products', label: '商店' },
 ]
 
 function formatCNY(cents: number): string {
@@ -110,7 +110,7 @@ function paymentChannelLabel(catalog: PurchaseCatalogResponse | null): string {
 }
 
 export default function PurchaseCenter() {
-  const [activeTab, setActiveTab] = useState<PurchaseCenterTab>('subscription')
+  const [activeTab, setActiveTab] = useState<PurchaseCenterTab>('products')
   const [catalog, setCatalog] = useState<PurchaseCatalogResponse | null>(null)
   const [orders, setOrders] = useState<PurchaseOrder[]>([])
   const [loading, setLoading] = useState(true)

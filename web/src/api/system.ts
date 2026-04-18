@@ -355,6 +355,7 @@ export interface SiteConfig {
   timeZone: string
   ampProxySettingsPolicy: AmpProxySettingsPolicy
   ampSettingsPolicy: AmpProxySettingsPolicy
+  statusMonitorAvailable: boolean
   contact: SiteContactConfig
   inviteEnabled?: boolean
   sessionSticky?: SessionStickyPublicConfig | null

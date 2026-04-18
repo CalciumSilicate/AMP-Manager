@@ -9,7 +9,6 @@ import (
 	"fmt"
 	"log"
 	"net/http"
-	"slices"
 	"strings"
 	"time"
 
@@ -27,20 +26,6 @@ var (
 	ErrInvalidAPIKeyFormat  = errors.New("自定义 API Key 只能包含字母和数字，且长度至少为 16")
 	ErrDuplicateAPIKey      = errors.New("API Key 已存在，请使用其他值")
 )
-
-const (
-	apiKeyAllowedProviderAnthropic      = "anthropic"
-	apiKeyAllowedProviderOpenAIChat     = "openai_chat"
-	apiKeyAllowedProviderOpenAIResponse = "openai_responses"
-	apiKeyAllowedProviderGemini         = "gemini"
-)
-
-var allowedAPIKeyProviders = map[string]struct{}{
-	apiKeyAllowedProviderAnthropic:      {},
-	apiKeyAllowedProviderOpenAIChat:     {},
-	apiKeyAllowedProviderOpenAIResponse: {},
-	apiKeyAllowedProviderGemini:         {},
-}
 
 type AmpService struct {
 	settingsRepo *repository.AmpSettingsRepository
@@ -266,11 +251,6 @@ func (s *AmpService) TestConnection(userID string) (*model.TestConnectionRespons
 }
 
 func (s *AmpService) CreateAPIKey(userID string, req *model.CreateAPIKeyRequest) (*model.CreateAPIKeyResponse, error) {
-	allowedProviders, err := normalizeAllowedProviders(req.AllowedProviders)
-	if err != nil {
-		return nil, err
-	}
-
 	rawKey := req.CustomKey
 	if rawKey == "" {
 		keyBytes := make([]byte, 16)
@@ -286,13 +266,12 @@ func (s *AmpService) CreateAPIKey(userID string, req *model.CreateAPIKeyRequest)
 	}
 
 	apiKey := &model.UserAPIKey{
-		UserID:           userID,
-		Name:             req.Name,
-		Prefix:           prefix,
-		KeyHash:          keyHash,
-		APIKey:           rawKey,
-		AllowedProviders: allowedProviders,
-		ExpiresAt:        req.ExpiresAt,
+		UserID:    userID,
+		Name:      req.Name,
+		Prefix:    prefix,
+		KeyHash:   keyHash,
+		APIKey:    rawKey,
+		ExpiresAt: req.ExpiresAt,
 	}
 
 	if err := s.apiKeyRepo.Create(apiKey); err != nil {
@@ -300,23 +279,18 @@ func (s *AmpService) CreateAPIKey(userID string, req *model.CreateAPIKeyRequest)
 	}
 
 	return &model.CreateAPIKeyResponse{
-		ID:               apiKey.ID,
-		Name:             apiKey.Name,
-		Prefix:           apiKey.Prefix,
-		APIKey:           rawKey,
-		AllowedProviders: apiKey.AllowedProviders,
-		ExpiresAt:        apiKey.ExpiresAt,
-		CreatedAt:        apiKey.CreatedAt,
-		Message:          "API Key 创建成功，请妥善保存，可在列表中再次查看",
+		ID:        apiKey.ID,
+		Name:      apiKey.Name,
+		Prefix:    apiKey.Prefix,
+		APIKey:    rawKey,
+		ExpiresAt: apiKey.ExpiresAt,
+		CreatedAt: apiKey.CreatedAt,
+		Message:   "API Key 创建成功，请妥善保存，可在列表中再次查看",
 	}, nil
 }
 
 func (s *AmpService) UpdateAPIKey(userID, keyID string, req *model.UpdateAPIKeyRequest) (*model.APIKeyListItem, error) {
 	key, err := s.getOwnedAPIKey(userID, keyID)
-	if err != nil {
-		return nil, err
-	}
-	allowedProviders, err := normalizeAllowedProviders(req.AllowedProviders)
 	if err != nil {
 		return nil, err
 	}
@@ -331,20 +305,19 @@ func (s *AmpService) UpdateAPIKey(userID, keyID string, req *model.UpdateAPIKeyR
 		if err != nil {
 			return nil, err
 		}
-		if err := s.apiKeyRepo.UpdateKeyFields(key.ID, req.Name, prefix, keyHash, req.APIKey, allowedProviders, expiresAt); err != nil {
+		if err := s.apiKeyRepo.UpdateKeyFields(key.ID, req.Name, prefix, keyHash, req.APIKey, expiresAt); err != nil {
 			return nil, err
 		}
 		key.APIKey = req.APIKey
 		key.KeyHash = keyHash
 		key.Prefix = prefix
 	} else {
-		if err := s.apiKeyRepo.UpdateEditableFields(key.ID, req.Name, allowedProviders, expiresAt); err != nil {
+		if err := s.apiKeyRepo.UpdateEditableFields(key.ID, req.Name, expiresAt); err != nil {
 			return nil, err
 		}
 	}
 
 	key.Name = req.Name
-	key.AllowedProviders = allowedProviders
 	key.ExpiresAt = expiresAt
 	return buildAPIKeyListItem(key), nil
 }
@@ -420,13 +393,12 @@ func (s *AmpService) GetAPIKey(userID, keyID string) (*model.APIKeyRevealRespons
 		return nil, ErrAPIKeyNotRetrievable
 	}
 	return &model.APIKeyRevealResponse{
-		ID:               key.ID,
-		Name:             key.Name,
-		Prefix:           key.Prefix,
-		APIKey:           key.APIKey,
-		AllowedProviders: key.AllowedProviders,
-		ExpiresAt:        key.ExpiresAt,
-		CreatedAt:        key.CreatedAt,
+		ID:        key.ID,
+		Name:      key.Name,
+		Prefix:    key.Prefix,
+		APIKey:    key.APIKey,
+		ExpiresAt: key.ExpiresAt,
+		CreatedAt: key.CreatedAt,
 	}, nil
 }
 
@@ -685,41 +657,14 @@ func buildAPIKeyListItem(key *model.UserAPIKey) *model.APIKeyListItem {
 	}
 
 	return &model.APIKeyListItem{
-		ID:               key.ID,
-		Name:             key.Name,
-		Prefix:           key.Prefix,
-		AllowedProviders: key.AllowedProviders,
-		CreatedAt:        key.CreatedAt,
-		RevokedAt:        key.RevokedAt,
-		LastUsed:         key.LastUsed,
-		ExpiresAt:        key.ExpiresAt,
-		Status:           status,
-		IsActive:         isActive,
+		ID:        key.ID,
+		Name:      key.Name,
+		Prefix:    key.Prefix,
+		CreatedAt: key.CreatedAt,
+		RevokedAt: key.RevokedAt,
+		LastUsed:  key.LastUsed,
+		ExpiresAt: key.ExpiresAt,
+		Status:    status,
+		IsActive:  isActive,
 	}
-}
-
-func normalizeAllowedProviders(values []string) ([]string, error) {
-	if len(values) == 0 {
-		return nil, nil
-	}
-
-	result := make([]string, 0, len(values))
-	seen := make(map[string]struct{}, len(values))
-	for _, value := range values {
-		normalized := strings.TrimSpace(strings.ToLower(value))
-		if normalized == "" {
-			continue
-		}
-		if _, ok := allowedAPIKeyProviders[normalized]; !ok {
-			return nil, fmt.Errorf("provider 无效: %s", value)
-		}
-		if _, ok := seen[normalized]; ok {
-			continue
-		}
-		seen[normalized] = struct{}{}
-		result = append(result, normalized)
-	}
-
-	slices.Sort(result)
-	return result, nil
 }

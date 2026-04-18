@@ -12,6 +12,7 @@ import (
 )
 
 type StatusMonitorRepositoryInterface interface {
+	CountAll() (int, error)
 	Create(monitor *model.StatusMonitor) error
 	Update(monitor *model.StatusMonitor) error
 	Delete(id string) error
@@ -29,6 +30,14 @@ type StatusMonitorRepository struct{}
 
 func NewStatusMonitorRepository() *StatusMonitorRepository {
 	return &StatusMonitorRepository{}
+}
+
+func (r *StatusMonitorRepository) CountAll() (int, error) {
+	db := database.GetDB()
+
+	var count int
+	err := db.QueryRow(`SELECT COUNT(*) FROM status_monitors`).Scan(&count)
+	return count, err
 }
 
 func (r *StatusMonitorRepository) Create(monitor *model.StatusMonitor) error {

@@ -10,6 +10,7 @@ import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Separator } from '@/components/ui/separator'
 import { DASHBOARD_NAVIGATE_EVENT } from '@/lib/dashboard-navigation'
+import { STATUS_MONITOR_AVAILABILITY_EVENT } from '@/lib/status-monitor-availability'
 import {
   Tooltip,
   TooltipContent,
@@ -76,6 +77,7 @@ interface Props {
   siteTimeZone: string
   ampProxySettingsPolicy: AmpProxySettingsPolicy
   ampSettingsPolicy: AmpProxySettingsPolicy
+  statusMonitorAvailable: boolean
   siteContact: SiteContactConfig
   onSiteNameChange: (siteName: string) => void
   onSiteTimeZoneChange: (timeZone: string) => void
@@ -135,6 +137,7 @@ export default function Dashboard({
   siteTimeZone,
   ampProxySettingsPolicy,
   ampSettingsPolicy,
+  statusMonitorAvailable,
   siteContact,
   onSiteNameChange,
   onSiteTimeZoneChange,
@@ -144,6 +147,7 @@ export default function Dashboard({
   onLogout,
 }: Props) {
   const [currentPage, setCurrentPage] = useState<Page>(() => readStoredDashboardPage(initialUsername, isAdmin) ?? 'overview')
+  const [statusMonitorVisible, setStatusMonitorVisible] = useState(statusMonitorAvailable)
   const [username, setUsername] = useState(initialUsername)
   const [collapsed, setCollapsed] = useState(false)
   const [mobileNavOpen, setMobileNavOpen] = useState(false)
@@ -159,7 +163,7 @@ export default function Dashboard({
 
   const navItems: { key: Page; label: string; adminOnly?: boolean }[] = [
     { key: 'overview', label: '概览' },
-    { key: 'status-monitor', label: '状态监控' },
+    ...(statusMonitorVisible ? [{ key: 'status-monitor' as const, label: '状态监控' }] : []),
     ...(canAccessAmpSettings ? [{ key: 'amp-settings' as const, label: '路由设置' }] : []),
     { key: 'api-keys', label: 'API Key 管理' },
     { key: 'request-logs', label: '请求日志' },
@@ -238,6 +242,26 @@ export default function Dashboard({
       setCurrentPage('overview')
     }
   }, [canAccessAmpSettings, currentPage])
+
+  useEffect(() => {
+    if (!statusMonitorVisible && currentPage === 'status-monitor') {
+      setCurrentPage('overview')
+    }
+  }, [currentPage, statusMonitorVisible])
+
+  useEffect(() => {
+    setStatusMonitorVisible(statusMonitorAvailable)
+  }, [statusMonitorAvailable])
+
+  useEffect(() => {
+    const handleAvailability = (event: Event) => {
+      const detail = (event as CustomEvent<{ available?: boolean }>).detail
+      setStatusMonitorVisible(Boolean(detail?.available))
+    }
+
+    window.addEventListener(STATUS_MONITOR_AVAILABILITY_EVENT, handleAvailability)
+    return () => window.removeEventListener(STATUS_MONITOR_AVAILABILITY_EVENT, handleAvailability)
+  }, [])
 
   useEffect(() => {
     let cancelled = false

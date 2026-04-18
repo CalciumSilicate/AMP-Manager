@@ -29,6 +29,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog'
 import { OverflowCopyText } from '@/components/OverflowCopyText'
+import { dispatchStatusMonitorAvailability } from '@/lib/status-monitor-availability'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { ScrollArea } from '@/components/ui/scroll-area'
@@ -139,6 +140,7 @@ export function StatusMonitorSettingsPanel({ onMessage }: Props) {
       setRuntimeConfig(runtime)
       setRuntimeKeyInput('')
       setItems(monitorItems)
+      dispatchStatusMonitorAvailability(monitorItems.length > 0)
       setChannels(channelItems)
     } catch (error) {
       onMessage('error', error instanceof Error ? error.message : '加载状态监控配置失败')
@@ -290,7 +292,11 @@ export function StatusMonitorSettingsPanel({ onMessage }: Props) {
         expectedStatusCodes: item.expectedStatusCodes,
         expectedSubstring: item.expectedSubstring,
       })
-      setItems((current) => current.map((entry) => (entry.id === item.id ? { ...entry, enabled } : entry)))
+      setItems((current) => {
+        const next = current.map((entry) => (entry.id === item.id ? { ...entry, enabled } : entry))
+        dispatchStatusMonitorAvailability(next.length > 0)
+        return next
+      })
     } catch (error) {
       onMessage('error', error instanceof Error ? error.message : '更新状态失败')
     } finally {
@@ -303,7 +309,11 @@ export function StatusMonitorSettingsPanel({ onMessage }: Props) {
     setBusyItemId(item.id)
     try {
       await deleteStatusMonitorItem(item.id)
-      setItems((current) => current.filter((entry) => entry.id !== item.id))
+      setItems((current) => {
+        const next = current.filter((entry) => entry.id !== item.id)
+        dispatchStatusMonitorAvailability(next.length > 0)
+        return next
+      })
       onMessage('success', '状态监控项已删除')
     } catch (error) {
       onMessage('error', error instanceof Error ? error.message : '删除状态监控项失败')

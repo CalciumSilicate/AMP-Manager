@@ -1,8 +1,10 @@
 import { useCallback, useDeferredValue, useEffect, useMemo, useState } from 'react'
 
 import { AdminPageShell } from '@/components/admin/AdminPageShell'
+import { PageStat, PageStatStrip, PageSurface } from '@/components/layout/PageScaffold'
 import { Alert, AlertDescription } from '@/components/ui/alert'
-import { Badge } from '@/components/ui/badge'
+import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
 import { motion } from '@/lib/motion'
 import {
   getAdminSessionDetail,
@@ -15,6 +17,7 @@ import {
 import { SessionDetailColumn } from '@/components/sessions/SessionDetailColumn'
 import { SessionLeaderboardColumn } from '@/components/sessions/SessionLeaderboardColumn'
 import { SessionListColumn } from '@/components/sessions/SessionListColumn'
+import { RefreshCw } from 'lucide-react'
 
 const DEFAULT_PAGE_SIZE = 20
 
@@ -133,6 +136,12 @@ export default function SessionManagement() {
     setQuery(queryInput.trim())
   }, [queryInput])
 
+  const handleClearSearch = useCallback(() => {
+    setQueryInput('')
+    setPage(1)
+    setQuery('')
+  }, [])
+
   const handleRefresh = useCallback(() => {
     void Promise.all([loadSessions(page, query), loadLeaderboard()])
   }, [loadLeaderboard, loadSessions, page, query])
@@ -150,8 +159,13 @@ export default function SessionManagement() {
     <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
       <AdminPageShell
         title="Session 管理"
-        description="只读排障"
         width="full"
+        actions={(
+          <Button variant="outline" onClick={handleRefresh} disabled={fetching || detailLoading || leaderboardLoading}>
+            <RefreshCw className={`mr-2 h-4 w-4 ${(fetching || detailLoading || leaderboardLoading) ? 'animate-spin' : ''}`} />
+            刷新
+          </Button>
+        )}
       >
         {listError ? (
           <Alert variant="destructive">
@@ -159,25 +173,52 @@ export default function SessionManagement() {
           </Alert>
         ) : null}
 
-        <div className="flex flex-wrap gap-2">
-          <Badge variant="outline">{total} 条 Session</Badge>
-          {selectedSessionId ? <Badge variant="secondary">当前已选</Badge> : null}
-          <Badge variant="outline">最近 5 分钟排行</Badge>
-        </div>
+        <PageStatStrip className="xl:grid-cols-4">
+          <PageStat label="Session" value={total} />
+          <PageStat
+            label="已选"
+            value={selectedSessionId ? (
+              <span className="block truncate font-mono text-sm">{selectedSessionId}</span>
+            ) : '未选'}
+          />
+          <PageStat label="筛选" value={query || '全部'} />
+          <PageStat label="排行" value={leaderboardLoading ? '加载中' : leaderboard.length} />
+        </PageStatStrip>
 
-        <div className="grid gap-4 xl:grid-cols-[320px_minmax(0,1fr)_280px]">
+        <PageSurface bodyClassName="space-y-3">
+          <div className="flex flex-col gap-3 lg:flex-row lg:items-center">
+            <Input
+              value={queryInput}
+              onChange={(event) => setQueryInput(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === 'Enter') {
+                  event.preventDefault()
+                  handleSearchSubmit()
+                }
+              }}
+              placeholder="搜索 session / 用户"
+              className="h-10 flex-1"
+            />
+            <div className="flex items-center gap-2">
+              <Button onClick={handleSearchSubmit}>搜索</Button>
+              {query ? (
+                <Button variant="ghost" onClick={handleClearSearch}>
+                  清除
+                </Button>
+              ) : null}
+            </div>
+          </div>
+        </PageSurface>
+
+        <div className="grid gap-5 xl:grid-cols-[minmax(300px,340px)_minmax(0,1fr)_minmax(240px,280px)]">
           <SessionListColumn
             items={items}
             total={total}
             page={page}
             pageSize={DEFAULT_PAGE_SIZE}
-            queryInput={queryInput}
             loading={loading}
             fetching={fetching}
             selectedSessionId={selectedSessionId}
-            onQueryInputChange={setQueryInput}
-            onSearch={handleSearchSubmit}
-            onRefresh={handleRefresh}
             onSelect={setSelectedSessionId}
             onPageChange={setPage}
           />
@@ -195,7 +236,6 @@ export default function SessionManagement() {
           <SessionLeaderboardColumn
             items={leaderboard}
             loading={leaderboardLoading}
-            onRefresh={loadLeaderboard}
           />
         </div>
       </AdminPageShell>

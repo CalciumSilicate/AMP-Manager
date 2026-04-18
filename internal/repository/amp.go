@@ -2,7 +2,6 @@ package repository
 
 import (
 	"database/sql"
-	"encoding/json"
 	"sync"
 	"time"
 
@@ -99,15 +98,11 @@ func (r *APIKeyRepository) Create(apiKey *model.UserAPIKey) error {
 	db := database.GetDB()
 	apiKey.ID = uuid.New().String()
 	apiKey.CreatedAt = time.Now().UTC()
-	allowedProvidersJSON, err := marshalAllowedProviders(apiKey.AllowedProviders)
-	if err != nil {
-		return err
-	}
 
-	_, err = db.Exec(
-		`INSERT INTO user_api_keys (id, user_id, name, prefix, key_hash, api_key, allowed_providers_json, expires_at, created_at) 
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		apiKey.ID, apiKey.UserID, apiKey.Name, apiKey.Prefix, apiKey.KeyHash, apiKey.APIKey, allowedProvidersJSON, apiKey.ExpiresAt, apiKey.CreatedAt,
+	_, err := db.Exec(
+		`INSERT INTO user_api_keys (id, user_id, name, prefix, key_hash, api_key, expires_at, created_at) 
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+		apiKey.ID, apiKey.UserID, apiKey.Name, apiKey.Prefix, apiKey.KeyHash, apiKey.APIKey, apiKey.ExpiresAt, apiKey.CreatedAt,
 	)
 	return err
 }
@@ -115,7 +110,7 @@ func (r *APIKeyRepository) Create(apiKey *model.UserAPIKey) error {
 func (r *APIKeyRepository) ListByUserID(userID string) ([]*model.UserAPIKey, error) {
 	db := database.GetDB()
 	rows, err := db.Query(
-		`SELECT id, user_id, name, prefix, key_hash, allowed_providers_json, created_at, revoked_at, last_used_at, expires_at
+		`SELECT id, user_id, name, prefix, key_hash, created_at, revoked_at, last_used_at, expires_at
 		 FROM user_api_keys WHERE user_id = ? ORDER BY created_at DESC`,
 		userID,
 	)
@@ -128,12 +123,10 @@ func (r *APIKeyRepository) ListByUserID(userID string) ([]*model.UserAPIKey, err
 	for rows.Next() {
 		key := &model.UserAPIKey{}
 		var revokedAt, lastUsed, expiresAt sql.NullTime
-		var allowedProvidersJSON sql.NullString
-		err := rows.Scan(&key.ID, &key.UserID, &key.Name, &key.Prefix, &key.KeyHash, &allowedProvidersJSON, &key.CreatedAt, &revokedAt, &lastUsed, &expiresAt)
+		err := rows.Scan(&key.ID, &key.UserID, &key.Name, &key.Prefix, &key.KeyHash, &key.CreatedAt, &revokedAt, &lastUsed, &expiresAt)
 		if err != nil {
 			return nil, err
 		}
-		key.AllowedProviders = parseAllowedProviders(allowedProvidersJSON)
 		if revokedAt.Valid {
 			key.RevokedAt = &revokedAt.Time
 		}
@@ -152,19 +145,17 @@ func (r *APIKeyRepository) GetByID(id string) (*model.UserAPIKey, error) {
 	db := database.GetDB()
 	key := &model.UserAPIKey{}
 	var revokedAt, lastUsed, expiresAt sql.NullTime
-	var allowedProvidersJSON sql.NullString
 	err := db.QueryRow(
-		`SELECT id, user_id, name, prefix, key_hash, api_key, allowed_providers_json, created_at, revoked_at, last_used_at, expires_at 
+		`SELECT id, user_id, name, prefix, key_hash, api_key, created_at, revoked_at, last_used_at, expires_at 
 		 FROM user_api_keys WHERE id = ?`,
 		id,
-	).Scan(&key.ID, &key.UserID, &key.Name, &key.Prefix, &key.KeyHash, &key.APIKey, &allowedProvidersJSON, &key.CreatedAt, &revokedAt, &lastUsed, &expiresAt)
+	).Scan(&key.ID, &key.UserID, &key.Name, &key.Prefix, &key.KeyHash, &key.APIKey, &key.CreatedAt, &revokedAt, &lastUsed, &expiresAt)
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
 	if err != nil {
 		return nil, err
 	}
-	key.AllowedProviders = parseAllowedProviders(allowedProvidersJSON)
 	if revokedAt.Valid {
 		key.RevokedAt = &revokedAt.Time
 	}
@@ -183,30 +174,22 @@ func (r *APIKeyRepository) Delete(id string) error {
 	return err
 }
 
-func (r *APIKeyRepository) UpdateEditableFields(id, name string, allowedProviders []string, expiresAt *time.Time) error {
+func (r *APIKeyRepository) UpdateEditableFields(id, name string, expiresAt *time.Time) error {
 	db := database.GetDB()
-	allowedProvidersJSON, err := marshalAllowedProviders(allowedProviders)
-	if err != nil {
-		return err
-	}
-	_, err = db.Exec(
-		`UPDATE user_api_keys SET name = ?, allowed_providers_json = ?, expires_at = ? WHERE id = ?`,
-		name, allowedProvidersJSON, expiresAt, id,
+	_, err := db.Exec(
+		`UPDATE user_api_keys SET name = ?, expires_at = ? WHERE id = ?`,
+		name, expiresAt, id,
 	)
 	return err
 }
 
-func (r *APIKeyRepository) UpdateKeyFields(id, name, prefix, keyHash, apiKey string, allowedProviders []string, expiresAt *time.Time) error {
+func (r *APIKeyRepository) UpdateKeyFields(id, name, prefix, keyHash, apiKey string, expiresAt *time.Time) error {
 	db := database.GetDB()
-	allowedProvidersJSON, err := marshalAllowedProviders(allowedProviders)
-	if err != nil {
-		return err
-	}
-	_, err = db.Exec(
+	_, err := db.Exec(
 		`UPDATE user_api_keys
-		 SET name = ?, prefix = ?, key_hash = ?, api_key = ?, allowed_providers_json = ?, expires_at = ?
+		 SET name = ?, prefix = ?, key_hash = ?, api_key = ?, expires_at = ?
 		 WHERE id = ?`,
-		name, prefix, keyHash, apiKey, allowedProvidersJSON, expiresAt, id,
+		name, prefix, keyHash, apiKey, expiresAt, id,
 	)
 	return err
 }
@@ -226,19 +209,17 @@ func (r *APIKeyRepository) GetByKeyHash(keyHash string) (*model.UserAPIKey, erro
 	db := database.GetDB()
 	key := &model.UserAPIKey{}
 	var revokedAt, lastUsed, expiresAt sql.NullTime
-	var allowedProvidersJSON sql.NullString
 	err := db.QueryRow(
-		`SELECT id, user_id, name, prefix, key_hash, allowed_providers_json, created_at, revoked_at, last_used_at, expires_at 
+		`SELECT id, user_id, name, prefix, key_hash, created_at, revoked_at, last_used_at, expires_at 
 		 FROM user_api_keys WHERE key_hash = ?`,
 		keyHash,
-	).Scan(&key.ID, &key.UserID, &key.Name, &key.Prefix, &key.KeyHash, &allowedProvidersJSON, &key.CreatedAt, &revokedAt, &lastUsed, &expiresAt)
+	).Scan(&key.ID, &key.UserID, &key.Name, &key.Prefix, &key.KeyHash, &key.CreatedAt, &revokedAt, &lastUsed, &expiresAt)
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
 	if err != nil {
 		return nil, err
 	}
-	key.AllowedProviders = parseAllowedProviders(allowedProvidersJSON)
 	if revokedAt.Valid {
 		key.RevokedAt = &revokedAt.Time
 	}
@@ -291,28 +272,4 @@ func (r *APIKeyRepository) HasActiveByUserID(userID string) (bool, error) {
 		time.Now().UTC(),
 	).Scan(&count)
 	return count > 0, err
-}
-
-func marshalAllowedProviders(values []string) (string, error) {
-	if len(values) == 0 {
-		return "[]", nil
-	}
-
-	data, err := json.Marshal(values)
-	if err != nil {
-		return "", err
-	}
-	return string(data), nil
-}
-
-func parseAllowedProviders(value sql.NullString) []string {
-	if !value.Valid || value.String == "" {
-		return nil
-	}
-
-	var providers []string
-	if err := json.Unmarshal([]byte(value.String), &providers); err != nil {
-		return nil
-	}
-	return providers
 }

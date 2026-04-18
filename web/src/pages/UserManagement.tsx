@@ -733,6 +733,41 @@ export default function UserManagement() {
           </div>
         )}
       >
+        <div className="space-y-3 border-b border-border/70 pb-5">
+          <div className="flex flex-wrap items-end gap-3">
+            <div className="min-w-[260px] flex-1 space-y-2">
+              <Label htmlFor="user-search">搜索用户</Label>
+              <Input
+                id="user-search"
+                value={searchInput}
+                onChange={(event) => setSearchInput(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === 'Enter') {
+                    event.preventDefault()
+                    handleApplySearch()
+                  }
+                }}
+                placeholder="按用户名或 API Key 搜索"
+              />
+            </div>
+            <div className="flex items-center gap-2">
+              <Button variant="outline" onClick={handleApplySearch}>
+                搜索
+              </Button>
+              {searchKeyword ? (
+                <Button variant="ghost" onClick={handleClearSearch}>
+                  清除
+                </Button>
+              ) : null}
+            </div>
+          </div>
+          {searchKeyword ? (
+            <p className="text-sm text-muted-foreground">
+              当前搜索: <span className="font-medium text-foreground">{searchKeyword}</span>
+            </p>
+          ) : null}
+        </div>
+
         <motion.div
           initial={{ opacity: 0, y: 30 }}
           animate={{ opacity: 1, y: 0 }}
@@ -752,39 +787,6 @@ export default function UserManagement() {
                     </Button>
                   </div>
                 ) : null}
-                <div className="flex flex-wrap items-end gap-3">
-                  <div className="min-w-[260px] flex-1 space-y-2">
-                    <Label htmlFor="user-search">搜索用户</Label>
-                    <Input
-                      id="user-search"
-                      value={searchInput}
-                      onChange={(event) => setSearchInput(event.target.value)}
-                      onKeyDown={(event) => {
-                        if (event.key === 'Enter') {
-                          event.preventDefault()
-                          handleApplySearch()
-                        }
-                      }}
-                      placeholder="按用户名或 API Key 搜索"
-                    />
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <Button variant="outline" onClick={handleApplySearch}>
-                      搜索
-                    </Button>
-                    {searchKeyword ? (
-                      <Button variant="ghost" onClick={handleClearSearch}>
-                        清除
-                      </Button>
-                    ) : null}
-                  </div>
-                </div>
-                {searchKeyword ? (
-                  <p className="text-sm text-muted-foreground">
-                    当前搜索: <span className="font-medium text-foreground">{searchKeyword}</span>
-                  </p>
-                ) : null}
-                <div className="border-b" />
               </div>
               <div className="space-y-3 md:hidden">
                 {users.length === 0 ? (

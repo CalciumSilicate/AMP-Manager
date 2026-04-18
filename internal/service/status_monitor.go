@@ -300,6 +300,14 @@ func (s *StatusMonitorService) RunAllEnabledMonitors(ctx context.Context) (int, 
 	return len(monitors), s.runMonitors(ctx, monitors, cfg)
 }
 
+func (s *StatusMonitorService) HasConfiguredMonitors() (bool, error) {
+	count, err := s.monitorRepo.CountAll()
+	if err != nil {
+		return false, err
+	}
+	return count > 0, nil
+}
+
 func (s *StatusMonitorService) GetDashboard(period string) (*model.StatusMonitorDashboardResponse, error) {
 	monitors, err := s.monitorRepo.ListEnabled()
 	if err != nil {

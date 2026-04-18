@@ -109,6 +109,7 @@ type SiteConfigResponse struct {
 	TimeZone               string                     `json:"timeZone"`
 	AmpProxySettingsPolicy string                     `json:"ampProxySettingsPolicy"`
 	AmpSettingsPolicy      string                     `json:"ampSettingsPolicy"`
+	StatusMonitorAvailable bool                       `json:"statusMonitorAvailable"`
 	Contact                SiteContactConfig          `json:"contact"`
 	InviteEnabled          bool                       `json:"inviteEnabled"`
 	SessionSticky          *SessionStickyPublicConfig `json:"sessionSticky,omitempty"`

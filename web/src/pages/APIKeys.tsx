@@ -28,7 +28,6 @@ import {
 } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { SearchableMultiSelect, type MultiSelectOption } from '@/components/SearchableMultiSelect'
 import { Table, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { APIKeyUsageDialog } from '@/components/api-keys/APIKeyUsageDialog'
 import { formatDateTime } from '@/lib/formatters'
@@ -42,21 +41,6 @@ function buildRandomSkKey() {
 
 interface Props {
   siteName: string
-}
-
-const providerOptions: MultiSelectOption[] = [
-  { value: 'openai_responses', label: 'OpenAI Responses' },
-  { value: 'openai_chat', label: 'OpenAI Compatible' },
-  { value: 'gemini', label: 'Gemini' },
-  { value: 'anthropic', label: 'Anthropic Messages' },
-]
-
-function formatAllowedProviders(providers?: string[]) {
-  if (!providers || providers.length === 0) return '不限'
-  const labels = providerOptions
-    .filter((option) => providers.includes(option.value))
-    .map((option) => option.label)
-  return labels.length > 0 ? labels.join(' / ') : providers.join(' / ')
 }
 
 function MobileInfoRow({
@@ -81,7 +65,6 @@ export default function APIKeys({ siteName }: Props) {
   const [showCreate, setShowCreate] = useState(false)
   const [createName, setCreateName] = useState('')
   const [customKey, setCustomKey] = useState('')
-  const [createAllowedProviders, setCreateAllowedProviders] = useState<string[]>([])
   const [createExpiresAt, setCreateExpiresAt] = useState('')
   const [creating, setCreating] = useState(false)
   const [newKey, setNewKey] = useState<CreateAPIKeyResponse | null>(null)
@@ -89,7 +72,6 @@ export default function APIKeys({ siteName }: Props) {
   const [usageKey, setUsageKey] = useState<APIKeyRevealResponse | null>(null)
   const [editingKey, setEditingKey] = useState<APIKey | null>(null)
   const [editName, setEditName] = useState('')
-  const [editAllowedProviders, setEditAllowedProviders] = useState<string[]>([])
   const [editExpiresAt, setEditExpiresAt] = useState('')
   const [savingEdit, setSavingEdit] = useState(false)
   const [copied, setCopied] = useState<string | null>(null)
@@ -130,13 +112,11 @@ export default function APIKeys({ siteName }: Props) {
       const result = await createAPIKeyWithOptions({
         name: createName.trim(),
         ...(customKey ? { customKey } : {}),
-        ...(createAllowedProviders.length > 0 ? { allowedProviders: createAllowedProviders } : {}),
         ...(createExpiresAt ? { expiresAt: createExpiresAt } : {}),
       })
       setNewKey(result)
       setCreateName('')
       setCustomKey('')
-      setCreateAllowedProviders([])
       setCreateExpiresAt('')
       setShowCreate(false)
       await loadData()
@@ -208,7 +188,6 @@ export default function APIKeys({ siteName }: Props) {
   const handleOpenEdit = (key: APIKey) => {
     setEditingKey(key)
     setEditName(key.name)
-    setEditAllowedProviders(key.allowedProviders || [])
     setEditExpiresAt(key.expiresAt || '')
   }
 
@@ -221,12 +200,10 @@ export default function APIKeys({ siteName }: Props) {
     try {
       await updateAPIKey(editingKey.id, {
         name: editName.trim(),
-        allowedProviders: editAllowedProviders,
         ...(editExpiresAt ? { expiresAt: editExpiresAt } : { clearExpiry: true }),
       })
       setEditingKey(null)
       setEditName('')
-      setEditAllowedProviders([])
       setEditExpiresAt('')
       await loadData()
     } catch (err) {
@@ -370,10 +347,8 @@ export default function APIKeys({ siteName }: Props) {
                         </div>
 
                         <div className="mt-3 grid gap-2 text-sm">
-                          <MobileInfoRow label="Provider" value={formatAllowedProviders(key.allowedProviders)} />
                           <MobileInfoRow label="到期时间" value={formatDate(key.expiresAt)} />
                           <MobileInfoRow label="最后使用" value={formatUsedAt(key.lastUsedAt)} />
-                          <MobileInfoRow label="创建时间" value={formatDateTime(key.createdAt)} />
                         </div>
 
                         <div className="mt-3 flex flex-wrap gap-2">
@@ -424,10 +399,8 @@ export default function APIKeys({ siteName }: Props) {
                         <TableHead>名称</TableHead>
                         <TableHead>Prefix</TableHead>
                         <TableHead>状态</TableHead>
-                        <TableHead>Provider</TableHead>
                         <TableHead>到期时间</TableHead>
                         <TableHead>最后使用</TableHead>
-                        <TableHead>创建时间</TableHead>
                         <TableHead className="text-right">操作</TableHead>
                       </TableRow>
                     </TableHeader>
@@ -443,16 +416,9 @@ export default function APIKeys({ siteName }: Props) {
                               {getStatusLabel(key.status)}
                             </Badge>
                           </TableCell>
-                          <TableCell className="max-w-[220px]">
-                            <OverflowCopyText
-                              text={formatAllowedProviders(key.allowedProviders)}
-                              className="max-w-[220px] text-sm text-muted-foreground"
-                            />
-                          </TableCell>
                           <TableCell>{formatDate(key.expiresAt)}</TableCell>
                           <TableCell>{formatUsedAt(key.lastUsedAt)}</TableCell>
-                          <TableCell>{formatDateTime(key.createdAt)}</TableCell>
-                          <TableCell className="min-w-[360px] text-right">
+                          <TableCell className="min-w-[320px] text-right">
                             <div className="flex items-center justify-end gap-2">
                               <Button variant="ghost" size="sm" onClick={() => handleOpenEdit(key)}>
                                 编辑
@@ -535,17 +501,6 @@ export default function APIKeys({ siteName }: Props) {
                 <p className="text-xs text-muted-foreground">支持字母数字，可选 `sk-` 前缀；最少 16 位，推荐使用 32 位以上。</p>
               </div>
               <div className="space-y-2">
-                <Label>Provider 限制</Label>
-                <SearchableMultiSelect
-                  values={createAllowedProviders}
-                  onValuesChange={setCreateAllowedProviders}
-                  options={providerOptions}
-                  searchPlaceholder="搜索 Provider..."
-                  allLabel="不限"
-                  className="w-full"
-                />
-              </div>
-              <div className="space-y-2">
                 <Label>到期时间</Label>
                 <DateTimePicker value={createExpiresAt} onChange={setCreateExpiresAt} placeholder="留空表示永不过期" className="w-full justify-between text-right" />
               </div>
@@ -557,7 +512,6 @@ export default function APIKeys({ siteName }: Props) {
                   setShowCreate(false)
                   setCreateName('')
                   setCustomKey('')
-                  setCreateAllowedProviders([])
                   setCreateExpiresAt('')
                 }}
               >
@@ -583,17 +537,6 @@ export default function APIKeys({ siteName }: Props) {
               <div className="space-y-2">
                 <Label htmlFor="editKeyName">名称</Label>
                 <Input id="editKeyName" value={editName} onChange={(event) => setEditName(event.target.value)} />
-              </div>
-              <div className="space-y-2">
-                <Label>Provider 限制</Label>
-                <SearchableMultiSelect
-                  values={editAllowedProviders}
-                  onValuesChange={setEditAllowedProviders}
-                  options={providerOptions}
-                  searchPlaceholder="搜索 Provider..."
-                  allLabel="不限"
-                  className="w-full"
-                />
               </div>
               <div className="space-y-2">
                 <Label>到期时间</Label>
@@ -645,10 +588,6 @@ export default function APIKeys({ siteName }: Props) {
                   <div className="rounded-lg border px-4 py-3">
                     <p className="text-muted-foreground">名称</p>
                     <p className="font-medium">{revealKey.name}</p>
-                  </div>
-                  <div className="rounded-lg border px-4 py-3">
-                    <p className="text-muted-foreground">Provider</p>
-                    <p className="font-medium">{formatAllowedProviders(revealKey.allowedProviders)}</p>
                   </div>
                   <div className="rounded-lg border px-4 py-3">
                     <p className="text-muted-foreground">到期时间</p>

@@ -162,3 +162,89 @@ func TestAdaptCriticalSchemaSQLPostgresRewritesDatetime(t *testing.T) {
 		t.Fatalf("expected critical schema SQL to contain TIMESTAMPTZ, got: %s", adapted)
 	}
 }
+
+func TestInitDropsLegacyAPIKeyAllowedProvidersColumn(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "legacy-api-keys.db")
+
+	legacyDB, err := sql.Open("sqlite", dbPath)
+	if err != nil {
+		t.Fatalf("sql.Open returned error: %v", err)
+	}
+
+	legacySchema := `
+	CREATE TABLE users (
+		id TEXT PRIMARY KEY,
+		username TEXT NOT NULL UNIQUE,
+		password_hash TEXT NOT NULL,
+		is_admin INTEGER NOT NULL DEFAULT 0,
+		balance_micros BIGINT NOT NULL DEFAULT 0,
+		created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+		updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+	);
+	CREATE TABLE user_api_keys (
+		id TEXT PRIMARY KEY,
+		user_id TEXT NOT NULL,
+		name TEXT NOT NULL,
+		key_hash TEXT UNIQUE NOT NULL,
+		api_key TEXT NOT NULL DEFAULT '',
+		allowed_providers_json TEXT NOT NULL DEFAULT '[]',
+		prefix TEXT NOT NULL,
+		last_used_at DATETIME,
+		expires_at DATETIME,
+		revoked_at DATETIME,
+		created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+		FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+	);
+	CREATE INDEX idx_api_keys_user_created ON user_api_keys(user_id, created_at DESC);
+	CREATE INDEX idx_api_keys_user_active ON user_api_keys(user_id, revoked_at);
+	CREATE TABLE schema_migrations (
+		name TEXT PRIMARY KEY,
+		applied_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+	);
+	`
+	if _, err := legacyDB.Exec(legacySchema); err != nil {
+		_ = legacyDB.Close()
+		t.Fatalf("creating legacy schema returned error: %v", err)
+	}
+	if err := legacyDB.Close(); err != nil {
+		t.Fatalf("closing legacy db returned error: %v", err)
+	}
+
+	if err := InitWithOptions(Options{
+		Type:       DBTypeSQLite,
+		SQLitePath: dbPath,
+	}); err != nil {
+		t.Fatalf("InitWithOptions returned error: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = CloseAndRelease()
+	})
+
+	rows, err := GetDB().Query(`PRAGMA table_info(user_api_keys)`)
+	if err != nil {
+		t.Fatalf("PRAGMA table_info returned error: %v", err)
+	}
+	defer rows.Close()
+
+	hasAllowedProviders := false
+	for rows.Next() {
+		var cid int
+		var name string
+		var columnType string
+		var notNull int
+		var defaultValue any
+		var pk int
+		if err := rows.Scan(&cid, &name, &columnType, &notNull, &defaultValue, &pk); err != nil {
+			t.Fatalf("scanning table_info row returned error: %v", err)
+		}
+		if name == "allowed_providers_json" {
+			hasAllowedProviders = true
+		}
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatalf("iterating table_info rows returned error: %v", err)
+	}
+	if hasAllowedProviders {
+		t.Fatal("expected user_api_keys.allowed_providers_json to be removed during init")
+	}
+}
