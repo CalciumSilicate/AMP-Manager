@@ -7,7 +7,7 @@ services:
       - "5432:5432"
     environment:
       POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: mysecretpassword
+      POSTGRES_PASSWORD: ampmanager-secret
       POSTGRES_DB: ampmanager
     volumes:
       - ampmanager_local_postgres_data:/var/lib/postgresql/data
@@ -16,7 +16,6 @@ services:
       interval: 5s
       timeout: 5s
       retries: 20
-
   redis:
     image: redis:7-alpine
     container_name: ampmanager-local-redis
@@ -31,7 +30,6 @@ services:
       interval: 5s
       timeout: 5s
       retries: 20
-
   ampmanager:
     build:
       context: .
@@ -62,11 +60,10 @@ services:
       RATE_LIMIT_AUTH_RPS: "50"
       RATE_LIMIT_PROXY_RPS: "1000"
       DB_TYPE: postgres
-      DATABASE_URL: postgres://postgres:mysecretpassword@postgres:5432/ampmanager?sslmode=disable
+      DATABASE_URL: postgres://postgres:ampmanager-secret@postgres:5432/ampmanager?sslmode=disable
       REDIS_URL: redis://redis:6379/0
       REDIS_PREFIX: ampmanager-local
       SQLITE_PATH: /app/data/data.db
-
 volumes:
   ampmanager_local_postgres_data:
   ampmanager_local_redis_data:
