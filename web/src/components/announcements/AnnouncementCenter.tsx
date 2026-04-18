@@ -118,7 +118,7 @@ export function AnnouncementCenter({
       <Button
         variant={triggerVariant}
         size={compact ? 'icon' : undefined}
-        className={cn(compact ? 'relative' : 'gap-2', triggerClassName)}
+        className={cn('relative', compact ? '' : 'gap-2', triggerClassName)}
         aria-label={triggerLabel}
         onClick={() => setOpen(true)}
       >
@@ -126,12 +126,7 @@ export function AnnouncementCenter({
         {!compact ? <span>{triggerLabel}</span> : null}
         {unreadCount > 0 ? (
           <span
-            className={cn(
-              'bg-primary text-[10px] font-semibold text-primary-foreground',
-              compact
-                ? 'absolute -right-1 -top-1 flex h-4 min-w-4 items-center justify-center rounded-full px-1'
-                : 'rounded-full px-1.5 py-0.5',
-            )}
+            className="absolute -right-1 -top-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-primary px-1 text-[10px] font-semibold text-primary-foreground"
           >
             {unreadCount}
           </span>
@@ -197,7 +192,6 @@ export function ContactCenter({
         <DialogContent className="sm:max-w-lg">
           <DialogHeader>
             <DialogTitle>联系方式</DialogTitle>
-            <DialogDescription>{contact.description}</DialogDescription>
           </DialogHeader>
           <div className="flex flex-col gap-5 py-2 sm:flex-row sm:items-start">
             <div className="flex h-56 w-full items-center justify-center rounded-xl border bg-muted/20 sm:w-56">
