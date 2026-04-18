@@ -152,6 +152,71 @@ func TestUpdateAPIKeyRejectsDuplicateRawKey(t *testing.T) {
 	}
 }
 
+func TestCreateAPIKeyPersistsCircuitBreakerConfig(t *testing.T) {
+	setupAmpServiceTestDB(t)
+
+	user := createAmpServiceTestUser(t, "user-breaker-config")
+	svc := NewAmpService()
+	threshold := 80
+	openMinutes := 15
+	halfOpenMinutes := 3
+
+	created, err := svc.CreateAPIKey(user.ID, &model.CreateAPIKeyRequest{
+		Name:                          "breaker",
+		CircuitBreakerThreshold:       &threshold,
+		CircuitBreakerOpenMinutes:     &openMinutes,
+		CircuitBreakerHalfOpenMinutes: &halfOpenMinutes,
+	})
+	if err != nil {
+		t.Fatalf("CreateAPIKey returned error: %v", err)
+	}
+
+	stored, err := repository.NewAPIKeyRepository().GetByID(created.ID)
+	if err != nil {
+		t.Fatalf("GetByID returned error: %v", err)
+	}
+	if stored == nil {
+		t.Fatal("expected stored api key")
+	}
+	if stored.CircuitBreakerThreshold != threshold || stored.CircuitBreakerOpenMinutes != openMinutes || stored.CircuitBreakerHalfOpenMinutes != halfOpenMinutes {
+		t.Fatalf("unexpected circuit breaker config: %+v", stored)
+	}
+}
+
+func TestValidateAPIKeyRejectsOpenCircuitBreaker(t *testing.T) {
+	setupAmpServiceTestDB(t)
+
+	user := createAmpServiceTestUser(t, "user-open-breaker")
+	svc := NewAmpService()
+	created, err := svc.CreateAPIKey(user.ID, &model.CreateAPIKeyRequest{
+		Name:      "breaker",
+		CustomKey: "sk-OPENBREAKER12345",
+	})
+	if err != nil {
+		t.Fatalf("CreateAPIKey returned error: %v", err)
+	}
+
+	key, err := repository.NewAPIKeyRepository().GetByID(created.ID)
+	if err != nil {
+		t.Fatalf("GetByID returned error: %v", err)
+	}
+	if key == nil {
+		t.Fatal("expected stored api key")
+	}
+
+	now := time.Now().UTC()
+	key.CircuitBreakerState = model.APIKeyCircuitBreakerStateOpen
+	key.CircuitBreakerOpenedAt = &now
+	if err := repository.NewAPIKeyRepository().UpdateCircuitBreakerState(key); err != nil {
+		t.Fatalf("UpdateCircuitBreakerState returned error: %v", err)
+	}
+
+	_, err = svc.ValidateAPIKey("sk-OPENBREAKER12345")
+	if !errors.Is(err, ErrAPIKeyCircuitOpen) {
+		t.Fatalf("expected ErrAPIKeyCircuitOpen, got %v", err)
+	}
+}
+
 func TestSetAPIKeyDisabledCanRestore(t *testing.T) {
 	setupAmpServiceTestDB(t)
 

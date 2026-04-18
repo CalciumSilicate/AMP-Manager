@@ -9,7 +9,9 @@ import (
 	"time"
 
 	"ampmanager/internal/billing"
+	"ampmanager/internal/model"
 	"ampmanager/internal/realtime"
+	"ampmanager/internal/repository"
 	"ampmanager/internal/service"
 
 	log "github.com/sirupsen/logrus"
@@ -189,6 +191,7 @@ func (w *LogWriter) UpdateFromTrace(trace *RequestTrace) bool {
 	if trace == nil || trace.RequestID == "" {
 		return false
 	}
+	w.FinalizeAPIKeyCircuitBreaker(trace)
 
 	snapshot := trace.Clone()
 
@@ -404,6 +407,33 @@ func (w *LogWriter) UpdateFromTrace(trace *RequestTrace) bool {
 	log.Debugf("log writer: updated request %s to status %s", snapshot.RequestID, status)
 	realtime.NotifyLogCompleted(snapshot.RequestID)
 	return true
+}
+
+func (w *LogWriter) FinalizeAPIKeyCircuitBreaker(trace *RequestTrace) {
+	if trace == nil || trace.APIKeyID == "" {
+		return
+	}
+	if !trace.CompleteAPIKeyCircuitBreakerOutcome() {
+		return
+	}
+
+	repo := repository.NewAPIKeyRepository()
+	key, err := repo.GetByID(trace.APIKeyID)
+	if err != nil || key == nil {
+		if err != nil {
+			log.Warnf("log writer: failed to load api key circuit breaker state for %s: %v", trace.APIKeyID, err)
+		}
+		return
+	}
+
+	service.WithAPIKeyCircuitBreakerLock(trace.APIKeyID, func() {
+		now := time.Now().UTC()
+		if model.ApplyAPIKeyCircuitBreakerOutcome(key, trace.APIKeyCircuitBreakerOutcome(), now) {
+			if err := repo.UpdateCircuitBreakerState(key); err != nil {
+				log.Warnf("log writer: failed to persist api key circuit breaker state for %s: %v", trace.APIKeyID, err)
+			}
+		}
+	})
 }
 
 // insertComplete 直接插入完整记录（fallback 用于 pending 记录丢失的情况）

@@ -208,6 +208,9 @@ func (h *AmpHandler) CreateAPIKey(c *gin.Context) {
 		} else if errors.Is(err, service.ErrDuplicateAPIKey) {
 			status = http.StatusConflict
 			msg = err.Error()
+		} else if errors.Is(err, service.ErrAPIKeyCircuitOpen) {
+			status = http.StatusTooManyRequests
+			msg = err.Error()
 		}
 
 		c.JSON(status, gin.H{"error": msg})
@@ -231,6 +234,9 @@ func (h *AmpHandler) DeleteAPIKey(c *gin.Context) {
 			msg = err.Error()
 		} else if errors.Is(err, service.ErrNotOwner) {
 			status = http.StatusForbidden
+			msg = err.Error()
+		} else if errors.Is(err, service.ErrAPIKeyCircuitOpen) {
+			status = http.StatusTooManyRequests
 			msg = err.Error()
 		}
 

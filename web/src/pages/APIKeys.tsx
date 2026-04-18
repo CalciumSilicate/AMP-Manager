@@ -29,8 +29,10 @@ import {
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Table, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { APIKeyUsageDialog } from '@/components/api-keys/APIKeyUsageDialog'
 import { formatDateTime } from '@/lib/formatters'
+import { Info } from 'lucide-react'
 
 function buildRandomSkKey() {
   const bytes = new Uint8Array(16)
@@ -58,6 +60,29 @@ function MobileInfoRow({
   )
 }
 
+function CircuitBreakerFieldLabel({ label, description }: { label: string; description: ReactNode }) {
+  return (
+    <div className="flex items-center gap-1.5">
+      <span>{label}</span>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <button type="button" className="text-muted-foreground transition-colors hover:text-foreground" aria-label={`${label}说明`}>
+            <Info className="h-3.5 w-3.5" />
+          </button>
+        </TooltipTrigger>
+        <TooltipContent side="top" className="max-w-72 border bg-popover px-3 py-2 text-xs text-popover-foreground shadow-md">
+          {description}
+        </TooltipContent>
+      </Tooltip>
+    </div>
+  )
+}
+
+function parsePositiveIntegerOrFallback(value: string, fallback: number) {
+  const parsed = Number.parseInt(value, 10)
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback
+}
+
 export default function APIKeys({ siteName }: Props) {
   const [keys, setKeys] = useState<APIKey[]>([])
   const [loading, setLoading] = useState(true)
@@ -66,6 +91,9 @@ export default function APIKeys({ siteName }: Props) {
   const [createName, setCreateName] = useState('')
   const [customKey, setCustomKey] = useState('')
   const [createExpiresAt, setCreateExpiresAt] = useState('')
+  const [createCircuitBreakerThreshold, setCreateCircuitBreakerThreshold] = useState('50')
+  const [createCircuitBreakerOpenMinutes, setCreateCircuitBreakerOpenMinutes] = useState('10')
+  const [createCircuitBreakerHalfOpenMinutes, setCreateCircuitBreakerHalfOpenMinutes] = useState('2')
   const [creating, setCreating] = useState(false)
   const [newKey, setNewKey] = useState<CreateAPIKeyResponse | null>(null)
   const [revealKey, setRevealKey] = useState<APIKeyRevealResponse | null>(null)
@@ -73,6 +101,9 @@ export default function APIKeys({ siteName }: Props) {
   const [editingKey, setEditingKey] = useState<APIKey | null>(null)
   const [editName, setEditName] = useState('')
   const [editExpiresAt, setEditExpiresAt] = useState('')
+  const [editCircuitBreakerThreshold, setEditCircuitBreakerThreshold] = useState('50')
+  const [editCircuitBreakerOpenMinutes, setEditCircuitBreakerOpenMinutes] = useState('10')
+  const [editCircuitBreakerHalfOpenMinutes, setEditCircuitBreakerHalfOpenMinutes] = useState('2')
   const [savingEdit, setSavingEdit] = useState(false)
   const [copied, setCopied] = useState<string | null>(null)
   const [revealingId, setRevealingId] = useState<string | null>(null)
@@ -113,11 +144,17 @@ export default function APIKeys({ siteName }: Props) {
         name: createName.trim(),
         ...(customKey ? { customKey } : {}),
         ...(createExpiresAt ? { expiresAt: createExpiresAt } : {}),
+        circuitBreakerThreshold: parsePositiveIntegerOrFallback(createCircuitBreakerThreshold, 50),
+        circuitBreakerOpenMinutes: parsePositiveIntegerOrFallback(createCircuitBreakerOpenMinutes, 10),
+        circuitBreakerHalfOpenMinutes: parsePositiveIntegerOrFallback(createCircuitBreakerHalfOpenMinutes, 2),
       })
       setNewKey(result)
       setCreateName('')
       setCustomKey('')
       setCreateExpiresAt('')
+      setCreateCircuitBreakerThreshold('50')
+      setCreateCircuitBreakerOpenMinutes('10')
+      setCreateCircuitBreakerHalfOpenMinutes('2')
       setShowCreate(false)
       await loadData()
     } catch (err) {
@@ -189,6 +226,9 @@ export default function APIKeys({ siteName }: Props) {
     setEditingKey(key)
     setEditName(key.name)
     setEditExpiresAt(key.expiresAt || '')
+    setEditCircuitBreakerThreshold(String(key.circuitBreakerThreshold))
+    setEditCircuitBreakerOpenMinutes(String(key.circuitBreakerOpenMinutes))
+    setEditCircuitBreakerHalfOpenMinutes(String(key.circuitBreakerHalfOpenMinutes))
   }
 
   const handleSaveEdit = async () => {
@@ -201,10 +241,16 @@ export default function APIKeys({ siteName }: Props) {
       await updateAPIKey(editingKey.id, {
         name: editName.trim(),
         ...(editExpiresAt ? { expiresAt: editExpiresAt } : { clearExpiry: true }),
+        circuitBreakerThreshold: parsePositiveIntegerOrFallback(editCircuitBreakerThreshold, editingKey.circuitBreakerThreshold),
+        circuitBreakerOpenMinutes: parsePositiveIntegerOrFallback(editCircuitBreakerOpenMinutes, editingKey.circuitBreakerOpenMinutes),
+        circuitBreakerHalfOpenMinutes: parsePositiveIntegerOrFallback(editCircuitBreakerHalfOpenMinutes, editingKey.circuitBreakerHalfOpenMinutes),
       })
       setEditingKey(null)
       setEditName('')
       setEditExpiresAt('')
+      setEditCircuitBreakerThreshold('50')
+      setEditCircuitBreakerOpenMinutes('10')
+      setEditCircuitBreakerHalfOpenMinutes('2')
       await loadData()
     } catch (err) {
       setError(err instanceof Error ? err.message : '保存失败')
@@ -221,6 +267,35 @@ export default function APIKeys({ siteName }: Props) {
 
   const formatDate = (dateStr?: string | null) => (dateStr ? formatDateTime(dateStr) : '永不过期')
   const formatUsedAt = (dateStr?: string | null) => (dateStr ? formatDateTime(dateStr) : '-')
+  const getCircuitBreakerLabel = (state: APIKey['circuitBreakerState']) => {
+    switch (state) {
+      case 'open':
+        return '已熔断'
+      case 'half_open':
+        return '半开'
+      default:
+        return '关闭'
+    }
+  }
+  const getCircuitBreakerVariant = (state: APIKey['circuitBreakerState']): 'default' | 'secondary' | 'destructive' | 'outline' => {
+    switch (state) {
+      case 'open':
+        return 'destructive'
+      case 'half_open':
+        return 'outline'
+      default:
+        return 'secondary'
+    }
+  }
+  const formatCircuitBreakerWindow = (key: Pick<APIKey, 'circuitBreakerOpenedAt' | 'circuitBreakerHalfOpenStartedAt' | 'circuitBreakerState'>) => {
+    if (key.circuitBreakerState === 'open' && key.circuitBreakerOpenedAt) {
+      return `熔断于 ${formatDateTime(key.circuitBreakerOpenedAt)}`
+    }
+    if (key.circuitBreakerState === 'half_open' && key.circuitBreakerHalfOpenStartedAt) {
+      return `半开开始 ${formatDateTime(key.circuitBreakerHalfOpenStartedAt)}`
+    }
+    return '未触发'
+  }
   const getStatusLabel = (status: APIKey['status']) => {
     switch (status) {
       case 'disabled':
@@ -251,12 +326,13 @@ export default function APIKeys({ siteName }: Props) {
 
   return (
     <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
-      <AdminPageShell
-        title="API Key 管理"
-        description="管理用于认证的 API Key"
-        width="5xl"
-        actions={<Button onClick={() => setShowCreate(true)}>创建 API Key</Button>}
-      >
+      <TooltipProvider delayDuration={0}>
+        <AdminPageShell
+          title="API Key 管理"
+          description="管理用于认证的 API Key"
+          width="5xl"
+          actions={<Button onClick={() => setShowCreate(true)}>创建 API Key</Button>}
+        >
         <AnimatePresence>
           {newKey ? (
             <motion.div
@@ -329,7 +405,7 @@ export default function APIKeys({ siteName }: Props) {
                 <div className="admin-surface-header">
                   <div className="space-y-1">
                     <p className="text-sm font-medium text-foreground">已创建 {keys.length} 个 Key</p>
-                    <p className="admin-inline-note">支持禁用/恢复、过期时间管理、明文查看和删除操作。</p>
+                    <p className="admin-inline-note">支持禁用/恢复、过期时间管理、明文查看、熔断状态查看和删除操作。</p>
                   </div>
                 </div>
                 <div className="overflow-hidden rounded-b-lg">
@@ -347,6 +423,8 @@ export default function APIKeys({ siteName }: Props) {
                         </div>
 
                         <div className="mt-3 grid gap-2 text-sm">
+                          <MobileInfoRow label="熔断状态" value={<Badge variant={getCircuitBreakerVariant(key.circuitBreakerState)}>{getCircuitBreakerLabel(key.circuitBreakerState)}</Badge>} />
+                          <MobileInfoRow label="熔断窗口" value={formatCircuitBreakerWindow(key)} />
                           <MobileInfoRow label="到期时间" value={formatDate(key.expiresAt)} />
                           <MobileInfoRow label="最后使用" value={formatUsedAt(key.lastUsedAt)} />
                         </div>
@@ -395,13 +473,14 @@ export default function APIKeys({ siteName }: Props) {
 
                   <Table className="hidden md:table">
                     <TableHeader>
-                      <TableRow>
-                        <TableHead>名称</TableHead>
-                        <TableHead>Prefix</TableHead>
-                        <TableHead>状态</TableHead>
-                        <TableHead>到期时间</TableHead>
-                        <TableHead>最后使用</TableHead>
-                        <TableHead className="text-right">操作</TableHead>
+                        <TableRow>
+                          <TableHead>名称</TableHead>
+                          <TableHead>Prefix</TableHead>
+                          <TableHead>状态</TableHead>
+                          <TableHead>熔断</TableHead>
+                          <TableHead>到期时间</TableHead>
+                          <TableHead>最后使用</TableHead>
+                          <TableHead className="text-right">操作</TableHead>
                       </TableRow>
                     </TableHeader>
                     <motion.tbody variants={tableStaggerContainer} initial="hidden" animate="visible" key={keys.length}>
@@ -415,6 +494,14 @@ export default function APIKeys({ siteName }: Props) {
                             <Badge variant={getStatusVariant(key.status)}>
                               {getStatusLabel(key.status)}
                             </Badge>
+                          </TableCell>
+                          <TableCell>
+                            <div className="space-y-1">
+                              <Badge variant={getCircuitBreakerVariant(key.circuitBreakerState)}>
+                                {getCircuitBreakerLabel(key.circuitBreakerState)}
+                              </Badge>
+                              <div className="text-xs text-muted-foreground">{formatCircuitBreakerWindow(key)}</div>
+                            </div>
                           </TableCell>
                           <TableCell>{formatDate(key.expiresAt)}</TableCell>
                           <TableCell>{formatUsedAt(key.lastUsedAt)}</TableCell>
@@ -504,6 +591,35 @@ export default function APIKeys({ siteName }: Props) {
                 <Label>到期时间</Label>
                 <DateTimePicker value={createExpiresAt} onChange={setCreateExpiresAt} placeholder="留空表示永不过期" className="w-full justify-between text-right" />
               </div>
+              <div className="grid gap-4 md:grid-cols-3">
+                <div className="space-y-2">
+                  <Label>
+                    <CircuitBreakerFieldLabel
+                      label="错误阈值"
+                      description="统计上游非 2xx 和网络错误，429 不计数。连续达到阈值后立即熔断。"
+                    />
+                  </Label>
+                  <Input type="number" min="1" max="1000" value={createCircuitBreakerThreshold} onChange={(event) => setCreateCircuitBreakerThreshold(event.target.value)} />
+                </div>
+                <div className="space-y-2">
+                  <Label>
+                    <CircuitBreakerFieldLabel
+                      label="熔断时长"
+                      description="进入 open 后拒绝请求的时长，结束后自动进入半开窗口。单位：分钟。"
+                    />
+                  </Label>
+                  <Input type="number" min="1" max="1440" value={createCircuitBreakerOpenMinutes} onChange={(event) => setCreateCircuitBreakerOpenMinutes(event.target.value)} />
+                </div>
+                <div className="space-y-2">
+                  <Label>
+                    <CircuitBreakerFieldLabel
+                      label="半开时长"
+                      description="半开窗口整段放流；窗口内任一失败立即重新熔断；窗口结束且无失败才关闭熔断。"
+                    />
+                  </Label>
+                  <Input type="number" min="1" max="240" value={createCircuitBreakerHalfOpenMinutes} onChange={(event) => setCreateCircuitBreakerHalfOpenMinutes(event.target.value)} />
+                </div>
+              </div>
             </div>
             <DialogFooter>
               <Button
@@ -513,6 +629,9 @@ export default function APIKeys({ siteName }: Props) {
                   setCreateName('')
                   setCustomKey('')
                   setCreateExpiresAt('')
+                  setCreateCircuitBreakerThreshold('50')
+                  setCreateCircuitBreakerOpenMinutes('10')
+                  setCreateCircuitBreakerHalfOpenMinutes('2')
                 }}
               >
                 取消
@@ -531,7 +650,7 @@ export default function APIKeys({ siteName }: Props) {
           <DialogContent className="max-h-[calc(100vh-2rem)] overflow-y-auto">
             <DialogHeader>
               <DialogTitle>编辑 API Key</DialogTitle>
-              <DialogDescription>仅可修改名称和到期时间。</DialogDescription>
+              <DialogDescription>可修改名称、到期时间和熔断参数。</DialogDescription>
             </DialogHeader>
             <div className="space-y-4 py-4">
               <div className="space-y-2">
@@ -541,6 +660,35 @@ export default function APIKeys({ siteName }: Props) {
               <div className="space-y-2">
                 <Label>到期时间</Label>
                 <DateTimePicker value={editExpiresAt} onChange={setEditExpiresAt} placeholder="留空表示永不过期" className="w-full justify-between text-right" />
+              </div>
+              <div className="grid gap-4 md:grid-cols-3">
+                <div className="space-y-2">
+                  <Label>
+                    <CircuitBreakerFieldLabel
+                      label="错误阈值"
+                      description="连续统计非 2xx 与网络错误次数，429 始终忽略。一次成功会清零。"
+                    />
+                  </Label>
+                  <Input type="number" min="1" max="1000" value={editCircuitBreakerThreshold} onChange={(event) => setEditCircuitBreakerThreshold(event.target.value)} />
+                </div>
+                <div className="space-y-2">
+                  <Label>
+                    <CircuitBreakerFieldLabel
+                      label="熔断时长"
+                      description="open 阶段持续时间。到点后不是直接关闭，而是进入半开。"
+                    />
+                  </Label>
+                  <Input type="number" min="1" max="1440" value={editCircuitBreakerOpenMinutes} onChange={(event) => setEditCircuitBreakerOpenMinutes(event.target.value)} />
+                </div>
+                <div className="space-y-2">
+                  <Label>
+                    <CircuitBreakerFieldLabel
+                      label="半开时长"
+                      description="半开窗口内整段允许请求通过；只要有一次失败，就立刻重新打开熔断。"
+                    />
+                  </Label>
+                  <Input type="number" min="1" max="240" value={editCircuitBreakerHalfOpenMinutes} onChange={(event) => setEditCircuitBreakerHalfOpenMinutes(event.target.value)} />
+                </div>
               </div>
             </div>
             <DialogFooter>
@@ -593,6 +741,16 @@ export default function APIKeys({ siteName }: Props) {
                     <p className="text-muted-foreground">到期时间</p>
                     <p className="font-medium">{formatDate(revealKey.expiresAt)}</p>
                   </div>
+                  <div className="rounded-lg border px-4 py-3">
+                    <p className="text-muted-foreground">熔断状态</p>
+                    <div className="mt-1">
+                      <Badge variant={getCircuitBreakerVariant(revealKey.circuitBreakerState)}>{getCircuitBreakerLabel(revealKey.circuitBreakerState)}</Badge>
+                    </div>
+                  </div>
+                  <div className="rounded-lg border px-4 py-3">
+                    <p className="text-muted-foreground">熔断参数</p>
+                    <p className="font-medium">{`${revealKey.circuitBreakerThreshold} / ${revealKey.circuitBreakerOpenMinutes} 分钟 / ${revealKey.circuitBreakerHalfOpenMinutes} 分钟`}</p>
+                  </div>
                 </div>
                 <div className="rounded-lg border px-4 py-3 text-sm">
                   <p className="text-muted-foreground">连接说明</p>
@@ -617,7 +775,8 @@ export default function APIKeys({ siteName }: Props) {
           copied={copied}
           onCopy={copyToClipboard}
         />
-      </AdminPageShell>
+        </AdminPageShell>
+      </TooltipProvider>
     </motion.div>
   )
 }

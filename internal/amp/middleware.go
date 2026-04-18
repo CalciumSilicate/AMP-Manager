@@ -247,6 +247,19 @@ func APIKeyAuthMiddleware() gin.HandlerFunc {
 			c.AbortWithStatusJSON(http.StatusUnauthorized, NewStandardError(http.StatusUnauthorized, "api key expired"))
 			return
 		}
+		now := time.Now().UTC()
+		if model.RefreshAPIKeyCircuitBreakerState(apiKeyRecord, now) {
+			if err := apiKeyRepo.UpdateCircuitBreakerState(apiKeyRecord); err != nil {
+				log.Errorf("amp api key auth: failed to persist circuit breaker state: %v", err)
+				c.AbortWithStatusJSON(http.StatusInternalServerError, NewStandardError(http.StatusInternalServerError, "internal server error"))
+				return
+			}
+		}
+		if model.IsAPIKeyCircuitBreakerBlocked(apiKeyRecord, now) {
+			log.Warnf("amp api key auth: circuit breaker open for key %s", apiKeyRecord.ID)
+			c.AbortWithStatusJSON(http.StatusTooManyRequests, NewStandardError(http.StatusTooManyRequests, "api key circuit breaker open"))
+			return
+		}
 
 		ampProxySettingsPolicy, err := systemCfgSvc.GetAmpProxySettingsPolicy()
 		if err != nil {

@@ -332,6 +332,13 @@ func createTables() error {
 		last_used_at DATETIME,
 		expires_at DATETIME,
 		revoked_at DATETIME,
+		circuit_breaker_threshold INTEGER NOT NULL DEFAULT 50,
+		circuit_breaker_open_minutes INTEGER NOT NULL DEFAULT 10,
+		circuit_breaker_half_open_minutes INTEGER NOT NULL DEFAULT 2,
+		circuit_breaker_state TEXT NOT NULL DEFAULT 'closed',
+		circuit_breaker_consecutive_errors INTEGER NOT NULL DEFAULT 0,
+		circuit_breaker_opened_at DATETIME,
+		circuit_breaker_half_open_started_at DATETIME,
 		created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
 		FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
 	);
@@ -2201,6 +2208,9 @@ func ensureCriticalSchema() error {
 	if err := ensureRequestLogsSessionSchema(); err != nil {
 		return err
 	}
+	if err := ensureAPIKeyCircuitBreakerSchema(); err != nil {
+		return err
+	}
 	if err := ensureUserBootstrapSchema(); err != nil {
 		return err
 	}
@@ -2214,6 +2224,31 @@ func ensureCriticalSchema() error {
 		return err
 	}
 	if err := ensureInviteCouponSchema(); err != nil {
+		return err
+	}
+	return nil
+}
+
+func ensureAPIKeyCircuitBreakerSchema() error {
+	if err := ensureColumnWithDefault("user_api_keys", "circuit_breaker_threshold", "INTEGER NOT NULL DEFAULT 50"); err != nil {
+		return err
+	}
+	if err := ensureColumnWithDefault("user_api_keys", "circuit_breaker_open_minutes", "INTEGER NOT NULL DEFAULT 10"); err != nil {
+		return err
+	}
+	if err := ensureColumnWithDefault("user_api_keys", "circuit_breaker_half_open_minutes", "INTEGER NOT NULL DEFAULT 2"); err != nil {
+		return err
+	}
+	if err := ensureColumnWithDefault("user_api_keys", "circuit_breaker_state", "TEXT NOT NULL DEFAULT 'closed'"); err != nil {
+		return err
+	}
+	if err := ensureColumnWithDefault("user_api_keys", "circuit_breaker_consecutive_errors", "INTEGER NOT NULL DEFAULT 0"); err != nil {
+		return err
+	}
+	if err := ensureColumnWithDefault("user_api_keys", "circuit_breaker_opened_at", "DATETIME"); err != nil {
+		return err
+	}
+	if err := ensureColumnWithDefault("user_api_keys", "circuit_breaker_half_open_started_at", "DATETIME"); err != nil {
 		return err
 	}
 	return nil

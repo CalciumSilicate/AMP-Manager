@@ -98,11 +98,30 @@ func (r *APIKeyRepository) Create(apiKey *model.UserAPIKey) error {
 	db := database.GetDB()
 	apiKey.ID = uuid.New().String()
 	apiKey.CreatedAt = time.Now().UTC()
+	model.ApplyDefaultAPIKeyCircuitBreakerConfig(apiKey)
 
 	_, err := db.Exec(
-		`INSERT INTO user_api_keys (id, user_id, name, prefix, key_hash, api_key, expires_at, created_at) 
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-		apiKey.ID, apiKey.UserID, apiKey.Name, apiKey.Prefix, apiKey.KeyHash, apiKey.APIKey, apiKey.ExpiresAt, apiKey.CreatedAt,
+		`INSERT INTO user_api_keys (
+			id, user_id, name, prefix, key_hash, api_key, expires_at,
+			circuit_breaker_threshold, circuit_breaker_open_minutes, circuit_breaker_half_open_minutes,
+			circuit_breaker_state, circuit_breaker_consecutive_errors, circuit_breaker_opened_at, circuit_breaker_half_open_started_at,
+			created_at
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		apiKey.ID,
+		apiKey.UserID,
+		apiKey.Name,
+		apiKey.Prefix,
+		apiKey.KeyHash,
+		apiKey.APIKey,
+		apiKey.ExpiresAt,
+		apiKey.CircuitBreakerThreshold,
+		apiKey.CircuitBreakerOpenMinutes,
+		apiKey.CircuitBreakerHalfOpenMinutes,
+		apiKey.CircuitBreakerState,
+		apiKey.CircuitBreakerConsecutiveErrors,
+		apiKey.CircuitBreakerOpenedAt,
+		apiKey.CircuitBreakerHalfOpenStartedAt,
+		apiKey.CreatedAt,
 	)
 	return err
 }
@@ -110,7 +129,9 @@ func (r *APIKeyRepository) Create(apiKey *model.UserAPIKey) error {
 func (r *APIKeyRepository) ListByUserID(userID string) ([]*model.UserAPIKey, error) {
 	db := database.GetDB()
 	rows, err := db.Query(
-		`SELECT id, user_id, name, prefix, key_hash, created_at, revoked_at, last_used_at, expires_at
+		`SELECT id, user_id, name, prefix, key_hash, api_key, created_at, revoked_at, last_used_at, expires_at,
+		        circuit_breaker_threshold, circuit_breaker_open_minutes, circuit_breaker_half_open_minutes,
+		        circuit_breaker_state, circuit_breaker_consecutive_errors, circuit_breaker_opened_at, circuit_breaker_half_open_started_at
 		 FROM user_api_keys WHERE user_id = ? ORDER BY created_at DESC`,
 		userID,
 	)
@@ -122,20 +143,30 @@ func (r *APIKeyRepository) ListByUserID(userID string) ([]*model.UserAPIKey, err
 	var keys []*model.UserAPIKey
 	for rows.Next() {
 		key := &model.UserAPIKey{}
-		var revokedAt, lastUsed, expiresAt sql.NullTime
-		err := rows.Scan(&key.ID, &key.UserID, &key.Name, &key.Prefix, &key.KeyHash, &key.CreatedAt, &revokedAt, &lastUsed, &expiresAt)
+		var revokedAt, lastUsed, expiresAt, circuitOpenedAt, circuitHalfOpenStartedAt sql.NullTime
+		err := rows.Scan(
+			&key.ID,
+			&key.UserID,
+			&key.Name,
+			&key.Prefix,
+			&key.KeyHash,
+			&key.APIKey,
+			&key.CreatedAt,
+			&revokedAt,
+			&lastUsed,
+			&expiresAt,
+			&key.CircuitBreakerThreshold,
+			&key.CircuitBreakerOpenMinutes,
+			&key.CircuitBreakerHalfOpenMinutes,
+			&key.CircuitBreakerState,
+			&key.CircuitBreakerConsecutiveErrors,
+			&circuitOpenedAt,
+			&circuitHalfOpenStartedAt,
+		)
 		if err != nil {
 			return nil, err
 		}
-		if revokedAt.Valid {
-			key.RevokedAt = &revokedAt.Time
-		}
-		if lastUsed.Valid {
-			key.LastUsed = &lastUsed.Time
-		}
-		if expiresAt.Valid {
-			key.ExpiresAt = &expiresAt.Time
-		}
+		assignAPIKeyNullableTimes(key, revokedAt, lastUsed, expiresAt, circuitOpenedAt, circuitHalfOpenStartedAt)
 		keys = append(keys, key)
 	}
 	return keys, rows.Err()
@@ -144,27 +175,39 @@ func (r *APIKeyRepository) ListByUserID(userID string) ([]*model.UserAPIKey, err
 func (r *APIKeyRepository) GetByID(id string) (*model.UserAPIKey, error) {
 	db := database.GetDB()
 	key := &model.UserAPIKey{}
-	var revokedAt, lastUsed, expiresAt sql.NullTime
+	var revokedAt, lastUsed, expiresAt, circuitOpenedAt, circuitHalfOpenStartedAt sql.NullTime
 	err := db.QueryRow(
-		`SELECT id, user_id, name, prefix, key_hash, api_key, created_at, revoked_at, last_used_at, expires_at 
+		`SELECT id, user_id, name, prefix, key_hash, api_key, created_at, revoked_at, last_used_at, expires_at,
+		        circuit_breaker_threshold, circuit_breaker_open_minutes, circuit_breaker_half_open_minutes,
+		        circuit_breaker_state, circuit_breaker_consecutive_errors, circuit_breaker_opened_at, circuit_breaker_half_open_started_at
 		 FROM user_api_keys WHERE id = ?`,
 		id,
-	).Scan(&key.ID, &key.UserID, &key.Name, &key.Prefix, &key.KeyHash, &key.APIKey, &key.CreatedAt, &revokedAt, &lastUsed, &expiresAt)
+	).Scan(
+		&key.ID,
+		&key.UserID,
+		&key.Name,
+		&key.Prefix,
+		&key.KeyHash,
+		&key.APIKey,
+		&key.CreatedAt,
+		&revokedAt,
+		&lastUsed,
+		&expiresAt,
+		&key.CircuitBreakerThreshold,
+		&key.CircuitBreakerOpenMinutes,
+		&key.CircuitBreakerHalfOpenMinutes,
+		&key.CircuitBreakerState,
+		&key.CircuitBreakerConsecutiveErrors,
+		&circuitOpenedAt,
+		&circuitHalfOpenStartedAt,
+	)
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
 	if err != nil {
 		return nil, err
 	}
-	if revokedAt.Valid {
-		key.RevokedAt = &revokedAt.Time
-	}
-	if lastUsed.Valid {
-		key.LastUsed = &lastUsed.Time
-	}
-	if expiresAt.Valid {
-		key.ExpiresAt = &expiresAt.Time
-	}
+	assignAPIKeyNullableTimes(key, revokedAt, lastUsed, expiresAt, circuitOpenedAt, circuitHalfOpenStartedAt)
 	return key, nil
 }
 
@@ -174,22 +217,26 @@ func (r *APIKeyRepository) Delete(id string) error {
 	return err
 }
 
-func (r *APIKeyRepository) UpdateEditableFields(id, name string, expiresAt *time.Time) error {
+func (r *APIKeyRepository) UpdateEditableFields(id, name string, expiresAt *time.Time, circuitBreakerThreshold, circuitBreakerOpenMinutes, circuitBreakerHalfOpenMinutes int) error {
 	db := database.GetDB()
 	_, err := db.Exec(
-		`UPDATE user_api_keys SET name = ?, expires_at = ? WHERE id = ?`,
-		name, expiresAt, id,
+		`UPDATE user_api_keys
+		 SET name = ?, expires_at = ?,
+		     circuit_breaker_threshold = ?, circuit_breaker_open_minutes = ?, circuit_breaker_half_open_minutes = ?
+		 WHERE id = ?`,
+		name, expiresAt, circuitBreakerThreshold, circuitBreakerOpenMinutes, circuitBreakerHalfOpenMinutes, id,
 	)
 	return err
 }
 
-func (r *APIKeyRepository) UpdateKeyFields(id, name, prefix, keyHash, apiKey string, expiresAt *time.Time) error {
+func (r *APIKeyRepository) UpdateKeyFields(id, name, prefix, keyHash, apiKey string, expiresAt *time.Time, circuitBreakerThreshold, circuitBreakerOpenMinutes, circuitBreakerHalfOpenMinutes int) error {
 	db := database.GetDB()
 	_, err := db.Exec(
 		`UPDATE user_api_keys
-		 SET name = ?, prefix = ?, key_hash = ?, api_key = ?, expires_at = ?
+		 SET name = ?, prefix = ?, key_hash = ?, api_key = ?, expires_at = ?,
+		     circuit_breaker_threshold = ?, circuit_breaker_open_minutes = ?, circuit_breaker_half_open_minutes = ?
 		 WHERE id = ?`,
-		name, prefix, keyHash, apiKey, expiresAt, id,
+		name, prefix, keyHash, apiKey, expiresAt, circuitBreakerThreshold, circuitBreakerOpenMinutes, circuitBreakerHalfOpenMinutes, id,
 	)
 	return err
 }
@@ -208,27 +255,39 @@ func (r *APIKeyRepository) SetRevoked(id string, revoked bool) error {
 func (r *APIKeyRepository) GetByKeyHash(keyHash string) (*model.UserAPIKey, error) {
 	db := database.GetDB()
 	key := &model.UserAPIKey{}
-	var revokedAt, lastUsed, expiresAt sql.NullTime
+	var revokedAt, lastUsed, expiresAt, circuitOpenedAt, circuitHalfOpenStartedAt sql.NullTime
 	err := db.QueryRow(
-		`SELECT id, user_id, name, prefix, key_hash, created_at, revoked_at, last_used_at, expires_at 
+		`SELECT id, user_id, name, prefix, key_hash, api_key, created_at, revoked_at, last_used_at, expires_at,
+		        circuit_breaker_threshold, circuit_breaker_open_minutes, circuit_breaker_half_open_minutes,
+		        circuit_breaker_state, circuit_breaker_consecutive_errors, circuit_breaker_opened_at, circuit_breaker_half_open_started_at
 		 FROM user_api_keys WHERE key_hash = ?`,
 		keyHash,
-	).Scan(&key.ID, &key.UserID, &key.Name, &key.Prefix, &key.KeyHash, &key.CreatedAt, &revokedAt, &lastUsed, &expiresAt)
+	).Scan(
+		&key.ID,
+		&key.UserID,
+		&key.Name,
+		&key.Prefix,
+		&key.KeyHash,
+		&key.APIKey,
+		&key.CreatedAt,
+		&revokedAt,
+		&lastUsed,
+		&expiresAt,
+		&key.CircuitBreakerThreshold,
+		&key.CircuitBreakerOpenMinutes,
+		&key.CircuitBreakerHalfOpenMinutes,
+		&key.CircuitBreakerState,
+		&key.CircuitBreakerConsecutiveErrors,
+		&circuitOpenedAt,
+		&circuitHalfOpenStartedAt,
+	)
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
 	if err != nil {
 		return nil, err
 	}
-	if revokedAt.Valid {
-		key.RevokedAt = &revokedAt.Time
-	}
-	if lastUsed.Valid {
-		key.LastUsed = &lastUsed.Time
-	}
-	if expiresAt.Valid {
-		key.ExpiresAt = &expiresAt.Time
-	}
+	assignAPIKeyNullableTimes(key, revokedAt, lastUsed, expiresAt, circuitOpenedAt, circuitHalfOpenStartedAt)
 	return key, nil
 }
 
@@ -262,6 +321,27 @@ func (r *APIKeyRepository) UpdateLastUsedThrottled(id string, minInterval time.D
 	return nil
 }
 
+func (r *APIKeyRepository) UpdateCircuitBreakerState(key *model.UserAPIKey) error {
+	if key == nil || key.ID == "" {
+		return nil
+	}
+	model.ApplyDefaultAPIKeyCircuitBreakerConfig(key)
+	_, err := database.GetDB().Exec(
+		`UPDATE user_api_keys
+		 SET circuit_breaker_state = ?,
+		     circuit_breaker_consecutive_errors = ?,
+		     circuit_breaker_opened_at = ?,
+		     circuit_breaker_half_open_started_at = ?
+		 WHERE id = ?`,
+		key.CircuitBreakerState,
+		key.CircuitBreakerConsecutiveErrors,
+		key.CircuitBreakerOpenedAt,
+		key.CircuitBreakerHalfOpenStartedAt,
+		key.ID,
+	)
+	return err
+}
+
 func (r *APIKeyRepository) HasActiveByUserID(userID string) (bool, error) {
 	db := database.GetDB()
 	var count int
@@ -272,4 +352,27 @@ func (r *APIKeyRepository) HasActiveByUserID(userID string) (bool, error) {
 		time.Now().UTC(),
 	).Scan(&count)
 	return count > 0, err
+}
+
+func assignAPIKeyNullableTimes(
+	key *model.UserAPIKey,
+	revokedAt, lastUsed, expiresAt, circuitOpenedAt, circuitHalfOpenStartedAt sql.NullTime,
+) {
+	if revokedAt.Valid {
+		key.RevokedAt = &revokedAt.Time
+	}
+	if lastUsed.Valid {
+		key.LastUsed = &lastUsed.Time
+		key.LastUsedAt = &lastUsed.Time
+	}
+	if expiresAt.Valid {
+		key.ExpiresAt = &expiresAt.Time
+	}
+	if circuitOpenedAt.Valid {
+		key.CircuitBreakerOpenedAt = &circuitOpenedAt.Time
+	}
+	if circuitHalfOpenStartedAt.Valid {
+		key.CircuitBreakerHalfOpenStartedAt = &circuitHalfOpenStartedAt.Time
+	}
+	model.ApplyDefaultAPIKeyCircuitBreakerConfig(key)
 }
