@@ -18,12 +18,9 @@ import { Channel, ChannelType, TestChannelResult } from '@/api/channels'
 export interface ChannelTableProps {
   channels: Channel[]
   testResults: Record<string, TestChannelResult>
-  fetchingModels: Record<string, boolean>
-  modelCounts: Record<string, number>
   onToggleEnabled: (id: string, enabled: boolean) => void
   onQuickUpdate: (channel: Channel, field: 'priority' | 'weight' | 'rateMultiplier', value: number) => Promise<void>
   onTest: (channel: Channel) => void
-  onFetchModels: (id: string) => void
   onEdit: (channel: Channel) => void
   onDelete: (id: string, name: string) => void
 }
@@ -150,12 +147,9 @@ function MobileInfoRow({
 export function ChannelTable({
   channels,
   testResults: _testResults,
-  fetchingModels,
-  modelCounts,
   onToggleEnabled,
   onQuickUpdate,
   onTest,
-  onFetchModels,
   onEdit,
   onDelete,
 }: ChannelTableProps) {
@@ -194,9 +188,7 @@ export function ChannelTable({
                     {groupNames.join(' / ')}
                   </Badge>
                 ) : null}
-                <Badge variant="outline">
-                  模型 {modelCounts[channel.id] ?? models.length}
-                </Badge>
+                <Badge variant="outline">模型 {models.length}</Badge>
               </div>
 
               <div className="mt-3 grid gap-2 text-sm">
@@ -232,14 +224,6 @@ export function ChannelTable({
                 <Button variant="outline" size="sm" onClick={() => onTest(channel)}>
                   测试
                 </Button>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => onFetchModels(channel.id)}
-                  disabled={fetchingModels[channel.id]}
-                >
-                  {fetchingModels[channel.id] ? '获取中...' : '获取模型'}
-                </Button>
                 <Button variant="outline" size="sm" onClick={() => onEdit(channel)}>
                   编辑
                 </Button>
@@ -272,8 +256,6 @@ export function ChannelTable({
         </TableHeader>
         <motion.tbody variants={tableStaggerContainer} initial="hidden" animate="visible" key={channels.length}>
           {channels.map((channel) => {
-            const models = channel.models ?? []
-
             return (
               <motion.tr key={channel.id} variants={tableRowVariants} className="border-b transition-colors hover:bg-muted/50 data-[state=selected]:bg-muted">
                 <TableCell>
@@ -321,23 +303,6 @@ export function ChannelTable({
                 <TableCell className="text-right space-x-2">
                   <Button variant="ghost" size="sm" onClick={() => onTest(channel)}>
                     测试
-                  </Button>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => onFetchModels(channel.id)}
-                    disabled={fetchingModels[channel.id]}
-                  >
-                    {fetchingModels[channel.id] ? '获取中...' : '获取模型'}
-                    {modelCounts[channel.id] !== undefined ? (
-                      <span className="ml-1 text-xs text-muted-foreground">
-                        ({modelCounts[channel.id]})
-                      </span>
-                    ) : models.length > 0 ? (
-                      <span className="ml-1 text-xs text-muted-foreground">
-                        ({models.length})
-                      </span>
-                    ) : null}
                   </Button>
                   <Button variant="ghost" size="sm" onClick={() => onEdit(channel)}>
                     编辑

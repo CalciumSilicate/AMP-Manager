@@ -15,7 +15,6 @@ import {
   updateChannel,
 } from '../api/channels'
 import { Group, listGroups } from '../api/groups'
-import { fetchChannelModels } from '../api/models'
 import { AdminPageShell, AdminSurface } from '@/components/admin/AdminPageShell'
 import { ChannelFormDialog } from '@/components/channels/ChannelFormDialog'
 import { ChannelTable } from '@/components/channels/ChannelTable'
@@ -52,8 +51,6 @@ export default function Channels() {
   const [error, setError] = useState('')
   const [showForm, setShowForm] = useState(false)
   const [editingChannel, setEditingChannel] = useState<Channel | null>(null)
-  const [fetchingModels, setFetchingModels] = useState<Record<string, boolean>>({})
-  const [modelCounts, setModelCounts] = useState<Record<string, number>>({})
   const [groups, setGroups] = useState<Group[]>([])
   const [saving, setSaving] = useState(false)
 
@@ -305,18 +302,6 @@ export default function Channels() {
     }
   }
 
-  const handleFetchModels = async (id: string) => {
-    try {
-      setFetchingModels((prev) => ({ ...prev, [id]: true }))
-      const result = await fetchChannelModels(id)
-      setModelCounts((prev) => ({ ...prev, [id]: result.count }))
-    } catch (err) {
-      setError(err instanceof Error ? err.message : '获取模型失败')
-    } finally {
-      setFetchingModels((prev) => ({ ...prev, [id]: false }))
-    }
-  }
-
   const availableModels = useMemo(() => testDialogChannel?.models || [], [testDialogChannel])
 
   if (loading) {
@@ -358,12 +343,9 @@ export default function Channels() {
                 <ChannelTable
                   channels={channels}
                   testResults={{}}
-                  fetchingModels={fetchingModels}
-                  modelCounts={modelCounts}
                   onToggleEnabled={handleToggleEnabled}
                   onQuickUpdate={handleQuickUpdate}
                   onTest={openTestDialog}
-                  onFetchModels={handleFetchModels}
                   onEdit={handleEdit}
                   onDelete={handleDelete}
                 />
