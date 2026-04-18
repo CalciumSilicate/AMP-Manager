@@ -92,6 +92,14 @@ func (s *BillingService) CanStartRequest(userID string) (bool, error) {
 	return s.canStartRequestLegacy(userID, nil)
 }
 
+func (s *BillingService) shouldBypassRuntime(userID string) (bool, error) {
+	subs, err := s.subRepo.ListActiveByUserID(userID)
+	if err != nil {
+		return false, err
+	}
+	return len(subs) > 1, nil
+}
+
 func (s *BillingService) canStartRequestLegacy(userID string, forcedSource *model.BillingSource) (bool, error) {
 	setting, err := s.settingRepo.GetByUserID(userID)
 	if err != nil {
@@ -144,6 +152,13 @@ func (s *BillingService) canStartRequestLegacy(userID string, forcedSource *mode
 
 func (s *BillingService) ReserveRequest(req AdmissionRequest) (bool, error) {
 	if runtime := billingstate.Get(); runtime != nil {
+		bypassRuntime, err := s.shouldBypassRuntime(req.UserID)
+		if err != nil {
+			return false, err
+		}
+		if bypassRuntime {
+			return s.canStartRequestLegacy(req.UserID, req.ForcedBillingSource)
+		}
 		if err := runtime.ReserveRequest(context.Background(), req.RequestID, req.UserID, req.EstimatedCostMicros, req.ForcedBillingSource); err != nil {
 			if errors.Is(err, billingstate.ErrInsufficientBudget) {
 				return false, nil
@@ -211,6 +226,13 @@ func (s *BillingService) SettleRequestCostResult(requestLogID, userID string, co
 
 func (s *BillingService) SettleRequestCostResultWithSource(requestLogID, userID string, costMicros int64, forcedSource *model.BillingSource) (*RequestBillingResult, error) {
 	if runtime := billingstate.Get(); runtime != nil {
+		bypassRuntime, err := s.shouldBypassRuntime(userID)
+		if err != nil {
+			return nil, err
+		}
+		if bypassRuntime {
+			return s.settleRequestCostLegacy(requestLogID, userID, costMicros, forcedSource)
+		}
 		result, err := runtime.SettleRequest(context.Background(), requestLogID, userID, costMicros, forcedSource)
 		if err != nil {
 			if errors.Is(err, billingstate.ErrReservationNotFound) {

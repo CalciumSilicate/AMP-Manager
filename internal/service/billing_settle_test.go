@@ -73,6 +73,30 @@ func TestSettleRequestCostFallbackStillMarksRequestLog(t *testing.T) {
 	}
 }
 
+func TestSettleRequestCostLegacyFallsBackAcrossMultipleSubscriptions(t *testing.T) {
+	db := setupBillingServiceTestDB(t)
+	now := time.Now().UTC()
+
+	mustExecBillingService(t, db, `INSERT INTO users (id, username, password_hash, is_admin, balance_micros) VALUES (?, 'alice', 'x', 0, 0)`, "user-1")
+	mustExecBillingService(t, db, `INSERT INTO subscription_plans (id, name) VALUES (?, 'starter')`, "plan-a")
+	mustExecBillingService(t, db, `INSERT INTO subscription_plans (id, name) VALUES (?, 'pro')`, "plan-b")
+	mustExecBillingService(t, db, `INSERT INTO subscription_plan_limits (id, plan_id, limit_type, window_mode, limit_micros) VALUES (?, ?, 'monthly', 'fixed', 40)`, "limit-a", "plan-a")
+	mustExecBillingService(t, db, `INSERT INTO subscription_plan_limits (id, plan_id, limit_type, window_mode, limit_micros) VALUES (?, ?, 'monthly', 'fixed', 50)`, "limit-b", "plan-b")
+	mustExecBillingService(t, db, `INSERT INTO user_subscriptions (id, user_id, plan_id, starts_at, expires_at, status) VALUES (?, ?, ?, ?, ?, 'active')`, "sub-a", "user-1", "plan-a", now.AddDate(0, 0, -1), now.Add(24*time.Hour))
+	mustExecBillingService(t, db, `INSERT INTO user_subscriptions (id, user_id, plan_id, starts_at, expires_at, status) VALUES (?, ?, ?, ?, ?, 'active')`, "sub-b", "user-1", "plan-b", now.AddDate(0, 0, -1), now.Add(7*24*time.Hour))
+	mustExecBillingService(t, db, `INSERT INTO user_billing_settings (user_id, primary_source, secondary_source) VALUES (?, 'subscription', 'balance')`, "user-1")
+	mustExecBillingService(t, db, `INSERT INTO request_logs (id, created_at, user_id, api_key_id, method, path, status_code, latency_ms, cost_micros, cost_usd, billing_status) VALUES (?, ?, ?, 'key-1', 'POST', '/v1/responses', 200, 123, 70, '0.000070', 'none')`, "req-2", now, "user-1")
+
+	svc := NewBillingService()
+	result, err := svc.settleRequestCostLegacy("req-2", "user-1", 70, nil)
+	if err != nil {
+		t.Fatalf("settleRequestCostLegacy returned error: %v", err)
+	}
+	if result == nil || result.ChargedSubscriptionMicros != 70 || result.ChargedBalanceMicros != 0 || result.Status != "settled" {
+		t.Fatalf("unexpected settle result: %+v", result)
+	}
+}
+
 func TestApplyBillingResultMarksRequestLog(t *testing.T) {
 	db := setupBillingServiceTestDB(t)
 	now := time.Now().UTC()

@@ -1201,7 +1201,7 @@ func createTables() error {
 	CREATE INDEX IF NOT EXISTS idx_billing_events_usage_window ON billing_events(user_subscription_id, source, created_at);
 	CREATE INDEX IF NOT EXISTS idx_billing_events_user_created ON billing_events(user_id, created_at DESC);
 	CREATE INDEX IF NOT EXISTS idx_billing_events_request_created ON billing_events(request_log_id, created_at DESC);
-	CREATE UNIQUE INDEX IF NOT EXISTS idx_billing_events_idempotent ON billing_events(request_log_id, source, event_type) WHERE request_log_id IS NOT NULL;
+	CREATE UNIQUE INDEX IF NOT EXISTS idx_billing_events_idempotent ON billing_events(request_log_id, source, event_type, COALESCE(user_subscription_id, '')) WHERE request_log_id IS NOT NULL;
 	`
 	if dbType == DBTypePostgres {
 		schema = strings.ReplaceAll(schema, "DATETIME", "TIMESTAMPTZ")
@@ -2517,6 +2517,12 @@ func ensurePurchaseSchema() error {
 	}
 	if _, err := db.Exec(`DROP INDEX IF EXISTS idx_user_subs_active_unique`); err != nil {
 		return fmt.Errorf("drop idx_user_subs_active_unique failed: %w", err)
+	}
+	if _, err := db.Exec(`DROP INDEX IF EXISTS idx_billing_events_idempotent`); err != nil {
+		return fmt.Errorf("drop idx_billing_events_idempotent failed: %w", err)
+	}
+	if _, err := db.Exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_billing_events_idempotent ON billing_events(request_log_id, source, event_type, COALESCE(user_subscription_id, '')) WHERE request_log_id IS NOT NULL`); err != nil {
+		return fmt.Errorf("create idx_billing_events_idempotent failed: %w", err)
 	}
 	if err := ensureColumnWithDefault("redeem_codes", "reward_snapshot_json", "TEXT NOT NULL DEFAULT ''"); err != nil {
 		return err
