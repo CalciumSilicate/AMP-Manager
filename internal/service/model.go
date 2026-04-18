@@ -44,6 +44,9 @@ func (s *ModelService) FetchAndSaveModels(channelID string) (int, error) {
 	if err != nil {
 		return 0, err
 	}
+	if len(models) == 0 {
+		return 0, fmt.Errorf("未获取到任何模型")
+	}
 
 	channelModels := make([]model.ChannelModel2, len(models))
 	for i, m := range models {

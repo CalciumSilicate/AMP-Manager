@@ -27,15 +27,28 @@ export default function ModelRulesEditor({ models, channelId, modelWhitelist, on
     if (!channelId) return
     setLoadingModels(true)
     setFetchError('')
-    setShowSelector(false)
+    let cachedModels: ChannelModel2[] = []
     try {
+      cachedModels = await getChannelModels(channelId).catch(() => [])
+      if (cachedModels.length > 0) {
+        setFetchedModels(cachedModels)
+        setShowSelector(true)
+      } else {
+        setShowSelector(false)
+      }
       await fetchChannelModels(channelId)
       const data = await getChannelModels(channelId)
-      setFetchedModels(data)
-      setShowSelector(true)
+      const nextModels = data.length > 0 ? data : cachedModels
+      setFetchedModels(nextModels)
+      setShowSelector(nextModels.length > 0)
     } catch (err) {
-      setFetchedModels([])
-      setShowSelector(false)
+      if (cachedModels.length > 0) {
+        setFetchedModels(cachedModels)
+        setShowSelector(true)
+      } else {
+        setFetchedModels([])
+        setShowSelector(false)
+      }
       const message = err instanceof Error ? err.message : '请稍后重试'
       setFetchError(`获取模型失败，请检查渠道配置后重试：${message}`)
     } finally {
