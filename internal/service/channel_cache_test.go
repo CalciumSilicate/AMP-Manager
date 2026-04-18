@@ -86,6 +86,39 @@ func (r *countingChannelRepo) GetGroupIDsByChannelIDs(channelIDs []string) (map[
 	return result, nil
 }
 
+func (r *countingChannelRepo) SetGroupBinding(id string, binding *model.ChannelGroupBinding) error {
+	shared := []string{}
+	if binding != nil {
+		shared = binding.SharedGroupIDs
+	}
+	return r.SetGroups(id, shared)
+}
+
+func (r *countingChannelRepo) GetGroupBinding(channelID string) (*model.ChannelGroupBinding, error) {
+	groupIDs, err := r.GetGroupIDs(channelID)
+	if err != nil {
+		return nil, err
+	}
+	return &model.ChannelGroupBinding{
+		SharedGroupIDs:       append([]string(nil), groupIDs...),
+		SubscriptionGroupIDs: append([]string(nil), groupIDs...),
+		UsageGroupIDs:        append([]string(nil), groupIDs...),
+	}, nil
+}
+
+func (r *countingChannelRepo) GetGroupBindingsByChannelIDs(channelIDs []string) (map[string]*model.ChannelGroupBinding, error) {
+	result := make(map[string]*model.ChannelGroupBinding, len(channelIDs))
+	for _, channelID := range channelIDs {
+		groupIDs := append([]string(nil), r.channelGroupIDs[channelID]...)
+		result[channelID] = &model.ChannelGroupBinding{
+			SharedGroupIDs:       groupIDs,
+			SubscriptionGroupIDs: append([]string(nil), groupIDs...),
+			UsageGroupIDs:        append([]string(nil), groupIDs...),
+		}
+	}
+	return result, nil
+}
+
 func TestSelectChannelForModelUsesEnabledChannelCache(t *testing.T) {
 	invalidateEnabledChannelsCache()
 	repo := &countingChannelRepo{

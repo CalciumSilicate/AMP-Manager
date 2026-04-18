@@ -38,6 +38,7 @@ type Channel struct {
 	BaseURL               string          `json:"baseUrl"`
 	APIKey                string          `json:"-"`
 	Enabled               bool            `json:"enabled"`
+	SplitGroupsBySource   bool            `json:"splitGroupsBySource"`
 	Weight                int             `json:"weight"`
 	Priority              int             `json:"priority"`
 	RateMultiplierPPM     int64           `json:"rateMultiplierPpm,omitempty"`
@@ -56,6 +57,13 @@ type Channel struct {
 	UpdatedAt             time.Time       `json:"updatedAt"`
 }
 
+type ChannelGroupBinding struct {
+	SplitBySource        bool
+	SharedGroupIDs       []string
+	SubscriptionGroupIDs []string
+	UsageGroupIDs        []string
+}
+
 type ChannelModel struct {
 	Name  string `json:"name"`
 	Alias string `json:"alias,omitempty"`
@@ -68,6 +76,7 @@ type ChannelRequest struct {
 	BaseURL               string                  `json:"baseUrl" binding:"required,url"`
 	APIKey                string                  `json:"apiKey,omitempty"`
 	Enabled               bool                    `json:"enabled"`
+	SplitGroupsBySource   bool                    `json:"splitGroupsBySource"`
 	Weight                int                     `json:"weight"`
 	Priority              int                     `json:"priority"`
 	RateMultiplier        precision.DecimalString `json:"rateMultiplier"`
@@ -80,37 +89,44 @@ type ChannelRequest struct {
 	CopilotAPI            bool                    `json:"copilotApi"`
 	CodexWebsocketEnabled bool                    `json:"codexWebsocketEnabled"`
 	GroupIDs              []string                `json:"groupIds"`
+	SubscriptionGroupIDs  []string                `json:"subscriptionGroupIds,omitempty"`
+	UsageGroupIDs         []string                `json:"usageGroupIds,omitempty"`
 	Models                []ChannelModel          `json:"models,omitempty"`
 	Headers               map[string]string       `json:"headers,omitempty"`
 	Translator            ChannelTranslator       `json:"translator"`
 }
 
 type ChannelResponse struct {
-	ID                    string            `json:"id"`
-	Type                  ChannelType       `json:"type"`
-	Endpoint              ChannelEndpoint   `json:"endpoint"`
-	Name                  string            `json:"name"`
-	BaseURL               string            `json:"baseUrl"`
-	APIKeySet             bool              `json:"apiKeySet"`
-	Enabled               bool              `json:"enabled"`
-	Weight                int               `json:"weight"`
-	Priority              int               `json:"priority"`
-	RateMultiplierPPM     int64             `json:"rateMultiplierPpm,omitempty"`
-	RateMultiplier        float64           `json:"rateMultiplier"`
-	ModelWhitelist        bool              `json:"modelWhitelist"`
-	SimulateCLI           bool              `json:"simulateCli"`
-	SimulateUA            bool              `json:"simulateUa"`
-	SimulateSystemPrompt  bool              `json:"simulateSystemPrompt"`
-	TraditionalChinese    bool              `json:"traditionalChinese"`
-	CopilotAPI            bool              `json:"copilotApi"`
-	CodexWebsocketEnabled bool              `json:"codexWebsocketEnabled"`
-	GroupIDs              []string          `json:"groupIds"`
-	GroupNames            []string          `json:"groupNames"`
-	Models                []ChannelModel    `json:"models"`
-	Headers               map[string]string `json:"headers"`
-	Translator            ChannelTranslator `json:"translator"`
-	CreatedAt             time.Time         `json:"createdAt"`
-	UpdatedAt             time.Time         `json:"updatedAt"`
+	ID                     string            `json:"id"`
+	Type                   ChannelType       `json:"type"`
+	Endpoint               ChannelEndpoint   `json:"endpoint"`
+	Name                   string            `json:"name"`
+	BaseURL                string            `json:"baseUrl"`
+	APIKeySet              bool              `json:"apiKeySet"`
+	Enabled                bool              `json:"enabled"`
+	SplitGroupsBySource    bool              `json:"splitGroupsBySource"`
+	Weight                 int               `json:"weight"`
+	Priority               int               `json:"priority"`
+	RateMultiplierPPM      int64             `json:"rateMultiplierPpm,omitempty"`
+	RateMultiplier         float64           `json:"rateMultiplier"`
+	ModelWhitelist         bool              `json:"modelWhitelist"`
+	SimulateCLI            bool              `json:"simulateCli"`
+	SimulateUA             bool              `json:"simulateUa"`
+	SimulateSystemPrompt   bool              `json:"simulateSystemPrompt"`
+	TraditionalChinese     bool              `json:"traditionalChinese"`
+	CopilotAPI             bool              `json:"copilotApi"`
+	CodexWebsocketEnabled  bool              `json:"codexWebsocketEnabled"`
+	GroupIDs               []string          `json:"groupIds"`
+	GroupNames             []string          `json:"groupNames"`
+	SubscriptionGroupIDs   []string          `json:"subscriptionGroupIds"`
+	SubscriptionGroupNames []string          `json:"subscriptionGroupNames"`
+	UsageGroupIDs          []string          `json:"usageGroupIds"`
+	UsageGroupNames        []string          `json:"usageGroupNames"`
+	Models                 []ChannelModel    `json:"models"`
+	Headers                map[string]string `json:"headers"`
+	Translator             ChannelTranslator `json:"translator"`
+	CreatedAt              time.Time         `json:"createdAt"`
+	UpdatedAt              time.Time         `json:"updatedAt"`
 }
 
 type TestChannelResponse struct {

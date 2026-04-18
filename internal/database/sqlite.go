@@ -346,6 +346,7 @@ func createTables() error {
 		base_url TEXT NOT NULL,
 		api_key TEXT NOT NULL DEFAULT '',
 		enabled INTEGER NOT NULL DEFAULT 1,
+		split_groups_by_source INTEGER NOT NULL DEFAULT 0,
 		weight INTEGER NOT NULL DEFAULT 1,
 		priority INTEGER NOT NULL DEFAULT 100,
 		rate_multiplier REAL NOT NULL DEFAULT 1.0,
@@ -378,6 +379,24 @@ func createTables() error {
 		FOREIGN KEY (group_id) REFERENCES groups(id) ON DELETE CASCADE
 	);
 	CREATE INDEX IF NOT EXISTS idx_channel_groups_group ON channel_groups(group_id);
+
+	CREATE TABLE IF NOT EXISTS channel_subscription_groups (
+		channel_id TEXT NOT NULL,
+		group_id TEXT NOT NULL,
+		PRIMARY KEY (channel_id, group_id),
+		FOREIGN KEY (channel_id) REFERENCES channels(id) ON DELETE CASCADE,
+		FOREIGN KEY (group_id) REFERENCES groups(id) ON DELETE CASCADE
+	);
+	CREATE INDEX IF NOT EXISTS idx_channel_subscription_groups_group ON channel_subscription_groups(group_id);
+
+	CREATE TABLE IF NOT EXISTS channel_usage_groups (
+		channel_id TEXT NOT NULL,
+		group_id TEXT NOT NULL,
+		PRIMARY KEY (channel_id, group_id),
+		FOREIGN KEY (channel_id) REFERENCES channels(id) ON DELETE CASCADE,
+		FOREIGN KEY (group_id) REFERENCES groups(id) ON DELETE CASCADE
+	);
+	CREATE INDEX IF NOT EXISTS idx_channel_usage_groups_group ON channel_usage_groups(group_id);
 
 	CREATE TABLE IF NOT EXISTS channel_models (
 		id TEXT PRIMARY KEY,
@@ -1792,6 +1811,45 @@ func runMigrations() error {
 		{
 			name: "add_channels_translator_json",
 			sql:  `ALTER TABLE channels ADD COLUMN translator_json TEXT NOT NULL DEFAULT '{}'`,
+		},
+		{
+			name: "add_channels_split_groups_by_source",
+			sql:  `ALTER TABLE channels ADD COLUMN split_groups_by_source INTEGER NOT NULL DEFAULT 0`,
+		},
+		{
+			name: "create_channel_subscription_groups_table",
+			sql: `CREATE TABLE IF NOT EXISTS channel_subscription_groups (
+				channel_id TEXT NOT NULL,
+				group_id TEXT NOT NULL,
+				PRIMARY KEY (channel_id, group_id),
+				FOREIGN KEY (channel_id) REFERENCES channels(id) ON DELETE CASCADE,
+				FOREIGN KEY (group_id) REFERENCES groups(id) ON DELETE CASCADE
+			)`,
+		},
+		{
+			name: "create_channel_subscription_groups_indexes",
+			sql:  `CREATE INDEX IF NOT EXISTS idx_channel_subscription_groups_group ON channel_subscription_groups(group_id)`,
+		},
+		{
+			name: "create_channel_usage_groups_table",
+			sql: `CREATE TABLE IF NOT EXISTS channel_usage_groups (
+				channel_id TEXT NOT NULL,
+				group_id TEXT NOT NULL,
+				PRIMARY KEY (channel_id, group_id),
+				FOREIGN KEY (channel_id) REFERENCES channels(id) ON DELETE CASCADE,
+				FOREIGN KEY (group_id) REFERENCES groups(id) ON DELETE CASCADE
+			)`,
+		},
+		{
+			name: "create_channel_usage_groups_indexes",
+			sql:  `CREATE INDEX IF NOT EXISTS idx_channel_usage_groups_group ON channel_usage_groups(group_id)`,
+		},
+		{
+			name: "backfill_channel_dual_groups",
+			sql: `INSERT INTO channel_subscription_groups (channel_id, group_id)
+				  SELECT channel_id, group_id FROM channel_groups;
+				  INSERT INTO channel_usage_groups (channel_id, group_id)
+				  SELECT channel_id, group_id FROM channel_groups`,
 		},
 		{
 			name: "create_model_price_context_rules_table",

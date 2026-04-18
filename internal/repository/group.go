@@ -165,6 +165,8 @@ func (r *GroupRepository) Delete(id string) error {
 	db := database.GetDB()
 	_, _ = db.Exec(`DELETE FROM user_groups WHERE group_id = ?`, id)
 	_, _ = db.Exec(`DELETE FROM channel_groups WHERE group_id = ?`, id)
+	_, _ = db.Exec(`DELETE FROM channel_subscription_groups WHERE group_id = ?`, id)
+	_, _ = db.Exec(`DELETE FROM channel_usage_groups WHERE group_id = ?`, id)
 	_, err := db.Exec(`DELETE FROM groups WHERE id = ?`, id)
 	return err
 }
@@ -179,7 +181,16 @@ func (r *GroupRepository) CountUsers(groupID string) (int, error) {
 func (r *GroupRepository) CountChannels(groupID string) (int, error) {
 	db := database.GetDB()
 	var count int
-	err := db.QueryRow(`SELECT COUNT(*) FROM channel_groups WHERE group_id = ?`, groupID).Scan(&count)
+	err := db.QueryRow(`
+		SELECT COUNT(DISTINCT channel_id)
+		FROM (
+			SELECT channel_id FROM channel_groups WHERE group_id = ?
+			UNION ALL
+			SELECT channel_id FROM channel_subscription_groups WHERE group_id = ?
+			UNION ALL
+			SELECT channel_id FROM channel_usage_groups WHERE group_id = ?
+		)
+	`, groupID, groupID, groupID).Scan(&count)
 	return count, err
 }
 
