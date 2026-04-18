@@ -116,7 +116,7 @@ func (s *RedeemService) CreateCampaign(req *model.RedeemCampaignRequest) (*model
 		strings.TrimSpace(req.Name),
 		strings.TrimSpace(req.Description),
 		req.CodeMode,
-		strings.TrimSpace(req.SubscriptionPlanID),
+		nullableRedeemForeignKey(req.SubscriptionPlanID),
 		req.SubscriptionDurationDays,
 		req.BalanceMicros,
 		req.TotalRedemptionsLimit,
@@ -172,7 +172,7 @@ func (s *RedeemService) UpdateCampaign(id string, req *model.RedeemCampaignReque
 		  WHERE id = ?`,
 		strings.TrimSpace(req.Name),
 		strings.TrimSpace(req.Description),
-		strings.TrimSpace(req.SubscriptionPlanID),
+		nullableRedeemForeignKey(req.SubscriptionPlanID),
 		req.SubscriptionDurationDays,
 		req.BalanceMicros,
 		req.TotalRedemptionsLimit,
@@ -358,9 +358,7 @@ func (s *RedeemService) CreateManualCode(req *model.ManualRedeemCodeRequest) (*m
 		startsAt = nil
 		endsAt = nil
 	} else {
-		if trimmedPlanID := strings.TrimSpace(req.SubscriptionPlanID); trimmedPlanID != "" {
-			subscriptionPlanID = trimmedPlanID
-		}
+		subscriptionPlanID = nullableRedeemForeignKey(req.SubscriptionPlanID)
 		subscriptionDurationDays = req.SubscriptionDurationDays
 		balanceMicros = req.BalanceMicros
 	}
@@ -1161,13 +1159,13 @@ func (s *RedeemService) insertRedemptionTx(tx *sql.Tx, item *model.RedeemRedempt
 		item.Username,
 		item.CodeInput,
 		item.CodeMask,
-		item.SubscriptionPlanID,
+		nullableRedeemForeignKey(item.SubscriptionPlanID),
 		item.SubscriptionDurationDays,
 		item.BalanceMicros,
 		item.RewardSnapshotJSON,
 		item.Status,
 		item.FailureReason,
-		item.GrantedSubscriptionID,
+		nullableRedeemForeignKey(item.GrantedSubscriptionID),
 		item.GrantedExpiresAt,
 		item.BalanceAfterMicros,
 		item.CreatedAt,
@@ -1185,6 +1183,14 @@ func decodeRedeemActionSnapshot(raw string) (*model.PurchaseActionSnapshot, erro
 		return nil, err
 	}
 	return &snapshot, nil
+}
+
+func nullableRedeemForeignKey(value string) any {
+	trimmed := strings.TrimSpace(value)
+	if trimmed == "" {
+		return nil
+	}
+	return trimmed
 }
 
 func (s *RedeemService) loadSharedCodeTx(tx *sql.Tx, campaignID string) (*model.RedeemCode, error) {

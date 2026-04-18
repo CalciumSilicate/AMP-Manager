@@ -59,6 +59,7 @@ import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
+import { DateTimePicker, toDateTimePickerISOString, toDateTimePickerValue } from '@/components/ui/datetime-picker'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
@@ -83,29 +84,13 @@ function formatCNY(cents: number): string {
   return `¥${(cents / 100).toFixed(2)}`
 }
 
-function toDatetimeLocal(value?: string | null): string {
-  if (!value) return ''
-  const date = new Date(value)
-  if (Number.isNaN(date.getTime())) return ''
-  const offset = date.getTimezoneOffset()
-  const local = new Date(date.getTime() - offset * 60_000)
-  return local.toISOString().slice(0, 16)
-}
-
-function normalizeDatetimeLocal(value: string): string | undefined {
-  if (!value) return undefined
-  const date = new Date(value)
-  if (Number.isNaN(date.getTime())) return undefined
-  return date.toISOString()
-}
-
 function defaultBatchSettlementRange() {
   const now = new Date()
   const from = new Date(now)
   from.setHours(0, 0, 0, 0)
   return {
-    paidFrom: toDatetimeLocal(from.toISOString()),
-    paidTo: toDatetimeLocal(now.toISOString()),
+    paidFrom: toDateTimePickerValue(from.toISOString()),
+    paidTo: toDateTimePickerValue(now.toISOString()),
   }
 }
 
@@ -704,8 +689,8 @@ export default function PaidSubscriptions() {
   }
 
   const handlePreviewBatchSettlement = async () => {
-    const paidFrom = normalizeDatetimeLocal(batchSettlementRange.paidFrom)
-    const paidTo = normalizeDatetimeLocal(batchSettlementRange.paidTo)
+    const paidFrom = toDateTimePickerISOString(batchSettlementRange.paidFrom)
+    const paidTo = toDateTimePickerISOString(batchSettlementRange.paidTo)
     if (!paidFrom || !paidTo) {
       showMessage('error', '请选择完整时间区间')
       return
@@ -735,8 +720,8 @@ export default function PaidSubscriptions() {
       if (settlementDialogMode === 'single' && settlementOrder) {
         batch = await createSinglePurchaseManualSettlement(settlementOrder.orderNo, settlementNote)
       } else {
-        const paidFrom = normalizeDatetimeLocal(batchSettlementRange.paidFrom)
-        const paidTo = normalizeDatetimeLocal(batchSettlementRange.paidTo)
+        const paidFrom = toDateTimePickerISOString(batchSettlementRange.paidFrom)
+        const paidTo = toDateTimePickerISOString(batchSettlementRange.paidTo)
         if (!paidFrom || !paidTo) {
           throw new Error('请选择完整时间区间')
         }
@@ -1354,26 +1339,26 @@ export default function PaidSubscriptions() {
               <div className="grid gap-4 md:grid-cols-2">
                 <div className="space-y-2">
                   <Label htmlFor="batchSettlementPaidFrom">支付开始</Label>
-                  <Input
-                    id="batchSettlementPaidFrom"
-                    type="datetime-local"
+                  <DateTimePicker
                     value={batchSettlementRange.paidFrom}
-                    onChange={(event) => {
-                      setBatchSettlementRange((current) => ({ ...current, paidFrom: event.target.value }))
+                    onChange={(value) => {
+                      setBatchSettlementRange((current) => ({ ...current, paidFrom: value }))
                       setBatchSettlementPreview(null)
                     }}
+                    placeholder="选择支付开始"
+                    className="w-full"
                   />
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="batchSettlementPaidTo">支付结束</Label>
-                  <Input
-                    id="batchSettlementPaidTo"
-                    type="datetime-local"
+                  <DateTimePicker
                     value={batchSettlementRange.paidTo}
-                    onChange={(event) => {
-                      setBatchSettlementRange((current) => ({ ...current, paidTo: event.target.value }))
+                    onChange={(value) => {
+                      setBatchSettlementRange((current) => ({ ...current, paidTo: value }))
                       setBatchSettlementPreview(null)
                     }}
+                    placeholder="选择支付结束"
+                    className="w-full"
                   />
                 </div>
               </div>

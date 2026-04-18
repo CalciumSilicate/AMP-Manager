@@ -36,7 +36,7 @@ func (r *RedeemRepository) GetCampaign(id string) (*model.RedeemCampaign, error)
 	db := database.GetDB()
 	item := &model.RedeemCampaign{}
 	err := db.QueryRow(
-		`SELECT id, name, description, code_mode, subscription_plan_id, subscription_duration_days, balance_micros,
+		`SELECT id, name, description, code_mode, COALESCE(subscription_plan_id, ''), subscription_duration_days, balance_micros,
 		        total_redemptions_limit, redeemed_count, per_user_limit, starts_at, ends_at, enabled, created_at, updated_at
 		   FROM redeem_campaigns
 		  WHERE id = ?`,
@@ -70,7 +70,7 @@ func (r *RedeemRepository) GetCampaignResponse(id string) (*model.RedeemCampaign
 	err := db.QueryRow(
 		`SELECT c.id, c.name, c.description, c.code_mode,
 		        COALESCE(sc.code_value, ''), COALESCE(sc.code_mask, ''),
-		        c.subscription_plan_id, COALESCE(sp.name, ''), c.subscription_duration_days, c.balance_micros,
+		        COALESCE(c.subscription_plan_id, ''), COALESCE(sp.name, ''), c.subscription_duration_days, c.balance_micros,
 		        c.total_redemptions_limit, c.redeemed_count, c.per_user_limit, c.starts_at, c.ends_at, c.enabled,
 		        COALESCE(code_stats.code_count, 0), COALESCE(batch_stats.batch_count, 0),
 		        c.created_at, c.updated_at
@@ -236,7 +236,7 @@ func (r *RedeemRepository) ListCampaigns() ([]*model.RedeemCampaignResponse, err
 	rows, err := db.Query(
 		`SELECT c.id, c.name, c.description, c.code_mode,
 		        COALESCE(sc.code_value, ''), COALESCE(sc.code_mask, ''),
-		        c.subscription_plan_id, COALESCE(sp.name, ''), c.subscription_duration_days, c.balance_micros,
+		        COALESCE(c.subscription_plan_id, ''), COALESCE(sp.name, ''), c.subscription_duration_days, c.balance_micros,
 		        c.total_redemptions_limit, c.redeemed_count, c.per_user_limit, c.starts_at, c.ends_at, c.enabled,
 		        COALESCE(code_stats.code_count, 0), COALESCE(batch_stats.batch_count, 0),
 		        c.created_at, c.updated_at
@@ -449,8 +449,8 @@ func (r *RedeemRepository) ListRedemptions(campaignID, status, username string, 
 	var builder strings.Builder
 	builder.WriteString(`
 		SELECT rr.id, rr.campaign_id, COALESCE(c.name, ''), rr.code_id, rr.user_id, rr.username, rr.code_mask,
-		       rr.subscription_plan_id, COALESCE(sp.name, ''), rr.subscription_duration_days, rr.balance_micros,
-		       rr.status, rr.failure_reason, rr.granted_subscription_id, rr.granted_expires_at, rr.balance_after_micros, rr.created_at
+		       COALESCE(rr.subscription_plan_id, ''), COALESCE(sp.name, ''), rr.subscription_duration_days, rr.balance_micros,
+		       rr.status, rr.failure_reason, COALESCE(rr.granted_subscription_id, ''), rr.granted_expires_at, rr.balance_after_micros, rr.created_at
 		  FROM redeem_redemptions rr
 		  LEFT JOIN redeem_campaigns c ON c.id = rr.campaign_id
 		  LEFT JOIN subscription_plans sp ON sp.id = rr.subscription_plan_id
@@ -525,8 +525,8 @@ func (r *RedeemRepository) ListRedemptionsForUserWithLimit(userID string, limit 
 	}
 	rows, err := db.Query(
 		`SELECT rr.id, rr.campaign_id, COALESCE(c.name, ''), rr.code_id, rr.user_id, rr.username, rr.code_mask,
-		        rr.subscription_plan_id, COALESCE(sp.name, ''), rr.subscription_duration_days, rr.balance_micros,
-		        rr.status, rr.failure_reason, rr.granted_subscription_id, rr.granted_expires_at, rr.balance_after_micros, rr.created_at
+		        COALESCE(rr.subscription_plan_id, ''), COALESCE(sp.name, ''), rr.subscription_duration_days, rr.balance_micros,
+		        rr.status, rr.failure_reason, COALESCE(rr.granted_subscription_id, ''), rr.granted_expires_at, rr.balance_after_micros, rr.created_at
 		   FROM redeem_redemptions rr
 		   LEFT JOIN redeem_campaigns c ON c.id = rr.campaign_id
 		   LEFT JOIN subscription_plans sp ON sp.id = rr.subscription_plan_id
