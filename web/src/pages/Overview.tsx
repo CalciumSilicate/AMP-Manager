@@ -11,6 +11,7 @@ import { navigateDashboard } from '@/lib/dashboard-navigation'
 import { motion, AnimatePresence, staggerContainer, staggerItem } from '@/lib/motion'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
+import { MultiSubscriptionSummary } from '@/components/subscriptions/MultiSubscriptionSummary'
 import {
   type ChartConfig,
   ChartContainer,
@@ -535,6 +536,11 @@ export default function Overview() {
                       </div>
                     </div>
                   </div>
+                  <MultiSubscriptionSummary
+                    currentSubscription={billingState.subscription}
+                    subscriptions={billingState.subscriptions}
+                    emptyText="当前没有可展示的订阅额度。"
+                  />
                   {billingState.subscription && billingState.windows && billingState.windows.length > 0 ? (
                     <div className="space-y-2">
                       {billingState.windows.map((w, i) => {
@@ -570,9 +576,7 @@ export default function Overview() {
                         )
                       })}
                     </div>
-                  ) : (
-                    <p className="text-sm text-muted-foreground">当前没有可展示的订阅额度。</p>
-                  )}
+                  ) : null}
                 </div>
               ) : (
                 <p className="text-sm text-muted-foreground">计费状态暂不可用。</p>

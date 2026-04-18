@@ -16,6 +16,7 @@ import {
 } from '@/api/purchase'
 import { OverflowCopyText } from '@/components/OverflowCopyText'
 import { RedeemQuickEntry } from '@/components/redeem/RedeemPanels'
+import { MultiSubscriptionSummary } from '@/components/subscriptions/MultiSubscriptionSummary'
 import { TablePagination } from '@/components/TablePagination'
 import { TabbedSettingsPage, type TabbedSettingsPageTab } from '@/components/layout/TabbedSettingsPage'
 import { Badge } from '@/components/ui/badge'
@@ -365,6 +366,11 @@ export default function PurchaseCenter() {
                   <Badge variant="outline">{catalog?.renewalRule || '暂无续费规则'}</Badge>
                 </div>
               </div>
+              <MultiSubscriptionSummary
+                currentSubscription={catalog?.currentSubscription}
+                subscriptions={catalog?.subscriptions}
+                emptyText="当前没有生效中的订阅。"
+              />
             </CardContent>
           </Card>
         )}

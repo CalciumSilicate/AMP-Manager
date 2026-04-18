@@ -14,6 +14,7 @@ import {
 import { getMyInviteSummary, listMyInviteRewards, type InviteRewardEvent, type InviteSummary } from '@/api/invite'
 import { ScrollableTabBar } from '@/components/layout/ScrollableTabBar'
 import { RedeemQuickEntry, RedeemRecordTable } from '@/components/redeem/RedeemPanels'
+import { MultiSubscriptionSummary } from '@/components/subscriptions/MultiSubscriptionSummary'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
@@ -406,6 +407,14 @@ export default function AccountSettings({ username, onUsernameChange }: Props) {
                             ? `到期 ${formatDateTime(billingState.subscription.expiresAt)}`
                             : '永久有效'}
                         </p>
+                      </div>
+
+                      <div className="border-t px-4 py-4">
+                        <MultiSubscriptionSummary
+                          currentSubscription={billingState.subscription}
+                          subscriptions={billingState.subscriptions}
+                          emptyText="暂无生效中的订阅"
+                        />
                       </div>
 
                       {billingState.windows?.length ? (
