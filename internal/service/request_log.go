@@ -150,7 +150,7 @@ func (s *RequestLogService) EnsureDashboardAggregatesReady() error {
 
 // GetCacheHitRateByProvider 按提供商获取缓存命中率
 func (s *RequestLogService) GetCacheHitRateByProvider(userID string) ([]repository.DashboardCacheHitRate, error) {
-	return s.repo.GetCacheHitRateByProvider(userID)
+	return s.repo.GetCacheHitRateByProvider(userID, loadStatsLocation())
 }
 
 func (s *RequestLogService) GetAdminDashboardSummary() (today, week, month repository.DashboardPeriodStats, topModels []repository.DashboardTopModel, dailyTrend []repository.DashboardDailyTrend, err error) {
@@ -168,7 +168,7 @@ func (s *RequestLogService) GetAdminDashboardStats(windowKey string) (today, wee
 
 // GetAdminCacheHitRateByProvider 管理员全局缓存命中率
 func (s *RequestLogService) GetAdminCacheHitRateByProvider() ([]repository.DashboardCacheHitRate, error) {
-	return s.repo.GetAdminCacheHitRateByProvider()
+	return s.repo.GetAdminCacheHitRateByProvider(loadStatsLocation())
 }
 
 // GetByID 获取单条日志

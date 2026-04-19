@@ -14,6 +14,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"ampmanager/internal/invalidation"
 	"ampmanager/internal/model"
 	"ampmanager/internal/precision"
 	"ampmanager/internal/repository"
@@ -217,6 +218,10 @@ func invalidateEnabledChannelsCache() {
 	enabledChannelsSnapshot.mu.Lock()
 	defer enabledChannelsSnapshot.mu.Unlock()
 	enabledChannelsSnapshot.snapshots = make(map[string]enabledChannelsSnapshotEntry)
+}
+
+func InvalidateEnabledChannelsCache() {
+	invalidateEnabledChannelsCache()
 }
 
 func cacheKeyForChannelRepo(repo repository.ChannelRepositoryInterface) string {
@@ -434,6 +439,7 @@ func (s *ChannelService) Create(req *model.ChannelRequest) (*model.ChannelRespon
 		return nil, err
 	}
 	invalidateEnabledChannelsCache()
+	invalidation.Publish(invalidation.ChannelChannelsUpdated)
 
 	_ = s.repo.SetGroupBinding(channel.ID, groupBinding)
 
@@ -567,6 +573,7 @@ func (s *ChannelService) Update(id string, req *model.ChannelRequest) (*model.Ch
 		return nil, err
 	}
 	invalidateEnabledChannelsCache()
+	invalidation.Publish(invalidation.ChannelChannelsUpdated)
 
 	_ = s.repo.SetGroupBinding(id, groupBinding)
 
@@ -585,6 +592,7 @@ func (s *ChannelService) Delete(id string) error {
 		return err
 	}
 	invalidateEnabledChannelsCache()
+	invalidation.Publish(invalidation.ChannelChannelsUpdated)
 	return nil
 }
 
@@ -600,6 +608,7 @@ func (s *ChannelService) SetEnabled(id string, enabled bool) error {
 		return err
 	}
 	invalidateEnabledChannelsCache()
+	invalidation.Publish(invalidation.ChannelChannelsUpdated)
 	return nil
 }
 

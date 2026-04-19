@@ -10,6 +10,7 @@ import (
 	"ampmanager/internal/billingstate"
 	"ampmanager/internal/config"
 	"ampmanager/internal/database"
+	"ampmanager/internal/invalidation"
 	"ampmanager/internal/middleware"
 	"ampmanager/internal/realtime"
 	"ampmanager/internal/repository"
@@ -41,77 +42,148 @@ func main() {
 		log.Fatalf("数据库初始化失败: %v", err)
 	}
 	defer database.Close()
-
-	sysConfigService := service.NewSystemConfigService()
-	if err := service.NewErrorRuleService().SyncDefaultErrorRules(); err != nil {
-		log.Printf("warning: error rule sync failed at startup: %v", err)
-	}
-	amp.StartErrorRuleRuntime()
-	if err := amp.ReloadErrorRules(); err != nil {
-		log.Printf("warning: error rule runtime reload failed at startup: %v", err)
-	}
-	amp.StartRequestFilterRuntime()
-	if err := amp.ReloadRequestFilters(); err != nil {
-		log.Printf("warning: request filter runtime reload failed at startup: %v", err)
-	}
-	sysConfigService.ReloadBillingRuntimeFromSystemConfigBestEffort("server startup")
-	middleware.LoadUserPanelRateLimitConfigBestEffort("server startup")
 	defer billingstate.Close()
-	amp.InitSessionStickyRuntime(cfg)
-	defer amp.StopSessionStickyRuntime()
 
-	// 初始化日志写入器
-	amp.InitLogWriter(database.GetDB())
-	defer amp.StopLogWriter()
+	role := cfg.Role()
+	sysConfigService := service.NewSystemConfigService()
+	middleware.LoadUserPanelRateLimitConfigBestEffort("server startup")
+	service.RefreshStatsLocationCache()
 
-	// 初始化请求详情存储器
-	amp.InitRequestDetailStore(database.GetDB())
-	defer amp.StopRequestDetailStore()
+	startRuntimeSubscriptions(role, sysConfigService)
 
-	// 初始化计费服务
-	billing.InitPriceStore()
-	defer billing.StopPriceStore()
-	billing.InitCostCalculator()
+	if role.RunsProxy() {
+		if err := service.NewErrorRuleService().SyncDefaultErrorRules(); err != nil {
+			log.Printf("warning: error rule sync failed at startup: %v", err)
+		}
+		amp.StartErrorRuleRuntime()
+		if err := amp.ReloadErrorRules(); err != nil {
+			log.Printf("warning: error rule runtime reload failed at startup: %v", err)
+		}
+		amp.StartRequestFilterRuntime()
+		if err := amp.ReloadRequestFilters(); err != nil {
+			log.Printf("warning: request filter runtime reload failed at startup: %v", err)
+		}
+		sysConfigService.ReloadBillingRuntimeFromSystemConfigBestEffort("server startup")
+		amp.InitSessionStickyRuntime(cfg)
+		defer amp.StopSessionStickyRuntime()
+		amp.InitLogWriter(database.GetDB())
+		defer amp.StopLogWriter()
+		amp.InitRequestDetailStore(database.GetDB())
+		defer amp.StopRequestDetailStore()
+		billing.InitPriceStore()
+		defer billing.StopPriceStore()
+		billing.InitCostCalculator()
+		amp.InitPendingCleaner(database.GetDB())
+		defer amp.StopPendingCleaner()
 
-	// 初始化 pending 请求清理器
-	amp.InitPendingCleaner(database.GetDB())
-	defer amp.StopPendingCleaner()
+		logRepo := repository.NewRequestLogRepository()
+		realtime.InitHub(func(id string) (interface{}, error) {
+			return logRepo.GetByIDWithJoins(id)
+		})
 
-	service.InitStatusMonitorScheduler()
-	defer service.StopStatusMonitorScheduler()
-	service.StartPurchaseWebhookWorker()
-	defer service.StopPurchaseWebhookWorker()
+		if err := service.NewRequestLogService().EnsureDashboardAggregatesReady(); err != nil {
+			log.Printf("warning: dashboard aggregates bootstrap failed: %v", err)
+		}
+		repository.StartDashboardAggregateWorker()
+		defer repository.StopDashboardAggregateWorker()
+	}
 
-	// 初始化实时推送 hub
-	logRepo := repository.NewRequestLogRepository()
-	realtime.InitHub(func(id string) (interface{}, error) {
-		return logRepo.GetByIDWithJoins(id)
-	})
+	if role.RunsPanel() {
+		service.InitStatusMonitorScheduler()
+		defer service.StopStatusMonitorScheduler()
+		service.StartPurchaseWebhookWorker()
+		defer service.StopPurchaseWebhookWorker()
+	}
 
-	userService := service.NewUserService()
-	if err := userService.EnsureAdmin(); err != nil {
+	if err := service.NewUserService().EnsureAdmin(); err != nil {
 		log.Printf("警告: 管理员账户创建失败: %v", err)
 	}
-	service.RefreshStatsLocationCache()
-	if err := service.NewRequestLogService().EnsureDashboardAggregatesReady(); err != nil {
-		log.Printf("warning: dashboard aggregates bootstrap failed: %v", err)
-	}
-	repository.StartDashboardAggregateWorker()
-	defer repository.StopDashboardAggregateWorker()
 
 	r := router.Setup()
 
-	// 加载重试配置
+	if role.RunsProxy() {
+		reloadProxyRuntimeConfig(sysConfigService)
+	}
+
+	port := cfg.ServerPort
+	if envPort := os.Getenv("PORT"); envPort != "" {
+		port = envPort
+	}
+
+	log.Printf("服务器启动在 http://0.0.0.0:%s", port)
+	if err := r.Run("0.0.0.0:" + port); err != nil {
+		log.Fatalf("服务器启动失败: %v", err)
+	}
+}
+
+func startRuntimeSubscriptions(role config.ServerRole, sysConfigService *service.SystemConfigService) {
+	if role.RunsProxy() {
+		invalidation.Subscribe(invalidation.ChannelRetryConfigUpdated, func() {
+			reloadRetryConfig(sysConfigService)
+		})
+		invalidation.Subscribe(invalidation.ChannelRequestPayloadLimitUpdated, func() {
+			reloadRequestPayloadLimit(sysConfigService)
+		})
+		invalidation.Subscribe(invalidation.ChannelRequestDetailConfigUpdated, func() {
+			reloadRequestDetailConfig(sysConfigService)
+		})
+		invalidation.Subscribe(invalidation.ChannelTimeoutConfigUpdated, func() {
+			reloadTimeoutConfig(sysConfigService)
+		})
+		invalidation.Subscribe(invalidation.ChannelSessionStickyConfigUpdated, func() {
+			reloadSessionStickyConfig(sysConfigService)
+		})
+		invalidation.Subscribe(invalidation.ChannelBillingRuntimeUpdated, func() {
+			sysConfigService.ReloadBillingRuntimeFromSystemConfigBestEffort("pubsub reload")
+		})
+		invalidation.Subscribe(invalidation.ChannelModelMetadataUpdated, func() {
+			amp.InvalidateModelMetadataCache()
+		})
+		invalidation.Subscribe(invalidation.ChannelPriceStoreUpdated, func() {
+			reloadPriceStore()
+		})
+	}
+
+	if role.RunsPanel() || role.RunsProxy() {
+		invalidation.Subscribe(invalidation.ChannelSiteConfigUpdated, func() {
+			service.RefreshStatsLocationCache()
+		})
+		invalidation.Subscribe(invalidation.ChannelChannelsUpdated, func() {
+			service.InvalidateEnabledChannelsCache()
+		})
+	}
+
+	if role.RunsPanel() {
+		invalidation.Subscribe(invalidation.ChannelUserPanelRateLimitUpdated, func() {
+			middleware.LoadUserPanelRateLimitConfigBestEffort("pubsub reload")
+		})
+	}
+}
+
+func reloadProxyRuntimeConfig(sysConfigService *service.SystemConfigService) {
+	reloadRetryConfig(sysConfigService)
+	reloadTimeoutConfig(sysConfigService)
+	reloadRequestDetailConfig(sysConfigService)
+	reloadRequestPayloadLimit(sysConfigService)
+	reloadSessionStickyConfig(sysConfigService)
+	if cacheTTL, err := sysConfigService.GetCacheTTLOverride(); err == nil && cacheTTL != "" {
+		filters.SetCacheTTLOverride(cacheTTL)
+	}
+}
+
+func reloadRetryConfig(sysConfigService *service.SystemConfigService) {
 	if configJSON, err := sysConfigService.GetRetryConfigJSON(); err == nil && configJSON != "" {
 		amp.InitRetryTransportConfig(configJSON)
 	}
+}
 
-	// 加载超时配置
+func reloadTimeoutConfig(sysConfigService *service.SystemConfigService) {
 	if configJSON, err := sysConfigService.GetTimeoutConfigJSON(); err == nil && configJSON != "" {
 		amp.InitTimeoutConfig(configJSON)
 	}
+}
 
-	// 加载请求详情监控配置
+func reloadRequestDetailConfig(sysConfigService *service.SystemConfigService) {
 	if requestDetailCfg, err := sysConfigService.GetRequestDetailConfig(); err == nil {
 		amp.UpdateRequestDetailConfig(amp.RequestDetailConfig{
 			Enabled:              requestDetailCfg.Enabled,
@@ -125,27 +197,27 @@ func main() {
 			HighRPMSamplePercent: requestDetailCfg.HighRPMSamplePercent,
 		})
 	}
+}
 
+func reloadRequestPayloadLimit(sysConfigService *service.SystemConfigService) {
 	if payloadLimitCfg, err := sysConfigService.GetRequestPayloadLimit(); err == nil {
 		amp.UpdateRequestPayloadLimitBytes(payloadLimitCfg.MaxBytes)
 	}
+}
 
-	// 加载缓存 TTL 配置
-	if cacheTTL, err := sysConfigService.GetCacheTTLOverride(); err == nil && cacheTTL != "" {
-		filters.SetCacheTTLOverride(cacheTTL)
-	}
-
+func reloadSessionStickyConfig(sysConfigService *service.SystemConfigService) {
 	if sessionStickyCfg, err := sysConfigService.GetSessionStickyConfig(); err == nil {
 		amp.UpdateSessionStickyConfig(sessionStickyCfg)
 	}
+}
 
-	port := cfg.ServerPort
-	if envPort := os.Getenv("PORT"); envPort != "" {
-		port = envPort
-	}
-
-	log.Printf("服务器启动在 http://0.0.0.0:%s", port)
-	if err := r.Run("0.0.0.0:" + port); err != nil {
-		log.Fatalf("服务器启动失败: %v", err)
+func reloadPriceStore() {
+	if store := billing.GetPriceStore(); store != nil {
+		if err := store.LoadFromDB(); err != nil {
+			log.Printf("warning: price store reload failed: %v", err)
+		}
+		if err := store.LoadContextRulesFromDB(); err != nil {
+			log.Printf("warning: price context rule reload failed: %v", err)
+		}
 	}
 }

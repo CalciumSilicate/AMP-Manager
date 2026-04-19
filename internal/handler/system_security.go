@@ -4,6 +4,7 @@ import (
 	"errors"
 	"net/http"
 
+	"ampmanager/internal/invalidation"
 	"ampmanager/internal/middleware"
 	"ampmanager/internal/model"
 	"ampmanager/internal/service"
@@ -123,5 +124,6 @@ func (h *SystemHandler) UpdateUserPanelRateLimitConfig(c *gin.Context) {
 		return
 	}
 	middleware.UpdateUserPanelRateLimitConfigRuntime(cfg)
+	invalidation.Publish(invalidation.ChannelUserPanelRateLimitUpdated)
 	c.JSON(http.StatusOK, gin.H{"message": "普通用户面板限流配置已更新", "config": cfg})
 }

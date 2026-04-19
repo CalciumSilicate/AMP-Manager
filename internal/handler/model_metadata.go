@@ -3,6 +3,8 @@ package handler
 import (
 	"net/http"
 
+	"ampmanager/internal/amp"
+	"ampmanager/internal/invalidation"
 	"ampmanager/internal/model"
 	"ampmanager/internal/repository"
 
@@ -73,6 +75,8 @@ func (h *ModelMetadataHandler) Create(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "创建模型元数据失败"})
 		return
 	}
+	amp.InvalidateModelMetadataCache()
+	invalidation.Publish(invalidation.ChannelModelMetadataUpdated)
 
 	c.JSON(http.StatusCreated, meta)
 }
@@ -117,6 +121,8 @@ func (h *ModelMetadataHandler) Update(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "更新模型元数据失败"})
 		return
 	}
+	amp.InvalidateModelMetadataCache()
+	invalidation.Publish(invalidation.ChannelModelMetadataUpdated)
 
 	c.JSON(http.StatusOK, existing)
 }
@@ -138,6 +144,8 @@ func (h *ModelMetadataHandler) Delete(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "删除模型元数据失败"})
 		return
 	}
+	amp.InvalidateModelMetadataCache()
+	invalidation.Publish(invalidation.ChannelModelMetadataUpdated)
 
 	c.JSON(http.StatusOK, gin.H{"message": "模型元数据已删除"})
 }

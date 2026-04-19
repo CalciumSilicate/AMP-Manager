@@ -12,6 +12,7 @@ type Config struct {
 	AdminUsername string
 	AdminPassword string
 	ServerPort    string
+	ServerRole    string
 	JWTSecret     string
 	JWTIssuer     string
 	JWTAudience   string
@@ -72,6 +73,7 @@ func Load() *Config {
 		AdminUsername:                getEnv("ADMIN_USERNAME", "admin"),
 		AdminPassword:                getEnv("ADMIN_PASSWORD", "admin123"),
 		ServerPort:                   getEnv("SERVER_PORT", "16823"),
+		ServerRole:                   getEnv("SERVER_ROLE", string(ServerRoleAll)),
 		JWTSecret:                    getEnv("JWT_SECRET", "amp-manager-default-secret-change-in-production"),
 		JWTIssuer:                    getEnv("JWT_ISSUER", "ampmanager"),
 		JWTAudience:                  getEnv("JWT_AUDIENCE", "ampmanager-users"),

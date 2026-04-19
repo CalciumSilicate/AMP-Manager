@@ -19,6 +19,7 @@ import (
 	"ampmanager/internal/billingstate"
 	"ampmanager/internal/config"
 	"ampmanager/internal/database"
+	"ampmanager/internal/invalidation"
 	"ampmanager/internal/model"
 	"ampmanager/internal/repository"
 	"ampmanager/internal/service"
@@ -161,6 +162,7 @@ func (h *SystemHandler) UpdateSiteConfig(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "保存站点配置失败"})
 		return
 	}
+	invalidation.Publish(invalidation.ChannelSiteConfigUpdated)
 
 	c.JSON(http.StatusOK, gin.H{"message": "站点配置已更新", "config": cfg})
 }
@@ -360,6 +362,7 @@ func (h *SystemHandler) UpdateRetryConfig(c *gin.Context) {
 			RetryOnEmptyBody:  req.RetryOnEmptyBody,
 		})
 	}
+	invalidation.Publish(invalidation.ChannelRetryConfigUpdated)
 
 	c.JSON(http.StatusOK, gin.H{"message": "配置已更新", "config": resp})
 }
@@ -391,6 +394,7 @@ func (h *SystemHandler) UpdateRequestPayloadLimit(c *gin.Context) {
 	}
 
 	amp.UpdateRequestPayloadLimitBytes(resp.MaxBytes)
+	invalidation.Publish(invalidation.ChannelRequestPayloadLimitUpdated)
 	c.JSON(http.StatusOK, gin.H{"message": "配置已更新", "config": resp})
 }
 
@@ -675,6 +679,7 @@ func (h *SystemHandler) UpdateBillingRuntimeConfig(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "获取配置失败"})
 		return
 	}
+	invalidation.Publish(invalidation.ChannelBillingRuntimeUpdated)
 	c.JSON(http.StatusOK, gin.H{"message": "配置已更新", "config": resp})
 }
 
@@ -1098,6 +1103,7 @@ func (h *SystemHandler) UpdateRequestDetailEnabled(c *gin.Context) {
 		return
 	}
 	amp.SetRequestDetailEnabled(req.Enabled)
+	invalidation.Publish(invalidation.ChannelRequestDetailConfigUpdated)
 
 	c.JSON(http.StatusOK, gin.H{"message": "配置已更新", "enabled": req.Enabled})
 }
@@ -1179,6 +1185,7 @@ func (h *SystemHandler) UpdateRequestDetailConfig(c *gin.Context) {
 		HighRPMThreshold:     resp.HighRPMThreshold,
 		HighRPMSamplePercent: resp.HighRPMSamplePercent,
 	})
+	invalidation.Publish(invalidation.ChannelRequestDetailConfigUpdated)
 
 	c.JSON(http.StatusOK, gin.H{"message": "配置已更新", "config": resp})
 }
@@ -1279,6 +1286,7 @@ func (h *SystemHandler) UpdateTimeoutConfig(c *gin.Context) {
 		time.Duration(req.DialTimeoutSec)*time.Second,
 		time.Duration(req.TLSHandshakeTimeoutSec)*time.Second,
 	)
+	invalidation.Publish(invalidation.ChannelTimeoutConfigUpdated)
 
 	c.JSON(http.StatusOK, gin.H{"message": "配置已更新", "config": resp})
 }
@@ -1349,6 +1357,7 @@ func (h *SystemHandler) UpdateSessionStickyConfig(c *gin.Context) {
 	}
 
 	amp.UpdateSessionStickyConfig(cfg)
+	invalidation.Publish(invalidation.ChannelSessionStickyConfigUpdated)
 	c.JSON(http.StatusOK, gin.H{"message": "配置已更新", "config": cfg})
 }
 

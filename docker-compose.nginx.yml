@@ -1,0 +1,104 @@
+x-ampmanager-nginx-env: &ampmanager-nginx-env
+  SERVER_PORT: "16823"
+  DB_TYPE: postgres
+  SQLITE_PATH: ${SQLITE_PATH:-/app/data/data.db}
+  DATABASE_URL: ${DATABASE_URL:-postgres://postgres:${POSTGRES_PASSWORD:-change-me}@postgres:5432/${POSTGRES_DB:-ampmanager}?sslmode=disable}
+  REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
+  REDIS_PREFIX: ${REDIS_PREFIX:-ampmanager}
+  JWT_SECRET: ${JWT_SECRET:-your-secret-key-change-in-production}
+  ADMIN_USERNAME: ${ADMIN_USERNAME:-admin}
+  ADMIN_PASSWORD: ${ADMIN_PASSWORD:-admin123}
+
+x-ampmanager-nginx-service: &ampmanager-nginx-service
+  image: ${AMPMANAGER_IMAGE:-ghcr.io/meglinge/amp-manager:latest}
+  restart: unless-stopped
+  volumes:
+    - ./data:/app/data
+  healthcheck: &ampmanager-http-healthcheck
+    test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:16823/healthz >/dev/null 2>&1 || exit 1"]
+    interval: 5s
+    timeout: 5s
+    retries: 20
+
+services:
+  panel:
+    <<: *ampmanager-nginx-service
+    container_name: ampmanager-panel
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      <<: *ampmanager-nginx-env
+      SERVER_ROLE: panel
+
+  proxy:
+    <<: *ampmanager-nginx-service
+    container_name: ampmanager-proxy
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      panel:
+        condition: service_healthy
+    environment:
+      <<: *ampmanager-nginx-env
+      SERVER_ROLE: proxy
+
+  nginx:
+    image: nginx:1.27-alpine
+    container_name: ampmanager-nginx
+    restart: unless-stopped
+    depends_on:
+      panel:
+        condition: service_healthy
+      proxy:
+        condition: service_healthy
+    ports:
+      - "16823:16823"
+    volumes:
+      - ./nginx/dev.conf:/etc/nginx/conf.d/default.conf:ro
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "wget -qO- http://127.0.0.1:16823/healthz >/dev/null 2>&1 && wget -qO- http://panel:16823/healthz >/dev/null 2>&1 && wget -qO- http://proxy:16823/healthz >/dev/null 2>&1 || exit 1",
+        ]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  postgres:
+    image: postgres:16-alpine
+    container_name: ampmanager-postgres
+    restart: unless-stopped
+    environment:
+      - POSTGRES_USER=${POSTGRES_USER:-postgres}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-change-me}
+      - POSTGRES_DB=${POSTGRES_DB:-ampmanager}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres} -d ${POSTGRES_DB:-ampmanager}"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  redis:
+    image: redis:7-alpine
+    container_name: ampmanager-redis
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+volumes:
+  postgres_data:
+  redis_data:

@@ -19,7 +19,7 @@ func TestGetCacheHitRateByProviderUsesTotalInputAsDenominator(t *testing.T) {
 	insertRequestLogForCacheTest(t, "log-openai-2", "user-2", "gpt-5.4", 200, 50, 0, now)
 
 	repo := NewRequestLogRepository()
-	rates, err := repo.GetCacheHitRateByProvider("user-1")
+	rates, err := repo.GetCacheHitRateByProvider("user-1", time.UTC)
 	if err != nil {
 		t.Fatalf("GetCacheHitRateByProvider returned error: %v", err)
 	}
@@ -50,7 +50,7 @@ func TestGetAdminCacheHitRateByProviderUsesTotalInputAsDenominator(t *testing.T)
 	insertRequestLogForCacheTest(t, "log-openai-2", "user-2", "gpt-5.4", 200, 50, 0, now)
 
 	repo := NewRequestLogRepository()
-	rates, err := repo.GetAdminCacheHitRateByProvider()
+	rates, err := repo.GetAdminCacheHitRateByProvider(time.UTC)
 	if err != nil {
 		t.Fatalf("GetAdminCacheHitRateByProvider returned error: %v", err)
 	}

@@ -30,7 +30,7 @@ if (-not (Get-Command go -ErrorAction SilentlyContinue)) {
     exit 1
 }
 
-Write-Host "[1/4] 安装前端依赖..." -ForegroundColor Green
+Write-Host "[1/5] 安装前端依赖..." -ForegroundColor Green
 Set-Location web
 & pnpm install
 if (-not $?) {
@@ -41,7 +41,7 @@ if (-not $?) {
 }
 
 Write-Host ""
-Write-Host "[2/4] 编译前端..." -ForegroundColor Green
+Write-Host "[2/5] 编译前端..." -ForegroundColor Green
 & pnpm run build
 if (-not $?) {
     Write-Host "[错误] 前端编译失败" -ForegroundColor Red
@@ -52,14 +52,14 @@ if (-not $?) {
 Set-Location ..
 
 Write-Host ""
-Write-Host "[3/4] 复制前端文件到嵌入目录..." -ForegroundColor Green
+Write-Host "[3/5] 复制前端文件到嵌入目录..." -ForegroundColor Green
 if (-not (Test-Path "internal\web\dist")) {
     New-Item -ItemType Directory -Path "internal\web\dist" -Force | Out-Null
 }
 Copy-Item -Path "web\dist\*" -Destination "internal\web\dist\" -Recurse -Force
 
 Write-Host ""
-Write-Host "[4/4] 编译后端二进制文件..." -ForegroundColor Green
+Write-Host "[4/5] 编译后端二进制文件..." -ForegroundColor Green
 & go build -tags embed_frontend -ldflags="-s -w" -o ampmanager.exe ./cmd/server
 if (-not $?) {
     Write-Host "[错误] 后端编译失败" -ForegroundColor Red
@@ -68,9 +68,32 @@ if (-not $?) {
 }
 
 Write-Host ""
+Write-Host "[5/5] 生成 Docker Compose 本地静态二进制..." -ForegroundColor Green
+if (-not (Test-Path ".compose-local")) {
+    New-Item -ItemType Directory -Path ".compose-local" -Force | Out-Null
+}
+$originalGoos = $env:GOOS
+$originalGoarch = $env:GOARCH
+$originalCgoEnabled = $env:CGO_ENABLED
+$env:GOOS = "linux"
+$env:GOARCH = (& go env GOARCH).Trim()
+$env:CGO_ENABLED = "0"
+& go build -tags embed_frontend -ldflags="-s -w" -o ".compose-local\ampmanager-static" ./cmd/server
+$composeBuildOk = $?
+if ($null -eq $originalGoos) { Remove-Item Env:GOOS -ErrorAction SilentlyContinue } else { $env:GOOS = $originalGoos }
+if ($null -eq $originalGoarch) { Remove-Item Env:GOARCH -ErrorAction SilentlyContinue } else { $env:GOARCH = $originalGoarch }
+if ($null -eq $originalCgoEnabled) { Remove-Item Env:CGO_ENABLED -ErrorAction SilentlyContinue } else { $env:CGO_ENABLED = $originalCgoEnabled }
+if (-not $composeBuildOk) {
+    Write-Host "[错误] Compose 本地二进制生成失败" -ForegroundColor Red
+    Read-Host "按回车键退出"
+    exit 1
+}
+
+Write-Host ""
 Write-Host "==============================" -ForegroundColor Cyan
 Write-Host "   编译完成！" -ForegroundColor Green
 Write-Host "   输出文件: ampmanager.exe" -ForegroundColor Yellow
+Write-Host "   Compose 本地二进制: .compose-local\\ampmanager-static" -ForegroundColor Yellow
 Write-Host "==============================" -ForegroundColor Cyan
 Write-Host ""
 

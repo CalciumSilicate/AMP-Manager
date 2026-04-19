@@ -1338,6 +1338,7 @@ func createTables() error {
 			"cache_read_input_tokens INTEGER,", "cache_read_input_tokens BIGINT,",
 			"cache_creation_input_tokens INTEGER,", "cache_creation_input_tokens BIGINT,",
 			"cost_micros INTEGER,", "cost_micros BIGINT,",
+			"id INTEGER PRIMARY KEY AUTOINCREMENT", "id BIGSERIAL PRIMARY KEY",
 			"charged_subscription_micros INTEGER NOT NULL DEFAULT 0", "charged_subscription_micros BIGINT NOT NULL DEFAULT 0",
 			"charged_balance_micros INTEGER NOT NULL DEFAULT 0", "charged_balance_micros BIGINT NOT NULL DEFAULT 0",
 			"limit_micros INTEGER NOT NULL CHECK (limit_micros >= 0)", "limit_micros BIGINT NOT NULL CHECK (limit_micros >= 0)",

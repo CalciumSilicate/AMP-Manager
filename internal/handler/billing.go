@@ -4,6 +4,7 @@ import (
 	"net/http"
 
 	"ampmanager/internal/billing"
+	"ampmanager/internal/invalidation"
 	"ampmanager/internal/model"
 	"ampmanager/internal/service"
 
@@ -30,14 +31,14 @@ func (h *BillingHandler) ListPrices(c *gin.Context) {
 	result := make([]gin.H, 0, len(prices))
 	for _, p := range prices {
 		result = append(result, gin.H{
-			"model":                   p.Model,
-			"provider":                p.Provider,
-			"source":                  p.Source,
-			"inputCostPerToken":       p.PriceData.InputCostPerToken,
-			"outputCostPerToken":      p.PriceData.OutputCostPerToken,
-			"cacheReadInputPerToken":  p.PriceData.CacheReadInputPerToken,
-			"cacheCreationPerToken":   p.PriceData.CacheCreationPerToken,
-			"updatedAt":               p.UpdatedAt,
+			"model":                  p.Model,
+			"provider":               p.Provider,
+			"source":                 p.Source,
+			"inputCostPerToken":      p.PriceData.InputCostPerToken,
+			"outputCostPerToken":     p.PriceData.OutputCostPerToken,
+			"cacheReadInputPerToken": p.PriceData.CacheReadInputPerToken,
+			"cacheCreationPerToken":  p.PriceData.CacheCreationPerToken,
+			"updatedAt":              p.UpdatedAt,
 		})
 	}
 
@@ -117,5 +118,6 @@ func (h *BillingHandler) UpdateContextRules(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
+	invalidation.Publish(invalidation.ChannelPriceStoreUpdated)
 	c.JSON(http.StatusOK, gin.H{"items": rules})
 }

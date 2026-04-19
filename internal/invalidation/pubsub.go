@@ -12,18 +12,29 @@ import (
 )
 
 const (
-	ChannelErrorRulesUpdated    = "ampmanager:cache:error_rules:updated"
-	ChannelRequestFiltersUpdated = "ampmanager:cache:request_filters:updated"
+	ChannelErrorRulesUpdated          = "ampmanager:cache:error_rules:updated"
+	ChannelRequestFiltersUpdated      = "ampmanager:cache:request_filters:updated"
+	ChannelRetryConfigUpdated         = "ampmanager:runtime:retry_config:updated"
+	ChannelRequestPayloadLimitUpdated = "ampmanager:runtime:request_payload_limit:updated"
+	ChannelRequestDetailConfigUpdated = "ampmanager:runtime:request_detail_config:updated"
+	ChannelTimeoutConfigUpdated       = "ampmanager:runtime:timeout_config:updated"
+	ChannelSessionStickyConfigUpdated = "ampmanager:runtime:session_sticky_config:updated"
+	ChannelBillingRuntimeUpdated      = "ampmanager:runtime:billing_runtime:updated"
+	ChannelUserPanelRateLimitUpdated  = "ampmanager:runtime:user_panel_rate_limit:updated"
+	ChannelSiteConfigUpdated          = "ampmanager:runtime:site_config:updated"
+	ChannelChannelsUpdated            = "ampmanager:cache:channels:updated"
+	ChannelModelMetadataUpdated       = "ampmanager:cache:model_metadata:updated"
+	ChannelPriceStoreUpdated          = "ampmanager:cache:price_store:updated"
 )
 
 type callback func()
 
 var (
-	mu             sync.Mutex
-	localSubs      = make(map[string]map[int]callback)
-	nextSubID      int
-	redisClients   = make(map[string]*redis.Client)
-	redisStarted   = make(map[string]bool)
+	mu           sync.Mutex
+	localSubs    = make(map[string]map[int]callback)
+	nextSubID    int
+	redisClients = make(map[string]*redis.Client)
+	redisStarted = make(map[string]bool)
 )
 
 func Subscribe(channel string, fn func()) func() {

@@ -878,8 +878,8 @@ func (r *RequestLogRepository) GetDashboardStats(userID string, location *time.L
 }
 
 // GetCacheHitRateByProvider 按提供商分类获取缓存命中率（30天）
-func (r *RequestLogRepository) GetCacheHitRateByProvider(userID string) ([]DashboardCacheHitRate, error) {
-	location := normalizeDashboardLocation(time.UTC)
+func (r *RequestLogRepository) GetCacheHitRateByProvider(userID string, location *time.Location) ([]DashboardCacheHitRate, error) {
+	location = normalizeDashboardLocation(location)
 	if err := r.EnsureDashboardAggregatesReady(location); err != nil {
 		return nil, err
 	}
@@ -903,8 +903,8 @@ func (r *RequestLogRepository) GetAdminDashboardStats(windowKey string, location
 }
 
 // GetAdminCacheHitRateByProvider 管理员全局缓存命中率（30天）
-func (r *RequestLogRepository) GetAdminCacheHitRateByProvider() ([]DashboardCacheHitRate, error) {
-	location := normalizeDashboardLocation(time.UTC)
+func (r *RequestLogRepository) GetAdminCacheHitRateByProvider(location *time.Location) ([]DashboardCacheHitRate, error) {
+	location = normalizeDashboardLocation(location)
 	if err := r.EnsureDashboardAggregatesReady(location); err != nil {
 		return nil, err
 	}

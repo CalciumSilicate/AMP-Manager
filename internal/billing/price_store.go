@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"ampmanager/internal/database"
+	"ampmanager/internal/invalidation"
 	"ampmanager/internal/model"
 	"ampmanager/internal/precision"
 
@@ -323,7 +324,11 @@ func (s *PriceStore) SetPrice(model, provider string, data PriceData, source str
 	s.mu.Unlock()
 
 	// 解锁后再写 DB
-	return s.saveToDB(mp)
+	if err := s.saveToDB(mp); err != nil {
+		return err
+	}
+	invalidation.Publish(invalidation.ChannelPriceStoreUpdated)
+	return nil
 }
 
 // LoadFromDB 从数据库加载价格表
@@ -501,6 +506,7 @@ func (s *PriceStore) saveBatchToDB(prices map[string]ModelPrice) {
 		return
 	}
 
+	invalidation.Publish(invalidation.ChannelPriceStoreUpdated)
 	log.Debugf("billing: saved %d prices to database", len(prices))
 }
 
@@ -576,6 +582,7 @@ func (s *PriceStore) ReplaceContextRules(modelName string, rules []model.ModelPr
 		s.contextRules[modelName] = next
 	}
 	s.mu.Unlock()
+	invalidation.Publish(invalidation.ChannelPriceStoreUpdated)
 	return nil
 }
 
