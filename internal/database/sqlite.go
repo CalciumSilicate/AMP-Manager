@@ -593,6 +593,18 @@ func createTables() error {
 	);
 	CREATE INDEX IF NOT EXISTS idx_dashboard_provider_day_metrics_scope_day ON dashboard_provider_day_metrics(scope_type, scope_id, day_bucket DESC);
 
+	CREATE TABLE IF NOT EXISTS dashboard_timing_histograms (
+		scope_type TEXT NOT NULL,
+		scope_id TEXT NOT NULL,
+		minute_bucket DATETIME NOT NULL,
+		metric_name TEXT NOT NULL,
+		bucket_upper_ms BIGINT NOT NULL,
+		sample_count BIGINT NOT NULL DEFAULT 0,
+		updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+		PRIMARY KEY (scope_type, scope_id, minute_bucket, metric_name, bucket_upper_ms)
+	);
+	CREATE INDEX IF NOT EXISTS idx_dashboard_timing_histograms_scope_metric_minute ON dashboard_timing_histograms(scope_type, scope_id, metric_name, minute_bucket DESC);
+
 	CREATE TABLE IF NOT EXISTS dashboard_aggregate_state (
 		state_key TEXT PRIMARY KEY,
 		schema_version TEXT NOT NULL DEFAULT '',
@@ -626,6 +638,8 @@ func createTables() error {
 		latency_sample_count_delta BIGINT NOT NULL DEFAULT 0,
 		ttfb_sum_ms_delta BIGINT NOT NULL DEFAULT 0,
 		ttfb_sample_count_delta BIGINT NOT NULL DEFAULT 0,
+		raw_latency_ms BIGINT NOT NULL DEFAULT 0,
+		raw_ttfb_ms BIGINT NOT NULL DEFAULT 0,
 		concurrency_delta BIGINT NOT NULL DEFAULT 0,
 		created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 	);
@@ -2553,6 +2567,9 @@ func ensureCriticalSchema() error {
 	if err := ensureInviteCouponSchema(); err != nil {
 		return err
 	}
+	if err := ensureDashboardAggregateSchema(); err != nil {
+		return err
+	}
 	return nil
 }
 
@@ -2588,6 +2605,31 @@ func ensureAPIKeyCircuitBreakerSchema() error {
 		return err
 	}
 	if err := ensureColumnWithDefault("user_api_keys", "usage_channel_targets_json", "TEXT NOT NULL DEFAULT '[]'"); err != nil {
+		return err
+	}
+	return nil
+}
+
+func ensureDashboardAggregateSchema() error {
+	if err := ensureColumnWithDefault("dashboard_aggregate_jobs", "raw_latency_ms", "BIGINT NOT NULL DEFAULT 0"); err != nil {
+		return err
+	}
+	if err := ensureColumnWithDefault("dashboard_aggregate_jobs", "raw_ttfb_ms", "BIGINT NOT NULL DEFAULT 0"); err != nil {
+		return err
+	}
+	if _, err := db.Exec(`
+		CREATE TABLE IF NOT EXISTS dashboard_timing_histograms (
+			scope_type TEXT NOT NULL,
+			scope_id TEXT NOT NULL,
+			minute_bucket DATETIME NOT NULL,
+			metric_name TEXT NOT NULL,
+			bucket_upper_ms BIGINT NOT NULL,
+			sample_count BIGINT NOT NULL DEFAULT 0,
+			updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+			PRIMARY KEY (scope_type, scope_id, minute_bucket, metric_name, bucket_upper_ms)
+		);
+		CREATE INDEX IF NOT EXISTS idx_dashboard_timing_histograms_scope_metric_minute ON dashboard_timing_histograms(scope_type, scope_id, metric_name, minute_bucket DESC);
+	`); err != nil {
 		return err
 	}
 	return nil

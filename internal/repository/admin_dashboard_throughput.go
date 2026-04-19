@@ -161,6 +161,82 @@ func buildDashboardTimingPoints(start, end time.Time, valuesByBucket map[time.Ti
 	return points
 }
 
+func percentileHistogram(samplesByUpperBound map[int64]int64, percentile float64) float64 {
+	total := int64(0)
+	for _, count := range samplesByUpperBound {
+		total += count
+	}
+	if total <= 0 {
+		return 0
+	}
+
+	target := int64(math.Ceil(float64(total) * percentile))
+	if target < 1 {
+		target = 1
+	}
+	cumulative := int64(0)
+	for _, upper := range dashboardTimingHistogramBuckets {
+		cumulative += samplesByUpperBound[upper]
+		if cumulative >= target {
+			return float64(upper)
+		}
+	}
+	return float64(dashboardTimingHistogramBuckets[len(dashboardTimingHistogramBuckets)-1])
+}
+
+func buildDashboardTimingPointsFromAggregates(start, end time.Time, rows []dashboardMinuteMetricRow, histogramByMinute map[time.Time]map[int64]int64, metricName string) []DashboardTimingPoint {
+	type timingAggregate struct {
+		sumMs       int64
+		sampleCount int64
+		histogram   map[int64]int64
+	}
+
+	aggregates := make(map[time.Time]*timingAggregate)
+	for _, row := range rows {
+		bucket := timingBucketStart(row.MinuteBucket)
+		aggregate := aggregates[bucket]
+		if aggregate == nil {
+			aggregate = &timingAggregate{histogram: make(map[int64]int64)}
+			aggregates[bucket] = aggregate
+		}
+
+		switch metricName {
+		case dashboardTimingMetricTTFB:
+			aggregate.sumMs += row.TTFBSumMs
+			aggregate.sampleCount += row.TTFBSampleCount
+		default:
+			aggregate.sumMs += row.LatencySumMs
+			aggregate.sampleCount += row.LatencySampleCount
+		}
+
+		if minuteHistogram := histogramByMinute[row.MinuteBucket.UTC()]; minuteHistogram != nil {
+			for upper, count := range minuteHistogram {
+				aggregate.histogram[upper] += count
+			}
+		}
+	}
+
+	startBucket := timingBucketStart(start)
+	endBucket := timingBucketStart(end)
+	points := make([]DashboardTimingPoint, 0, int(endBucket.Sub(startBucket)/(5*time.Minute))+1)
+	for bucket := startBucket; !bucket.After(endBucket); bucket = bucket.Add(5 * time.Minute) {
+		aggregate := aggregates[bucket]
+		if aggregate == nil || aggregate.sampleCount <= 0 {
+			points = append(points, DashboardTimingPoint{Bucket: bucket.Format(time.RFC3339)})
+			continue
+		}
+		points = append(points, DashboardTimingPoint{
+			Bucket:    bucket.Format(time.RFC3339),
+			AvgMs:     float64(aggregate.sumMs) / float64(aggregate.sampleCount),
+			P50Ms:     percentileHistogram(aggregate.histogram, 0.50),
+			P90Ms:     percentileHistogram(aggregate.histogram, 0.90),
+			P99Ms:     percentileHistogram(aggregate.histogram, 0.99),
+			SampleCnt: aggregate.sampleCount,
+		})
+	}
+	return points
+}
+
 func (r *RequestLogRepository) GetAdminThroughputTrend(windowKey string) ([]DashboardThroughputPoint, error) {
 	start, end := adminThroughputWindowBounds(time.Now().UTC(), windowKey)
 	if err := r.ensureAdminProjectionWindow(start, end); err != nil {

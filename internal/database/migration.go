@@ -55,6 +55,7 @@ var migrationTables = []string{
 	"dashboard_day_metrics",
 	"dashboard_model_day_metrics",
 	"dashboard_provider_day_metrics",
+	"dashboard_timing_histograms",
 	"dashboard_aggregate_state",
 	"dashboard_aggregate_jobs",
 	"request_log_details",

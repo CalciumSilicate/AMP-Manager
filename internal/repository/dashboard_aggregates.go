@@ -14,7 +14,7 @@ import (
 const (
 	dashboardScopeGlobal            = "global"
 	dashboardAggregateStateKey      = "default"
-	dashboardAggregateSchemaVersion = "dashboard-v1"
+	dashboardAggregateSchemaVersion = "dashboard-v2"
 )
 
 var dashboardAggregateEnsureGroup singleflight.Group
@@ -598,6 +598,7 @@ func (r *RequestLogRepository) rebuildDashboardAggregates(location *time.Locatio
 
 	clearStatements := []string{
 		`DELETE FROM dashboard_aggregate_jobs`,
+		`DELETE FROM dashboard_timing_histograms`,
 		`DELETE FROM dashboard_provider_day_metrics`,
 		`DELETE FROM dashboard_model_day_metrics`,
 		`DELETE FROM dashboard_day_metrics`,
@@ -623,6 +624,9 @@ func (r *RequestLogRepository) rebuildDashboardAggregates(location *time.Locatio
 		return err
 	}
 	if err := rebuildDashboardProviderDayMetricsTx(tx, rebuildStartedAt); err != nil {
+		return err
+	}
+	if err := rebuildDashboardTimingHistogramsTx(tx, rebuildStartedAt); err != nil {
 		return err
 	}
 
@@ -909,6 +913,72 @@ func rebuildDashboardProviderDayMetricsTx(tx *sql.Tx, now time.Time) error {
 	return nil
 }
 
+func rebuildDashboardTimingHistogramsTx(tx *sql.Tx, now time.Time) error {
+	rows, err := tx.Query(`
+		SELECT minute_bucket, latency_ms, ttfb_ms
+		FROM global_request_metric_projections
+		WHERE latency_ms > 0 OR ttfb_ms > 0
+	`)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+
+	type histogramKey struct {
+		minute     time.Time
+		metricName string
+		bucket     int64
+	}
+	counts := make(map[histogramKey]int64)
+	for rows.Next() {
+		var minute time.Time
+		var latencyMs int64
+		var ttfbMs int64
+		if err := rows.Scan(&minute, &latencyMs, &ttfbMs); err != nil {
+			return err
+		}
+		minute = minute.UTC()
+		if latencyMs > 0 {
+			key := histogramKey{
+				minute:     minute,
+				metricName: dashboardTimingMetricDuration,
+				bucket:     dashboardTimingHistogramBucketUpper(latencyMs),
+			}
+			counts[key]++
+		}
+		if ttfbMs > 0 {
+			key := histogramKey{
+				minute:     minute,
+				metricName: dashboardTimingMetricTTFB,
+				bucket:     dashboardTimingHistogramBucketUpper(ttfbMs),
+			}
+			counts[key]++
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
+
+	for key, count := range counts {
+		if _, err := tx.Exec(`
+			INSERT INTO dashboard_timing_histograms (
+				scope_type, scope_id, minute_bucket, metric_name, bucket_upper_ms, sample_count, updated_at
+			) VALUES (?, ?, ?, ?, ?, ?, ?)
+		`,
+			dashboardScopeGlobal,
+			dashboardScopeGlobal,
+			key.minute,
+			key.metricName,
+			key.bucket,
+			count,
+			now.UTC(),
+		); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func dashboardScopePair(userID *string) (string, string) {
 	if userID == nil {
 		return dashboardScopeGlobal, dashboardScopeGlobal
@@ -1065,6 +1135,51 @@ func loadDashboardCacheHitRatesFromAggregates(scopeType, scopeID, dayFrom string
 	return result, rows.Err()
 }
 
+func loadDashboardTimingHistogramRows(scopeType, scopeID, metricName string, start, end time.Time) (map[time.Time]map[int64]int64, error) {
+	query := `
+		SELECT minute_bucket, bucket_upper_ms, sample_count
+		FROM dashboard_timing_histograms
+		WHERE scope_type = ? AND scope_id = ? AND metric_name = ? AND minute_bucket >= ? AND minute_bucket <= ?
+		ORDER BY minute_bucket ASC, bucket_upper_ms ASC
+	`
+	args := []any{scopeType, scopeID, metricName, start.UTC(), end.UTC()}
+	if !database.IsPostgres() {
+		query = `
+			SELECT minute_bucket, bucket_upper_ms, sample_count
+			FROM dashboard_timing_histograms
+			WHERE scope_type = ? AND scope_id = ? AND metric_name = ?
+			  AND SUBSTR(minute_bucket, 1, 19) >= ? AND SUBSTR(minute_bucket, 1, 19) <= ?
+			ORDER BY minute_bucket ASC, bucket_upper_ms ASC
+		`
+		args[3] = start.UTC().Format("2006-01-02 15:04:05")
+		args[4] = end.UTC().Format("2006-01-02 15:04:05")
+	}
+
+	rows, err := database.GetDB().Query(query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	result := make(map[time.Time]map[int64]int64)
+	for rows.Next() {
+		var minute time.Time
+		var upper int64
+		var count int64
+		if err := rows.Scan(&minute, &upper, &count); err != nil {
+			return nil, err
+		}
+		minute = minute.UTC()
+		buckets := result[minute]
+		if buckets == nil {
+			buckets = make(map[int64]int64)
+			result[minute] = buckets
+		}
+		buckets[upper] += count
+	}
+	return result, rows.Err()
+}
+
 func loadDashboardMinuteMetrics(scopeType, scopeID string, start, end time.Time) ([]dashboardMinuteMetricRow, error) {
 	query := `
 		SELECT minute_bucket, request_count_sum, input_tokens_sum, output_tokens_sum, total_tokens_sum,
@@ -1191,43 +1306,23 @@ func (r *RequestLogRepository) getAdminThroughputTrendFromAggregates(windowKey s
 	return buildDashboardThroughputPoints(fillDashboardMinuteMetrics(start, end, rows), concurrencyByMinute), nil
 }
 
-func (r *RequestLogRepository) getAdminTimingTrendFromProjections(windowKey string) (ttfbTrend []DashboardTimingPoint, durationTrend []DashboardTimingPoint, err error) {
+func (r *RequestLogRepository) getAdminTimingTrendFromAggregates(windowKey string) (ttfbTrend []DashboardTimingPoint, durationTrend []DashboardTimingPoint, err error) {
 	startMinute, endMinute := adminThroughputWindowBounds(time.Now().UTC(), windowKey)
-	rows, err := database.GetDB().Query(`
-		SELECT minute_bucket, latency_ms, ttfb_ms
-		FROM global_request_metric_projections
-		WHERE minute_bucket >= ? AND minute_bucket <= ?
-		ORDER BY minute_bucket ASC
-	`, startMinute.UTC(), endMinute.UTC())
+	rows, err := loadDashboardMinuteMetrics(dashboardScopeGlobal, dashboardScopeGlobal, startMinute, endMinute)
 	if err != nil {
 		return nil, nil, err
 	}
-	defer rows.Close()
-
-	ttfbByBucket := make(map[time.Time][]float64)
-	durationByBucket := make(map[time.Time][]float64)
-	for rows.Next() {
-		var minuteBucket time.Time
-		var latencyMs int64
-		var ttfbMs int64
-		if err = rows.Scan(&minuteBucket, &latencyMs, &ttfbMs); err != nil {
-			return nil, nil, err
-		}
-		bucket := timingBucketStart(minuteBucket)
-		if ttfbMs > 0 {
-			ttfbByBucket[bucket] = append(ttfbByBucket[bucket], float64(ttfbMs))
-		}
-		if latencyMs > 0 {
-			durationByBucket[bucket] = append(durationByBucket[bucket], float64(latencyMs))
-		}
-	}
-	if err = rows.Err(); err != nil {
+	ttfbHistogram, err := loadDashboardTimingHistogramRows(dashboardScopeGlobal, dashboardScopeGlobal, dashboardTimingMetricTTFB, startMinute, endMinute)
+	if err != nil {
 		return nil, nil, err
 	}
-
-	startBucket := timingBucketStart(startMinute)
-	endBucket := timingBucketStart(endMinute)
-	return buildDashboardTimingPoints(startBucket, endBucket, ttfbByBucket), buildDashboardTimingPoints(startBucket, endBucket, durationByBucket), nil
+	durationHistogram, err := loadDashboardTimingHistogramRows(dashboardScopeGlobal, dashboardScopeGlobal, dashboardTimingMetricDuration, startMinute, endMinute)
+	if err != nil {
+		return nil, nil, err
+	}
+	return buildDashboardTimingPointsFromAggregates(startMinute, endMinute, rows, ttfbHistogram, dashboardTimingMetricTTFB),
+		buildDashboardTimingPointsFromAggregates(startMinute, endMinute, rows, durationHistogram, dashboardTimingMetricDuration),
+		nil
 }
 
 func (r *RequestLogRepository) GetAdminDashboardSummary(location *time.Location) (today, week, month DashboardPeriodStats, topModels []DashboardTopModel, dailyTrend []DashboardDailyTrend, err error) {
@@ -1273,6 +1368,6 @@ func (r *RequestLogRepository) GetAdminDashboardTrends(windowKey string, locatio
 	if err != nil {
 		return
 	}
-	ttfbTrend, durationTrend, err = r.getAdminTimingTrendFromProjections(windowKey)
+	ttfbTrend, durationTrend, err = r.getAdminTimingTrendFromAggregates(windowKey)
 	return
 }

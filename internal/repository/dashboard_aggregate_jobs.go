@@ -16,9 +16,16 @@ const (
 	dashboardAggregateJobTargetDay       = "day"
 	dashboardAggregateJobTargetModelDay  = "model_day"
 	dashboardAggregateJobTargetProvider  = "provider_day"
+	dashboardTimingMetricTTFB            = "ttfb"
+	dashboardTimingMetricDuration        = "duration"
 	defaultDashboardAggregateBatchSize   = 512
 	defaultDashboardAggregateFlushPeriod = 500 * time.Millisecond
 )
+
+var dashboardTimingHistogramBuckets = []int64{
+	100, 250, 500, 1_000, 2_000, 4_000, 8_000, 12_000, 20_000, 30_000, 45_000, 60_000,
+	90_000, 120_000, 180_000, 300_000,
+}
 
 type dashboardAggregateJob struct {
 	ID                             int64
@@ -41,6 +48,8 @@ type dashboardAggregateJob struct {
 	LatencySampleCountDelta        int64
 	TTFBSumMsDelta                 int64
 	TTFBSampleCountDelta           int64
+	RawLatencyMs                   int64
+	RawTTFBMs                      int64
 	ConcurrencyDelta               int64
 }
 
@@ -70,6 +79,10 @@ type dashboardProviderMetricDelta struct {
 	TotalInputTokens     int64
 	CacheReadInputTokens int64
 	CacheCreationTokens  int64
+}
+
+type dashboardTimingHistogramDelta struct {
+	SampleCount int64
 }
 
 type dashboardAggregateWorker struct {
@@ -180,8 +193,8 @@ func enqueueDashboardAggregateJobTx(tx *sql.Tx, job dashboardAggregateJob) error
 			request_count_delta, input_tokens_delta, output_tokens_delta, total_tokens_delta,
 			cost_micros_delta, error_count_delta, cache_read_input_tokens_delta, cache_creation_input_tokens_delta,
 			latency_sum_ms_delta, latency_sample_count_delta, ttfb_sum_ms_delta, ttfb_sample_count_delta,
-			concurrency_delta, created_at
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+			raw_latency_ms, raw_ttfb_ms, concurrency_delta, created_at
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 	`,
 		job.TargetType,
 		job.ScopeType,
@@ -202,6 +215,8 @@ func enqueueDashboardAggregateJobTx(tx *sql.Tx, job dashboardAggregateJob) error
 		job.LatencySampleCountDelta,
 		job.TTFBSumMsDelta,
 		job.TTFBSampleCountDelta,
+		job.RawLatencyMs,
+		job.RawTTFBMs,
 		job.ConcurrencyDelta,
 		time.Now().UTC(),
 	)
@@ -235,15 +250,17 @@ func enqueueDashboardAggregateDeltaTx(tx *sql.Tx, snapshot dashboardProjectionSn
 			CacheReadInputTokensDelta:     snapshot.CacheReadInputTokens * sign,
 			CacheCreationInputTokensDelta: snapshot.CacheCreationInputTokens * sign,
 		}
-		if snapshot.LatencyMs > 0 {
-			primaryMinuteJob.LatencySumMsDelta = snapshot.LatencyMs * sign
-			primaryMinuteJob.LatencySampleCountDelta = sign
-			primaryMinuteJob.ConcurrencyDelta = sign
-		}
-		if snapshot.TTFBMs > 0 {
-			primaryMinuteJob.TTFBSumMsDelta = snapshot.TTFBMs * sign
-			primaryMinuteJob.TTFBSampleCountDelta = sign
-		}
+			if snapshot.LatencyMs > 0 {
+				primaryMinuteJob.LatencySumMsDelta = snapshot.LatencyMs * sign
+				primaryMinuteJob.LatencySampleCountDelta = sign
+				primaryMinuteJob.RawLatencyMs = snapshot.LatencyMs
+				primaryMinuteJob.ConcurrencyDelta = sign
+			}
+			if snapshot.TTFBMs > 0 {
+				primaryMinuteJob.TTFBSumMsDelta = snapshot.TTFBMs * sign
+				primaryMinuteJob.TTFBSampleCountDelta = sign
+				primaryMinuteJob.RawTTFBMs = snapshot.TTFBMs
+			}
 		if err := enqueueDashboardAggregateJobTx(tx, primaryMinuteJob); err != nil {
 			return err
 		}
@@ -319,7 +336,7 @@ func processDashboardAggregateJobBatch(batchSize int) (int, error) {
 		       request_count_delta, input_tokens_delta, output_tokens_delta, total_tokens_delta,
 		       cost_micros_delta, error_count_delta, cache_read_input_tokens_delta, cache_creation_input_tokens_delta,
 		       latency_sum_ms_delta, latency_sample_count_delta, ttfb_sum_ms_delta, ttfb_sample_count_delta,
-		       concurrency_delta
+		       raw_latency_ms, raw_ttfb_ms, concurrency_delta
 		FROM dashboard_aggregate_jobs
 		ORDER BY id ASC
 		LIMIT ?
@@ -354,6 +371,8 @@ func processDashboardAggregateJobBatch(batchSize int) (int, error) {
 			&job.LatencySampleCountDelta,
 			&job.TTFBSumMsDelta,
 			&job.TTFBSampleCountDelta,
+			&job.RawLatencyMs,
+			&job.RawTTFBMs,
 			&job.ConcurrencyDelta,
 		); err != nil {
 			return 0, err
@@ -407,11 +426,19 @@ func applyDashboardAggregateJobBatchTx(tx *sql.Tx, jobs []dashboardAggregateJob)
 		dayBucket string
 		provider  string
 	}
+	type histogramKey struct {
+		scopeType     string
+		scopeID       string
+		minute        time.Time
+		metricName    string
+		bucketUpperMs int64
+	}
 
 	minuteDeltas := make(map[minuteKey]dashboardMinuteMetricDelta)
 	dayDeltas := make(map[dayKey]dashboardDayMetricDelta)
 	modelDeltas := make(map[modelKey]dashboardDayMetricDelta)
 	providerDeltas := make(map[providerKey]dashboardProviderMetricDelta)
+	histogramDeltas := make(map[histogramKey]dashboardTimingHistogramDelta)
 
 	for _, job := range jobs {
 		switch job.TargetType {
@@ -435,6 +462,32 @@ func applyDashboardAggregateJobBatchTx(tx *sql.Tx, jobs []dashboardAggregateJob)
 			delta.TTFBSampleCount += job.TTFBSampleCountDelta
 			delta.ConcurrencyDelta += job.ConcurrencyDelta
 			minuteDeltas[key] = delta
+			if job.ScopeType == dashboardScopeGlobal {
+				if job.LatencySampleCountDelta != 0 && job.RawLatencyMs > 0 {
+					hk := histogramKey{
+						scopeType:     job.ScopeType,
+						scopeID:       job.ScopeID,
+						minute:        job.MinuteBucket.UTC(),
+						metricName:    dashboardTimingMetricDuration,
+						bucketUpperMs: dashboardTimingHistogramBucketUpper(job.RawLatencyMs),
+					}
+					hd := histogramDeltas[hk]
+					hd.SampleCount += job.LatencySampleCountDelta
+					histogramDeltas[hk] = hd
+				}
+				if job.TTFBSampleCountDelta != 0 && job.RawTTFBMs > 0 {
+					hk := histogramKey{
+						scopeType:     job.ScopeType,
+						scopeID:       job.ScopeID,
+						minute:        job.MinuteBucket.UTC(),
+						metricName:    dashboardTimingMetricTTFB,
+						bucketUpperMs: dashboardTimingHistogramBucketUpper(job.RawTTFBMs),
+					}
+					hd := histogramDeltas[hk]
+					hd.SampleCount += job.TTFBSampleCountDelta
+					histogramDeltas[hk] = hd
+				}
+			}
 		case dashboardAggregateJobTargetDay:
 			key := dayKey{scopeType: job.ScopeType, scopeID: job.ScopeID, dayBucket: job.DayBucket}
 			delta := dayDeltas[key]
@@ -476,6 +529,11 @@ func applyDashboardAggregateJobBatchTx(tx *sql.Tx, jobs []dashboardAggregateJob)
 	}
 	for key, delta := range providerDeltas {
 		if err := applyProviderMetricDeltaTx(tx, key.scopeType, key.scopeID, key.dayBucket, key.provider, delta, now); err != nil {
+			return err
+		}
+	}
+	for key, delta := range histogramDeltas {
+		if err := applyTimingHistogramDeltaTx(tx, key.scopeType, key.scopeID, key.minute, key.metricName, key.bucketUpperMs, delta, now); err != nil {
 			return err
 		}
 	}
@@ -592,6 +650,38 @@ func applyProviderMetricDeltaTx(tx *sql.Tx, scopeType, scopeID, dayBucket, provi
 		now,
 	)
 	return err
+}
+
+func applyTimingHistogramDeltaTx(tx *sql.Tx, scopeType, scopeID string, minute time.Time, metricName string, bucketUpperMs int64, delta dashboardTimingHistogramDelta, now time.Time) error {
+	_, err := tx.Exec(`
+		INSERT INTO dashboard_timing_histograms (
+			scope_type, scope_id, minute_bucket, metric_name, bucket_upper_ms, sample_count, updated_at
+		) VALUES (?, ?, ?, ?, ?, ?, ?)
+		ON CONFLICT(scope_type, scope_id, minute_bucket, metric_name, bucket_upper_ms) DO UPDATE SET
+			sample_count = dashboard_timing_histograms.sample_count + excluded.sample_count,
+			updated_at = excluded.updated_at
+	`,
+		scopeType,
+		scopeID,
+		minute.UTC(),
+		metricName,
+		bucketUpperMs,
+		delta.SampleCount,
+		now,
+	)
+	return err
+}
+
+func dashboardTimingHistogramBucketUpper(value int64) int64 {
+	if value <= 0 {
+		return dashboardTimingHistogramBuckets[0]
+	}
+	for _, upper := range dashboardTimingHistogramBuckets {
+		if value <= upper {
+			return upper
+		}
+	}
+	return dashboardTimingHistogramBuckets[len(dashboardTimingHistogramBuckets)-1]
 }
 
 func deleteDashboardAggregateJobsTx(tx *sql.Tx, jobs []dashboardAggregateJob) error {
