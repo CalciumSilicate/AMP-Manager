@@ -92,6 +92,12 @@ func main() {
 	if err := userService.EnsureAdmin(); err != nil {
 		log.Printf("警告: 管理员账户创建失败: %v", err)
 	}
+	service.RefreshStatsLocationCache()
+	if err := service.NewRequestLogService().EnsureDashboardAggregatesReady(); err != nil {
+		log.Printf("warning: dashboard aggregates bootstrap failed: %v", err)
+	}
+	repository.StartDashboardAggregateWorker()
+	defer repository.StopDashboardAggregateWorker()
 
 	r := router.Setup()
 

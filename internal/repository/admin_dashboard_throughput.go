@@ -45,8 +45,11 @@ type dashboardMinuteMetricRow struct {
 	InputTokensSum  int64
 	OutputTokensSum int64
 	TotalTokensSum  int64
-	LatencyMs       int64
-	TTFBMs          int64
+	ConcurrencyDeltaSum int64
+	LatencySumMs        int64
+	LatencySampleCount  int64
+	TTFBSumMs           int64
+	TTFBSampleCount     int64
 }
 
 type dashboardTimingProjectionRow struct {

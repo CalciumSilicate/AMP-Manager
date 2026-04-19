@@ -1,5 +1,13 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { getAdminDashboard, AdminDashboardData, DashboardCacheHitRate } from '@/api/dashboard'
+import {
+  getAdminDashboardCacheHit,
+  getAdminDashboardSummary,
+  getAdminDashboardTrends,
+  type AdminDashboardData,
+  type AdminDashboardSummaryData,
+  type AdminDashboardTrendsData,
+  type DashboardCacheHitRate,
+} from '@/api/dashboard'
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -60,29 +68,81 @@ const MODEL_COLORS = [
 ]
 
 export default function AdminOverview() {
-  const [data, setData] = useState<AdminDashboardData | null>(null)
-  const [loading, setLoading] = useState(true)
+  const [summary, setSummary] = useState<AdminDashboardSummaryData | null>(null)
+  const [trends, setTrends] = useState<AdminDashboardTrendsData | null>(null)
+  const [cacheHitRates, setCacheHitRates] = useState<DashboardCacheHitRate[]>([])
+  const [loadingSummary, setLoadingSummary] = useState(true)
+  const [loadingTrends, setLoadingTrends] = useState(true)
+  const [loadingCacheHit, setLoadingCacheHit] = useState(true)
   const [error, setError] = useState('')
   const [trendView, setTrendView] = useState<'cost' | 'requests'>('cost')
   const [throughputView, setThroughputView] = useState<'qps1m' | 'rpm5m' | 'tpm5m' | 'concurrency1m' | 'ttfb' | 'duration'>('rpm5m')
   const [throughputWindow, setThroughputWindow] = useState<'1h' | '3h' | '6h' | '12h' | '24h' | '3d'>('1h')
 
-  const loadDashboard = useCallback(async () => {
-    setLoading(true)
-    setError('')
+  const loadSummary = useCallback(async () => {
+    setLoadingSummary(true)
     try {
-      const result = await getAdminDashboard(throughputWindow)
-      setData(result)
+      setSummary(await getAdminDashboardSummary())
     } catch (err) {
       setError(err instanceof Error ? err.message : '加载失败')
     } finally {
-      setLoading(false)
+      setLoadingSummary(false)
+    }
+  }, [])
+
+  useEffect(() => {
+    void loadSummary()
+  }, [loadSummary])
+
+  const loadCacheHit = useCallback(async () => {
+    setLoadingCacheHit(true)
+    try {
+      const result = await getAdminDashboardCacheHit()
+      setCacheHitRates(result.cacheHitRates)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '加载失败')
+    } finally {
+      setLoadingCacheHit(false)
+    }
+  }, [])
+
+  useEffect(() => {
+    void loadCacheHit()
+  }, [loadCacheHit])
+
+  const loadTrends = useCallback(async () => {
+    setLoadingTrends(true)
+    try {
+      setTrends(await getAdminDashboardTrends(throughputWindow))
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '加载失败')
+    } finally {
+      setLoadingTrends(false)
     }
   }, [throughputWindow])
 
   useEffect(() => {
-    void loadDashboard()
-  }, [loadDashboard])
+    void loadTrends()
+  }, [loadTrends])
+
+  const loadDashboard = useCallback(async () => {
+    setError('')
+    await Promise.all([loadSummary(), loadCacheHit(), loadTrends()])
+  }, [loadCacheHit, loadSummary, loadTrends])
+
+  const data = useMemo<AdminDashboardData | null>(() => {
+    if (!summary) return null
+    return {
+      ...summary,
+      throughputWindow: trends?.throughputWindow ?? throughputWindow,
+      throughputTrend: trends?.throughputTrend ?? [],
+      ttfbTrend: trends?.ttfbTrend ?? [],
+      durationTrend: trends?.durationTrend ?? [],
+      cacheHitRates,
+    }
+  }, [cacheHitRates, summary, throughputWindow, trends])
+
+  const loading = loadingSummary || loadingTrends || loadingCacheHit
 
   const trendData = useMemo(() => {
     if (!data?.dailyTrend?.length) return []

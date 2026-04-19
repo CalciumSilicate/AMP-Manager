@@ -91,8 +91,72 @@ export interface AdminDashboardData {
   cacheHitRates: DashboardCacheHitRate[]
 }
 
+export interface AdminDashboardSummaryData {
+  balance: {
+    totalBalanceMicros: number
+    totalBalanceUsd: string
+    userCount: number
+    currentConcurrency: number
+  }
+  today: DashboardPeriodStats
+  week: DashboardPeriodStats
+  month: DashboardPeriodStats
+  topModels: DashboardTopModel[]
+  dailyTrend: DashboardDailyTrend[]
+}
+
+export interface AdminDashboardTrendsData {
+  throughputWindow: string
+  throughputTrend: AdminDashboardThroughputPoint[]
+  ttfbTrend: AdminDashboardTimingPoint[]
+  durationTrend: AdminDashboardTimingPoint[]
+}
+
+const inflightRequests = new Map<string, Promise<unknown>>()
+
+async function dedupedJSONRequest<T>(key: string, url: string): Promise<T> {
+  const existing = inflightRequests.get(key) as Promise<T> | undefined
+  if (existing) {
+    return existing
+  }
+  const request = (async () => {
+    const res = await authFetch(url)
+    if (!res.ok) throw new Error('获取管理员仪表盘数据失败')
+    return res.json() as Promise<T>
+  })()
+  inflightRequests.set(key, request)
+  try {
+    return await request
+  } finally {
+    inflightRequests.delete(key)
+  }
+}
+
+export async function getAdminDashboardSummary(): Promise<AdminDashboardSummaryData> {
+  return dedupedJSONRequest<AdminDashboardSummaryData>('admin-dashboard-summary', `${API_BASE}/admin/dashboard/summary`)
+}
+
+export async function getAdminDashboardTrends(throughputWindow = '1h'): Promise<AdminDashboardTrendsData> {
+  return dedupedJSONRequest<AdminDashboardTrendsData>(
+    `admin-dashboard-trends:${throughputWindow}`,
+    `${API_BASE}/admin/dashboard/trends?throughputWindow=${encodeURIComponent(throughputWindow)}`,
+  )
+}
+
+export async function getAdminDashboardCacheHit(): Promise<{ cacheHitRates: DashboardCacheHitRate[] }> {
+  return dedupedJSONRequest<{ cacheHitRates: DashboardCacheHitRate[] }>('admin-dashboard-cache-hit', `${API_BASE}/admin/dashboard/cache-hit`)
+}
+
 export async function getAdminDashboard(throughputWindow = '1h'): Promise<AdminDashboardData> {
-  const res = await authFetch(`${API_BASE}/admin/dashboard?throughputWindow=${encodeURIComponent(throughputWindow)}`)
-  if (!res.ok) throw new Error('获取管理员仪表盘数据失败')
-  return res.json()
+  const [summary, trends, cacheHit] = await Promise.all([
+    getAdminDashboardSummary(),
+    getAdminDashboardTrends(throughputWindow),
+    getAdminDashboardCacheHit(),
+  ])
+
+  return {
+    ...summary,
+    ...trends,
+    cacheHitRates: cacheHit.cacheHitRates,
+  }
 }

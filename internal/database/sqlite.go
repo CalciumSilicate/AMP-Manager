@@ -498,18 +498,31 @@ func createTables() error {
 	CREATE INDEX IF NOT EXISTS idx_request_logs_streaming_time ON request_logs(is_streaming, created_at DESC);
 	CREATE INDEX IF NOT EXISTS idx_request_logs_effective_model ON request_logs(COALESCE(mapped_model, original_model));
 
-		CREATE TABLE IF NOT EXISTS global_request_metric_projections (
-			request_id TEXT PRIMARY KEY,
-			minute_bucket DATETIME NOT NULL,
-			request_count BIGINT NOT NULL DEFAULT 0,
-			input_tokens BIGINT NOT NULL DEFAULT 0,
-			output_tokens BIGINT NOT NULL DEFAULT 0,
-			total_tokens BIGINT NOT NULL DEFAULT 0,
-			latency_ms BIGINT NOT NULL DEFAULT 0,
-			ttfb_ms BIGINT NOT NULL DEFAULT 0,
-			updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
-		);
+	CREATE TABLE IF NOT EXISTS global_request_metric_projections (
+		request_id TEXT PRIMARY KEY,
+		user_id TEXT NOT NULL DEFAULT '',
+		minute_bucket DATETIME NOT NULL,
+		completed_minute_bucket DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+		day_bucket TEXT NOT NULL DEFAULT '',
+		effective_model TEXT NOT NULL DEFAULT 'unknown',
+		provider_group TEXT NOT NULL DEFAULT 'Other',
+		request_count BIGINT NOT NULL DEFAULT 0,
+		input_tokens BIGINT NOT NULL DEFAULT 0,
+		output_tokens BIGINT NOT NULL DEFAULT 0,
+		total_tokens BIGINT NOT NULL DEFAULT 0,
+		cost_micros BIGINT NOT NULL DEFAULT 0,
+		error_count BIGINT NOT NULL DEFAULT 0,
+		cache_read_input_tokens BIGINT NOT NULL DEFAULT 0,
+		cache_creation_input_tokens BIGINT NOT NULL DEFAULT 0,
+		latency_ms BIGINT NOT NULL DEFAULT 0,
+		ttfb_ms BIGINT NOT NULL DEFAULT 0,
+		updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+	);
 	CREATE INDEX IF NOT EXISTS idx_global_request_metric_projections_minute ON global_request_metric_projections(minute_bucket DESC);
+	CREATE INDEX IF NOT EXISTS idx_global_request_metric_projections_completed_minute ON global_request_metric_projections(completed_minute_bucket DESC);
+	CREATE INDEX IF NOT EXISTS idx_global_request_metric_projections_day ON global_request_metric_projections(day_bucket);
+	CREATE INDEX IF NOT EXISTS idx_global_request_metric_projections_user_minute ON global_request_metric_projections(user_id, minute_bucket DESC);
+	CREATE INDEX IF NOT EXISTS idx_global_request_metric_projections_user_day ON global_request_metric_projections(user_id, day_bucket);
 
 	CREATE TABLE IF NOT EXISTS global_request_minute_metrics (
 		minute_bucket DATETIME PRIMARY KEY,
@@ -520,6 +533,105 @@ func createTables() error {
 		updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
 	);
 	CREATE INDEX IF NOT EXISTS idx_global_request_minute_metrics_minute ON global_request_minute_metrics(minute_bucket DESC);
+
+	CREATE TABLE IF NOT EXISTS dashboard_minute_metrics (
+		scope_type TEXT NOT NULL,
+		scope_id TEXT NOT NULL,
+		minute_bucket DATETIME NOT NULL,
+		request_count_sum BIGINT NOT NULL DEFAULT 0,
+		input_tokens_sum BIGINT NOT NULL DEFAULT 0,
+		output_tokens_sum BIGINT NOT NULL DEFAULT 0,
+		total_tokens_sum BIGINT NOT NULL DEFAULT 0,
+		cost_micros_sum BIGINT NOT NULL DEFAULT 0,
+		error_count_sum BIGINT NOT NULL DEFAULT 0,
+		cache_read_input_tokens_sum BIGINT NOT NULL DEFAULT 0,
+		cache_creation_input_tokens_sum BIGINT NOT NULL DEFAULT 0,
+		latency_sum_ms BIGINT NOT NULL DEFAULT 0,
+		latency_sample_count BIGINT NOT NULL DEFAULT 0,
+		ttfb_sum_ms BIGINT NOT NULL DEFAULT 0,
+		ttfb_sample_count BIGINT NOT NULL DEFAULT 0,
+		concurrency_delta_sum BIGINT NOT NULL DEFAULT 0,
+		updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+		PRIMARY KEY (scope_type, scope_id, minute_bucket)
+	);
+	CREATE INDEX IF NOT EXISTS idx_dashboard_minute_metrics_scope_minute ON dashboard_minute_metrics(scope_type, scope_id, minute_bucket DESC);
+
+	CREATE TABLE IF NOT EXISTS dashboard_day_metrics (
+		scope_type TEXT NOT NULL,
+		scope_id TEXT NOT NULL,
+		day_bucket TEXT NOT NULL,
+		request_count_sum BIGINT NOT NULL DEFAULT 0,
+		cost_micros_sum BIGINT NOT NULL DEFAULT 0,
+		updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+		PRIMARY KEY (scope_type, scope_id, day_bucket)
+	);
+	CREATE INDEX IF NOT EXISTS idx_dashboard_day_metrics_scope_day ON dashboard_day_metrics(scope_type, scope_id, day_bucket DESC);
+
+	CREATE TABLE IF NOT EXISTS dashboard_model_day_metrics (
+		scope_type TEXT NOT NULL,
+		scope_id TEXT NOT NULL,
+		day_bucket TEXT NOT NULL,
+		model TEXT NOT NULL,
+		request_count_sum BIGINT NOT NULL DEFAULT 0,
+		cost_micros_sum BIGINT NOT NULL DEFAULT 0,
+		updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+		PRIMARY KEY (scope_type, scope_id, day_bucket, model)
+	);
+	CREATE INDEX IF NOT EXISTS idx_dashboard_model_day_metrics_scope_day ON dashboard_model_day_metrics(scope_type, scope_id, day_bucket DESC);
+
+	CREATE TABLE IF NOT EXISTS dashboard_provider_day_metrics (
+		scope_type TEXT NOT NULL,
+		scope_id TEXT NOT NULL,
+		day_bucket TEXT NOT NULL,
+		provider TEXT NOT NULL,
+		request_count_sum BIGINT NOT NULL DEFAULT 0,
+		total_input_tokens_sum BIGINT NOT NULL DEFAULT 0,
+		cache_read_input_tokens_sum BIGINT NOT NULL DEFAULT 0,
+		cache_creation_input_tokens_sum BIGINT NOT NULL DEFAULT 0,
+		updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+		PRIMARY KEY (scope_type, scope_id, day_bucket, provider)
+	);
+	CREATE INDEX IF NOT EXISTS idx_dashboard_provider_day_metrics_scope_day ON dashboard_provider_day_metrics(scope_type, scope_id, day_bucket DESC);
+
+	CREATE TABLE IF NOT EXISTS dashboard_aggregate_state (
+		state_key TEXT PRIMARY KEY,
+		schema_version TEXT NOT NULL DEFAULT '',
+		location_name TEXT NOT NULL DEFAULT '',
+		status TEXT NOT NULL DEFAULT 'empty',
+		last_request_at DATETIME,
+		last_request_id TEXT NOT NULL DEFAULT '',
+		last_backfill_at DATETIME,
+		error_message TEXT NOT NULL DEFAULT '',
+		updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+	);
+
+	CREATE TABLE IF NOT EXISTS dashboard_aggregate_jobs (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		target_type TEXT NOT NULL,
+		scope_type TEXT NOT NULL,
+		scope_id TEXT NOT NULL,
+		minute_bucket DATETIME,
+		day_bucket TEXT NOT NULL DEFAULT '',
+		model TEXT NOT NULL DEFAULT '',
+		provider TEXT NOT NULL DEFAULT '',
+		request_count_delta BIGINT NOT NULL DEFAULT 0,
+		input_tokens_delta BIGINT NOT NULL DEFAULT 0,
+		output_tokens_delta BIGINT NOT NULL DEFAULT 0,
+		total_tokens_delta BIGINT NOT NULL DEFAULT 0,
+		cost_micros_delta BIGINT NOT NULL DEFAULT 0,
+		error_count_delta BIGINT NOT NULL DEFAULT 0,
+		cache_read_input_tokens_delta BIGINT NOT NULL DEFAULT 0,
+		cache_creation_input_tokens_delta BIGINT NOT NULL DEFAULT 0,
+		latency_sum_ms_delta BIGINT NOT NULL DEFAULT 0,
+		latency_sample_count_delta BIGINT NOT NULL DEFAULT 0,
+		ttfb_sum_ms_delta BIGINT NOT NULL DEFAULT 0,
+		ttfb_sample_count_delta BIGINT NOT NULL DEFAULT 0,
+		concurrency_delta BIGINT NOT NULL DEFAULT 0,
+		created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+	);
+	CREATE INDEX IF NOT EXISTS idx_dashboard_aggregate_jobs_id ON dashboard_aggregate_jobs(id);
+	CREATE INDEX IF NOT EXISTS idx_dashboard_aggregate_jobs_target_scope_minute ON dashboard_aggregate_jobs(target_type, scope_type, scope_id, minute_bucket);
+	CREATE INDEX IF NOT EXISTS idx_dashboard_aggregate_jobs_target_scope_day ON dashboard_aggregate_jobs(target_type, scope_type, scope_id, day_bucket);
 
 	CREATE TABLE IF NOT EXISTS model_prices (
 		id TEXT PRIMARY KEY,
@@ -1578,7 +1690,47 @@ func runMigrations() error {
 		},
 		{
 			name: "create_global_request_metric_projections_indexes",
-			sql:  `CREATE INDEX IF NOT EXISTS idx_global_request_metric_projections_minute ON global_request_metric_projections(minute_bucket DESC)`,
+			sql: `CREATE INDEX IF NOT EXISTS idx_global_request_metric_projections_minute ON global_request_metric_projections(minute_bucket DESC);
+				CREATE INDEX IF NOT EXISTS idx_global_request_metric_projections_completed_minute ON global_request_metric_projections(completed_minute_bucket DESC);
+				CREATE INDEX IF NOT EXISTS idx_global_request_metric_projections_day ON global_request_metric_projections(day_bucket);
+				CREATE INDEX IF NOT EXISTS idx_global_request_metric_projections_user_minute ON global_request_metric_projections(user_id, minute_bucket DESC);
+				CREATE INDEX IF NOT EXISTS idx_global_request_metric_projections_user_day ON global_request_metric_projections(user_id, day_bucket)`,
+		},
+		{
+			name: "add_global_request_metric_projections_user_id",
+			sql:  `ALTER TABLE global_request_metric_projections ADD COLUMN user_id TEXT NOT NULL DEFAULT ''`,
+		},
+		{
+			name: "add_global_request_metric_projections_completed_minute_bucket",
+			sql:  `ALTER TABLE global_request_metric_projections ADD COLUMN completed_minute_bucket DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP`,
+		},
+		{
+			name: "add_global_request_metric_projections_day_bucket",
+			sql:  `ALTER TABLE global_request_metric_projections ADD COLUMN day_bucket TEXT NOT NULL DEFAULT ''`,
+		},
+		{
+			name: "add_global_request_metric_projections_effective_model",
+			sql:  `ALTER TABLE global_request_metric_projections ADD COLUMN effective_model TEXT NOT NULL DEFAULT 'unknown'`,
+		},
+		{
+			name: "add_global_request_metric_projections_provider_group",
+			sql:  `ALTER TABLE global_request_metric_projections ADD COLUMN provider_group TEXT NOT NULL DEFAULT 'Other'`,
+		},
+		{
+			name: "add_global_request_metric_projections_cost_micros",
+			sql:  `ALTER TABLE global_request_metric_projections ADD COLUMN cost_micros BIGINT NOT NULL DEFAULT 0`,
+		},
+		{
+			name: "add_global_request_metric_projections_error_count",
+			sql:  `ALTER TABLE global_request_metric_projections ADD COLUMN error_count BIGINT NOT NULL DEFAULT 0`,
+		},
+		{
+			name: "add_global_request_metric_projections_cache_read_input_tokens",
+			sql:  `ALTER TABLE global_request_metric_projections ADD COLUMN cache_read_input_tokens BIGINT NOT NULL DEFAULT 0`,
+		},
+		{
+			name: "add_global_request_metric_projections_cache_creation_input_tokens",
+			sql:  `ALTER TABLE global_request_metric_projections ADD COLUMN cache_creation_input_tokens BIGINT NOT NULL DEFAULT 0`,
 		},
 		{
 			name: "add_global_request_metric_projections_latency_ms",
@@ -1602,6 +1754,99 @@ func runMigrations() error {
 		{
 			name: "create_global_request_minute_metrics_indexes",
 			sql:  `CREATE INDEX IF NOT EXISTS idx_global_request_minute_metrics_minute ON global_request_minute_metrics(minute_bucket DESC)`,
+		},
+		{
+			name: "create_dashboard_minute_metrics_table",
+			sql: `CREATE TABLE IF NOT EXISTS dashboard_minute_metrics (
+				scope_type TEXT NOT NULL,
+				scope_id TEXT NOT NULL,
+				minute_bucket DATETIME NOT NULL,
+				request_count_sum BIGINT NOT NULL DEFAULT 0,
+				input_tokens_sum BIGINT NOT NULL DEFAULT 0,
+				output_tokens_sum BIGINT NOT NULL DEFAULT 0,
+				total_tokens_sum BIGINT NOT NULL DEFAULT 0,
+				cost_micros_sum BIGINT NOT NULL DEFAULT 0,
+				error_count_sum BIGINT NOT NULL DEFAULT 0,
+				cache_read_input_tokens_sum BIGINT NOT NULL DEFAULT 0,
+				cache_creation_input_tokens_sum BIGINT NOT NULL DEFAULT 0,
+				latency_sum_ms BIGINT NOT NULL DEFAULT 0,
+				latency_sample_count BIGINT NOT NULL DEFAULT 0,
+				ttfb_sum_ms BIGINT NOT NULL DEFAULT 0,
+				ttfb_sample_count BIGINT NOT NULL DEFAULT 0,
+				concurrency_delta_sum BIGINT NOT NULL DEFAULT 0,
+				updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+				PRIMARY KEY (scope_type, scope_id, minute_bucket)
+			)`,
+		},
+		{
+			name: "create_dashboard_minute_metrics_indexes",
+			sql:  `CREATE INDEX IF NOT EXISTS idx_dashboard_minute_metrics_scope_minute ON dashboard_minute_metrics(scope_type, scope_id, minute_bucket DESC)`,
+		},
+		{
+			name: "create_dashboard_day_metrics_table",
+			sql: `CREATE TABLE IF NOT EXISTS dashboard_day_metrics (
+				scope_type TEXT NOT NULL,
+				scope_id TEXT NOT NULL,
+				day_bucket TEXT NOT NULL,
+				request_count_sum BIGINT NOT NULL DEFAULT 0,
+				cost_micros_sum BIGINT NOT NULL DEFAULT 0,
+				updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+				PRIMARY KEY (scope_type, scope_id, day_bucket)
+			)`,
+		},
+		{
+			name: "create_dashboard_day_metrics_indexes",
+			sql:  `CREATE INDEX IF NOT EXISTS idx_dashboard_day_metrics_scope_day ON dashboard_day_metrics(scope_type, scope_id, day_bucket DESC)`,
+		},
+		{
+			name: "create_dashboard_model_day_metrics_table",
+			sql: `CREATE TABLE IF NOT EXISTS dashboard_model_day_metrics (
+				scope_type TEXT NOT NULL,
+				scope_id TEXT NOT NULL,
+				day_bucket TEXT NOT NULL,
+				model TEXT NOT NULL,
+				request_count_sum BIGINT NOT NULL DEFAULT 0,
+				cost_micros_sum BIGINT NOT NULL DEFAULT 0,
+				updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+				PRIMARY KEY (scope_type, scope_id, day_bucket, model)
+			)`,
+		},
+		{
+			name: "create_dashboard_model_day_metrics_indexes",
+			sql:  `CREATE INDEX IF NOT EXISTS idx_dashboard_model_day_metrics_scope_day ON dashboard_model_day_metrics(scope_type, scope_id, day_bucket DESC)`,
+		},
+		{
+			name: "create_dashboard_provider_day_metrics_table",
+			sql: `CREATE TABLE IF NOT EXISTS dashboard_provider_day_metrics (
+				scope_type TEXT NOT NULL,
+				scope_id TEXT NOT NULL,
+				day_bucket TEXT NOT NULL,
+				provider TEXT NOT NULL,
+				request_count_sum BIGINT NOT NULL DEFAULT 0,
+				total_input_tokens_sum BIGINT NOT NULL DEFAULT 0,
+				cache_read_input_tokens_sum BIGINT NOT NULL DEFAULT 0,
+				cache_creation_input_tokens_sum BIGINT NOT NULL DEFAULT 0,
+				updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+				PRIMARY KEY (scope_type, scope_id, day_bucket, provider)
+			)`,
+		},
+		{
+			name: "create_dashboard_provider_day_metrics_indexes",
+			sql:  `CREATE INDEX IF NOT EXISTS idx_dashboard_provider_day_metrics_scope_day ON dashboard_provider_day_metrics(scope_type, scope_id, day_bucket DESC)`,
+		},
+		{
+			name: "create_dashboard_aggregate_state_table",
+			sql: `CREATE TABLE IF NOT EXISTS dashboard_aggregate_state (
+				state_key TEXT PRIMARY KEY,
+				schema_version TEXT NOT NULL DEFAULT '',
+				location_name TEXT NOT NULL DEFAULT '',
+				status TEXT NOT NULL DEFAULT 'empty',
+				last_request_at DATETIME,
+				last_request_id TEXT NOT NULL DEFAULT '',
+				last_backfill_at DATETIME,
+				error_message TEXT NOT NULL DEFAULT '',
+				updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+			)`,
 		},
 		{
 			name: "add_request_log_details_archive_translated_request_headers",

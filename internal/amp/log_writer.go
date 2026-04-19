@@ -395,7 +395,7 @@ func (w *LogWriter) UpdateFromTrace(trace *RequestTrace) bool {
 		}
 	}
 
-	if err := syncGlobalRequestMetricsTx(tx, snapshot, now); err != nil {
+	if err := syncGlobalRequestMetricsTx(tx, snapshot, service.CurrentStatsLocation()); err != nil {
 		log.Errorf("log writer: failed to sync minute metrics for %s: %v", snapshot.RequestID, err)
 		return false
 	}
@@ -404,6 +404,7 @@ func (w *LogWriter) UpdateFromTrace(trace *RequestTrace) bool {
 		log.Errorf("log writer: failed to commit entry %s: %v", snapshot.RequestID, err)
 		return false
 	}
+	repository.NotifyDashboardAggregateWorker()
 
 	log.Debugf("log writer: updated request %s to status %s", snapshot.RequestID, status)
 	realtime.NotifyLogCompleted(snapshot.RequestID)
@@ -486,7 +487,7 @@ func (w *LogWriter) insertComplete(trace *RequestTrace) bool {
 		log.Errorf("log writer: failed to insert complete entry: %v", err)
 		return false
 	}
-	if err := syncGlobalRequestMetricsTx(tx, snapshot, now); err != nil {
+	if err := syncGlobalRequestMetricsTx(tx, snapshot, service.CurrentStatsLocation()); err != nil {
 		log.Errorf("log writer: failed to sync minute metrics for %s: %v", snapshot.RequestID, err)
 		return false
 	}
@@ -494,6 +495,7 @@ func (w *LogWriter) insertComplete(trace *RequestTrace) bool {
 		log.Errorf("log writer: failed to commit inserted entry: %v", err)
 		return false
 	}
+	repository.NotifyDashboardAggregateWorker()
 	realtime.NotifyLogCompleted(snapshot.RequestID)
 	return true
 }

@@ -18,11 +18,7 @@ func NewRequestLogService() *RequestLogService {
 }
 
 func loadStatsLocation() *time.Location {
-	location, err := NewSystemConfigService().GetSiteLocation()
-	if err != nil || location == nil {
-		return time.UTC
-	}
-	return location
+	return loadCachedStatsLocation()
 }
 
 // ListParams 列表查询参数
@@ -148,9 +144,21 @@ func (s *RequestLogService) GetDashboardStats(userID string) (today, week, month
 	return s.repo.GetDashboardStats(userID, loadStatsLocation())
 }
 
+func (s *RequestLogService) EnsureDashboardAggregatesReady() error {
+	return s.repo.EnsureDashboardAggregatesReady(loadStatsLocation())
+}
+
 // GetCacheHitRateByProvider 按提供商获取缓存命中率
 func (s *RequestLogService) GetCacheHitRateByProvider(userID string) ([]repository.DashboardCacheHitRate, error) {
 	return s.repo.GetCacheHitRateByProvider(userID)
+}
+
+func (s *RequestLogService) GetAdminDashboardSummary() (today, week, month repository.DashboardPeriodStats, topModels []repository.DashboardTopModel, dailyTrend []repository.DashboardDailyTrend, err error) {
+	return s.repo.GetAdminDashboardSummary(loadStatsLocation())
+}
+
+func (s *RequestLogService) GetAdminDashboardTrends(windowKey string) (throughputTrend []repository.DashboardThroughputPoint, ttfbTrend []repository.DashboardTimingPoint, durationTrend []repository.DashboardTimingPoint, err error) {
+	return s.repo.GetAdminDashboardTrends(windowKey, loadStatsLocation())
 }
 
 // GetAdminDashboardStats 获取管理员仪表盘统计数据

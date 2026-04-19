@@ -47,6 +47,87 @@ type requestLogDetailResponse struct {
 	CostUsd                   *string           `json:"costUsd,omitempty"`
 }
 
+func formatDashboardPeriodStats(s repository.DashboardPeriodStats) gin.H {
+	return gin.H{
+		"requestCount":    s.RequestCount,
+		"inputTokensSum":  s.InputTokensSum,
+		"outputTokensSum": s.OutputTokensSum,
+		"costMicros":      s.CostMicrosSum,
+		"costUsd":         fmt.Sprintf("%.6f", float64(s.CostMicrosSum)/1e6),
+		"errorCount":      s.ErrorCount,
+	}
+}
+
+func formatDashboardTopModels(topModels []repository.DashboardTopModel) []gin.H {
+	items := make([]gin.H, 0, len(topModels))
+	for _, item := range topModels {
+		items = append(items, gin.H{
+			"model":        item.Model,
+			"requestCount": item.RequestCount,
+			"costMicros":   item.CostMicros,
+			"costUsd":      fmt.Sprintf("%.6f", float64(item.CostMicros)/1e6),
+		})
+	}
+	return items
+}
+
+func formatDashboardDailyTrend(dailyTrend []repository.DashboardDailyTrend) []gin.H {
+	items := make([]gin.H, 0, len(dailyTrend))
+	for _, point := range dailyTrend {
+		items = append(items, gin.H{
+			"date":       point.Date,
+			"costMicros": point.CostMicros,
+			"costUsd":    fmt.Sprintf("%.6f", float64(point.CostMicros)/1e6),
+			"requests":   point.Requests,
+		})
+	}
+	return items
+}
+
+func formatDashboardCacheHitRates(rates []repository.DashboardCacheHitRate) []gin.H {
+	items := make([]gin.H, 0, len(rates))
+	for _, rate := range rates {
+		items = append(items, gin.H{
+			"provider":            rate.Provider,
+			"totalInputTokens":    rate.TotalInputTokens,
+			"cacheReadTokens":     rate.CacheReadTokens,
+			"cacheCreationTokens": rate.CacheCreationTokens,
+			"requestCount":        rate.RequestCount,
+			"hitRate":             fmt.Sprintf("%.1f", rate.HitRate),
+		})
+	}
+	return items
+}
+
+func formatDashboardTimingTrend(points []repository.DashboardTimingPoint) []gin.H {
+	items := make([]gin.H, 0, len(points))
+	for _, point := range points {
+		items = append(items, gin.H{
+			"bucket":    point.Bucket,
+			"avgMs":     point.AvgMs,
+			"p50Ms":     point.P50Ms,
+			"p90Ms":     point.P90Ms,
+			"p99Ms":     point.P99Ms,
+			"sampleCnt": point.SampleCnt,
+		})
+	}
+	return items
+}
+
+func formatDashboardThroughputTrend(points []repository.DashboardThroughputPoint) []gin.H {
+	items := make([]gin.H, 0, len(points))
+	for _, point := range points {
+		items = append(items, gin.H{
+			"minute":        point.Minute,
+			"qps1m":         point.QPS1m,
+			"rpm5m":         point.RPM5m,
+			"tpm5m":         point.TPM5m,
+			"concurrency1m": point.Concurrency1m,
+		})
+	}
+	return items
+}
+
 var (
 	adminRequestLogDetailScope = requestLogDetailScope{
 		includeRequestBody:           true,
@@ -557,53 +638,10 @@ func (h *RequestLogHandler) GetDashboard(c *gin.Context) {
 		return
 	}
 
-	formatPeriod := func(s repository.DashboardPeriodStats) gin.H {
-		return gin.H{
-			"requestCount":    s.RequestCount,
-			"inputTokensSum":  s.InputTokensSum,
-			"outputTokensSum": s.OutputTokensSum,
-			"costMicros":      s.CostMicrosSum,
-			"costUsd":         fmt.Sprintf("%.6f", float64(s.CostMicrosSum)/1e6),
-			"errorCount":      s.ErrorCount,
-		}
-	}
-
-	topModelsList := make([]gin.H, 0, len(topModels))
-	for _, m := range topModels {
-		topModelsList = append(topModelsList, gin.H{
-			"model":        m.Model,
-			"requestCount": m.RequestCount,
-			"costMicros":   m.CostMicros,
-			"costUsd":      fmt.Sprintf("%.6f", float64(m.CostMicros)/1e6),
-		})
-	}
-
-	trendList := make([]gin.H, 0, len(dailyTrend))
-	for _, d := range dailyTrend {
-		trendList = append(trendList, gin.H{
-			"date":       d.Date,
-			"costMicros": d.CostMicros,
-			"costUsd":    fmt.Sprintf("%.6f", float64(d.CostMicros)/1e6),
-			"requests":   d.Requests,
-		})
-	}
-
 	cacheHitRates, err := h.logService.GetCacheHitRateByProvider(userID)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "获取缓存命中率失败"})
 		return
-	}
-
-	cacheHitRateList := make([]gin.H, 0, len(cacheHitRates))
-	for _, r := range cacheHitRates {
-		cacheHitRateList = append(cacheHitRateList, gin.H{
-			"provider":            r.Provider,
-			"totalInputTokens":    r.TotalInputTokens,
-			"cacheReadTokens":     r.CacheReadTokens,
-			"cacheCreationTokens": r.CacheCreationTokens,
-			"requestCount":        r.RequestCount,
-			"hitRate":             fmt.Sprintf("%.1f", r.HitRate),
-		})
 	}
 
 	c.JSON(http.StatusOK, gin.H{
@@ -613,12 +651,69 @@ func (h *RequestLogHandler) GetDashboard(c *gin.Context) {
 			"currentConcurrency": currentConcurrency,
 			"concurrencyLimit":   concurrencyLimit,
 		},
-		"today":         formatPeriod(today),
-		"week":          formatPeriod(week),
-		"month":         formatPeriod(month),
-		"topModels":     topModelsList,
-		"dailyTrend":    trendList,
-		"cacheHitRates": cacheHitRateList,
+		"today":         formatDashboardPeriodStats(today),
+		"week":          formatDashboardPeriodStats(week),
+		"month":         formatDashboardPeriodStats(month),
+		"topModels":     formatDashboardTopModels(topModels),
+		"dailyTrend":    formatDashboardDailyTrend(dailyTrend),
+		"cacheHitRates": formatDashboardCacheHitRates(cacheHitRates),
+	})
+}
+
+func (h *RequestLogHandler) GetAdminDashboardSummary(c *gin.Context) {
+	userService := service.NewUserService()
+	totalBalance, userCount, err := userService.GetTotalBalanceAndUserCount()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "获取余额失败"})
+		return
+	}
+	currentConcurrency := amp.GetTotalCurrentConcurrency()
+
+	today, week, month, topModels, dailyTrend, err := h.logService.GetAdminDashboardSummary()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "获取统计数据失败"})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"balance": gin.H{
+			"totalBalanceMicros": totalBalance,
+			"totalBalanceUsd":    fmt.Sprintf("%.6f", float64(totalBalance)/1e6),
+			"userCount":          userCount,
+			"currentConcurrency": currentConcurrency,
+		},
+		"today":      formatDashboardPeriodStats(today),
+		"week":       formatDashboardPeriodStats(week),
+		"month":      formatDashboardPeriodStats(month),
+		"topModels":  formatDashboardTopModels(topModels),
+		"dailyTrend": formatDashboardDailyTrend(dailyTrend),
+	})
+}
+
+func (h *RequestLogHandler) GetAdminDashboardTrends(c *gin.Context) {
+	windowKey := strings.TrimSpace(c.DefaultQuery("throughputWindow", "24h"))
+	throughputTrend, ttfbTrend, durationTrend, err := h.logService.GetAdminDashboardTrends(windowKey)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "获取统计数据失败"})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"throughputWindow": windowKey,
+		"throughputTrend":  formatDashboardThroughputTrend(throughputTrend),
+		"ttfbTrend":        formatDashboardTimingTrend(ttfbTrend),
+		"durationTrend":    formatDashboardTimingTrend(durationTrend),
+	})
+}
+
+func (h *RequestLogHandler) GetAdminDashboardCacheHit(c *gin.Context) {
+	cacheHitRates, err := h.logService.GetAdminCacheHitRateByProvider()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "获取缓存命中率失败"})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{
+		"cacheHitRates": formatDashboardCacheHitRates(cacheHitRates),
 	})
 }
 
@@ -639,79 +734,10 @@ func (h *RequestLogHandler) GetAdminDashboard(c *gin.Context) {
 		return
 	}
 
-	formatPeriod := func(s repository.DashboardPeriodStats) gin.H {
-		return gin.H{
-			"requestCount":    s.RequestCount,
-			"inputTokensSum":  s.InputTokensSum,
-			"outputTokensSum": s.OutputTokensSum,
-			"costMicros":      s.CostMicrosSum,
-			"costUsd":         fmt.Sprintf("%.6f", float64(s.CostMicrosSum)/1e6),
-			"errorCount":      s.ErrorCount,
-		}
-	}
-
-	topModelsList := make([]gin.H, 0, len(topModels))
-	for _, m := range topModels {
-		topModelsList = append(topModelsList, gin.H{
-			"model":        m.Model,
-			"requestCount": m.RequestCount,
-			"costMicros":   m.CostMicros,
-			"costUsd":      fmt.Sprintf("%.6f", float64(m.CostMicros)/1e6),
-		})
-	}
-
-	trendList := make([]gin.H, 0, len(dailyTrend))
-	for _, d := range dailyTrend {
-		trendList = append(trendList, gin.H{
-			"date":       d.Date,
-			"costMicros": d.CostMicros,
-			"costUsd":    fmt.Sprintf("%.6f", float64(d.CostMicros)/1e6),
-			"requests":   d.Requests,
-		})
-	}
-
-	throughputList := make([]gin.H, 0, len(throughputTrend))
-	for _, point := range throughputTrend {
-		throughputList = append(throughputList, gin.H{
-			"minute":        point.Minute,
-			"qps1m":         point.QPS1m,
-			"rpm5m":         point.RPM5m,
-			"tpm5m":         point.TPM5m,
-			"concurrency1m": point.Concurrency1m,
-		})
-	}
-
-	formatTimingTrend := func(points []repository.DashboardTimingPoint) []gin.H {
-		items := make([]gin.H, 0, len(points))
-		for _, point := range points {
-			items = append(items, gin.H{
-				"bucket":    point.Bucket,
-				"avgMs":     point.AvgMs,
-				"p50Ms":     point.P50Ms,
-				"p90Ms":     point.P90Ms,
-				"p99Ms":     point.P99Ms,
-				"sampleCnt": point.SampleCnt,
-			})
-		}
-		return items
-	}
-
 	cacheHitRates, err := h.logService.GetAdminCacheHitRateByProvider()
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "获取缓存命中率失败"})
 		return
-	}
-
-	cacheHitRateList := make([]gin.H, 0, len(cacheHitRates))
-	for _, r := range cacheHitRates {
-		cacheHitRateList = append(cacheHitRateList, gin.H{
-			"provider":            r.Provider,
-			"totalInputTokens":    r.TotalInputTokens,
-			"cacheReadTokens":     r.CacheReadTokens,
-			"cacheCreationTokens": r.CacheCreationTokens,
-			"requestCount":        r.RequestCount,
-			"hitRate":             fmt.Sprintf("%.1f", r.HitRate),
-		})
 	}
 
 	c.JSON(http.StatusOK, gin.H{
@@ -721,16 +747,16 @@ func (h *RequestLogHandler) GetAdminDashboard(c *gin.Context) {
 			"userCount":          userCount,
 			"currentConcurrency": currentConcurrency,
 		},
-		"today":            formatPeriod(today),
-		"week":             formatPeriod(week),
-		"month":            formatPeriod(month),
-		"topModels":        topModelsList,
-		"dailyTrend":       trendList,
+		"today":            formatDashboardPeriodStats(today),
+		"week":             formatDashboardPeriodStats(week),
+		"month":            formatDashboardPeriodStats(month),
+		"topModels":        formatDashboardTopModels(topModels),
+		"dailyTrend":       formatDashboardDailyTrend(dailyTrend),
 		"throughputWindow": windowKey,
-		"throughputTrend":  throughputList,
-		"ttfbTrend":        formatTimingTrend(ttfbTrend),
-		"durationTrend":    formatTimingTrend(durationTrend),
-		"cacheHitRates":    cacheHitRateList,
+		"throughputTrend":  formatDashboardThroughputTrend(throughputTrend),
+		"ttfbTrend":        formatDashboardTimingTrend(ttfbTrend),
+		"durationTrend":    formatDashboardTimingTrend(durationTrend),
+		"cacheHitRates":    formatDashboardCacheHitRates(cacheHitRates),
 	})
 }
 

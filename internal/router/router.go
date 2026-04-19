@@ -118,7 +118,7 @@ func Setup() *gin.Engine {
 			me.PUT("/username", userHandler.ChangeUsername)
 			me.GET("/balance", userHandler.GetMyBalance)
 			me.GET("/dashboard", middleware.UserScopedResponseCache(func(*gin.Context) time.Duration {
-				return 5 * time.Second
+				return 30 * time.Second
 			}), requestLogHandler.GetDashboard)
 			me.GET("/billing/state", middleware.UserScopedResponseCache(func(*gin.Context) time.Duration {
 				return 5 * time.Second
@@ -374,7 +374,10 @@ func Setup() *gin.Engine {
 			admin.GET("/sessions/leaderboard", sessionHandler.GetLeaderboard)
 			admin.GET("/sessions/:id", sessionHandler.GetSession)
 			admin.GET("/usage/summary", requestLogHandler.AdminGetUsageSummary)
-			admin.GET("/dashboard", middleware.AdminScopedResponseCache(3*time.Second), requestLogHandler.GetAdminDashboard)
+			admin.GET("/dashboard/summary", middleware.AdminScopedResponseCache(30*time.Second), requestLogHandler.GetAdminDashboardSummary)
+			admin.GET("/dashboard/trends", middleware.AdminScopedResponseCache(15*time.Second), requestLogHandler.GetAdminDashboardTrends)
+			admin.GET("/dashboard/cache-hit", middleware.AdminScopedResponseCache(60*time.Second), requestLogHandler.GetAdminDashboardCacheHit)
+			admin.GET("/dashboard", middleware.AdminScopedResponseCache(15*time.Second), requestLogHandler.GetAdminDashboard)
 
 			// 价格表管理
 			prices := admin.Group("/prices")

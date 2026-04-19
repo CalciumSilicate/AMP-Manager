@@ -3,6 +3,7 @@ package handler
 import (
 	"ampmanager/internal/amp"
 	"ampmanager/internal/database"
+	"ampmanager/internal/repository"
 	"ampmanager/internal/service"
 )
 
@@ -13,6 +14,7 @@ var (
 	reloadBillingRuntimeBestEffort = func(reason string) {
 		service.NewSystemConfigService().ReloadBillingRuntimeFromSystemConfigBestEffort(reason)
 	}
+	restartDashboardAggregateWorker = repository.RestartDashboardAggregateWorker
 )
 
 func reinitDatabaseBackedRuntimeServices() error {
@@ -20,5 +22,9 @@ func reinitDatabaseBackedRuntimeServices() error {
 	reinitRequestDetailStore(database.GetDB())
 	reinitPendingCleaner(database.GetDB())
 	reloadBillingRuntimeBestEffort("database-backed runtime reinitialization")
+	if err := service.NewRequestLogService().EnsureDashboardAggregatesReady(); err != nil {
+		return err
+	}
+	restartDashboardAggregateWorker()
 	return nil
 }

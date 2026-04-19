@@ -841,289 +841,75 @@ type DashboardCacheHitRate struct {
 
 // GetDashboardStats 获取仪表盘统计数据
 func (r *RequestLogRepository) GetDashboardStats(userID string, location *time.Location) (today, week, month DashboardPeriodStats, topModels []DashboardTopModel, dailyTrend []DashboardDailyTrend, err error) {
-	db := database.GetDB()
+	scopeType := "user"
+	scopeID := userID
 	location = normalizeDashboardLocation(location)
-	_, todayStartUTC, weekStartUTC, monthStartUTC, trendStartLocal, trendStartUTC := dashboardWindowStarts(time.Now().UTC(), location)
-
-	queryPeriod := func(from time.Time) (DashboardPeriodStats, error) {
-		var s DashboardPeriodStats
-		err := db.QueryRow(`
-				SELECT COUNT(*),
-				       COALESCE(SUM(CASE
-				           WHEN COALESCE(input_tokens, 0) > COALESCE(cache_read_input_tokens, 0)
-				               THEN COALESCE(input_tokens, 0) - COALESCE(cache_read_input_tokens, 0)
-				           ELSE 0
-				       END), 0),
-				       COALESCE(SUM(output_tokens), 0),
-				       COALESCE(SUM(cost_micros), 0),
-			       COALESCE(SUM(CASE WHEN status_code >= 400 THEN 1 ELSE 0 END), 0)
-			FROM request_logs WHERE user_id = ? AND created_at >= ?
-		`, userID, from.UTC()).Scan(&s.RequestCount, &s.InputTokensSum, &s.OutputTokensSum, &s.CostMicrosSum, &s.ErrorCount)
-		return s, err
+	if err = r.EnsureDashboardAggregatesReady(location); err != nil {
+		return
 	}
+	_, todayStartUTC, weekStartUTC, monthStartUTC, trendStartLocal, _ := dashboardWindowStarts(time.Now().UTC(), location)
+	monthStartDay := dashboardDayBucket(monthStartUTC, location)
+	trendStartDay := trendStartLocal.In(location).Format("2006-01-02")
 
-	today, err = queryPeriod(todayStartUTC)
+	today, err = loadDashboardPeriodStatsFromAggregates(scopeType, scopeID, todayStartUTC)
 	if err != nil {
 		return
 	}
-	week, err = queryPeriod(weekStartUTC)
+	week, err = loadDashboardPeriodStatsFromAggregates(scopeType, scopeID, weekStartUTC)
 	if err != nil {
 		return
 	}
-	month, err = queryPeriod(monthStartUTC)
+	month, err = loadDashboardPeriodStatsFromAggregates(scopeType, scopeID, monthStartUTC)
 	if err != nil {
 		return
 	}
 
-	rows, err := db.Query(`
-		SELECT COALESCE(mapped_model, original_model, 'unknown') as model,
-		       COUNT(*) as cnt,
-		       COALESCE(SUM(cost_micros), 0) as cost
-		FROM request_logs
-		WHERE user_id = ? AND created_at >= ?
-		GROUP BY model
-		ORDER BY cnt DESC
-		LIMIT 5
-	`, userID, monthStartUTC)
+	topModels, err = loadDashboardTopModelsFromAggregates(scopeType, scopeID, monthStartDay, 5)
 	if err != nil {
-		return
-	}
-	defer rows.Close()
-	for rows.Next() {
-		var m DashboardTopModel
-		if err = rows.Scan(&m.Model, &m.RequestCount, &m.CostMicros); err != nil {
-			return
-		}
-		topModels = append(topModels, m)
-	}
-	if err = rows.Err(); err != nil {
 		return
 	}
 
-	rows2, err := db.Query(fmt.Sprintf(`
-		SELECT %s as day,
-		       COALESCE(SUM(cost_micros), 0) as cost,
-		       COUNT(*) as cnt
-		FROM request_logs
-		WHERE user_id = ? AND created_at >= ?
-		GROUP BY day
-		ORDER BY day ASC
-	`, database.DayBucketExprInLocation("created_at", location)), userID, trendStartUTC)
+	dailyTrend, err = loadDashboardDailyTrendFromAggregates(scopeType, scopeID, trendStartDay)
 	if err != nil {
 		return
 	}
-	defer rows2.Close()
-	for rows2.Next() {
-		var d DashboardDailyTrend
-		if err = rows2.Scan(&d.Date, &d.CostMicros, &d.Requests); err != nil {
-			return
-		}
-		dailyTrend = append(dailyTrend, d)
-	}
-	err = rows2.Err()
-	if err == nil {
-		dailyTrend = fillDashboardDailyTrendInLocation(trendStartLocal, 14, location, dailyTrend)
-	}
+	dailyTrend = fillDashboardDailyTrendInLocation(trendStartLocal, 14, location, dailyTrend)
 	return
 }
 
 // GetCacheHitRateByProvider 按提供商分类获取缓存命中率（30天）
 func (r *RequestLogRepository) GetCacheHitRateByProvider(userID string) ([]DashboardCacheHitRate, error) {
-	db := database.GetDB()
-	monthStart := time.Now().UTC().AddDate(0, 0, -30)
-
-	providerExpr := `CASE
-						WHEN LOWER(COALESCE(mapped_model, original_model, '')) LIKE 'claude%%' THEN 'Claude'
-						WHEN LOWER(COALESCE(mapped_model, original_model, '')) LIKE 'gpt%%'
-						  OR LOWER(COALESCE(mapped_model, original_model, '')) LIKE 'o1%%'
-						  OR LOWER(COALESCE(mapped_model, original_model, '')) LIKE 'o3%%'
-						  OR LOWER(COALESCE(mapped_model, original_model, '')) LIKE 'o4%%'
-						  OR LOWER(COALESCE(mapped_model, original_model, '')) LIKE 'chatgpt%%' THEN 'OpenAI'
-						WHEN LOWER(COALESCE(mapped_model, original_model, '')) LIKE 'gemini%%' THEN 'Gemini'
-						ELSE 'Other'
-				END`
-
-	query := `
-		SELECT provider, total_input, cache_read, cache_creation, req_count FROM (
-			SELECT
-				` + providerExpr + ` as provider,
-				COALESCE(SUM(input_tokens), 0) as total_input,
-				COALESCE(SUM(cache_read_input_tokens), 0) as cache_read,
-				COALESCE(SUM(cache_creation_input_tokens), 0) as cache_creation,
-				COUNT(*) as req_count
-			FROM request_logs
-			WHERE user_id = ? AND created_at >= ?
-			GROUP BY ` + providerExpr + `
-		) WHERE provider IN ('Claude', 'OpenAI', 'Gemini')
-		ORDER BY req_count DESC
-	`
-
-	rows, err := db.Query(query, userID, monthStart.UTC())
-	if err != nil {
+	location := normalizeDashboardLocation(time.UTC)
+	if err := r.EnsureDashboardAggregatesReady(location); err != nil {
 		return nil, err
 	}
-	defer rows.Close()
-
-	var results []DashboardCacheHitRate
-	for rows.Next() {
-		var r DashboardCacheHitRate
-		if err := rows.Scan(&r.Provider, &r.TotalInputTokens, &r.CacheReadTokens, &r.CacheCreationTokens, &r.RequestCount); err != nil {
-			return nil, err
-		}
-		if r.TotalInputTokens > 0 {
-			r.HitRate = float64(r.CacheReadTokens) / float64(r.TotalInputTokens) * 100
-		}
-		results = append(results, r)
-	}
-	return results, rows.Err()
+	dayFrom := dashboardDayBucket(time.Now().UTC().AddDate(0, 0, -30), location)
+	return loadDashboardCacheHitRatesFromAggregates("user", userID, dayFrom)
 }
 
 // GetAdminDashboardStats 获取管理员仪表盘统计数据（全局，不按用户过滤）
 func (r *RequestLogRepository) GetAdminDashboardStats(windowKey string, location *time.Location) (today, week, month DashboardPeriodStats, topModels []DashboardTopModel, dailyTrend []DashboardDailyTrend, throughputTrend []DashboardThroughputPoint, ttfbTrend []DashboardTimingPoint, durationTrend []DashboardTimingPoint, err error) {
-	db := database.GetDB()
 	location = normalizeDashboardLocation(location)
-	_, todayStartUTC, weekStartUTC, monthStartUTC, trendStartLocal, trendStartUTC := dashboardWindowStarts(time.Now().UTC(), location)
-
-	queryPeriod := func(from time.Time) (DashboardPeriodStats, error) {
-		var s DashboardPeriodStats
-		err := db.QueryRow(`
-				SELECT COUNT(*),
-				       COALESCE(SUM(CASE
-				           WHEN COALESCE(input_tokens, 0) > COALESCE(cache_read_input_tokens, 0)
-				               THEN COALESCE(input_tokens, 0) - COALESCE(cache_read_input_tokens, 0)
-				           ELSE 0
-				       END), 0),
-				       COALESCE(SUM(output_tokens), 0),
-				       COALESCE(SUM(cost_micros), 0),
-			       COALESCE(SUM(CASE WHEN status_code >= 400 THEN 1 ELSE 0 END), 0)
-			FROM request_logs WHERE created_at >= ?
-		`, from.UTC()).Scan(&s.RequestCount, &s.InputTokensSum, &s.OutputTokensSum, &s.CostMicrosSum, &s.ErrorCount)
-		return s, err
-	}
-
-	today, err = queryPeriod(todayStartUTC)
-	if err != nil {
-		return
-	}
-	week, err = queryPeriod(weekStartUTC)
-	if err != nil {
-		return
-	}
-	month, err = queryPeriod(monthStartUTC)
-	if err != nil {
+	if err = r.EnsureDashboardAggregatesReady(location); err != nil {
 		return
 	}
 
-	rows, err := db.Query(`
-		SELECT COALESCE(mapped_model, original_model, 'unknown') as model,
-		       COUNT(*) as cnt,
-		       COALESCE(SUM(cost_micros), 0) as cost
-		FROM request_logs
-		WHERE created_at >= ?
-		GROUP BY model
-		ORDER BY cnt DESC
-		LIMIT 10
-	`, monthStartUTC)
+	today, week, month, topModels, dailyTrend, err = r.GetAdminDashboardSummary(location)
 	if err != nil {
 		return
 	}
-	defer rows.Close()
-	for rows.Next() {
-		var m DashboardTopModel
-		if err = rows.Scan(&m.Model, &m.RequestCount, &m.CostMicros); err != nil {
-			return
-		}
-		topModels = append(topModels, m)
-	}
-	if err = rows.Err(); err != nil {
-		return
-	}
-
-	rows2, err := db.Query(fmt.Sprintf(`
-		SELECT %s as day,
-		       COALESCE(SUM(cost_micros), 0) as cost,
-		       COUNT(*) as cnt
-		FROM request_logs
-		WHERE created_at >= ?
-		GROUP BY day
-		ORDER BY day ASC
-	`, database.DayBucketExprInLocation("created_at", location)), trendStartUTC)
-	if err != nil {
-		return
-	}
-	defer rows2.Close()
-	for rows2.Next() {
-		var d DashboardDailyTrend
-		if err = rows2.Scan(&d.Date, &d.CostMicros, &d.Requests); err != nil {
-			return
-		}
-		dailyTrend = append(dailyTrend, d)
-	}
-	err = rows2.Err()
-	if err == nil {
-		dailyTrend = fillDashboardDailyTrendInLocation(trendStartLocal, 14, location, dailyTrend)
-	}
-	if err != nil {
-		return
-	}
-
-	throughputTrend, err = r.GetAdminThroughputTrend(windowKey)
-	if err != nil {
-		return
-	}
-	ttfbTrend, durationTrend, err = r.GetAdminTimingTrend(windowKey)
+	throughputTrend, ttfbTrend, durationTrend, err = r.GetAdminDashboardTrends(windowKey, location)
 	return
 }
 
 // GetAdminCacheHitRateByProvider 管理员全局缓存命中率（30天）
 func (r *RequestLogRepository) GetAdminCacheHitRateByProvider() ([]DashboardCacheHitRate, error) {
-	db := database.GetDB()
-	monthStart := time.Now().UTC().AddDate(0, 0, -30)
-
-	providerExpr := `CASE
-						WHEN LOWER(COALESCE(mapped_model, original_model, '')) LIKE 'claude%%' THEN 'Claude'
-						WHEN LOWER(COALESCE(mapped_model, original_model, '')) LIKE 'gpt%%'
-						  OR LOWER(COALESCE(mapped_model, original_model, '')) LIKE 'o1%%'
-						  OR LOWER(COALESCE(mapped_model, original_model, '')) LIKE 'o3%%'
-						  OR LOWER(COALESCE(mapped_model, original_model, '')) LIKE 'o4%%'
-						  OR LOWER(COALESCE(mapped_model, original_model, '')) LIKE 'chatgpt%%' THEN 'OpenAI'
-						WHEN LOWER(COALESCE(mapped_model, original_model, '')) LIKE 'gemini%%' THEN 'Gemini'
-						ELSE 'Other'
-				END`
-
-	query := `
-		SELECT provider, total_input, cache_read, cache_creation, req_count FROM (
-			SELECT
-				` + providerExpr + ` as provider,
-				COALESCE(SUM(input_tokens), 0) as total_input,
-				COALESCE(SUM(cache_read_input_tokens), 0) as cache_read,
-				COALESCE(SUM(cache_creation_input_tokens), 0) as cache_creation,
-				COUNT(*) as req_count
-			FROM request_logs
-			WHERE created_at >= ?
-			GROUP BY ` + providerExpr + `
-		) WHERE provider IN ('Claude', 'OpenAI', 'Gemini')
-		ORDER BY req_count DESC
-	`
-
-	rows, err := db.Query(query, monthStart.UTC())
-	if err != nil {
+	location := normalizeDashboardLocation(time.UTC)
+	if err := r.EnsureDashboardAggregatesReady(location); err != nil {
 		return nil, err
 	}
-	defer rows.Close()
-
-	var results []DashboardCacheHitRate
-	for rows.Next() {
-		var r DashboardCacheHitRate
-		if err := rows.Scan(&r.Provider, &r.TotalInputTokens, &r.CacheReadTokens, &r.CacheCreationTokens, &r.RequestCount); err != nil {
-			return nil, err
-		}
-		if r.TotalInputTokens > 0 {
-			r.HitRate = float64(r.CacheReadTokens) / float64(r.TotalInputTokens) * 100
-		}
-		results = append(results, r)
-	}
-	return results, rows.Err()
+	dayFrom := dashboardDayBucket(time.Now().UTC().AddDate(0, 0, -30), location)
+	return loadDashboardCacheHitRatesFromAggregates(dashboardScopeGlobal, dashboardScopeGlobal, dayFrom)
 }
 
 // GetByID 获取单条日志

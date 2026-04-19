@@ -452,6 +452,8 @@ func (s *SystemConfigService) SetSiteConfig(req model.SiteConfigRequest) (model.
 			return model.SiteConfigResponse{}, err
 		}
 	}
+
+	RefreshStatsLocationCache()
 	if contact.Title == "" {
 		if err := s.repo.Delete(siteContactTitleKey); err != nil {
 			return model.SiteConfigResponse{}, err

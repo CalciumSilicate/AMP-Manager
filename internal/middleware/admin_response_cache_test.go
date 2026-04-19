@@ -16,6 +16,7 @@ func TestAdminScopedResponseCacheBucketsByQueryAndExpires(t *testing.T) {
 
 	globalAdminResponseCache = &adminResponseCacheStore{
 		entries: make(map[string]cachedUserResponse),
+		inflight: make(map[string]chan struct{}),
 	}
 
 	const ttl = 50 * time.Millisecond

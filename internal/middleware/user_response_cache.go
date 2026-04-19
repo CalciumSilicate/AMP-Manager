@@ -21,11 +21,13 @@ type userResponseCacheStore struct {
 	mu      sync.RWMutex
 	entries map[string]cachedUserResponse
 	byUser  map[string]map[string]struct{}
+	inflight map[string]chan struct{}
 }
 
 var globalUserResponseCache = &userResponseCacheStore{
 	entries: make(map[string]cachedUserResponse),
 	byUser:  make(map[string]map[string]struct{}),
+	inflight: make(map[string]chan struct{}),
 }
 
 type cachedResponseWriter struct {
@@ -67,14 +69,23 @@ func UserScopedResponseCache(ttlResolver func(*gin.Context) time.Duration) gin.H
 		}
 
 		cacheKey := buildUserResponseCacheKey(userID, c.Request.Method, c.FullPath(), c.Request.URL.RawQuery)
-		if entry, ok := globalUserResponseCache.get(cacheKey); ok {
-			c.Header("Content-Type", entry.ContentType)
-			c.Status(entry.Status)
-			if c.Request.Method != http.MethodHead {
-				_, _ = c.Writer.Write(entry.Body)
+		for {
+			if entry, ok := globalUserResponseCache.get(cacheKey); ok {
+				c.Header("Content-Type", entry.ContentType)
+				c.Status(entry.Status)
+				if c.Request.Method != http.MethodHead {
+					_, _ = c.Writer.Write(entry.Body)
+				}
+				c.Abort()
+				return
 			}
-			c.Abort()
-			return
+			if ch, waiting := globalUserResponseCache.beginFill(cacheKey); waiting {
+				<-ch
+				continue
+			} else {
+				defer globalUserResponseCache.finishFill(cacheKey)
+				break
+			}
 		}
 
 		writer := &cachedResponseWriter{ResponseWriter: c.Writer}
@@ -156,6 +167,30 @@ func (s *userResponseCacheStore) set(userID, key string, entry cachedUserRespons
 		s.byUser[userID] = make(map[string]struct{})
 	}
 	s.byUser[userID][key] = struct{}{}
+}
+
+func (s *userResponseCacheStore) beginFill(key string) (chan struct{}, bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if existing, ok := s.inflight[key]; ok {
+		return existing, true
+	}
+	ch := make(chan struct{})
+	s.inflight[key] = ch
+	return ch, false
+}
+
+func (s *userResponseCacheStore) finishFill(key string) {
+	s.mu.Lock()
+	ch, ok := s.inflight[key]
+	if ok {
+		delete(s.inflight, key)
+	}
+	s.mu.Unlock()
+	if ok {
+		close(ch)
+	}
 }
 
 func (s *userResponseCacheStore) invalidateUser(userID string) {
